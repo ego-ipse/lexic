@@ -54,6 +54,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.products import parse_model
 from tests.gate_grammars import ARM_FINAL_LOOP
 from tests.gate_grammars import NULL_ARM as NULL_ARM_GRAMMAR
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
@@ -694,18 +695,24 @@ def test_the_reference_counter_terminates_on_a_recursive_grammar() -> None:
     assert rule_references(analysis.rules, "list") >= 1
 
 
-# ── the shapes the retired 2-char prefix gate used to answer ───────────
+# ── two-character loop decisions, and what settles them ────────────────
 #
-# A dedicated LL(2) gate compared concrete 2-character prefix STRINGS, and the
-# concern when it was removed was that a set of positionwise CharSets is
-# coarser — that `{"ab","cd"}` against `{"ad"}` would separate as strings and
-# collide as a merged `({a,c},{b,d})` box.
+# A dedicated LL(2) gate used to compare concrete 2-character prefix STRINGS.
+# The window compares positionwise `CharSet`s, and the concern was that this is
+# coarser — that `{"ab","cd"}` against `{"ad"}` separates as strings and
+# collides as a merged `({a,c},{b,d})` box.
 #
 # It does not, because `arm_prefixes` keeps one window PER DERIVATION and
 # `collide` runs per window pair: the take side is `('a','b')` and `('c','d')`,
-# never `({a,c},{b,d})`. These pin that, since the grammars below are exactly
-# the ones the retired gate used to claim and nothing else would notice if the
-# window quietly started merging them.
+# never `({a,c},{b,d})`.
+#
+# What these pin is the window gate's INTENDED COVERAGE — a two-character loop
+# decision is settled by comparing what a further iteration can begin with
+# against what the continuation can — and NOT equivalence to the retired
+# reader, which was not an exact oracle: it took the first characters of the
+# first two non-nullable atoms and ignored REPETITION, so for
+# `([ab]+ "x")? "ay"` it claimed take-prefixes `ax`/`bx` and would have refused
+# the valid take in `aaxay`. Pinning equivalence would have pinned that bug.
 
 
 @pytest.mark.parametrize(
@@ -741,3 +748,20 @@ def test_such_a_grammar_carries_no_island(source: str) -> None:
 
     assert not analysis.islands
     assert not analysis.taxonomy.attempt_loops
+
+
+def test_a_repeated_atom_under_the_optional_still_takes() -> None:
+    """`([ab]+ "x")? "ay"` on `aaxay` — the case the retired reader got wrong.
+
+    Its 2-character prefix set was built from the first two non-nullable atoms
+    and ignored the `+`, so it believed a take had to begin `ax` or `bx` and
+    would have refused `aaxay`, whose take begins `aa`. The window gate reasons
+    about what an iteration can BEGIN with rather than enumerating fixed-width
+    strings, so the take is admitted and the document parses.
+    """
+    source = 'root ::= ([ab]+ "x")? "ay"\n'
+    compiled = compile_text(source, cache_key="kw-repeat-optional")
+
+    for text in ("aaxay", "axay", "ay", "bbbxay"):
+        model = parse_model(compiled.codegen_grammar, text, compiled.product)
+        assert model.to_text() == text, text

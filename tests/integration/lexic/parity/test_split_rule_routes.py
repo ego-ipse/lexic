@@ -188,3 +188,46 @@ def test_the_engines_answer_these_spans_the_same_way(text: str) -> None:
         f"{text!r}: the predictive path answered ({verdict}) — this row now "
         f"compares two engines and its docstring is out of date"
     )
+
+
+# ── `X Y+` with a NON-nullable item — still a split ────────────────────
+
+
+X_Y_PLUS = 'root ::= "x" y+\ny ::= "a" "a"?\n'
+"""A repetition whose item cannot be empty, and which still carves.
+
+`y` derives `a` or `aa`, so `xaaa` is two items either way — `(2, 1)` or
+`(1, 2)` — and the grammar does not say which. Nullability is what the
+split-greedy licence's exchange argument needs; it is NOT what makes a
+repetition carve. A non-nullable item with a variable extent carves too, and
+the split rule is what answers.
+"""
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("xa", ("a",)),
+        ("xaa", ("aa",)),
+        ("xaaa", ("aa", "a")),  # the first slot takes as much as it can
+        ("xaaaa", ("aa", "aa")),
+    ],
+)
+def test_a_non_nullable_item_still_carves_and_the_first_slot_wins(
+    text: str, expected: tuple[str, ...]
+) -> None:
+    """Both routes give the split rule's answer, and it is first-slot-maximal.
+
+    `xaaa` is the witness: `(2, 1)` and `(1, 2)` are both legal readings, so
+    the decision is a SPLIT rather than a lookahead conflict, and both engines
+    must give the same carving — the one where the first slot takes what it can.
+    """
+    compiled = compile_text(X_Y_PLUS, cache_key="xy-plus-split")
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    gated = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    verdict = engines_agree_or_both_refuse(compiled, text)
+
+    assert verdict != "declined", "both routes should answer this shape"
+    assert tuple(one.to_text() for one in gated[0]) == expected

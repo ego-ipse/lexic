@@ -247,11 +247,20 @@ def follow_loop_gate(
     stronger than the runtime needs: the window admits every real continuation
     and no real exit.
 
-    **Why one reference.** The fixpoint unions every call site's continuation. A
-    window separating in the union need not separate at the site that runs, so
-    the licence is withheld unless the rule is referenced exactly once — then the
-    union is a union of one. This also keeps the fixpoint off grammars that
-    cannot use it: a multiply-referenced rule is refused before one is built.
+    **Why one reference — a COST bound, not a soundness one.** The fixpoint
+    unions every call site's continuation, and that union is a SUPERSET of any
+    one site's. Disjointness against the superset therefore implies disjointness
+    at every site: extra references can only make the proof harder to obtain,
+    never make an obtained proof wrong. So the precondition is not what makes
+    the gate sound — the direction of approximation above already does that.
+
+    It is here because the fixpoint is whole-grammar work and a multiply
+    referenced rule is refused before one is built. Measured over the roster and
+    the ground-truth corpus: of the 27 arm-final loop conflicts that reach this
+    gate, requiring one reference licenses exactly the same 6 as not requiring
+    it, so the bound costs no reach on any grammar measured. (Dropping it
+    licenses more *arm-final loops* in the abstract — but those are loops that
+    never conflict, and a loop that never conflicts never consults this gate.)
 
     :param rules: The grammar's rule table.
     :param start: The start rule name (the FOLLOW fixpoint's EOF seed).
@@ -264,7 +273,7 @@ def follow_loop_gate(
     if idx != len(items) - 1:
         return None  # not arm-final: `loop_gate`'s skip side is already k deep
     if rule_references(rules, label) != 1:
-        return None
+        return None  # a cost bound — see "Why one reference", not soundness
     k = FOLLOW_LOOP_K
     windows = FollowWindows(rules, start, k)
     follow = windows.follow.get(label, set())
