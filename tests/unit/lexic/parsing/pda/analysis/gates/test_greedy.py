@@ -193,14 +193,85 @@ def test_a_bounded_outer_repetition_is_refused() -> None:
     )
 
 
-def test_a_unit_that_is_not_the_first_item_of_the_start_rule_is_refused() -> None:
-    """``doc ::= open u+`` — the licence reasons about the whole input, and a
-    unit behind a required prefix is not what it reasoned about."""
+# ── (h) the wrapper around the repetition ──────────────────────────────
+
+
+def test_a_fixed_prefix_before_the_unit_is_licensed() -> None:
+    """``doc ::= open u+`` — a fixed prefix is free.
+
+    The exchange moves boundaries BETWEEN units, and no step of it re-reads
+    what stands before the first one. ``open`` is consumed once and is behind
+    the cursor by the time any loop boundary is tested, so the gate it issues
+    is the bare shape's: one terminator of tail, and the end of the input.
+    """
+    gate = _gate(
+        'doc ::= open u+\nopen ::= "<"\nu ::= i+ tl\ni ::= [ab]* t\n'
+        'tl ::= t\nt ::= ";"\n',
+        key="greedy-prefixed",
+    )
+
+    assert gate == (";", "", None)
+
+
+def test_the_repetition_factored_into_its_own_rule_is_licensed() -> None:
+    """``doc ::= open body close`` / ``body ::= u+`` — the continuation is in ``doc``.
+
+    Conditions (e) and (f) are about where the repetition OCCURS, and a rule
+    that is nothing but the repetition does not change that: what follows the
+    loop is what follows ``body``, so the gate charges ``close``'s spelling.
+    """
+    gate = _gate(
+        'doc ::= open body close\nbody ::= u+\nopen ::= "<"\nclose ::= ";"\n'
+        'u ::= i+ tl\ni ::= [ab]* t\ntl ::= t\nt ::= ";"\n',
+        key="greedy-wrapped",
+    )
+
+    assert gate == (";", ";", None)
+
+
+def test_a_variable_extent_prefix_is_refused() -> None:
+    """``open ::= [xy]+`` — the prefix's own boundary would outrank the loop's.
+
+    The first slot takes as much as it can, and here the prefix IS the first
+    slot: where it ends is a split of its own, settled before the loop's. The
+    licence has no proof about that interaction and declines rather than
+    assume the two maximisations do not interfere.
+    """
     assert (
         _gate(
-            'doc ::= open u+\nopen ::= "<"\nu ::= i+ tl\ni ::= [ab]* t\n'
+            "doc ::= open u+\nopen ::= [xy]+\nu ::= i+ tl\ni ::= [xy]* t\n"
             'tl ::= t\nt ::= ";"\n',
-            key="greedy-prefixed",
+            key="greedy-variable-prefix",
+        )
+        is None
+    )
+
+
+def test_an_optional_prefix_is_refused() -> None:
+    """``open?`` spells two different extents, so it is not a fixed prefix."""
+    assert (
+        _gate(
+            'doc ::= open? u+\nopen ::= "<"\nu ::= i+ tl\ni ::= [ab]* t\n'
+            'tl ::= t\nt ::= ";"\n',
+            key="greedy-optional-prefix",
+        )
+        is None
+    )
+
+
+def test_a_unit_reached_from_two_places_is_refused() -> None:
+    """One gate per rule, and a gate proved at one occurrence only holds there.
+
+    ``u`` is referenced both from ``doc``'s repetition and from ``head``, whose
+    continuation is a different one. The gate is stored against ``u`` and
+    applied wherever ``u`` runs, so certifying it from one occurrence would
+    impose that occurrence's boundary on the other.
+    """
+    assert (
+        _gate(
+            'doc ::= head u+\nhead ::= u "#"\nu ::= i+ tl\ni ::= [ab]* t\n'
+            'tl ::= t\nt ::= ";"\n',
+            key="greedy-shared-unit",
         )
         is None
     )

@@ -158,22 +158,48 @@ def _continuation(
     tail: str,
     begins: frozenset[str] | None,
 ) -> GreedySpec | None:
-    """Conditions (e) and (f) — what settles the boundary after the unit.
+    """Conditions (e), (f) and (h) — the unit's occurrence, and what follows it.
 
     A continuation's FIRST set is not its occurrence boundary: where the two
     sets meet, only matching the continuation in full against the end of input
     settles it, and its length is charged to the gate's width.
+
+    (h) is the WRAPPER condition. The exchange moves boundaries BETWEEN units —
+    re-reading one unit's tail as empty-bodied items of its own loop so it
+    absorbs the next — and no step of that re-reads what came before the FIRST
+    unit. A prefix is therefore free, provided its extent is fixed: a prefix
+    that could end at more than one position is itself a split, and the first
+    slot takes as much as it can, so ITS boundary would have priority over the
+    loop's. That is a different question and this licence does not answer it.
     """
-    arm = _sole_arm(rules, IrRuleRef(start))
-    if not arm:
+    if _references(rules, unit) != 1:
+        return None  # (h): one gate, one continuation — see `_references`
+    found = _occurrence(rules, start, unit)
+    if found is None:
         return None
-    outer, after = arm[0], list(arm[1:])
+    before, outer, after = found
     if (
-        str(outer.atom) != unit
-        or int(outer.quantifier.lo) > 1  # (f): one unit must be permitted
+        int(outer.quantifier.lo) > 1  # (f): one unit must be permitted
         or outer.quantifier.hi is not IrNone  # (f): a bounded outer cannot absorb
+        or _spelling_of(rules, before) is None  # (h): the prefix must be fixed
     ):
         return None
+    return _settled(rules, after, tail, begins)
+
+
+def _settled(
+    rules: Mapping[str, IrRule],
+    after: Sequence[IrItem],
+    tail: str,
+    begins: frozenset[str] | None,
+) -> GreedySpec | None:
+    """Condition (e) — what settles the boundary once the unit's tail is read.
+
+    Three ways, in order of what they cost the runtime: nothing follows and the
+    boundary is the certified end of the input; the continuation cannot begin
+    where an item can, so its first character decides; or it is matched in full
+    by spelling, and that spelling is charged to the gate's width.
+    """
     if not after:
         return (tail, "", None)
     starts = _starts_of(rules, after)
@@ -183,6 +209,51 @@ def _continuation(
         return (tail, "", frozenset(starts))
     close = _spelling_of(rules, after)
     return None if close is None else (tail, close, None)
+
+
+def _occurrence(
+    rules: Mapping[str, IrRule], start: str, unit: str
+) -> tuple[list[IrItem], IrItem, list[IrItem]] | None:
+    """Where the unit repetition occurs, as ``(before, the item, after)``.
+
+    Either directly in the start rule's arm, or inside a single-arm rule the
+    start rule references — ``doc ::= a body c`` with ``body ::= u+`` puts the
+    loop's continuation in ``doc``'s arm, not in ``body``'s, so the search
+    reports the position it was reached through.
+    """
+    arm = _sole_arm(rules, IrRuleRef(start))
+    if not arm:
+        return None
+    for index, item in enumerate(arm):
+        if str(item.atom) == unit:
+            return list(arm[:index]), item, list(arm[index + 1 :])
+    for index, item in enumerate(arm):
+        if not _exactly_once(item) or _references(rules, str(item.atom)) != 1:
+            continue
+        inner = _sole_arm(rules, item.atom)
+        if inner is not None and len(inner) == 1 and str(inner[0].atom) == unit:
+            return list(arm[:index]), inner[0], list(arm[index + 1 :])
+    return None
+
+
+def _references(rules: Mapping[str, IrRule], name: str) -> int:
+    """How many times ``name`` is referenced anywhere in the grammar.
+
+    The gate is stored per RULE and applied at every use of it, while its
+    continuation is read off ONE occurrence. A unit reached from two places
+    would be given a boundary proved for only one of them, so the licence
+    requires the occurrence it examined to be the only one.
+    """
+    return sum(_refs_in(body, name) for body in rules.values())
+
+
+def _refs_in(node: object, name: str) -> int:
+    """References to ``name`` in one node's tree — the arms are plain tuples."""
+    if isinstance(node, IrRuleRef):
+        return int(str(node) == name)
+    if isinstance(node, str) or not isinstance(node, tuple):
+        return 0
+    return sum(_refs_in(child, name) for child in node)
 
 
 def _sole_arm(rules: Mapping[str, IrRule], atom: object) -> list[IrItem] | None:

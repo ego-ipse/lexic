@@ -43,7 +43,7 @@ TWO_TAIL = (
 ASTRA = 'doc ::= u+ c\nu ::= i+ tl\ni ::= [a]* t\ntl ::= t\nt ::= ";"\nc ::= "a"\n'
 """The continuation begins with a BODY character: matched in full, not peeked."""
 
-ISLANDED = (
+WRAPPED = (
     "doc ::= open body close\n"
     'open ::= "<"\n'
     'close ::= ">"\n'
@@ -53,7 +53,19 @@ ISLANDED = (
     "blank ::= nl\n"
     'nl ::= "\\n"\n'
 )
-"""The same class behind a required prefix — an island, and not certified."""
+"""The same class wrapped: a fixed prefix, a closer, and the loop in its own rule."""
+
+VARIABLE_PREFIX = (
+    "doc ::= open body close\n"
+    "open ::= [<]+\n"
+    'close ::= ">"\n'
+    "body ::= para+\n"
+    "para ::= line+ blank\n"
+    "line ::= [a-z]* nl\n"
+    "blank ::= nl\n"
+    'nl ::= "\\n"\n'
+)
+"""A prefix whose extent is a split of its own — outside condition (h)."""
 
 
 def _built(source: str, key: str):
@@ -138,19 +150,34 @@ def test_the_document_that_is_only_a_tail_is_refused_by_both() -> None:
     assert predictive in {"refused", "declined"}
 
 
+@pytest.mark.parametrize(
+    "text", ["<a\n\n>", "<\n\n>", "<a\nb\n\nc\n\n>", "<a\n\n\n\n>", "<\n\n\n>"]
+)
+def test_the_wrapped_shape_answers_the_same_way(text: str) -> None:
+    """Condition (h): a fixed prefix, a closer, and the loop in a rule of its own.
+
+    The wrapper is consumed once, outside every boundary the exchange moves, so
+    the licence extends to it — and the continuation the gate charges is what
+    follows ``body`` in ``doc``'s arm, not what follows the loop in ``body``'s.
+    """
+    predictive, gated = _answers(WRAPPED, "licence-wrapped", text)
+
+    assert predictive == gated
+    assert predictive != "declined", "the wrapper condition should have taken this"
+
+
 # ── the withhold ───────────────────────────────────────────────────────
 
 
-def test_an_island_bearing_grammar_of_the_class_is_issued_no_licence() -> None:
-    """Certified against the whole input, so not issued where that is not it.
+def test_a_variable_extent_prefix_is_issued_no_licence() -> None:
+    """Condition (h): the prefix must have a fixed extent.
 
-    ``body ::= para+`` is the class, and it sits behind a required ``open`` —
-    the licence reasons about where the INPUT ends, and a unit behind a prefix
-    is not what it reasoned about. A delegate compiles under its own analysis
-    and runs over a doubling WINDOW whose end is an artefact of the window, so
-    the licence is withheld there explicitly as well.
+    ``open ::= [<]+`` can end at more than one position, so where it ends is a
+    split of its own — and the first slot takes as much as it can, which makes
+    the prefix's maximisation outrank the loop's. The licence proves nothing
+    about that interaction, so it withholds rather than assume.
     """
-    compiled, _product = _built(ISLANDED, "licence-islanded")
+    compiled, _product = _built(VARIABLE_PREFIX, "licence-variable-prefix")
     analysis = GrammarAnalysis(compiled.codegen_grammar)
     analysis.eval(analysis, compiled.codegen_grammar, ())
 
@@ -160,11 +187,11 @@ def test_an_island_bearing_grammar_of_the_class_is_issued_no_licence() -> None:
 @pytest.mark.parametrize(
     "text", ["<a\n\n>", "<\n\n>", "<a\nb\n\nc\n\n>", "<a\n\n\n\n>"]
 )
-def test_the_islanded_grammar_still_answers_through_the_composed_entry(
+def test_the_variable_prefix_grammar_still_answers_through_the_composed_entry(
     text: str,
 ) -> None:
     """Withholding a licence may not cost an answer — only the fast path."""
-    compiled, product = _built(ISLANDED, "licence-islanded")
+    compiled, product = _built(VARIABLE_PREFIX, "licence-variable-prefix")
     composed = parse_model(compiled.codegen_grammar, text, compiled.product)
     gated = earley_model(
         product.instance_grammar, text, compiled.product, product.tables
