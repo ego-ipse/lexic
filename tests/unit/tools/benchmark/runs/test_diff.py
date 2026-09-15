@@ -1,4 +1,4 @@
-"""Tests for tools.benchmark.diff_runs — pairing two performance runs.
+"""Tests for tools.benchmark.runs.diff — pairing two performance runs.
 
 What is under test is the conclusion the tool draws, on synthetic artefacts and
 with no network: which rows it calls moved, which it calls the same, what it
@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from tools.benchmark.compare import Verdict
-from tools.benchmark.diff_runs import Job, Run, compare_runs, render
+from tools.benchmark.runs.diff import Job, Run, compare_runs, render
 
 
 def _verdict(row: str, ratio: float, half: float = 0.01, envelope: float = 1.02):

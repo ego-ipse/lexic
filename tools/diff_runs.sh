@@ -11,4 +11,4 @@
 #   tools/diff_runs.sh <before> <after> --seat lexic-earley
 set -e
 cd "$(cd "$(dirname "$0")/.." && pwd)"
-exec uv run python -m tools.benchmark.diff_runs "$@"
+exec uv run python -m tools.benchmark.runs.diff "$@"
