@@ -8,6 +8,11 @@ clone/arm/item/group specs plus the loop gates (:class:`StopGate`,
 :class:`~lexic.parsing.pda.core.scanner.ScanGate` completes the union), and the
 clone key / island reference targets.
 
+Also the small arm helpers the compiler and its lowering both read — what an
+arm's items ARE, an item's upper bound, whether two arms' FIRST sets collide.
+They live here rather than in ``clones`` because a helper both halves use is
+vocabulary, and a second reader had to duplicate one to avoid a private import.
+
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
@@ -17,8 +22,10 @@ imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import NamedTuple, Sequence
 
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrItem, IrNoneType, IrSelf
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 from lexic.parsing.product import RegularProof, RuleRoutine
@@ -309,3 +316,49 @@ class CloneSpec(NamedTuple):
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None
     consult: RegularProof | None = None
+
+
+# ── arm helpers ────────────────────────────────────────────────────────────
+
+
+def arm_items(seq: Sequence[IrSelf]) -> list[IrItem]:
+    """The :class:`IrItem` members of a sequence arm, in order."""
+    return [i for i in seq if isinstance(i, IrItem)]
+
+
+def upper_bound(item: IrItem) -> int | None:
+    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
+    hi = item.quantifier.hi
+    return None if isinstance(hi, IrNoneType) else int(hi)
+
+
+def firsts_overlap(arms: Sequence[ArmSpec]) -> bool:
+    """Whether any two gated arms' FIRST sets overlap (the drift tripwire)."""
+    return any(
+        arms[i].first.overlaps(arms[j].first)
+        for i in range(len(arms))
+        for j in range(i + 1, len(arms))
+    )
+
+
+def resolve_struct_arm(
+    struct_arm: ArmGate | None, default_idx: int | None
+) -> ScanGate | None:
+    """The empty-arm gate's :class:`ScanGate`, validated against the default arm.
+
+    :param struct_arm: The stored :class:`~lexic.parsing.pda.core.scanner.ArmGate`, or
+        ``None``.
+    :param default_idx: The body index of the nullable default arm the compiler
+        picked, or ``None`` when no arm is all-nullable.
+    :returns: The gate's :class:`ScanGate` (its escape aligned to ``default_idx``),
+        or ``None`` when no gate is stored.
+    :raises UnsupportedConstructError: When the gate's escape index does not
+        match ``default_idx`` (analysis/compiler drift).
+    """
+    if struct_arm is None:
+        return None
+    if default_idx != struct_arm.escape:
+        raise UnsupportedConstructError(
+            "pda: structured arm gate escape does not match the nullable default arm"
+        )
+    return struct_arm.gate
