@@ -53,7 +53,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrRule,
     IrRuleRef,
@@ -63,7 +62,7 @@ from lexic.ir import (
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
-from lexic.parsing.pda.analysis.predicates import rule_alphabets
+from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -88,10 +87,14 @@ from lexic.parsing.pda.compiler.specs import (
     LoopGate,
     PeekGate,
     StopGate,
+    arm_items,
+    firsts_overlap,
+    resolve_struct_arm,
+    upper_bound,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.pda.core.scanner import ScanGate
 from lexic.parsing.product import RuleRoutine
 
 __all__ = [
@@ -142,52 +145,6 @@ ATTEMPT_WINDOW_K = 5
 failed trial runs die within 1 char in ~38% of cases, 4 in ~83%, and ~13%
 run 7+ chars deep where no bounded window reaches — 5 is where the
 exclusion curve flattens against the derivation's fan-out cost."""
-
-
-# ── helpers ────────────────────────────────────────────────────────────────
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-def _firsts_overlap(arms: Sequence[ArmSpec]) -> bool:
-    """Whether any two gated arms' FIRST sets overlap (the drift tripwire)."""
-    return any(
-        arms[i].first.overlaps(arms[j].first)
-        for i in range(len(arms))
-        for j in range(i + 1, len(arms))
-    )
-
-
-def _resolve_struct_arm(
-    struct_arm: ArmGate | None, default_idx: int | None
-) -> ScanGate | None:
-    """The empty-arm gate's :class:`ScanGate`, validated against the default arm.
-
-    :param struct_arm: The stored :class:`~lexic.parsing.pda.core.scanner.ArmGate`, or
-        ``None``.
-    :param default_idx: The body index of the nullable default arm the compiler
-        picked, or ``None`` when no arm is all-nullable.
-    :returns: The gate's :class:`ScanGate` (its escape aligned to ``default_idx``),
-        or ``None`` when no gate is stored.
-    :raises UnsupportedConstructError: When the gate's escape index does not
-        match ``default_idx`` (analysis/compiler drift).
-    """
-    if struct_arm is None:
-        return None
-    if default_idx != struct_arm.escape:
-        raise UnsupportedConstructError(
-            "pda: structured arm gate escape does not match the nullable default arm"
-        )
-    return struct_arm.gate
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -267,10 +224,10 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
-        cont = compiler.occurrence_follow(name)
+        cont = compiler.continuations.follow(name)
         return ItemSpec(
             REF,
-            IslandRef(name, fail, cont, compiler.bounded_by_continuation(name, cont)),
+            IslandRef(name, fail, cont, compiler.continuations.bounds(name, cont)),
             ctx.lo,
             ctx.hi,
             ctx.gate,
@@ -356,8 +313,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "routines",
         "clones",
         "pending",
-        "_occurrences",
-        "_alphabets",
+        "continuations",
         "draining",
     )
 
@@ -366,8 +322,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
-    _occurrences: dict[str, CharSet]
-    _alphabets: dict[str, CharSet] | None
+    continuations: IslandContinuations
 
     def __init__(
         self,
@@ -380,8 +335,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones = {}
         self.pending = []
         self.draining = False
-        self._occurrences = {}
-        self._alphabets = None
+        self.continuations = IslandContinuations(analysis, self.islands)
 
     def _attempt_window(
         self, items: Sequence[IrItem]
@@ -420,89 +374,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     def fail_islands(self) -> frozenset[str]:
         """The fail-island subset — references raise ``PdaFail``."""
         return self.analysis.fail_islands
-
-    def occurrence_follow(self, name: str) -> CharSet:
-        """What may follow island ``name`` where it is REFERENCED, unioned.
-
-        The seam's two-ends evidence. It is deliberately not the island rule's
-        own FOLLOW, and deliberately not one site's continuation either.
-
-        *Not the rule's FOLLOW*, because the fixpoint walks the island's own
-        arms too: ``expr ::= expr op term`` puts ``op``'s FIRST into
-        FOLLOW(``expr``) purely because the rule places ``expr`` before ``op``.
-        A shorter end followed by ``+`` is then the island CONTINUING ITSELF,
-        which longest-match absorbs under the same arm — not the caller
-        accepting it. Reading the rule's FOLLOW made every left-recursive
-        island with an infix operator refuse by construction, on its first
-        completion, every time.
-
-        *Not one site's continuation*, because the caller may reach the island
-        through more than one arm and the PDA commits to an arm BEFORE
-        entering. With ``root ::= expr "+" term nl | expr nl`` the two sites
-        see ``{'+'}`` and ``{'\n'}``; ``a+b\n`` derives both ways and means
-        two different things. Asking only the entered site's set answers it
-        silently. The union asks whether the shorter end could compose with
-        ANY way back into the caller, which is the question.
-
-        The island's own arms contribute nothing because an island rule is
-        never cloned — its internal recursion is resolved inside the Earley
-        sub-parse and never reaches a reference site here.
-
-        :param name: The island rule name.
-        :returns: The union over external reference sites; empty when the
-            island is referenced from nowhere (the start rule itself), which
-            carries no evidence and accepts plain longest-match.
-        """
-        cached = self._occurrences.get(name)
-        if cached is not None:
-            return cached
-        analysis = self.analysis
-        found = CharSet.EMPTY
-        for rule, body in analysis.rules.items():
-            if rule in self.islands:
-                continue  # an island's own arms are never entry sites
-            for arm in body.body:
-                items = _items(arm)
-                for k, item in enumerate(items):
-                    atom = item.atom
-                    if isinstance(atom, IrRuleRef) and str(atom) == name:
-                        found = found.union(
-                            analysis.cont_at(items, k, analysis.follow[rule])
-                        )
-        self._occurrences[name] = found
-        return found
-
-    def bounded_by_continuation(self, name: str, cont: CharSet) -> bool:
-        """Can island ``name``'s extent be read off one linear scan for ``cont``?
-
-        When the island can derive no character of its own continuation, no
-        completion of it reaches past the first continuation character after
-        the cursor: the island would have to consume that character to get
-        there, and it cannot. So the extent is bounded by that position, the
-        window is exactly that wide, and ONE sub-parse at that width settles
-        the island — no 256-character floor, no doubling, no re-parse of the
-        same characters at five widths.
-
-        This does not weaken the two-ends refusal. A completion end BEFORE the
-        bound is exactly the case that refusal already handles, and it is
-        handled inside this window as it was inside a climbing one; the bound
-        only removes ends that could not exist.
-
-        An island whose alphabet MEETS its continuation keeps the climb — a
-        string literal that can hold its own terminator is the shape, and
-        there the first continuation character says nothing about the extent.
-
-        :param name: The island rule name.
-        :param cont: The occurrence continuation from
-            :meth:`occurrence_follow`.
-        :returns: ``True`` when the scan is a sound bound.
-        """
-        if cont.is_empty() or cont.negated:
-            return False  # nothing to scan for, or a set no scan enumerates
-        if self._alphabets is None:
-            self._alphabets = rule_alphabets(self.analysis.rules)
-        held = self._alphabets.get(name)
-        return held is not None and not held.overlaps(cont)
 
     def compile_start(self) -> CloneKey | IslandRef:
         """Compile the start clone (EOF-only tail), or return the
@@ -635,7 +506,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         for idx, arm in (
             enumerate(node) if order is None else ((i, node[i]) for i in order)
         ):
-            items = _items(arm)
+            items = arm_items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
             if all(self.analysis.item_nullable(i) for i in items):
@@ -651,16 +522,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         self._attempt_window(items) if order is not None else None,
                     )
                 )
-        if (
-            order is None
-            and windows is None
-            and peeks is None
-            and _firsts_overlap(arms)
-        ):
+        if order is None and windows is None and peeks is None and firsts_overlap(arms):
             raise UnsupportedConstructError(
                 "pda: arm FIRST overlap without a gate spec"
             )
-        return tuple(arms), default, _resolve_struct_arm(gates.struct_arm, default_idx)
+        return tuple(arms), default, resolve_struct_arm(gates.struct_arm, default_idx)
 
     def _compile_seq(
         self, items: Sequence[IrItem], tail: CharSet
@@ -686,7 +552,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         item = items[idx]
         atom = item.atom
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = upper_bound(item)
         gate = self._loop_gate(items, idx, cont)
         ctx = _ItemCtx(lo, hi, cont, gate)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
@@ -708,7 +574,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         analysis = self.analysis
         item = items[idx]
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = upper_bound(item)
         first = analysis.atom_first(item.atom)
         if hi is None or hi > lo:
             # A stored gate is the analysis's DECISION for this item node —

@@ -508,7 +508,7 @@ def test_an_island_refs_continuation_excludes_the_islands_own_recursion():
     """
     specs = specs_from_text('root ::= item "e"\nitem ::= item "d" | "a"\n')
     assert "item" in specs.islands
-    cont = specs.occurrence_follow("item")
+    cont = specs.continuations.follow("item")
     assert cont.has("e"), "the caller's continuation is the evidence"
     assert not cont.has("d"), "the island's own recursion is not the caller"
     assert not cont.has("z")
@@ -526,5 +526,5 @@ def test_an_island_refs_continuation_unions_every_reference_site():
         'root ::= expr "+" term nl | expr nl\n'
         'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n'
     )
-    cont = specs.occurrence_follow("expr")
+    cont = specs.continuations.follow("expr")
     assert cont.has("+") and cont.has("\n")

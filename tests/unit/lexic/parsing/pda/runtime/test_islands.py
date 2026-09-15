@@ -620,12 +620,12 @@ def test_an_island_whose_alphabet_meets_its_continuation_keeps_the_climb():
     )
     lifted = lift_optional_nullables(compiled.codegen_grammar)
     specs, _ = compile_clones(lifted, compiled.product)
-    cont = specs.occurrence_follow("expr")
+    cont = specs.continuations.follow("expr")
 
     assert cont.has("+"), "the caller can put + after the island"
     held = rule_alphabets(specs.analysis.rules)["expr"]
     assert held.has("+"), "and the island holds + too"
-    assert not specs.bounded_by_continuation("expr", cont)
+    assert not specs.continuations.bounds("expr", cont)
 
 
 def test_the_exact_window_does_not_weaken_the_two_ends_refusal():
