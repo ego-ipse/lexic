@@ -147,6 +147,37 @@ class IslandPolicy[M](NamedTuple):
         return IslandPolicy(delegates, self.resolve, self.executor, follow)
 
 
+def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet) -> int:
+    """A shorter completion end this window cannot settle against, or ``-1``.
+
+    Asked after every window rather than only after the climb, and that is
+    sound because **completion ends only accumulate as the window grows**: a
+    derivation over a prefix survives every longer window, so an alternative
+    found at 256 characters is an alternative at every width, and the longest
+    end is non-decreasing. A refusal raised at the first window is therefore a
+    refusal the last window would also have raised. Early checking can MISS a
+    later-appearing alternative — the next window asks again — but it cannot
+    invent one.
+
+    What it saves is the whole climb on an island that cannot settle: a
+    left-recursive island over a 3,392-character corpus re-parsed 7,232
+    characters of chart across five widths to reach the same refusal its first
+    256 already held.
+
+    :param kern: The window's finished kernel.
+    :param end: The longest completion's end over this window.
+    :param text: The full input.
+    :param pos: Where the island opened.
+    :param follow: The island rule's continuation charset.
+    :returns: The shorter end, or ``-1`` when every one of them is refused by
+        the continuation and longest-match is still a defined answer.
+    """
+    for alt in start_completion_ends(kern):
+        if alt < end and follow.has(text[pos + alt]):
+            return alt
+    return -1
+
+
 def island_parse(
     tables: ParserTables,
     text: str,
@@ -182,21 +213,22 @@ def island_parse(
     """
     remaining = len(text) - pos
     window = ISLAND_WINDOW
-    kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
-    while window < remaining and _may_extend(kern):
-        window *= 2
+    while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
+        if best is not None and policy.follow is not None:
+            alt = _unsettled_end(kern, best[1], text, pos, policy.follow)
+            if alt >= 0:
+                raise PdaFail(
+                    f"island {name!r} at {pos}: arm choice spans two ends "
+                    f"({alt}, {best[1]}) and the shorter could compose",
+                    pos,
+                )
+        if window >= remaining or not _may_extend(kern):
+            break
+        window *= 2
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}", pos)
     item, end = best
-    if policy.follow is not None:
-        for alt in start_completion_ends(kern):
-            if alt < end and policy.follow.has(text[pos + alt]):
-                raise PdaFail(
-                    f"island {name!r} at {pos}: arm choice spans two ends "
-                    f"({alt}, {end}) and the shorter could compose",
-                    pos,
-                )
     handle = (item << kern.tables.packing.bits) | end
     tree = FastTree(kern).build(handle)
     if not isinstance(tree, ParseTree):
