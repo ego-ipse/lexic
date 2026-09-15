@@ -33,9 +33,10 @@ an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 
 The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
 :func:`flatten_program` lowers them once into the flat int-coded
-:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks. The
-two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
-``.program`` for the hot loop).
+:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
+Once lowered they are *done*: :class:`PdaTables` carries the program alone, and
+the specs go away with the compiler that made them. :func:`compile_clones` is
+where anything that wants to read them asks.
 """
 
 from __future__ import annotations
@@ -664,6 +665,28 @@ def _attach_delegates(
     )
 
 
+def compile_clones(
+    lifted: IrAst, binding: ModelExecutable
+) -> tuple[PdaCompiler, CloneKey | IslandRef]:
+    """Run the clone compiler and hand back what it built, unlowered.
+
+    The authored :class:`CloneSpec` layer is a compile-time intermediate:
+    :func:`compile_pda` lowers it and lets it go, so an artifact does not carry
+    it and nothing can reach it from one. This is the seam for a caller that
+    genuinely wants the specs — the clone compiler's own tests, an
+    introspection tool — and it gives them a compiler of their own, whose
+    lifetime is theirs to end.
+
+    :param lifted: The lifted codegen grammar the clones are cut against.
+    :param binding: The bound model product, for the verified routines.
+    :returns: The compiler, drained, and where it started.
+    :raises UnsupportedConstructError: On anything the analysis or the clone
+        compiler cannot handle.
+    """
+    compiler = PdaCompiler(GrammarAnalysis(lifted), binding.routines)
+    return compiler, compiler.compile_start()
+
+
 def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
@@ -682,9 +705,7 @@ def compile_pda(
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
-    analysis = GrammarAnalysis(lifted)
-    compiler = PdaCompiler(analysis, binding.routines)
-    start_key = compiler.compile_start()
+    compiler, start_key = compile_clones(lifted, binding)
     tables = PdaTables(compiler, start_key, instance_grammar)
     _attach_delegates(tables, lifted, binding)
-    return tables
+    return tables  # `compiler` dies here, and the authored specs with it
