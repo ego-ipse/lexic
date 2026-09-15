@@ -156,6 +156,100 @@ def _first_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     return out
 
 
+def _alpha_literal(_d: object, n: IrSelf, _nc: object) -> CharSet:
+    """Every character a literal holds — all of them, not just the leading one.
+
+    This is where ALPHABET parts company with FIRST, and the whole reason it
+    is a separate derivation: ``"ab"`` BEGINS with ``a`` and CONTAINS ``b``.
+    """
+    return CharSet.from_chars(*set(str(n))) if str(n) else CharSet.EMPTY
+
+
+def _alpha_charclass(_d: object, n: IrSelf, _nc: object) -> CharSet:
+    """A char class holds exactly what it matches — its FIRST and its alphabet
+    coincide, since it is one character wide."""
+    assert isinstance(n, IrCharClass)
+    return CharSet.from_charclass(n)
+
+
+def _alpha_any(_d: object, _n: IrSelf, _nc: object) -> CharSet:
+    """An atom whose characters are not enumerable: conservatively everything.
+
+    ``ANY`` is the SAFE answer here in a way it is not for FIRST. A caller asks
+    the alphabet to prove DISJOINTNESS from some other set, so an answer that
+    is too large can only withdraw the proof; one that is too small would grant
+    it wrongly. A negated class and a token atom both land here.
+    """
+    return CharSet.ANY
+
+
+def _alpha_ruleref(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
+    """A rule ref holds what its target holds; an undefined ref holds anything.
+
+    The working map rides the ``nc`` channel, and reading the target's CURRENT
+    value is what makes recursion terminate: :func:`rule_alphabets` iterates to
+    stability, so a left-recursive rule reaches its own alphabet by growing
+    into it rather than by descending into itself.
+    """
+    got = cast("dict[str, CharSet]", nc[0]).get(str(n))
+    return CharSet.ANY if got is None else got
+
+
+def _alpha_alternation(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
+    """A group holds the union of everything its arms hold."""
+    assert isinstance(n, IrAlternation)
+    out = CharSet.EMPTY
+    for arm in n:
+        for item in _items(arm):
+            out = out.union(_atom_alphabet(item.atom, nc))
+    return out
+
+
+def _atom_alphabet(atom: IrSelf, nc: Sequence[object]) -> CharSet:
+    """Dispatch one atom against :data:`ALPHABET`, carrying the working map."""
+    return cast(CharSet, ALPHABET.resolve(atom).eval(None, atom, nc))
+
+
+def rule_alphabets(rules: Mapping[str, IrRule]) -> dict[str, CharSet]:
+    """Every character each rule can derive — the per-rule ALPHABET fixpoint.
+
+    Distinct from FIRST in the two ways that make it its own derivation. It
+    takes EVERY character of a literal rather than the leading one, and it
+    iterates to a fixpoint over rule references, so a LEFT-RECURSIVE rule is
+    answered rather than refused — a depth-capped descent returns "unknowable"
+    for exactly the recursive rules a caller most wants the answer about.
+
+    A free function rather than a :class:`GrammarAnalysis` attribute because
+    that class sits at its instance cap, and a derivation with one consumer
+    has no claim to the last slot over the ones already there. The working map
+    rides the dispatcher's ``nc`` channel, which is what lets the fixpoint read
+    its own partial answers.
+
+    The one use is disjointness — whether a rule can derive any character of
+    some other set — so every unknowable atom answers
+    :attr:`~lexic.parsing.pda.core.charsets.CharSet.ANY`, which withdraws the
+    proof rather than granting it.
+
+    :param rules: The grammar's rules by name.
+    :returns: Rule name → every character it can derive.
+    :raises UnsupportedConstructError: On an unregistered atom type.
+    """
+    found = {name: CharSet.EMPTY for name in rules}
+    nc = (found,)
+    changed = True
+    while changed:
+        changed = False
+        for name, rule in rules.items():
+            acc = CharSet.EMPTY
+            for arm in rule.body:
+                for item in _items(arm):
+                    acc = acc.union(_atom_alphabet(item.atom, nc))
+            if acc != found[name]:
+                found[name] = acc
+                changed = True
+    return found
+
+
 def _hard_terminal(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     """hard-FIRST of a terminal atom equals its FIRST (it is not nullable)."""
     return d.atom_first(cast(IrAtom, n))
@@ -285,6 +379,14 @@ FIRST: IrTypeMap = IrTypeMap(
     IrAction(IrAlphabet, IrLambda(_first_token)),
     IrAction(IrRuleRef, IrLambda(_first_ruleref)),
     IrAction(IrAlternation, IrLambda(_first_alternation)),
+)
+ALPHABET: IrTypeMap = IrTypeMap(
+    IrAction(IrLiteral, IrLambda(_alpha_literal)),
+    IrAction(IrCharClass, IrLambda(_alpha_charclass)),
+    IrAction(IrNot, IrLambda(_alpha_any)),
+    IrAction(IrAlphabet, IrLambda(_alpha_any)),
+    IrAction(IrRuleRef, IrLambda(_alpha_ruleref)),
+    IrAction(IrAlternation, IrLambda(_alpha_alternation)),
 )
 HARD: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_hard_terminal)),

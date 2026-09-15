@@ -63,6 +63,7 @@ from lexic.ir import (
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
+from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -267,7 +268,13 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     if name in compiler.islands:
         fail = name in compiler.fail_islands
         cont = compiler.occurrence_follow(name)
-        return ItemSpec(REF, IslandRef(name, fail, cont), ctx.lo, ctx.hi, ctx.gate)
+        return ItemSpec(
+            REF,
+            IslandRef(name, fail, cont, compiler.bounded_by_continuation(name, cont)),
+            ctx.lo,
+            ctx.hi,
+            ctx.gate,
+        )
     if name in compiler.analysis.taxonomy.attempts:
         # ONE canonical clone per attemptable rule (the analysis-level hard
         # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
@@ -350,6 +357,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "clones",
         "pending",
         "_occurrences",
+        "_alphabets",
         "draining",
     )
 
@@ -359,6 +367,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     pending: list[CloneKey]
     draining: bool
     _occurrences: dict[str, CharSet]
+    _alphabets: dict[str, CharSet] | None
 
     def __init__(
         self,
@@ -372,6 +381,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.pending = []
         self.draining = False
         self._occurrences = {}
+        self._alphabets = None
 
     def _attempt_window(
         self, items: Sequence[IrItem]
@@ -461,6 +471,38 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         )
         self._occurrences[name] = found
         return found
+
+    def bounded_by_continuation(self, name: str, cont: CharSet) -> bool:
+        """Can island ``name``'s extent be read off one linear scan for ``cont``?
+
+        When the island can derive no character of its own continuation, no
+        completion of it reaches past the first continuation character after
+        the cursor: the island would have to consume that character to get
+        there, and it cannot. So the extent is bounded by that position, the
+        window is exactly that wide, and ONE sub-parse at that width settles
+        the island — no 256-character floor, no doubling, no re-parse of the
+        same characters at five widths.
+
+        This does not weaken the two-ends refusal. A completion end BEFORE the
+        bound is exactly the case that refusal already handles, and it is
+        handled inside this window as it was inside a climbing one; the bound
+        only removes ends that could not exist.
+
+        An island whose alphabet MEETS its continuation keeps the climb — a
+        string literal that can hold its own terminator is the shape, and
+        there the first continuation character says nothing about the extent.
+
+        :param name: The island rule name.
+        :param cont: The occurrence continuation from
+            :meth:`occurrence_follow`.
+        :returns: ``True`` when the scan is a sound bound.
+        """
+        if cont.is_empty() or cont.negated:
+            return False  # nothing to scan for, or a set no scan enumerates
+        if self._alphabets is None:
+            self._alphabets = rule_alphabets(self.analysis.rules)
+        held = self._alphabets.get(name)
+        return held is not None and not held.overlaps(cont)
 
     def compile_start(self) -> CloneKey | IslandRef:
         """Compile the start clone (EOF-only tail), or return the

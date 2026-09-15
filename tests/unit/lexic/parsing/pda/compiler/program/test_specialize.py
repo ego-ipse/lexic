@@ -735,19 +735,24 @@ def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
 def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
     """A ref to a genuine (non-fail) island flattens to OP_ISLAND.
 
-    The payload is ``(name, continuation)``: the runtime's splice-in marker
-    AND the seam's two-ends evidence, which is a property of the reference —
-    what the CALLER puts after the island — and not of the island rule, whose
-    own FOLLOW holds its own recursion. The fixture islands by LEFT RECURSION,
-    the class no attempt can settle, and ``root ::= x`` puts nothing after it.
+    The payload is ``(name, continuation, exact)``: the runtime's splice-in
+    marker, the seam's two-ends evidence, and whether that evidence also
+    BOUNDS the island's extent. The continuation is a property of the
+    reference — what the CALLER puts after the island — and not of the island
+    rule, whose own FOLLOW holds its own recursion. The fixture islands by
+    LEFT RECURSION, the class no attempt can settle, and ``root ::= x`` puts
+    only the end of input after it — which the island cannot derive either, so
+    its extent is bounded at the end of the document and one sub-parse over
+    the remainder settles it.
     """
     pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
-    name, cont = arm.payloads[0]
+    name, cont, exact = arm.payloads[0]
     assert name == "x"
     assert not cont.has("a"), "the island's own recursion is not the caller's"
+    assert exact, "root puts only the end of input after it, which bounds it"
 
 
 def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
