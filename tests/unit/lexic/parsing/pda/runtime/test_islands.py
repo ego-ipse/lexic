@@ -38,12 +38,15 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.predicates import rule_alphabets
+from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
     IslandPolicy,
+    bounded_window,
     island_derivation,
     island_parse,
     island_run,
@@ -468,12 +471,22 @@ def _windows(source: str, text: str, key: str) -> list[int]:
     return widths
 
 
-def test_an_island_that_cannot_settle_refuses_at_the_first_window():
-    """The refusal the climb used to reach last is reached first.
+def test_an_island_that_cannot_settle_answers_at_the_first_window():
+    """The answer the climb used to reach last is reached first — once.
 
-    Completion ends only accumulate, so the answer at 256 characters is the
-    answer at every width — the climb was re-deriving it four more times over
+    Completion ends only accumulate, so the answer at any width is the answer
+    at every wider one, and the climb was re-deriving it four more times over
     a document that never had a different one to give.
+
+    That first window is now the EXACT one rather than the 256-character
+    floor: ``expr`` derives ``[a-z+]`` and its reference is followed by
+    ``>``, which it cannot hold, so its extent is bounded by the first ``>``
+    and one sub-parse at that width settles it. The trade is stated rather
+    than hidden — an island that ends up REFUSING now parses to its bound
+    instead of stopping at 256, which is more work than the floor was. It is
+    bounded work, and it precedes a whole-document Earley fallback that
+    dwarfs it; a climbing window would have reached the same width anyway,
+    five parses later.
     """
     terms = 3 * ISLAND_WINDOW  # two characters each, so the input doubles twice
     text = (
@@ -483,7 +496,8 @@ def test_an_island_that_cannot_settle_refuses_at_the_first_window():
 
     widths = _windows(_CLIMB_HOST, text, "climb-refuses")
 
-    assert widths == [ISLAND_WINDOW], f"the climb doubled past its answer: {widths}"
+    assert len(widths) == 1, f"the climb doubled past its answer: {widths}"
+    assert widths[0] == text.index(">") - 1, "not the exact bound"
 
 
 def test_an_island_that_settles_still_settles():
@@ -532,3 +546,113 @@ def test_the_climb_still_grows_when_nothing_refuses():
 
     assert end == len(text)
     assert widths == [ISLAND_WINDOW, ISLAND_WINDOW * 2], widths
+
+
+# ── the exact window: one sub-parse where the continuation bounds the island ──
+
+
+def test_bounded_window_reaches_the_first_continuation_character():
+    """The scan's whole contract: the distance to the first one, from ``pos``."""
+    assert bounded_window("abc\ndef\n", 0, CharSet.from_chars("\n")) == 3
+    assert bounded_window("abc\ndef\n", 4, CharSet.from_chars("\n")) == 3
+
+
+def test_bounded_window_takes_the_nearest_of_several_continuation_characters():
+    """Several continuation characters, and the nearest is the bound."""
+    assert bounded_window("ab;cd,ef", 0, CharSet.from_chars(",", ";")) == 2
+    assert bounded_window("ab;cd,ef", 3, CharSet.from_chars(",", ";")) == 2
+
+
+def test_bounded_window_is_the_rest_of_the_input_when_none_occurs():
+    """No continuation character left means the island may reach the end.
+
+    This is the single-island document — the window is the whole remainder and
+    one sub-parse settles it, where the climb paid 256+512+1024+… to cover the
+    same characters.
+    """
+    assert bounded_window("abcdef", 0, CharSet.from_chars("\n")) == 6
+    assert bounded_window("abcdef", 4, CharSet.from_chars("\n")) == 2
+
+
+def test_an_island_whose_alphabet_misses_its_continuation_parses_once():
+    """``line ::= expr nl`` over a left-recursive ``expr`` — one window, exact.
+
+    ``expr`` derives ``[a-z+]`` and its reference is followed by ``\\n``, which
+    it cannot hold, so no completion reaches past the first newline. The
+    window is that distance and the climb never runs.
+    """
+    text = "a+b+c\nd+e\n"
+    compiled = compile_text(
+        "root ::= line+\nline ::= expr nl\nexpr ::= expr op term | term\n"
+        'term ::= [a-z]\nop ::= "+"\nnl ::= "\\n"\n',
+        cache_key="exact-window",
+    )
+    widths: list[int] = []
+    real = islands.island_run
+
+    def spy(tables, window_text, delegates):
+        widths.append(len(window_text))
+        return real(tables, window_text, delegates)
+
+    islands.island_run = spy
+    try:
+        model = compiled.parse(text, cores=1)
+    finally:
+        islands.island_run = real
+
+    assert model.to_text() == text
+    # two lines, one sub-parse each, each exactly as wide as its own line's
+    # expression — never the 256-character floor, never a doubling
+    assert widths == [5, 3], widths
+
+
+def test_an_island_whose_alphabet_meets_its_continuation_keeps_the_climb():
+    """A string literal that can hold its own terminator must still climb.
+
+    Here the island's alphabet includes the continuation character, so the
+    first occurrence of it says nothing about where the island ends — the
+    bound would be wrong and the compiler must decline to take it.
+    """
+    compiled = compile_text(
+        'root ::= expr "+" term nl | expr nl\n'
+        'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n',
+        cache_key="overlap-climb",
+    )
+    lifted = lift_optional_nullables(compiled.codegen_grammar)
+    specs, _ = compile_clones(lifted, compiled.product)
+    cont = specs.occurrence_follow("expr")
+
+    assert cont.has("+"), "the caller can put + after the island"
+    held = rule_alphabets(specs.analysis.rules)["expr"]
+    assert held.has("+"), "and the island holds + too"
+    assert not specs.bounded_by_continuation("expr", cont)
+
+
+def test_the_exact_window_does_not_weaken_the_two_ends_refusal():
+    """The bound removes ends that could not exist, not ends that could.
+
+    Same grammar as above: ``a+b\\n`` genuinely derives two ways and means two
+    different things, so both engines must refuse it rather than answer.
+    """
+    compiled = compile_text(
+        'root ::= expr "+" term nl | expr nl\n'
+        'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n',
+        cache_key="overlap-climb",
+    )
+    with pytest.raises((PdaFail, UnsupportedConstructError)):
+        compiled.parse("a+b\n", cores=1)
+
+
+def test_bounded_window_skips_the_end_of_input_sentinel():
+    """A continuation of "end of input" bounds the island at the end, not at 0.
+
+    The sentinel is spelled ``""`` and ``text.find("", pos)`` is ``pos``,
+    because every string contains the empty one everywhere. Scanning for it
+    would bound every island that may run to the end of the document to a
+    width of zero — which is the whole document's worth of parse, silently
+    not done.
+    """
+    assert bounded_window("abcdef", 0, CharSet.from_chars("")) == 6
+    assert bounded_window("abcdef", 2, CharSet.from_chars("")) == 4
+    # and beside a real character, the real one still bounds it
+    assert bounded_window("ab\ncd", 0, CharSet.from_chars("", "\n")) == 2

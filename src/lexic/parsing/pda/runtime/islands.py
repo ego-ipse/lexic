@@ -127,24 +127,30 @@ class IslandPolicy[M](NamedTuple):
     ``executor`` is the bound product's completion, and it is here for the
     ambiguity question alone: whether two derivations are a real ambiguity is
     a question about the VALUES they build, and only the product can answer
-    it. ``follow`` is the island rule's continuation charset (analysis soft
-    FOLLOW) — the cross-span composition evidence; ``None`` (a caller without
-    analysis) accepts plain longest-match.
+    it. ``follow`` is what may follow the island AT THIS OCCURRENCE — the
+    cross-span composition evidence; ``None`` (a caller without analysis)
+    accepts plain longest-match. ``window`` is an EXACT width to parse at,
+    settling the island in one sub-parse; ``0`` climbs from
+    :data:`ISLAND_WINDOW` by doubling.
     """
 
     delegates: dict[int, Delegate] | None = None
     resolve: Resolver | None = None
     executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
+    window: int = 0
 
     def for_island(
-        self, delegates: dict[int, Delegate] | None, follow: CharSet | None
+        self,
+        delegates: dict[int, Delegate] | None,
+        follow: CharSet | None,
+        window: int = 0,
     ) -> IslandPolicy[M]:
-        """This policy with the per-island parts filled in — what one island
-        reference hands to its sub-parse. The delegates and the follow set are
-        the only per-island parts; the executor and the resolver belong to the
-        whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.executor, follow)
+        """This policy with the per-reference parts filled in — what one island
+        reference hands to its sub-parse. The delegates, the continuation and
+        the window belong to the reference; the executor and the resolver
+        belong to the whole parse."""
+        return IslandPolicy(delegates, self.resolve, self.executor, follow, window)
 
 
 def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet) -> int:
@@ -178,6 +184,37 @@ def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet)
     return -1
 
 
+def bounded_window(text: str, pos: int, cont: CharSet) -> int:
+    """How far an island can reach when it cannot hold its own continuation.
+
+    The distance from ``pos`` to the first continuation character at or after
+    it, or the rest of the input when there is none. One ``str.find`` per
+    continuation character, each a C-level scan — the sets that reach here are
+    small (a newline, a closing bracket), and a set large enough for this to
+    matter is one the caller declined to call bounded.
+
+    **The end-of-input sentinel is skipped, and skipping it is the point.**
+    It is spelled ``""``, and ``text.find("", pos)`` is ``pos`` — every string
+    contains the empty one at every position — so scanning for it would bound
+    every island that may run to the end of the document to a width of zero.
+    A continuation of "the end of input" bounds the island at the end of the
+    input, which is what falling through to ``len(text)`` gives.
+
+    :param text: The full input.
+    :param pos: Where the island opens.
+    :param cont: The occurrence continuation, positive and non-empty.
+    :returns: The exact window width.
+    """
+    found = len(text)
+    for char in cont.chars:
+        if not char:
+            continue  # the EOF sentinel — see above
+        at = text.find(char, pos)
+        if 0 <= at < found:
+            found = at
+    return found - pos
+
+
 def island_parse(
     tables: ParserTables,
     text: str,
@@ -205,6 +242,13 @@ def island_parse(
         any. An island is the ONE place the model path chooses between
         derivations — everywhere else it is predictive and produces one by
         construction — so it is where the refusal (or the resolver) applies.
+        ``policy.window``, when non-zero, is an EXACT width: the island
+        cannot derive a character of its own continuation, so no completion
+        reaches past the first one — see
+        :meth:`~lexic.parsing.pda.compiler.clones.PdaCompiler.bounded_by_continuation`
+        — and one sub-parse at that width settles it. Zero climbs from
+        :data:`ISLAND_WINDOW` by doubling, re-parsing the same characters at
+        every width.
     :returns: ``(tree, end)`` — the derivation and its consumed length.
     :raises PdaFail: When the island completes over no window.
     :raises UnsupportedConstructError: On an ambiguous island with no resolver.
@@ -212,7 +256,10 @@ def island_parse(
         ``to_text()`` reproduces the input for whichever derivation was taken.
     """
     remaining = len(text) - pos
-    window = ISLAND_WINDOW
+    window = policy.window
+    exact = window > 0
+    if not exact:
+        window = ISLAND_WINDOW
     while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
         if best is not None and policy.follow is not None:
@@ -223,7 +270,7 @@ def island_parse(
                     f"({alt}, {best[1]}) and the shorter could compose",
                     pos,
                 )
-        if window >= remaining or not _may_extend(kern):
+        if exact or window >= remaining or not _may_extend(kern):
             break
         window *= 2
     if best is None:
