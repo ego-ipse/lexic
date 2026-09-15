@@ -77,17 +77,11 @@ class IslandRef(NamedTuple):
         followed by ``+`` looked like the caller accepting it when it was the
         island continuing itself. Empty is *unknown*, which accepts plain
         longest-match, and is what the start-rule marker carries.
-    :ivar exact: The island cannot derive ANY character of :attr:`cont`, so no
-        completion of it reaches past the first one — the window is that
-        distance and one sub-parse at it settles the island. False keeps the
-        doubling climb, which is what an island whose own alphabet meets its
-        continuation needs.
     """
 
     name: str
     fail: bool = False
     cont: CharSet = CharSet.EMPTY
-    exact: bool = False
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────

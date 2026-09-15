@@ -2083,10 +2083,12 @@ from a module-level name scales at 0.45x on sixteen threads whatever the
 container, because a module global is a shared mortal object and every read is
 an atomic reference count. Pass the text in.
 
-## What a compiled artefact may hold
+## What a compiled artefact may hold, and who refuses the end of input
 
-A full collection walks the whole tracked population, so what an artefact
-RETAINS is a permanent cost whether or not anything reads it.
+Two changes to what a compiled grammar leaves for the collector, both measured
+against the same question: a full collection walks the whole tracked
+population, so what an artefact RETAINS is a permanent cost whether or not
+anything reads it.
 
 `PdaTables` no longer carries `.clones`. The authored
 `CloneSpec`/`ArmSpec`/`CharSet` layer is what the clone compiler produces on
@@ -2100,8 +2102,20 @@ move: both engines' seats sit inside their own null arm across five
 interleaved process pairs, in both arm orders. `compile_clones` is where a
 caller that wants the specs asks, and it hands back a compiler of its own.
 
-The instrument that found the retention is worth its own line: a reachability
-census must descend only into objects the compile CREATED. A walk that crosses
-one pre-existing object reaches a type, then a method, then that module's
-globals, and from there the whole interpreter — the first version reported a
-delta of zero on every row because the first owner had swallowed the process.
+Beside it, the Earley seed gates are stored as one sorted `str` rather than a
+`frozenset` — the collector walks a frozenset for the life of the process and
+never walks a string. That moves the end-of-input refusal from the container to
+the read: `text[pos:pos + 1]` is `""` past the last character, `"" in
+frozenset(...)` is False but `"" in "abc"` is **True**, so an unguarded read
+would open every positive gate at the final column. `SeedGate` beside `Charset`
+names which contract a reader holds. The PDA's flat gates were measured for the
+same change and refused it: 99% of them are lowered out of a `CharSet` that
+outlives them, so the string would free nothing and spread the trap to six more
+read sites.
+
+Both rules are on the invariants page. The instrument that found them is worth
+its own line: a reachability census must descend only into objects the compile
+CREATED. A walk that crosses one pre-existing object reaches a type, then a
+method, then that module's globals, and from there the whole interpreter — the
+first version reported a delta of zero on every row because the first owner had
+swallowed the process.
