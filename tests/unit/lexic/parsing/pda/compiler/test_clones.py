@@ -38,7 +38,9 @@ from lexic.parsing.pda.compiler.clones import (
     IslandRef,
     ItemSpec,
     KTupleGate,
+    PdaCompiler,
     StopGate,
+    compile_clones,
     compile_pda,
 )
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -102,16 +104,36 @@ def pda_from_text(text: str) -> PdaTables:
     )
 
 
-def clones_named(pda: PdaTables, name: str) -> list[CloneSpec]:
+def specs_for(path: Path) -> PdaCompiler:
+    """The clone compiler run over a ground-truth file — the AUTHORED specs.
+
+    `PdaTables` carries the lowered program alone, so a test about what the
+    clone compiler BUILT asks the clone compiler, which is the more direct
+    question anyway. The inputs are the ones :func:`pda_for` uses.
+    """
+    flavour = flavour_for_extension(path)
+    canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    return compile_clones(lifted, compile_from_path(path).product)[0]
+
+
+def specs_from_text(text: str) -> PdaCompiler:
+    """The clone compiler run over a hand-authored GBNF snippet."""
+    canonical = canonical_grammar(text, GBNF_FLAVOUR)
+    lifted = lift_optional_nullables(build_codegen_grammar(canonical))
+    return compile_clones(lifted, compile_text(text, flavour="gbnf").product)[0]
+
+
+def clones_named(specs: PdaCompiler, name: str) -> list[CloneSpec]:
     """Every compiled clone for rule ``name``, across all its hard-continuation tails."""
-    return [spec for key, spec in pda.clones.items() if key.name == name]
+    return [spec for key, spec in specs.clones.items() if key.name == name]
 
 
-def sole_clone(pda: PdaTables, name: str) -> CloneSpec:
+def sole_clone(specs: PdaCompiler, name: str) -> CloneSpec:
     """The one compiled clone for rule ``name`` — asserts exactly one exists."""
-    specs = clones_named(pda, name)
-    assert len(specs) == 1
-    return specs[0]
+    found = clones_named(specs, name)
+    assert len(found) == 1
+    return found[0]
 
 
 def walk_specs(specs: Sequence[ItemSpec]) -> Iterator[ItemSpec]:
@@ -126,9 +148,9 @@ def walk_specs(specs: Sequence[ItemSpec]) -> Iterator[ItemSpec]:
                 yield from walk_specs(group.default)
 
 
-def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
-    """Yield every :class:`ItemSpec` across every clone in ``pda``."""
-    for clone in pda.clones.values():
+def all_specs(specs: PdaCompiler) -> Iterator[ItemSpec]:
+    """Yield every :class:`ItemSpec` across every clone the compiler built."""
+    for clone in specs.clones.values():
         for arm in clone.arms:
             yield from walk_specs(arm.specs)
         if clone.default is not None:
@@ -170,8 +192,8 @@ def test_compiles_clean_for_every_ground_truth(stem: str):
 @pytest.mark.parametrize("stem", ALL_STEMS)
 def test_clone_count_matches_pinned(stem: str):
     """The compiled clone count matches the pinned, coordinator-verified value."""
-    pda = pda_for(GROUND_TRUTH / stem)
-    assert len(pda.clones) == PINNED_CLONE_COUNTS[stem]
+    specs = specs_for(GROUND_TRUTH / stem)
+    assert len(specs.clones) == PINNED_CLONE_COUNTS[stem]
 
 
 @pytest.mark.parametrize("stem", ALL_STEMS)
@@ -182,11 +204,11 @@ def test_every_named_clones_completion_is_an_in_bounds_range_of_its_own_rule(
     grammar's own verified program — the range a clone was baked from is
     one the program's own table actually declares, not a stale or
     cross-grammar index."""
-    pda = pda_for(GROUND_TRUTH / stem)
+    specs = specs_for(GROUND_TRUTH / stem)
     compiled = compile_from_path(GROUND_TRUTH / stem)
     completions = compiled.product.program.completions
     checked = 0
-    for spec in pda.clones.values():
+    for spec in specs.clones.values():
         if spec.routine is None:
             continue
         assert 0 <= spec.routine.completion < len(completions), spec.name
@@ -202,8 +224,8 @@ def test_no_pending_placeholder_leaks(stem: str):
     name) before compiling the body; a real rule is never named ``""``, so a
     name/key mismatch (or an empty name) would mean a placeholder leaked.
     """
-    pda = pda_for(GROUND_TRUTH / stem)
-    for key, spec in pda.clones.items():
+    specs = specs_for(GROUND_TRUTH / stem)
+    for key, spec in specs.clones.items():
         assert spec.name == key.name
         assert spec.name
 
@@ -229,9 +251,9 @@ def test_island_set_matches_pinned(stem: str):
 @pytest.mark.parametrize("stem", ALL_STEMS)
 def test_island_rules_are_never_cloned(stem: str):
     """No CloneKey ever names an island rule — islands opt out of cloning entirely."""
-    pda = pda_for(GROUND_TRUTH / stem)
-    for key in pda.clones:
-        assert key.name not in pda.islands
+    specs = specs_for(GROUND_TRUTH / stem)
+    for key in specs.clones:
+        assert key.name not in specs.islands
 
 
 @pytest.mark.parametrize("stem", ALL_STEMS)
@@ -241,16 +263,16 @@ def test_refs_carry_islandref_iff_their_target_is_an_island(stem: str):
     Every other ``ref`` spec resolves to a :class:`CloneKey` naming a
     non-island rule — the two payload shapes never cross.
     """
-    pda = pda_for(GROUND_TRUTH / stem)
-    for spec in all_specs(pda):
+    specs = specs_for(GROUND_TRUTH / stem)
+    for spec in all_specs(specs):
         if spec.kind != REF:
             continue
         target = spec.payload
         if isinstance(target, IslandRef):
-            assert target.name in pda.islands
+            assert target.name in specs.islands
         else:
             assert isinstance(target, CloneKey)
-            assert target.name not in pda.islands
+            assert target.name not in specs.islands
 
 
 # ── gate/stop-set correctness on named fixture shapes (pivots 2/4) ─────────
@@ -262,8 +284,8 @@ def test_arithmetic_ws_stopgate_excludes_newline_only_when_the_tail_reaches_it()
     ``ws term "\\n"`` shape) — otherwise ``\\n`` stays in the stop-set since the
     loop may safely keep consuming it (the ``ws "=" ...`` shape, pivot 4).
     """
-    pda = pda_for(GROUND_TRUTH / "arithmetic.gbnf")
-    ws_clones = [(k, s) for k, s in pda.clones.items() if k.name == "ws"]
+    specs = specs_for(GROUND_TRUTH / "arithmetic.gbnf")
+    ws_clones = [(k, s) for k, s in specs.clones.items() if k.name == "ws"]
     assert ws_clones
     saw_excluding = saw_including = False
     for key, spec in ws_clones:
@@ -291,16 +313,17 @@ def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
     whitespace :class:`StopGate` (its hard tails carry no whitespace, so
     nothing is subtracted).
     """
-    pda = pda_for(GROUND_TRUTH / "json.gbnf")
-    assert "ws" not in pda.islands
-    ws_clones = clones_named(pda, "ws")
+    specs = specs_for(GROUND_TRUTH / "json.gbnf")
+    assert "ws" not in specs.islands
+    ws_clones = clones_named(specs, "ws")
     assert ws_clones
     for clone in ws_clones:
         gate = clone.arms[0].specs[0].gate
         assert isinstance(gate, StopGate)
         assert gate.charset == CharSet.from_chars(" ", "\t", "\n", "\r")
     assert not any(
-        spec.kind == REF and spec.payload == IslandRef("ws") for spec in all_specs(pda)
+        spec.kind == REF and spec.payload == IslandRef("ws")
+        for spec in all_specs(specs)
     )
 
 
@@ -317,8 +340,8 @@ def test_hand_grammar_optional_literal_gets_a_window_gate_on_its_second_char():
     box — a set of per-alternative windows discriminates exactly as a set of
     concrete 2-character strings does.
     """
-    pda = pda_from_text('root ::= "fx"? "f1"\n')
-    root = sole_clone(pda, "root")
+    specs = specs_from_text('root ::= "fx"? "f1"\n')
+    root = sole_clone(specs, "root")
     fx_spec = root.arms[0].specs[0]
     assert fx_spec.kind == LIT
     assert fx_spec.payload == "fx"
@@ -334,8 +357,8 @@ def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():
     """An unbounded ``[^"]*`` loop with no FIRST/continuation overlap stays a
     plain non-greedy StopGate.
     """
-    pda = pda_from_text('root ::= [^"]* "\\""\n')
-    root = sole_clone(pda, "root")
+    specs = specs_from_text('root ::= [^"]* "\\""\n')
+    root = sole_clone(specs, "root")
     loop_spec = root.arms[0].specs[0]
     assert loop_spec.kind == CC
     assert isinstance(loop_spec.gate, StopGate)
@@ -347,9 +370,9 @@ def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
     legitimately attempts), so ``x`` is flagged an island, and a ref to it from
     ``root`` carries an :class:`IslandRef`, never a :class:`CloneKey`.
     """
-    pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
-    assert pda.islands == frozenset({"x", "x-arm1"})  # the hoisted arm too
-    root = sole_clone(pda, "root")
+    specs = specs_from_text('root ::= x\nx ::= x "a" | "b"\n')
+    assert specs.islands == frozenset({"x", "x-arm1"})  # the hoisted arm too
+    root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
     assert ref_spec.payload == IslandRef("x")
@@ -369,9 +392,9 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     returning the wrong model.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
-    pda = pda_from_text(text)
-    assert "x" in pda.islands
-    root = sole_clone(pda, "root")
+    specs = specs_from_text(text)
+    assert "x" in specs.islands
+    root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
     assert ref_spec.payload == IslandRef("x", fail=True)
@@ -392,8 +415,8 @@ def test_hand_grammar_value_str_rule_clone_is_match_only():
     flagged ``match_only`` — its interior is pure-terminal, no sub-models
     to build below it.
     """
-    pda = pda_from_text('root ::= lit\nlit ::= "a" | "b"\n')
-    lit_specs = clones_named(pda, "lit")
+    specs = specs_from_text('root ::= lit\nlit ::= "a" | "b"\n')
+    lit_specs = clones_named(specs, "lit")
     assert lit_specs
     assert all(spec.match_only for spec in lit_specs)
 
@@ -403,8 +426,8 @@ def test_hand_grammar_empty_alternation_arm_becomes_the_default_not_a_gated_arm(
     it becomes the clone's default arm instead (``compile_arms``'s
     "empty arm never gates" rule).
     """
-    pda = pda_from_text('root ::= opt "z"\nopt ::= "a" | ""\n')
-    opt = sole_clone(pda, "opt")
+    specs = specs_from_text('root ::= opt "z"\nopt ::= "a" | ""\n')
+    opt = sole_clone(specs, "opt")
     assert len(opt.arms) == 1
     assert opt.default == ()
 
@@ -447,9 +470,9 @@ def test_long_ref_chain_compiles_at_constant_stack_depth():
     lifted = lift_optional_nullables(
         build_codegen_grammar(canonical_grammar(grammar, GBNF_FLAVOUR))
     )
-    pda = compile_pda(lifted, normalize(lifted), ModelExecutable())
-    assert isinstance(pda.start_key, CloneKey)
-    assert all(spec.name for spec in pda.clones.values())  # no _PENDING left
+    specs, start_key = compile_clones(lifted, ModelExecutable())
+    assert isinstance(start_key, CloneKey)
+    assert all(spec.name for spec in specs.clones.values())  # no _PENDING left
 
 
 # ── island tables inherit the run's packing tier ─────────────────────────

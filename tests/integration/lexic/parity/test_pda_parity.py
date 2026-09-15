@@ -47,7 +47,7 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
     report,
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
-from tests.unit.lexic.parsing.parsing_helpers import prod
+from tests.unit.lexic.parsing.parsing_helpers import clone_specs, prod
 from tests.unit.lexic.parsing.pda.compiler.program.test_specialize import (
     ATTEMPT_GATED_VSTR,
 )
@@ -177,9 +177,8 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
     cg = compile_from_path(GROUND_TRUTH / "chess.gbnf")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert sorted(prod(cg).pda.islands) == []
-    nonpawn = [
-        spec for key, spec in prod(cg).pda.clones.items() if key.name == "nonpawn"
-    ]
+    specs = clone_specs(cg)
+    nonpawn = [spec for key, spec in specs.clones.items() if key.name == "nonpawn"]
     assert nonpawn, "nonpawn must be cloned now (demoted, not islanded)"
     assert any(
         isinstance(item.gate, KTupleGate)
@@ -241,12 +240,13 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
     cg = compile_from_path(GROUND_TRUTH / "json.gbnf")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert sorted(prod(cg).pda.islands) == []
-    value_clones = [s for key, s in prod(cg).pda.clones.items() if key.name == "value"]
+    specs = clone_specs(cg)
+    value_clones = [s for key, s in specs.clones.items() if key.name == "value"]
     assert value_clones
     assert all(arm.peek is not None for spec in value_clones for arm in spec.arms), (
         "value must select by post-noise peek"
     )
-    item2 = [s for key, s in prod(cg).pda.clones.items() if key.name == "array-item2"]
+    item2 = [s for key, s in specs.clones.items() if key.name == "array-item2"]
     assert item2
     assert any(
         isinstance(item.gate, PeekGate)
