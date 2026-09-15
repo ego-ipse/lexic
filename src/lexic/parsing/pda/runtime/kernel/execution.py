@@ -338,6 +338,12 @@ class KernelExecutionMixin[Carry]:
         mode = frame.clone.mode
         if mode == BUILD_TRANSPARENT:
             return  # children already funnelled to the nearest model sink
+        # A forked frame's sinks start empty (`frames_copy`); its build is the
+        # one place the inherited values are read, so they are taken back
+        # here and nowhere else. `None` on every frame of the real parse, so
+        # this costs one test.
+        if frame.inherited is not None:
+            frame.adopt_inherited()
         clone = frame.clone
         if mode == BUILD_SEQ:
             if clone.build is not no_shape_build and frame.arm.n == clone.n_items:

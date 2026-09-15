@@ -92,9 +92,19 @@ class Frame[Carry]:
         grammars is EVERY frame: those filled a list nothing read.
     :ivar sinks: Per-item descent sub-model lists, allocated lazily on first
         descent (capture frames), else ``None``.
+    :ivar inherited: The frame this one was FORKED from, or ``None`` for a
+        frame of the real parse. A forked frame's value containers start
+        empty — see
+        :func:`~lexic.parsing.pda.runtime.admission.frames_copy` — so its
+        build needs the values that were already there, and this names where
+        they are. Cleared once they have been taken.
     """
 
-    __slots__ = ("arm", "i", "count", "out", "clone", "ends", "sinks")
+    # pylint: disable=too-many-instance-attributes
+    # An eighth lane. The alternative that would satisfy the cap is folding
+    # `ends` and `sinks` into one per-item record, and that costs an object
+    # allocation per frame on the paid path — a worse trade than a slot.
+    __slots__ = ("arm", "i", "count", "out", "clone", "ends", "sinks", "inherited")
 
     arm: FlatArm
     i: int
@@ -103,6 +113,7 @@ class Frame[Carry]:
     clone: FlatClone[Carry]
     ends: list[int] | None
     sinks: list[list[Carry] | None] | None
+    inherited: Frame[Carry] | None
 
     def __init__(
         self, arm: FlatArm, out: list[Carry], clone: FlatClone[Carry], start: int
@@ -115,6 +126,7 @@ class Frame[Carry]:
         self.clone = clone
         self.ends = [start] * (arm.n + 1) if clone.needs_ends else None
         self.sinks = None
+        self.inherited = None
 
     def span_start(self) -> int:
         """Where the frame began, or ``-1`` when it keeps no boundaries.
@@ -141,6 +153,32 @@ class Frame[Carry]:
         if ends is not None:
             ends[i + 1] = pos
         return i + 1
+
+    def adopt_inherited(self) -> None:
+        """Put back the values this frame was forked away from, once.
+
+        A forked frame starts its sinks EMPTY, because copying them moved the
+        whole accumulated parse into every fork and that is what made a
+        grammar-sized document quadratic. The values are still needed the
+        moment the frame is actually BUILT, and only then: on a 512 KB
+        document 14,632 values are read this way where 830 million were being
+        copied.
+
+        The originals are never written through — the inherited prefix is
+        copied in front of what this fork built, so the other universe's list
+        is untouched and the two never interleave.
+        """
+        origin = self.inherited
+        if origin is None:
+            return
+        self.inherited = None
+        mine, theirs = self.sinks, origin.sinks
+        if mine is None or theirs is None:
+            return
+        for at, slot in enumerate(mine):
+            prefix = theirs[at] if at < len(theirs) else None
+            if slot is not None and prefix:
+                slot[:0] = prefix
 
     def alt_model(self) -> Carry | None:
         """The first sub-model under an ``alternation`` frame's matched arm."""
