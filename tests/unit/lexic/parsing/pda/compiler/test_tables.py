@@ -11,31 +11,16 @@ from __future__ import annotations
 
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.compiler.program.flatten import PdaProgram
-from tests.unit.lexic.parsing.pda.compiler.test_clones import (
-    pda_from_text,
-    specs_from_text,
-)
+from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
 LEFT_RECURSIVE = 'root ::= x\nx ::= x "a" | "b"\n'
 
 
 def test_program_and_clones_are_populated_after_compilation():
-    """A trivial grammar still yields a real program, and real clones behind it."""
+    """A trivial grammar still yields a real program and a non-empty clone table."""
     pda = pda_from_text('root ::= "x"\n')
     assert isinstance(pda.program, PdaProgram)
-    assert specs_from_text('root ::= "x"\n').clones  # at least the root clone
-
-
-def test_the_artefact_does_not_carry_the_authored_clone_specs():
-    """The specs are a compile-time intermediate and do not survive lowering.
-
-    Holding them beside the program kept a fifth to two fifths of the
-    artefact's GC-tracked population alive with nothing reading it, so the
-    absence is the point and belongs in a test rather than only in a docstring.
-    """
-    pda = pda_from_text('root ::= "x"\n')
-    assert not hasattr(pda, "clones")
-    assert "clones" not in type(pda).__slots__
+    assert pda.clones  # at least the root clone
 
 
 def test_islands_is_the_island_follow_key_set():

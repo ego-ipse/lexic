@@ -1,8 +1,7 @@
 """``PdaTables`` — what a compiled grammar's predictive half IS.
 
-The artifact `compile_pda` returns and the runtime executes: the flat program
-and the island tables the cold path falls back to. The authored clone specs it
-was lowered from are a compile-time intermediate and do not survive here.
+The artifact `compile_pda` returns and the runtime executes: the flat program,
+its clone index, and the island tables the cold path falls back to.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
 from lexic.parsing.pda.compiler.program.lower import flatten_program
 from lexic.parsing.pda.compiler.specs import (
     CloneKey,
+    CloneSpec,
     IslandRef,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -37,16 +37,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     Complete and immutable after :func:`compile_pda`; only the island cache
     fills lazily (in place, the :class:`ParserTables` scanning-cache precedent).
 
-    The authored :class:`CloneSpec` layer is **not** part of it. Those specs
-    are what the clone compiler produces on the way here; once
-    :func:`~lexic.parsing.pda.compiler.program.lower.flatten_program` has
-    lowered them the artifact is the program, and holding them on as well left
-    a fifth to two fifths of this artifact's GC-tracked population alive for
-    the life of the process with nothing reading it. A caller that wants to
-    READ the specs compiles them itself
-    (:func:`~lexic.parsing.pda.compiler.clones.compile_clones`), where their
-    lifetime is its own.
-
+    :ivar clones: Clone key → its :class:`CloneSpec`.
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
         start rule is an island (the whole-grammar opt-out signal for Task 6).
     :ivar island_follow: Island rule name → its soft-FOLLOW
@@ -62,6 +53,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     """
 
     __slots__ = (
+        "clones",
         "start_key",
         "island_follow",
         "instance_grammar",
@@ -69,6 +61,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         "_island_tables",
     )
 
+    clones: dict[CloneKey, CloneSpec]
     start_key: CloneKey | IslandRef
     island_follow: dict[str, CharSet]
     instance_grammar: IrAst
@@ -83,12 +76,12 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
-        The clones and island set come off ``compiler``, which the caller
-        then drops: nothing below is a view onto it.
+        The clones and island set come off ``compiler``.
         The island-interior delegate source is attached to :attr:`program` by
         the compile entry points (:func:`_attach_delegates`), so the artifact's
         own attribute set stays put.
         """
+        self.clones = compiler.clones
         self.start_key = start_key
         follow = compiler.analysis.follow
         self.island_follow = {name: follow[name] for name in compiler.islands}

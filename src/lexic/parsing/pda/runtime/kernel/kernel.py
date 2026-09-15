@@ -4,7 +4,7 @@ The runtime sibling of :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`:
 where the Earley kernel builds an SPPF a
 :class:`~lexic.parsing.product.ProductExecutor` later completes,
 :class:`PdaKernel` walks the flat int-coded
-:class:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram` (``_OP_*`` op-codes,
+:class:`~lexic.parsing.pda.compiler.clones.PdaProgram` (``_OP_*`` op-codes,
 pre-resolved ``(chars, negated)`` membership sets, direct :class:`FlatClone`
 references — integer dispatch, no per-char method calls on the hot loop) and
 builds the model **directly during the walk** — completion is fused into the
@@ -118,7 +118,7 @@ class PdaKernel[M](
     inherited ``_bound`` (``IrSelf``) intact.
 
     :ivar tables: The compiled predictive-parser tables (its
-        :attr:`~lexic.parsing.pda.compiler.tables.PdaTables.program` is walked).
+        :attr:`~lexic.parsing.pda.compiler.clones.PdaTables.program` is walked).
     :ivar text: The input string.
     :ivar pos: The cursor position (advances monotonically — no backtracking).
     :ivar stack: The explicit descent stack of flat frame lists (see the frame
