@@ -15,7 +15,7 @@ parse one document across many threads on free-threaded Python.
 ![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.7x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
-![Tests](https://img.shields.io/badge/tests-6.7k%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-6.8k%2B-brightgreen)
 <!-- lexic:end tests-badge -->
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 ![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)
@@ -104,9 +104,10 @@ Three things the table means, stated plainly:
 - **The engines do not build the same thing.** Lexic returns a typed model
   the source is byte-recoverable from; the others return generic trees.
 
-The benchmark roster is fifteen grammars. The table above is the cross-engine
+The benchmark roster is sixteen grammars. The table above is the cross-engine
 measurement, and it covers the twelve that have been run across every engine;
-`split-nullable`, `wrapped-unit` and `island-earley` are not in it yet.
+`split-nullable`, `wrapped-unit`, `island-earley` and `dense-earley` are not in
+it yet.
 
 ## Multithreaded parsing
 

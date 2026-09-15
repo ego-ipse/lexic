@@ -35,7 +35,7 @@ from lexic.parsing.parallel import available_workers, reset_pools
 from lexic.parsing.parallel.pool import _IDLE
 from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, one_engine
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
-from tools.benchmark.emitters.charsets import of_points
+from tools.benchmark.emitters.charsets import CharSet, of_points
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts
@@ -137,6 +137,13 @@ EXPECTED: dict[str, frozenset[str]] = {
             "pyparsing",
         }
     ),
+    # The same left recursion and the same three casualties — parsimonious says
+    # `LeftRecursionError` by name, pyparsing exhausts the interpreter stack.
+    # Both `-lex` lark seats survive here where they lose the island row,
+    # because this grammar licenses no run terminals at all: every unit is one
+    # character, so the folded seats are handed the same grammar as the
+    # unfolded ones and there is no zero-width terminal to refuse.
+    "dense-earley": _ALL - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width
@@ -229,6 +236,22 @@ def test_lexic_is_not_asked_an_easier_question(bench: Bench) -> None:
     )
 
 
+def _licensed_runs(bench: Bench) -> set[CharSet]:
+    """Every run terminal lexic's own derivation licenses for one case.
+
+    A `CharSet` on both sides of the equality: `of_points` folds the derived
+    code points into the same interval tuple an emitted run carries in
+    `chars`, so the comparison is like with like and not a spelling against a
+    structure.
+    """
+    return {
+        of_points(chars)
+        for chars, _empty, _unit in run_candidates(
+            compile_tables(normalize(bench.ast))
+        ).values()
+    }
+
+
 @pytest.mark.parametrize("bench", BENCHES, ids=lambda b: b.name)
 def test_the_emitted_lexical_layer_is_the_one_lexic_derives(bench: Bench) -> None:
     """Competitors get lexic's run terminals — and never one it declined.
@@ -241,20 +264,34 @@ def test_the_emitted_lexical_layer_is_the_one_lexic_derives(bench: Bench) -> Non
     `run_candidates` drops any run whose FOLLOW set meets its charset, and
     collapsing it anyway silently changes the language.
     """
-    licensed = {
-        of_points(chars)
-        for chars, _empty, _unit in run_candidates(
-            compile_tables(normalize(bench.ast))
-        ).values()
-    }
+    licensed = _licensed_runs(bench)
     given = {run.chars for run in lexical_layer(bench.ast).values()}
-    assert given <= licensed, (
-        f"{bench.name}: a run terminal was emitted that lexic never licensed — "
-        "the competitors are being handed a maximal munch lexic itself refused"
+    assert given == licensed, (
+        f"{bench.name}: the emitted lexical layer is not the derived one — "
+        f"emitted only {sorted(given - licensed)}, derived only "
+        f"{sorted(licensed - given)}"
     )
-    assert given, (
-        f"{bench.name}: lexic derives {len(licensed)} run terminals here and the "
-        "emitters handed out none — the lexical layer is being dissolved"
+
+
+def test_the_roster_exercises_a_non_empty_lexical_layer() -> None:
+    """Some row must actually HAVE run terminals, or the equality proves nothing.
+
+    Equality is the per-row invariant because it catches a layer being invented
+    and a layer being dissolved with one statement. It is also satisfied by a
+    grammar that licenses no runs at all — correctly, since a row whose units
+    are single characters has nothing to collapse — so on its own it would let
+    the whole roster drift to empty without a single failure. This is the other
+    half, and it is roster-wide rather than per row: no case needs an exemption,
+    and no case has to be the one that carries the layer.
+    """
+    covered = {
+        bench.name: len(lexical_layer(bench.ast))
+        for bench in BENCHES
+        if lexical_layer(bench.ast)
+    }
+    assert covered, (
+        "no benchmark grammar emits a single run terminal — the lexical layer "
+        "is dissolved across the whole roster"
     )
 
 

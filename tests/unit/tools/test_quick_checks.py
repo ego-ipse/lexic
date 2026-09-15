@@ -16,7 +16,9 @@ from collections.abc import Sequence
 import pytest
 
 from tools.quick_checks import (
+    COUPLED,
     PAID_PATH,
+    ROOT,
     TESTS,
     WITNESS,
     Command,
@@ -247,6 +249,51 @@ def test_a_helper_is_not_confused_with_a_test_or_a_conftest() -> None:
     assert helper_of("tests/unit/x/test_a.py") is None
     assert helper_of("tests/unit/x/conftest.py") is None
     assert helper_of("src/lexic/model.py") is None
+
+
+def test_a_roster_change_runs_the_tests_coupled_to_it_by_content() -> None:
+    """The import graph cannot see this one, and it went unrun for a whole diff.
+
+    Adding a benchmark row adds a parametrised instance to every test reading
+    `BENCHES`, which moves the rendered tests badge that `test_readme_render`
+    compares. Nothing in the render path imports the roster, so no import edge
+    exists to follow — the coupling is by content and has to be declared.
+    """
+    grammars = "tools/benchmark/cases/grammars.py"
+    render = "tests/integration/lexic/invariants/test_readme_render.py"
+    matrix = "tests/integration/lexic/invariants/test_performance_matrix.py"
+
+    targets = _argv(plan([grammars], _everything, {}), "pytest")
+
+    assert render in targets
+    assert matrix in targets
+
+
+def test_a_coupled_test_that_does_not_exist_is_not_a_target() -> None:
+    """A declared coupling is still checked against the tree, like every other."""
+    commands = plan(["tools/benchmark/cases/grammars.py"], _only("x"), {})
+
+    assert "pytest" not in _labels(commands)
+
+
+def test_a_change_elsewhere_in_tools_is_not_coupled_to_the_roster() -> None:
+    """The prefix is the cases directory, not `tools/` — a row must stay narrow."""
+    commands = plan(["tools/benchmark/compare.py"], _everything, {})
+
+    assert "pytest" not in _labels(commands)
+
+
+def test_every_declared_coupling_names_real_files() -> None:
+    """A stale row silently stops selecting anything, which is the failure mode.
+
+    `exists` filters a coupled path that has been deleted or renamed, so the
+    table going stale costs coverage without ever failing. This is the check
+    that it has not.
+    """
+    for prefix, coupled in COUPLED:
+        assert (ROOT / prefix).is_dir(), prefix
+        for path in coupled:
+            assert (ROOT / path).is_file(), path
 
 
 # ── what earns nothing ─────────────────────────────────────────────────

@@ -38,6 +38,7 @@ from tools.benchmark.cases.corpora import (
     arith_corpus,
     backtrack_corpus,
     csv_corpus,
+    dense_earley_corpus,
     ground_truth,
     island_corpus,
     json_corpus,
@@ -368,6 +369,38 @@ invisible, so a change to the chart, the forest or the completion has no row
 that can regress — and a row nobody can regress is a gap, not a guarantee."""
 
 
+_DENSE_EARLEY = """root ::= line+
+line ::= expr nl
+expr ::= expr op term | term
+term ::= [a-z]
+op ::= "+"
+nl ::= "\\n"
+"""
+"""The DENSE Earley control: left-recursive, and one character per unit.
+
+`island-earley` reaches the same engine over a long deterministic interior, so
+its terminals collapse into runs and a terminal step crosses many characters at
+once — on a 10 KiB input barely 4% of its chart columns ever hold an item. A
+per-column change therefore reports a saving there whether or not it taxes the
+columns that ARE occupied, and no row on the roster contradicts it.
+
+This row is that contradiction. Every unit is a single character, so essentially
+every column is occupied; the recursion is left, so the predictive path declines
+and the chart is really built; the grammar is unambiguous and the chain is
+bounded per line, so the cost is linear and the row is a control rather than a
+pathology.
+
+**A control that does not finish reads nothing.** Both arms of an A/B run this
+row up to the pair ceiling in fresh processes, and a size that makes the base
+arm time out does not produce a cautious verdict — it produces no verdict, on
+the one row the others cannot speak for. So the samples are sized against the
+roster's other Earley row rather than against the largest chart they could
+build: a dense column costs about fifteen times what a run-collapsed one does,
+and these two documents put this row's worker processes at or below what
+`island-earley`'s already cost. The full sample stays above four workers' worth
+of the split floor, so the mt seats still carve it."""
+
+
 _MIXEDENDS = """root ::= record+
 record ::= event | span | note
 event ::= "%" key eq value ";"
@@ -597,6 +630,15 @@ _DEFINED_BENCHES = (
     # The only row whose ISLAND executes: a left-recursive spine the predictive
     # path cannot run at all, so the gated engine does the work and a change to
     # it has somewhere to show.
+    # The DENSE counterpart: same engine, every column occupied, so a
+    # per-column change cannot report a sparse chart's saving unopposed.
+    _bench(
+        "dense-earley",
+        _DENSE_EARLEY,
+        Samples(dense_earley_corpus(2000), dense_earley_corpus(4800)),
+        ("a\n", "a+b\n", "a+b+c\n", "z\nz\n", "a+b\nc+d\n"),
+        ("", "a", "a+\n", "+a\n", "a++b\n", "A\n", "a b\n"),
+    ),
     _bench(
         "island-earley",
         _ISLAND_EARLEY,

@@ -43,6 +43,29 @@ efforts. A diff that touches `parsing/` at all is exactly the case it was
 written for.
 """
 
+COUPLED: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/benchmark/cases/",
+        (
+            "tests/integration/lexic/invariants/test_readme_render.py",
+            "tests/integration/lexic/invariants/test_performance_matrix.py",
+        ),
+    ),
+)
+"""Directory prefix → tests coupled to it by something no import expresses.
+
+The import graph is how this tool finds what a change can break, and it misses
+a real dependency whenever the coupling is by CONTENT rather than by reference.
+The benchmark roster is the case that caught it out: adding a row adds a
+parametrised instance to every test that reads `BENCHES`, which moves the
+rendered tests badge, which `test_readme_render` re-renders and compares — and
+nothing in the render path imports the roster, so nothing in the graph says so.
+`test_performance_matrix` reads the roster at run time for the same reason.
+
+Every row here is a coupling somebody was bitten by, named with its reason. A
+row without one is a tree-wide sweep wearing a prefix.
+"""
+
 
 class Command(NamedTuple):
     """One command to run, and what to call it when it fails.
@@ -168,6 +191,9 @@ def _test_targets(
                 targets.update(one for one in importers.get(dotted, ()) if exists(one))
         if path.startswith(PAID_PATH) and exists(WITNESS):
             targets.add(WITNESS)
+        for prefix, coupled in COUPLED:
+            if path.startswith(prefix):
+                targets.update(one for one in coupled if exists(one))
     return tuple(sorted(targets))
 
 

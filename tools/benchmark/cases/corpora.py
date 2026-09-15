@@ -54,6 +54,28 @@ def island_corpus(terms: int) -> str:
     return " + ".join(parts) + "\n"
 
 
+def dense_earley_corpus(terms: int, per_line: int = 24) -> str:
+    """A left-recursive chain of SINGLE-CHARACTER terms, bounded per line.
+
+    Every character is a term or the operator between two, so essentially every
+    chart column holds items — the opposite of a run-collapsed grammar, where a
+    terminal steps many characters at once and leaves most columns empty. That
+    is what makes this the dense control: a per-column change reads a saving on
+    a sparse chart whether or not it taxes the columns that are occupied.
+
+    The chain is per LINE rather than over the whole document, so its depth is
+    ``per_line`` and does not grow with the document. Depth is a property of
+    this generator, not of what is being measured, and a chain of thousands
+    would price the recursion limit instead.
+    """
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    lines: list[str] = []
+    for start in range(0, terms, per_line):
+        width = min(per_line, terms - start)
+        lines.append("+".join(letters[(start + n) % 26] for n in range(width)))
+    return "\n".join(lines) + "\n"
+
+
 def announced_corpus(sections: int) -> str:
     """Sections of a header and four body lines, with no readable boundary."""
     letters = "abcdefghijklmnopqrstuvwxyz"
