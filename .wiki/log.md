@@ -2082,3 +2082,26 @@ rule, reproducible and expensive: a per-character loop reading the document
 from a module-level name scales at 0.45x on sixteen threads whatever the
 container, because a module global is a shared mortal object and every read is
 an atomic reference count. Pass the text in.
+
+## What a compiled artefact may hold
+
+A full collection walks the whole tracked population, so what an artefact
+RETAINS is a permanent cost whether or not anything reads it.
+
+`PdaTables` no longer carries `.clones`. The authored
+`CloneSpec`/`ArmSpec`/`CharSet` layer is what the clone compiler produces on
+the way to the flat `PdaProgram`; once `flatten_program` has lowered it the
+artefact is the program, and holding it on as well kept 14–39% of the
+artefact's tracked objects alive with nothing on the parse path reading them —
+3,314 on the GBNF self-grammar, 5,629 on ABNF's, 12,608 on the largest roster
+grammar. A full collection over the whole roster's artefacts went from 9.5 ms
+to 8.1 ms, with 166,400 tracked objects down to 131,760. Parse time did not
+move: both engines' seats sit inside their own null arm across five
+interleaved process pairs, in both arm orders. `compile_clones` is where a
+caller that wants the specs asks, and it hands back a compiler of its own.
+
+The instrument that found the retention is worth its own line: a reachability
+census must descend only into objects the compile CREATED. A walk that crosses
+one pre-existing object reaches a type, then a method, then that module's
+globals, and from there the whole interpreter — the first version reported a
+delta of zero on every row because the first owner had swallowed the process.

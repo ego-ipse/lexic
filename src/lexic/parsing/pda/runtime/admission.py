@@ -134,21 +134,39 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
 
     Frames alias each other: a frame's ``out`` IS the run holder, a parent's
     per-item sink list, or (through a transparent frame) an ancestor's — so a
-    plain per-frame copy would break the funnels. Every list is duplicated
-    once via an identity map and every reference re-resolved through it;
-    model objects inside sinks are immutable and stay shared.
+    plain per-frame copy would break the funnels. Every container is mapped
+    once via an identity map and every reference re-resolved through it, so a
+    list two frames share is one list on the far side too.
+
+    **The containers fork EMPTY.** Copying their contents moved the whole
+    accumulated parse into every fork, and a linear number of forks each
+    copying a linearly-growing sink is quadratic: on a 512 KB grammar document
+    it was 830 million list elements moved so that 14,632 could be read. What
+    a fork needs is what it BUILDS; the prefix it inherited is common to every
+    side by construction, which is the same fact :func:`pending_values`
+    already relies on to compare deltas rather than whole states.
+
+    Each copy keeps a reference to the frame it came from
+    (:attr:`~lexic.parsing.pda.runtime.build.Frame.inherited`) and takes the
+    prefix back — by copying it in front of its own values, never by writing
+    through the original — at the one moment it is read, which is its build.
+    Two live universes therefore still append only to their own lists.
     """
     remap: dict[int, list[Any]] = {}
     copies: list[Frame[Carry]] = []
     for frame in stack:
-        new = Frame(frame.arm, _dup(frame.out, remap), frame.clone, 0)
+        new = Frame(frame.arm, _fork(frame.out, remap), frame.clone, 0)
         new.i = frame.i
         new.count = frame.count
+        new.inherited = frame
         if frame.ends is not None:
+            # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed
+            # at ``arm.n + 1``, so it neither grows with the document nor
+            # survives being started empty. Copied whole, for a constant.
             new.ends = _dup(frame.ends, remap)
         sinks = frame.sinks
         if sinks is not None:
-            new.sinks = [slot if slot is None else _dup(slot, remap) for slot in sinks]
+            new.sinks = [slot if slot is None else _fork(slot, remap) for slot in sinks]
         copies.append(new)
     return copies
 
@@ -264,6 +282,20 @@ def _dup(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
     return got
 
 
+def _fork(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
+    """``lst``'s empty fork — one per original, so aliases stay aliased.
+
+    The contents are not copied; see :func:`frames_copy` for why, and
+    :meth:`~lexic.parsing.pda.runtime.build.Frame.adopt_inherited` for where
+    they come back.
+    """
+    got = remap.get(id(lst))
+    if got is None:
+        got = []
+        remap[id(lst)] = got
+    return got
+
+
 def control_signature(stack: list[Frame], pos: int) -> tuple[Any, ...]:
     """What a probe side must SHARE with the other to have a common future.
 
@@ -332,6 +364,12 @@ def value_shape(stack: list[Frame]) -> tuple[Any, ...]:
     lets :func:`pending_values` compare the delta instead of the whole
     accumulated state — the difference between O(built-since) and O(built), and
     the difference between a linear parse and a quadratic one.
+
+    Taken on the LIVE stack, whose containers hold what they hold. A fork's
+    containers start empty (:func:`frames_copy`), so its own values are
+    everything past a watermark of zero — and :func:`pending_values` reads a
+    container shorter than its watermark as "replaced, compare whole", which
+    on a forked side is exactly its own values and nothing else.
     """
     return tuple(
         (

@@ -142,7 +142,7 @@ def test_flatclone_declares_exactly_the_selector_and_build_fields():
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "completion"}
+    expected |= {"runarm", "needs_ends", "completion", "fold"}
     assert set(FlatClone.__slots__) == expected
 
 
