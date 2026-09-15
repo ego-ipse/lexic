@@ -25,7 +25,6 @@ from lexic.parsing.pda.compiler.specs import (
     CloneKey,
     IslandRef,
 )
-from lexic.parsing.pda.core.charsets import CharSet
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
@@ -49,12 +48,12 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
 
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
         start rule is an island (the whole-grammar opt-out signal for Task 6).
-    :ivar island_follow: Island rule name → its soft-FOLLOW
-        :class:`~lexic.parsing.pda.core.charsets.CharSet` — the continuation
-        evidence the island seam's cross-span check reads. Rule-level (union
-        over reference sites), so ⊇ any one site's continuation: an error can
-        only be a spurious bail, never a wrong commit. Its key set IS the
-        island set (:attr:`islands` reads it back).
+    :ivar islands: The island rule names. The seam's continuation evidence
+        used to live here as a per-island FOLLOW map; it does not, because the
+        set a two-ends check needs is what the island's REFERENCES are
+        followed by, not what the island rule's own FOLLOW contains, and that
+        set rides on the reference
+        (:attr:`~lexic.parsing.pda.compiler.specs.IslandRef.cont`).
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
@@ -63,14 +62,14 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = (
         "start_key",
-        "island_follow",
+        "islands",
         "instance_grammar",
         "program",
         "_island_tables",
     )
 
     start_key: CloneKey | IslandRef
-    island_follow: dict[str, CharSet]
+    islands: frozenset[str]
     instance_grammar: IrAst
     program: PdaProgram
     _island_tables: dict[tuple[str, int], ParserTables]
@@ -90,16 +89,10 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         own attribute set stays put.
         """
         self.start_key = start_key
-        follow = compiler.analysis.follow
-        self.island_follow = {name: follow[name] for name in compiler.islands}
+        self.islands = compiler.islands
         self.instance_grammar = instance_grammar
         self.program = flatten_program(compiler.clones, start_key)
         self._island_tables = {}
-
-    @property
-    def islands(self) -> frozenset[str]:
-        """The island rule names — :attr:`island_follow`'s key set."""
-        return frozenset(self.island_follow)
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
         """The :class:`ParserTables` for island rule ``name``, built once per
