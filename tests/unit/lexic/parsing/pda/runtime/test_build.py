@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     no_fast_construction,
 )
+from lexic.parsing.pda.compiler.program.lowering import shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_GTEXT,
@@ -34,11 +35,26 @@ from lexic.parsing.pda.runtime.build import (
     build_sequence,
     build_validated,
     build_vstr,
-    fast_values,
     finish_delegate,
     leaf_mismatch,
 )
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+
+
+class Built(tuple):
+    """A stand-in record — the build tail only ever makes a field tuple."""
+
+    __slots__ = ()
+
+
+def built_values(clone, text, ends, sinks):
+    """The field values one shape's composed build produces, in field order.
+
+    The per-field semantics these tests pin moved from a generic dispatcher
+    into the builder composed at bake; the values it yields are the same ones,
+    read off the record instead of out of a capture list.
+    """
+    return list(shape_build(Built, clone.plan)(text, ends, sinks))
 
 
 def make_frame(slots):
@@ -195,72 +211,60 @@ def seq_clone(fields, *, fast, defaults=None, n_items=None, plan=None):
 def test_fast_build_fills_text_and_model_slots():
     """``M_TEXT`` reads the item span; ``M_MODEL`` reads the sink head."""
     fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
-    seen = []
-    clone = seq_clone(fields, fast=lambda values: seen.extend(values) or "built")
-    out = clone.fast(fast_values("abXY", clone, ([0, 2, 2], [None, ["submodel"]])))
-    assert out == "built"
-    assert seen == ["ab", "submodel"]
+    clone = seq_clone(fields, fast=no_fast_construction)
+    assert built_values(clone, "abXY", [0, 2, 2], [None, ["submodel"]]) == [
+        "ab",
+        "submodel",
+    ]
 
 
 def test_fast_build_models_slot_defaults_to_an_empty_tuple():
     """``M_MODELS`` with no sink yields ``()`` — coerced in the build, not the ctor."""
     fields = ((0, M_MODELS, "kids", 0),)
-    seen = []
-    clone = seq_clone(fields, fast=seen.extend)
-    clone.fast(fast_values("", clone, ([0, 0], None)))
-    assert seen == [()]
+    clone = seq_clone(fields, fast=no_fast_construction)
+    assert built_values(clone, "", [0, 0], None) == [()]
 
 
 def test_fast_build_models_slot_coerces_the_live_sink_list():
     """The kernel hands a live list; the values carry a tuple (never aliased)."""
     fields = ((0, M_MODELS, "kids", 0),)
-    seen = []
-    clone = seq_clone(fields, fast=seen.extend)
+    clone = seq_clone(fields, fast=no_fast_construction)
     sink = ["a", "b"]
-    clone.fast(fast_values("", clone, ([0, 0], [sink])))
+    values = built_values(clone, "", [0, 0], [sink])
     sink.append("c")
-    assert seen == [("a", "b")]
+    assert values == [("a", "b")]
 
 
 def test_fast_build_gtext_falls_back_to_the_default_on_an_empty_span():
     """An empty ``M_GTEXT`` span with ``lo == 0`` takes the plan's default."""
     fields = ((0, M_GTEXT, "opt", 0),)
-    seen = []
-    clone = seq_clone(fields, fast=seen.extend, defaults={"opt": "DEF"})
-    clone.fast(
-        fast_values("x", clone, ([0, 0], None))
-    )  # span (0,0) empty, lo 0 -> default
-    assert seen == ["DEF"]
+    clone = seq_clone(fields, fast=no_fast_construction, defaults={"opt": "DEF"})
+    # span (0, 0) empty, lo 0 -> default
+    assert built_values(clone, "x", [0, 0], None) == ["DEF"]
 
 
 def test_fast_build_gtext_keeps_an_empty_span_a_required_field_asked_for():
     """``lo`` non-zero means the empty span IS the value — not a missing field."""
     fields = ((0, M_GTEXT, "req", 1),)
-    seen = []
-    clone = seq_clone(fields, fast=seen.extend, defaults={"req": "DEF"})
-    clone.fast(fast_values("x", clone, ([0, 0], None)))
-    assert seen == [""]
+    clone = seq_clone(fields, fast=no_fast_construction, defaults={"req": "DEF"})
+    assert built_values(clone, "x", [0, 0], None) == [""]
 
 
 def test_fast_build_model_slot_falls_back_to_the_default_on_an_empty_sink():
     """An optional ``M_MODEL`` whose sink never filled takes the default."""
     fields = ((0, M_MODEL, "kid", 0),)
-    seen = []
-    clone = seq_clone(fields, fast=seen.extend, defaults={"kid": None})
-    clone.fast(fast_values("", clone, ([0, 0], None)))
-    assert seen == [None]
+    clone = seq_clone(fields, fast=no_fast_construction, defaults={"kid": None})
+    assert built_values(clone, "", [0, 0], None) == [None]
 
 
 def test_fast_build_const_slot_is_the_plan_default():
     """A class field no bound field supplies is ``M_CONST`` — a plan constant."""
-    seen = []
     clone = seq_clone(
         ((0, M_TEXT, "head", 1),),
-        fast=seen.extend,
+        fast=no_fast_construction,
         plan=((M_TEXT, 0, 1, None), (M_CONST, 0, 0, "fixed")),
     )
-    clone.fast(fast_values("ab", clone, ([0, 2], None)))
-    assert seen == ["ab", "fixed"]
+    assert built_values(clone, "ab", [0, 2], None) == ["ab", "fixed"]
 
 
 def test_fast_build_does_not_intern_the_record_path():
@@ -271,19 +275,12 @@ def test_fast_build_does_not_intern_the_record_path():
     are already at hand. Value equality is what the parity gate gets; identity
     sharing is not promised for records.
     """
-    fields = ((0, M_TEXT, "head", 1),)
-    calls = {"n": 0}
-
-    def fast(values):
-        calls["n"] += 1
-        return list(values)
-
-    clone = seq_clone(fields, fast=fast)
-    a = clone.fast(fast_values("ab", clone, ([0, 2], None)))
-    b = clone.fast(fast_values("ab", clone, ([0, 2], None)))
+    clone = seq_clone(((0, M_TEXT, "head", 1),), fast=no_fast_construction)
+    build = shape_build(Built, clone.plan)
+    a = build("ab", [0, 2], None)
+    b = build("ab", [0, 2], None)
     assert a == b
     assert a is not b
-    assert calls["n"] == 2
 
 
 def test_build_validated_unknown_mode_raises():
@@ -324,6 +321,35 @@ def test_build_validated_does_not_cache_a_raising_construction():
     # a second identical build now hits the cache (ctor not re-invoked)
     assert build_validated("ab", spans, clone, memo) is out
     assert state["n"] == 2  # one failed + one successful; the hit adds nothing
+
+
+def test_build_sequence_licensed_branch_runs_the_clone_s_composed_build():
+    """A licensed clone is built by its OWN ``build``, off the frame's lanes.
+
+    The branch reads ``frame.ends`` and ``frame.sinks`` and hands them over in
+    that order — a swap would still construct a record of the right width, so
+    the argument order is pinned here rather than left to the integration
+    parity test.
+    """
+    plan = ((M_TEXT, 0, 1, None), (M_MODEL, 1, 1, None))
+    clone = cast(
+        FlatClone,
+        SimpleNamespace(
+            n_items=2,
+            ctor=lambda **kwargs: ("by-keyword", kwargs),
+            fast=lambda values: ("by-plan", values),
+            fields=(),
+            plan=plan,
+            build=shape_build(Built, plan),
+        ),
+    )
+    frame = make_frame(
+        {"arm": flat_arm(2), "ends": [0, 2, 2], "sinks": [None, ["submodel"]]}
+    )
+    built = build_sequence("abXY", frame, clone, {})
+    want = tuple.__new__(Built, ("ab", "submodel"))
+    assert built == want
+    assert type(built) is type(want)
 
 
 def test_build_sequence_empty_arm_builds_bare_ctor():

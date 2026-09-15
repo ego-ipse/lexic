@@ -25,8 +25,8 @@ from lexic.parsing.parallel.orchestrate import (
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
     reads_a_sweep,
+    rebase,
     scan_marks,
-    scan_windows,
     shared_scanner,
     sole_mark,
 )
@@ -112,13 +112,13 @@ def test_a_routed_region_split_never_pays_for_the_bracket_sweep(
     line = "abcdefghij"
     text = "!abc\n" + "".join(f"{line[i % 10]}wordy\n" for i in range(900)) + ">"
     swept: list[int] = []
-    real_find = orchestrate.find
+    real_find = orchestrate.par_find
 
     def counting_find(*args, **kwargs):
         swept.append(1)
         return real_find(*args, **kwargs)
 
-    monkeypatch.setattr(orchestrate, "find", counting_find)
+    monkeypatch.setattr(orchestrate, "par_find", counting_find)
     split = split_model(
         parse_model, compiled.codegen_grammar, Request(text, compiled.product), 8
     )
@@ -144,7 +144,7 @@ def test_universal_gates_skip_plan_and_safety_analysis(
     monkeypatch.setattr(orchestrate, "_split_plans", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "owner_excludes", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "terminates_once", unexpected_analysis)
-    monkeypatch.setattr(orchestrate, "find", unexpected_analysis)
+    monkeypatch.setattr(orchestrate, "par_find", unexpected_analysis)
 
     assert (
         orchestrate.split_model(
@@ -802,9 +802,9 @@ def test_the_shared_sweep_reports_every_mark_the_plan_scanners_would() -> None:
     assert shared is not None
 
     with WorkPool(4) as pool:
-        narrowed = scan_windows(shared, text, 4, pool)
+        narrowed = rebase(shared, text, 4, pool)
         for plan in plans:
-            own = scan_windows(plan.scanner, text, 4, pool)
+            own = rebase(plan.scanner, text, 4, pool)
             assert scan_marks(plan, text, 4, pool, narrowed) == scan_marks(
                 plan, text, 4, pool, own
             )

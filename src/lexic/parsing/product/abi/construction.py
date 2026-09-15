@@ -49,11 +49,15 @@ class ConstructionLicence[Carry](NamedTuple):
     :ivar defaults: What an omitted field falls back to on the positional
         path, which cannot omit.
     :ivar order: The class's field names, in construction order.
+    :ivar record: The class the grant is FOR. A build that specialises the
+        grant needs its subject, and reading it back off ``construct`` would be
+        guessing at what the grant already knows.
     """
 
     construct: Callable[[list[ProductValue[Carry]]], Carry]
     defaults: Mapping[str, ProductValue[Carry]]
     order: tuple[str, ...]
+    record: type[Carry]
 
 
 class RecordConstructor[Carry](NamedTuple):

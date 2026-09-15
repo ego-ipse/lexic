@@ -73,28 +73,71 @@ which under the old rule failed the whole run on code that had not changed.
 Unresolved rows print in full — ratio, clock, interval, envelope, pair count —
 and the summary says how many there were and that they did not block.
 
+On the remote the gate runs as one `compare.py` job per grammar, each
+uploading its `--json` verdicts; `aggregate.py` reads them back, applies the
+same rule, and writes the job summary — a grammar whose job never reported
+and every `slower` row come first, every row in one table below them.
+
 `regression.py` is structure, and it is what the pre-commit hook runs. A hook
 cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.
 
-`competitors_baseline.json` is the one committed artifact the README renders
-from — every seat's medians from a whole-roster `bench --json` run, Lexic's own
-rows included. It is neither a cross-machine gate nor an approval channel.
+## The local tier
 
-Each `(grammar, seat)` cell carries its own record: the date it was taken, the
-rounds behind it, the worker request an mt row rode, and which of the case's
-documents it read. That is the granularity `--only` and `--seats` update, so a
-run that refreshes one cell cannot restate an untouched one as a measurement it
-never was. `engines` holds display metadata and nothing else, and the README's
-captions and column headers are derived from the records — a column whose cells
-disagree on the worker count is refused rather than labelled with one of them.
+`quick.py` answers one question — did this change move anything on a paid path
+it can reach? — and it answers it for every row it selects. It is not a cheaper
+sweep of the roster. It is the gate's own rule, over the gate's own control
+envelope, applied to a smaller set of rows and a stated budget.
 
-A cell's VALUE is a finite number, `refuses` (this seat cannot take the row's
-language) or `unmeasured` (it can, and the run obtained no figure it stands
-behind). Those are different facts, so a cell holding either says which in its
-record's `note`, and a cell holding a number carries no note at all. The note
-is bounded — one Lark reduce/reduce verdict runs to 70 KB of the same
-collision restated per terminal, and the head is the reason. `regression.py`
-checks that pairing over the whole file: refusals once published the word with
-`note: null`, and every per-cell check passed, because none of them read a
-value beside its record.
+```bash
+uv run python -m tools.benchmark.quick --base-root ../base --base-rev HEAD~1
+```
+
+**The rows come from the diff.** `git` says what changed — tracked files and
+untracked ones, because a module written and not yet added is exactly the
+change whose rows most need measuring — and `scope/paths.py` maps each changed
+path to the seats whose paid path it sits on. A change under `parsing/pda/`
+selects the predictive seats and the two folding variants that are also the
+PDA; one under `parsing/parallel/` selects the threaded seats; one under `ir/`
+or `compile/` selects everything. A path under the package that the table does
+not name selects everything too, which is the safe direction: minutes are
+cheaper than a regression nobody saw. A change outside the package selects
+nothing, and the run says so and exits 0.
+
+`--only` and `--grammars` **narrow** that selection. Widening it is refused: a
+reading on a row the change cannot reach answers nobody's question, with budget
+the reachable rows needed.
+
+**The budget is process pairs, and the run prints what the selection costs
+before it starts.** The default budget is exactly that cost — `MIN_PAIRS` for
+every selected row — so a default run measures every row at the count below
+which the gate decides nothing. `--budget` caps it, and a row the cap cannot
+afford is printed with zero pairs and the reason rather than dropped from the
+table; a row missing from a table reads as a row that did not matter.
+
+**Spare budget goes where it can buy an answer.** Unresolved rows are funded in
+descending distance from 1.0 — the row most likely to be a regression is the
+one that looks most like one — but only where the pairs the row would need fit
+what remains. A row needing more than that keeps its projection instead.
+
+**No row is left saying nothing.** Every unresolved row is reported with the
+pair count that would settle it, projected from its own per-pair spread. That
+is the difference between "cannot tell" and "not at this budget, and here is
+the count that would": one is a dead end, the other says whether to reserve a
+quiet machine or to stop looking. A row needing about forty pairs is worth
+another run; one needing four hundred has an effect smaller than the host can
+see, and no amount of rerunning changes that.
+
+**The words are the gate's** — `ok`, `slower`, `faster`, `unresolved` — because
+the rule is the gate's, and a run exits 1 on `slower` exactly as `compare.py`
+does. An unresolved row never blocks: it has measured no slowdown, only that
+this host could not separate the arms within the pairs it was given.
+
+The threaded seats stay opt-in behind `--mt`. They cannot share the machine, so
+their processes run end to end; a run without the flag says how many reachable
+threaded rows it left out.
+
+What does not change is the observation: the same worker, the same rounds, the
+same row contract, and the same byte-identical control beside every candidate
+pair. That control IS the null arm, and its median is printed per schedule
+beside the median row envelope.

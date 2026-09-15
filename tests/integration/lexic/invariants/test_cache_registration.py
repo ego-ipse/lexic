@@ -25,13 +25,24 @@ REGISTRY_MODULE = SRC / "parsing" / "caches.py"
 is the release mechanism itself, not a candidate memo -- there is nowhere
 upstream of it to register it with."""
 
-NOT_IDENTITY_KEYED = frozenset({("parsing/parallel/pool.py", "_IDLE")})
+NOT_IDENTITY_KEYED = frozenset(
+    {
+        ("parsing/parallel/pool.py", "_IDLE"),
+        ("parsing/pda/compiler/program/lowering.py", "_READS"),
+        ("parsing/pda/compiler/program/lowering.py", "_TEMPLATES"),
+    }
+)
 """Module-level dicts whose key type mentions ``int`` but is not an object
 identity (``id(...)``) at all.
 
 ``_IDLE`` is keyed by WORKER COUNT -- a small, bounded natural number, not an
 address subject to reuse -- and already carries its own seam
 (:func:`~lexic.parsing.parallel.pool.reset_pools`, capped by ``RETAINED``).
+
+``_READS`` and ``_TEMPLATES`` are closed vocabularies, not caches: one keyed by
+the build-mode code and one by a record's field count. Both are written at
+import and never grow, so there is no entry to evict and no object to pin.
+
 Nothing here pins an id() alive, so :func:`~lexic.parsing.caches.memo` does
 not apply; the exemption is what keeps the guard honest rather than blind.
 """

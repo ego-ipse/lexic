@@ -19,7 +19,7 @@ def test_taxonomy_seeds_empty():
     assert not tax.conflicts and not tax.demoted and not tax.fail
     assert not tax.arm_gates and not tax.loop_gates
     assert not tax.pn_arm_gates and not tax.pn_loop_gates
-    assert not tax.struct_loop_gates
+    assert not tax.ready_loop_gates
 
 
 def test_gate_accessors_are_live_views_of_the_store():
@@ -31,22 +31,21 @@ def test_gate_accessors_are_live_views_of_the_store():
     assert tax.gates.loop == {7: ()}
 
 
-def test_store_struct_loop_accepts_equal_respecification():
+def test_store_ready_loop_accepts_equal_respecification():
     """Re-storing an identical spec (fresh recognizer object) is not a conflict."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
-    assert tax.struct_loop_gates[1].kind == SG_MATCH
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    stored = tax.ready_loop_gates[1]
+    assert isinstance(stored, ScanGate) and stored.kind == SG_MATCH
 
 
-def test_store_struct_loop_raises_on_conflicting_spec():
+def test_store_ready_loop_raises_on_conflicting_spec():
     """A different spec under the same item identity is the opt-out tripwire."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
     with pytest.raises(UnsupportedConstructError):
-        tax.store_struct_loop(
-            1, ScanGate(SG_SCAN, rec(), (0,), (frozenset("x"), False))
-        )
+        tax.store_ready_loop(1, ScanGate(SG_SCAN, rec(), (0,), (frozenset("x"), False)))
 
 
 def test_store_group_attempt_accepts_equal_respecification():
@@ -82,3 +81,39 @@ def test_store_group_attempt_raises_on_conflicting_order_too():
     tax.store_group_attempt(1, (AttemptSpec((0, 1)), follow))
     with pytest.raises(UnsupportedConstructError):
         tax.store_group_attempt(1, (AttemptSpec((1, 0)), follow))
+
+
+def test_two_equal_greedy_specs_may_be_stored_twice() -> None:
+    """The runtime-ready slot holds either kind, so its tripwire must read both.
+
+    It read a :class:`ScanGate`'s fields unconditionally, so re-storing an
+    equal GREEDY spec raised ``AttributeError`` from the tripwire itself —
+    a crash where the contract says "an equal spec is fine".
+    """
+    taxonomy = Taxonomy()
+    taxonomy.store_ready_loop(1, (";", "", None))
+    taxonomy.store_ready_loop(1, (";", "", None))
+
+    assert taxonomy.ready_loop_gates[1] == (";", "", None)
+
+
+def test_two_different_greedy_specs_for_one_node_are_refused() -> None:
+    """The tripwire's whole job, on the payload it could not previously read."""
+    taxonomy = Taxonomy()
+    taxonomy.store_ready_loop(1, (";", "", None))
+
+    with pytest.raises(UnsupportedConstructError, match="conflicting"):
+        taxonomy.store_ready_loop(1, (";;", "", None))
+
+
+def test_a_scan_gate_and_a_greedy_spec_never_compare_equal() -> None:
+    """Two kinds in one slot must not silently overwrite each other.
+
+    They are different decisions about the same node, which is exactly what the
+    identity key cannot express — so it refuses rather than pick one.
+    """
+    taxonomy = Taxonomy()
+    taxonomy.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+
+    with pytest.raises(UnsupportedConstructError, match="conflicting"):
+        taxonomy.store_ready_loop(1, (";", "", None))

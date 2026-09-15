@@ -305,9 +305,27 @@ def _model_defaults(cls: type) -> Mapping[str, ProductValue[GrammarModel]]:
 def _declared_licence(
     cls: type[GrammarModel], defaults: Mapping[str, ProductValue[GrammarModel]]
 ) -> ConstructionLicence[GrammarModel]:
-    """The class's own construction contract, as the record a rule carries."""
+    """The class's own construction contract, as the record a rule carries.
+
+    The positional build the PDA composes INLINES what this grant means — one
+    ``tuple.__new__`` with validation skipped — so the grant is refused unless
+    the class's positional constructor is the spine's own function. A subclass
+    that meant something else by it would otherwise be bypassed silently.
+
+    :raises UnsupportedConstructError: When ``cls`` overrides ``_from_values``.
+    """
+    overrides = [
+        base
+        for base in cls.__mro__
+        if "_from_values" in vars(base) and base is not GrammarModel
+    ]
+    if overrides:
+        raise UnsupportedConstructError(
+            f"model product: {overrides[0].__name__} overrides _from_values, so "
+            "positional construction is not the spine's and cannot be inlined"
+        )
     construct, _defaults, order = cls.fast_construct()
-    return ConstructionLicence(construct, defaults, order)
+    return ConstructionLicence(construct, defaults, order, cls)
 
 
 def _fast_licence(

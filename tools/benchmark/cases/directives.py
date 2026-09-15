@@ -36,6 +36,13 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "arithmetic": (("number",), ()),
     "backtrack": (("bind", "block"), ("nl",)),
     "csv": (("field",), ("nl",)),
+    # Nothing here is noise: the blank line IS the paragraph boundary, so a
+    # `@non-semantic nl` would be marking the row's whole subject skippable.
+    # Nothing to declare: every unit is one character, so there is no rule
+    # whose body is a run to inline and no noise rule to relax. The variant
+    # rows measure the same grammar, which is what makes them comparable here.
+    "dense-earley": ((), ()),
+    "island-earley": (("name", "text"), ()),
     "gbnf-meta": (
         (
             "cc-esc-other",
@@ -64,6 +71,8 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "mixedends": (("event", "note", "span"), ("nl", "sp")),
     "nested": ((), ()),
+    "split-nullable": ((), ()),
+    "wrapped-unit": ((), ()),
     "vyx": (
         (
             "col-name",

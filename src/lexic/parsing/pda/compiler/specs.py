@@ -4,7 +4,7 @@ The flat, tuple-coded records :func:`~lexic.parsing.pda.compiler.clones.compile_
 produces before :func:`~lexic.parsing.pda.compiler.clones.flatten_program` lowers them
 into the int-coded runtime :class:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram`: the
 clone/arm/item/group specs plus the loop gates (:class:`StopGate`,
-:class:`PairGate`, :class:`KTupleGate`, :class:`PeekGate` — the folding-aware
+:class:`KTupleGate`, :class:`PeekGate` — the folding-aware
 :class:`~lexic.parsing.pda.core.scanner.ScanGate` completes the union), and the
 clone key / island reference targets.
 
@@ -35,7 +35,6 @@ __all__ = [
     "ArmGates",
     "StopGate",
     "AttemptGate",
-    "PairGate",
     "KTupleGate",
     "PeekGate",
     "ItemSpec",
@@ -109,21 +108,11 @@ class AttemptGate(NamedTuple):
     follow: CharSet
 
 
-class PairGate(NamedTuple):
-    """An LL(2) loop gate (pivot 6): take another iteration only when
-    ``text[pos:pos+2]`` is a taken prefix (chess ``fxf5`` vs ``f5``).
-
-    :ivar pairs: The 2-char prefixes that select "take another iteration".
-    """
-
-    pairs: frozenset[str]
-
-
 class KTupleGate(NamedTuple):
     """A ``k``-window loop gate (P2): take another iteration iff
     ``text[pos:pos+k]`` EOF-exactly matches a ``taken`` window.
 
-    The analysis-sourced generalisation of :class:`PairGate` past ``k = 2``
+    The analysis-sourced 2-or-more-character window gate
     (:attr:`~lexic.parsing.pda.analysis.analysis.Taxonomy.loop_gates`, never
     recomputed) — chess ``nonpawn``, separable at ``k = 3`` via rule-FOLLOW.
 
@@ -168,7 +157,38 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: LoopGate
+
+
+class GreedyGate(NamedTuple):
+    """Exit the loop exactly where the leftmost chain does, and nowhere else.
+
+    The split-greedy licence
+    (:mod:`~lexic.parsing.pda.analysis.gates.greedy`) as the clone compiler
+    carries it. No ``k`` separates the decision this settles and none has to:
+    the loop runs greedily because the split rule does, so the only place it
+    may stop is where the unit's tail and its certified continuation are all
+    that remain.
+
+    :ivar tail: ``m`` copies of the item's terminator.
+    :ivar close: The continuation matched in full after the tail; ``""`` where
+        the certified boundary is the end of the input.
+    :ivar starters: What the continuation may BEGIN with, where those cannot
+        begin an item; ``None`` where it is matched by spelling instead.
+    """
+
+    tail: str
+    close: str
+    starters: frozenset[str] | None
+
+    @property
+    def width(self) -> int:
+        """Characters this gate reads: the tail plus the charged continuation."""
+        return len(self.tail) + len(self.close) + 1
+
+
+type LoopGate = StopGate | AttemptGate | KTupleGate | PeekGate | ScanGate | GreedyGate
+"""Every gate a loop's take/skip decision can compile to."""
 
 
 class ArmSpec(NamedTuple):

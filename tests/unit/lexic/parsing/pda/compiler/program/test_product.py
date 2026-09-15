@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_construction,
     no_fast_construction,
 )
+from lexic.parsing.pda.compiler.program.lowering import no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_SEQ,
@@ -69,6 +70,7 @@ def test_a_transparent_clone_builds_nothing_and_records_no_range():
     assert clone.fields == ()
     assert clone.plan == ()
     assert clone.fast is no_fast_construction
+    assert clone.build is no_shape_build
     assert clone.defaults is None
     assert clone.needs_ends is False
 
@@ -117,6 +119,7 @@ def test_a_matched_construction_with_no_licence_gets_no_positional_plan():
     bake_product_build(clone, routine)
     assert clone.plan == ()
     assert clone.fast is no_fast_construction
+    assert clone.build is no_shape_build
     assert clone.defaults is None
 
 
@@ -124,7 +127,7 @@ def test_a_licensed_construction_bakes_the_positional_plan():
     """A licence grants the class-ordered positional plan."""
     clone = _clone()
     make, _defaults, order = Pair.fast_construct()
-    licence = ConstructionLicence(make, {"b": "default-b"}, order)
+    licence = ConstructionLicence(make, {"b": "default-b"}, order, Pair)
     construction = Construction(
         Pair,
         ("a",),
@@ -137,17 +140,30 @@ def test_a_licensed_construction_bakes_the_positional_plan():
     assert clone.fast is make
     assert clone.defaults == {"b": "default-b"}
     assert clone.plan == ((M_TEXT, 0, 1, None), (M_CONST, 0, 0, "default-b"))
+    built = clone.build("ab", [0, 2], None)
+    want = tuple.__new__(Pair, ("ab", "default-b"))
+    assert built == want
+    assert type(built) is type(want)
 
 
 def test_a_licensed_matched_field_gets_the_m_value_plan_entry():
-    """The field the rule's own extent fills is M_VALUE, not M_CONST."""
+    """The field the rule's own extent fills is M_VALUE, not M_CONST.
+
+    The plan carries the entry because `vstr_model` reads it — that is the
+    construction's home. What the clone does NOT get is a composed build: the
+    extent is not any item's span, so no positional build can say it.
+    """
     clone = _clone()
     make, _defaults, order = Pair.fast_construct()
-    licence = ConstructionLicence(make, {}, order)
+    licence = ConstructionLicence(make, {}, order, Pair)
     construction = Construction(Pair, ("a",), frozenset(), matched="b", licence=licence)
     routine = _routine((int(CaptureMode.TEXT),), (0,), 1, -1, construction)
     bake_product_build(clone, routine)
     assert clone.plan[1][0] == M_VALUE
+    assert clone.mode == BUILD_VALUE_STR
+    assert clone.build is no_shape_build
+    with pytest.raises(UnsupportedConstructError, match="no positional build"):
+        clone.build("ab", [0, 2], None)
 
 
 # ── keyword capture layout — absence coded on `lo`, not on mode alone ────

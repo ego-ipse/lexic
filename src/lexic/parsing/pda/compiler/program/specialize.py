@@ -576,7 +576,7 @@ def _mark_leaves(clone: FlatClone) -> None:
     frame-lessly; one reached by ENTRY (through a dispatch chase, say) was not,
     and paid a frame per occurrence for a match that cannot descend.
     """
-    if clone.fast is no_fast_construction:
+    if clone.fast is no_fast_construction:  # a CONSTRUCTOR, not a composed build
         return
     if clone.mode == BUILD_VALUE_STR:
         clone.leaf = _vstr_inlinable(clone) or clone.runarm is not None

@@ -41,6 +41,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
+    accept_items,
     accept_node,
     root_ambiguous,
     to_chart,
@@ -129,6 +130,18 @@ def first_meaning(
     return _first_derivation(d, n, text, tables)[2]
 
 
+def _accepting_handles(kernel: Kernel) -> list[int]:
+    """Every whole-input completion of the start symbol, as packed handles.
+
+    One for the ordinary parse; several where the start symbol derives the
+    input through more than one production, which is not an ambiguity point in
+    the link table — the siblings live in other accepting ITEMS — and so has to
+    be enumerated here rather than found by a walk.
+    """
+    bits = kernel.tables.packing.bits
+    return [(item << bits) | len(kernel.text) for item in accept_items(kernel)]
+
+
 def _first_derivation(
     d: IrSelf,
     n: IrSelf,
@@ -148,12 +161,23 @@ def _first_derivation(
     _require_accept(kernel, n)
     handle = accept_handle(kernel)
     first: IrSelf = IrNone
-    if not root_ambiguous(kernel):
-        # RESOLVING mode: an empty choices map pins nothing, so the chain
-        # policy decides the splits. Bail mode would decline on exactly the
-        # ambiguous inputs at issue and fall through to the stream, which
-        # takes chart order — the very thing the two engines disagreed on.
-        first = FastTree(kernel, {}).build(handle)
+    # RESOLVING mode: an empty choices map pins nothing, so the chain policy
+    # decides the splits. Bail mode would decline on exactly the ambiguous
+    # inputs at issue and fall through to the stream, which takes chart order —
+    # the very thing the two engines disagreed on.
+    #
+    # EVERY accepting production is tried, not only the one-production case. A
+    # many-production root is not a packed key — the siblings live in other
+    # accepting ITEMS — so `FastTree` can still build each production on its
+    # own, and the siblings are what `different_meaning` compares against
+    # afterwards. Skipping them sent a root-ambiguous parse to the stream,
+    # whose first is CHART ORDER, so a resolver supplied to settle the ARM
+    # choice silently answered that span's SPLITS by chart order too.
+    for candidate in _accepting_handles(kernel):
+        built = FastTree(kernel, {}).build(candidate)
+        if isinstance(built, ParseTree):
+            first, handle = built, candidate
+            break
     if not isinstance(first, ParseTree):
         if tables is not None:  # run terminals shape the chart — re-parse plain
             kernel = Kernel(compile_tables(n, tier_for(len(text))), text, True).run()

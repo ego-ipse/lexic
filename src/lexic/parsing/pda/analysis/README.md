@@ -36,9 +36,8 @@ analysis property, not a compiler fallback.
 
 ## The gate cascade, tried in order
 
-1. **1- and 2-char lookahead** — disjoint FIRST sets, or a 2-char prefix
-   separation (`atom_two_prefix` / `two_prefix_seq` in `kwindow.py`, the
-   `PairGate` source).
+1. **Single-char lookahead** — disjoint FIRST sets: the stop-set, a greedy
+   run over a single-character atom (`loop_policy`, shape-selected).
 2. **k-window** (`kwindow.py`) — `KWindowFirst` computes `FIRST_k` as sets of
    `≤k`-length `CharSet` tuples tagged END / MORE / UNK; `arm_gate` /
    `loop_gate` ask whether the decision separates positionwise at `k ≤ 3`

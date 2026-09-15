@@ -100,6 +100,54 @@ spelling would be a fourth chance to get the subclass case wrong.
 
 ---
 
+## The region walk reads ONE spelling string
+
+`regions.py` classifies each structural character with a single `str.find` into
+one concatenated spelling, not with a chain of dict tests. The sections are laid
+out skips, openers, then closers and marks together, and **that order IS the
+branch precedence**: `find` returns the earliest match, so a character carrying
+two roles resolves exactly as it did when each table was tested in turn. Closers
+and marks share a section because one test already separates them — a closer's
+value is its opener, a mark's is `""` — which is also what lets an unmatched
+closer fall through to the mark branch.
+
+This is not a style preference. Shared-dict membership in that loop does not
+scale across threads on this build: 0.53x on sixteen threads, against 7.64x for
+the same loop over private containers. Reading one string is faster serially
+too, so the change does not rest on that explanation holding. The tables are
+aliased into locals before the loop — reading them off the record inside it
+measures 10-30% slower across the roster.
+
+**A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
+once per role, because that is what makes classification by precedence work.
+`Roles.watched` holds each character once, and is what a sweep iterates.
+Sweeping the spelling reports every offset of a two-role character twice.
+`watched` is derived from `spelling`, which is what makes `spelling.find` total
+over swept offsets: neither walk tests for `-1`.
+
+## The windowed find: same answer, discovered in parallel
+
+`par_find` divides a document into arithmetic windows, walks each with a stack
+that may UNDERFLOW, and replays what a window could not settle against one
+stack. Four event kinds carry that: a region opened and closed inside the window
+is already final; a closer that underflowed carries the opener it wants and
+whether it is also a separator; a separator at the underflow level; and an
+opener still standing at the window's end, whose mark list later windows keep
+appending to. The merge is O(windows x depth) — each window contributes at most
+its own residual depth in openers, and every other event settles in constant
+time.
+
+Window bounds are arithmetic, which is sound because every watched spelling is
+one character: no occurrence straddles a boundary, and every offset belongs to
+exactly one window.
+
+**A grammar whose vocabulary carries an opaque interior takes the serial walk.**
+A window cannot know whether it begins inside one without a pass over everything
+before it, and that prepass costs more than the walk it enables — it turned a
+win into a regression on the grammar that needs it. The condition is read off
+the vocabulary, so a grammar qualifies by what it derives; no grammar is named,
+and one that grows an interior loses the window by itself.
+
 ## Interiors: what a sweep must skip
 
 `discovery/` certifies regions a character sweep would otherwise misread —
@@ -192,7 +240,31 @@ tables. Where `available_workers()` is 1 at all — a GIL build, a one-cpu
 machine — `document_view` hands the binding straight back and claims nothing.
 An exited thread's replica is dropped and its tables released rather
 than re-issued, since re-issuing hands a live worker objects a dead thread
-allocated. `replica_count` is the meter.
+allocated. `replica_count` meters one pair; `claim_census()` answers the
+lifetime question it cannot — how many claims are held by threads that have
+already exited.
+
+**A worker releases its own claim when it exits, not when someone next asks.**
+The liveness sweep inside `_claim` only ever prunes the pair being claimed
+against, so a pair no document touches again would keep its dead claims for the
+life of the process: one pass over a twelve-grammar roster left **189 of 203
+claims held by exited threads**, and further parses of the first grammar never
+moved it, because that pair self-cleans while the other sixteen are never
+claimed against again.
+
+The signal is object lifetime. `ThreadPoolExecutor` has an initializer and no
+per-worker exit callback, so the first time a thread claims, a bare sentinel
+goes into that thread's own local state with a `weakref.finalize` armed on it;
+the thread's state is freed when the thread ends, the sentinel is collected,
+and the finalizer retires what that thread held. Three details are load-bearing:
+
+- the owning `Thread` is captured at claim time and passed to the finalizer,
+  never read inside it — `threading.current_thread()` during a worker's
+  teardown returns a dummy thread that matches no claim;
+- the sentinel declares `__slots__ = ("__weakref__",)`; with `__slots__ = ()`
+  it cannot be weakly referenced at all and the arming raises;
+- arming happens at CLAIM time rather than in the pool's initializer, so a
+  worker that never touches the registry pays nothing and holds nothing.
 
 Synthesized model classes stay shared by necessity — two workers building two
 different classes for one rule would break model equality, which is the thing
@@ -326,3 +398,47 @@ This matters most where grammars are DERIVED at run time — `bind()` mints a
 fresh codegen grammar per vocabulary, a reducer mints a variant per policy — so
 a service that rebinds per request would otherwise grow every memo without
 bound.
+
+## The collector, for callers that retain
+
+A compiled artefact is a large, permanently live, gc-tracked population, and
+every full collection walks all of it. Measured on this machine, parsing each
+roster grammar once at `cores=1`, medians of seven collections:
+
+| tracked objects | full collection |
+|---|---|
+| 130,009 (interpreter + lexic) | 7.71 ms |
+| 141,902 (4 artefacts) | 9.03 ms |
+| 169,316 (8 artefacts) | 10.91 ms |
+| 172,409 (12 artefacts) | 10.86 ms |
+
+The cost tracks the population, and the population is what the caller chose to
+keep. A service holding many compiled grammars pays that walk on every
+collection the whole process triggers, including ones its own allocation did
+not cause.
+
+**`gc.freeze()` is the tool, and it belongs to the application.** It moves
+everything currently tracked into a permanent generation that collections skip.
+On the twelve-artefact tree above: 172,380 objects frozen, and a full collection
+goes from **10.38 ms to 5.20 ms** — half. `gc.unfreeze()` restores it.
+
+Lexic does not call it, and a library should not: freezing is a statement about
+a process's whole lifecycle, made once after the artefacts a program intends to
+keep are built and before it starts serving. The same applies to
+`gc.set_threshold()` — thresholds are **process-wide**, so a library that tuned
+them would be tuning its host's collector for every other allocation in the
+program. Both are documented here as levers an application may reach for, and
+neither is prescribed.
+
+## A per-character loop must not read the document from a module global
+
+Reproducible, and it costs everything: a loop that runs once per input
+character and reads the text from a module-level name scales at **0.45x on
+sixteen threads**, whatever container holds it. A module global is a shared
+mortal object, so every read is an atomic reference count on one cache line,
+and the loop does one per character.
+
+Pass the text in. A parameter is a local, and a local read is not shared
+traffic. This is the same effect the replicas exist to remove, arriving through
+a different door — and it is worth stating on its own, because it is invisible
+at one thread and looks like a scaling ceiling rather than a defect.

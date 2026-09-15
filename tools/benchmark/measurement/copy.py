@@ -30,6 +30,7 @@ PROTOCOL_MODULES = (
     "bench.py",
     "compare.py",
     "regression.py",
+    "cases/corpora.py",
     "cases/directives.py",
     "cases/grammars.py",
     "diagnostics/split_ab.py",

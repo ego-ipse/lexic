@@ -82,12 +82,13 @@ synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
 payload is the compiled pattern. Numbered past every arm code so a reader that
 ranges over the arm vocabulary cannot mistake it for one."""
 
-GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
-"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
-``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
+GATE_STOP, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4
+GATE_GREEDY = 5
+"""Flat loop-gate codes: single-char stop-set, the
+``k``-window gate — a set of ``≤k``-length pre-resolved
 ``(chars, negated)`` position windows the runtime matches EOF-exactly against
-``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set /
-LL(2) pair could not separate) — and the P3 noise-skip peek gate (Task 6.4):
+``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set
+could not separate) — and the P3 noise-skip peek gate (Task 6.4):
 ``((w_chars, w_negated), (take_chars, take_negated))`` — skip the maximal
 ``W``-noise run *without consuming*, take another iteration iff the first
 post-noise char is in ``take`` (the iteration then re-parses the noise
@@ -96,7 +97,14 @@ rather than silently mis-building) — and the P3 *structured* / P5 gate
 (:data:`GATE_SCAN`, Task 6.6), a :class:`~lexic.parsing.pda.core.scanner.ScanGate`
 the runtime consults via
 :func:`~lexic.parsing.pda.core.scanner.scan_gate_take` (folding-aware
-comment-bearing noise, and the rulename probe)."""
+comment-bearing noise, and the rulename probe).
+
+:data:`GATE_GREEDY` is the odd one: every gate above answers "does the next
+window admit another iteration", and this one answers "is this the one place
+the SPLIT RULE lets the loop stop" — the unit's tail and its certified
+continuation are all that remain. No ``k`` separates the decision it settles,
+and none has to (:mod:`~lexic.parsing.pda.analysis.gates.greedy`). Its payload
+is ``(tail, close, starters)``."""
 
 BUILD_TRANSPARENT, BUILD_VALUE_STR, BUILD_ALT, BUILD_SEQ = 0, 1, 2, 3
 """Flat clone build-modes — how a completed frame folds to a model (or, for

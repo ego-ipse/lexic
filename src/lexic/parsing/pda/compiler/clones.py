@@ -17,7 +17,7 @@ reference carries an :class:`IslandRef` (a ``fail`` one raises
 
 **Item specs.** Each item compiles to a flat :class:`ItemSpec`
 (``lit``/``cc``/``ref``/``grp``) with its bounds and a loop gate —
-:class:`StopGate` (pivot 4), :class:`PairGate` (pivot 6), :class:`KTupleGate`
+:class:`StopGate` (pivot 4), :class:`KTupleGate`
 (P2), :class:`PeekGate` (P3 char-set) or :class:`ScanGate` (P3 structured
 noise-skip / P5 probe, folding-aware via :mod:`~lexic.parsing.pda.core.scanner`).
 Arm selection is FIRST-gated :class:`ArmSpec` plus at most one nullable default.
@@ -78,11 +78,12 @@ from lexic.parsing.pda.compiler.specs import (
     AttemptGate,
     CloneKey,
     CloneSpec,
+    GreedyGate,
     GroupSpec,
     IslandRef,
     ItemSpec,
     KTupleGate,
-    PairGate,
+    LoopGate,
     PeekGate,
     StopGate,
 )
@@ -103,7 +104,6 @@ __all__ = [
     "ArmGates",
     "GroupSpec",
     "StopGate",
-    "PairGate",
     "KTupleGate",
     "PeekGate",
     "ITEM_KINDS",
@@ -205,14 +205,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: LoopGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
+        gate: LoopGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -593,17 +593,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         ctx = _ItemCtx(lo, hi, cont, gate)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
-    def _loop_gate(
-        self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate:
-        """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
+    def _loop_gate(self, items: Sequence[IrItem], idx: int, cont: CharSet) -> LoopGate:
+        """The loop-continuation gate — a stored analysis decision, or a stop-set.
 
-        Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
-        looping item whose FIRST overlaps its continuation upgrades to an LL(2)
-        :class:`PairGate` when the taxonomy says ``pairs``, or to the
-        :class:`KTupleGate` the analysis stored for exactly this item node
-        (:attr:`~lexic.parsing.pda.analysis.analysis.Taxonomy.loop_gates` — the demoted
-        take/skip decision a single-char stop-set could not make).
+        Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``). A
+        decision the analysis had to DEMOTE is stored against the item node, and
+        any such gate is honoured first: a window set
+        (:attr:`~lexic.parsing.pda.analysis.analysis.Taxonomy.loop_gates`), a
+        noise peek, a runtime-ready scan or greedy licence, or an attempt.
 
         :param items: The enclosing arm's items.
         :param idx: The looping item's index.
@@ -612,7 +609,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """
         analysis = self.analysis
         item = items[idx]
-        rest = list(items[idx + 1 :])
         lo = int(item.quantifier.lo)
         hi = _hi(item)
         first = analysis.atom_first(item.atom)
@@ -628,9 +624,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             pspec = analysis.taxonomy.pn_loop_gates.get(id(item))
             if pspec is not None:
                 return PeekGate(*pspec)
-            sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
-            if sspec is not None:
-                return sspec  # a folding-aware ScanGate (P3 structured / P5)
+            ready = analysis.taxonomy.ready_loop_gates.get(id(item))
+            if ready is not None:
+                # A ScanGate is runtime-ready as it stands (P3 structured / P5);
+                # a greedy spec is the split rule's licence, wrapped here.
+                return ready if isinstance(ready, ScanGate) else GreedyGate(*ready)
             licence = analysis.taxonomy.attempt_loops.get(id(item))
             if licence is not None:
                 # The attempt licence: FIRST admits an iteration ATTEMPT —
@@ -642,10 +640,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 # soft continuation guards the boundary where taking and
                 # stopping are BOTH viable — an arm choice in loop clothing.
                 return AttemptGate(first, licence)
-            if first.overlaps(cont):
-                policy = analysis.loop_policy(item, rest)
-                if isinstance(policy, tuple):
-                    return PairGate(policy[1])
         return StopGate(first.subtract(cont))
 
 

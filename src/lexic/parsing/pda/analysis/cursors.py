@@ -72,7 +72,7 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     """The conflict-note accumulators for one rule, appended in place.
 
     :ivar hard: Island-worthy conflict notes (their presence marks an island).
-    :ivar soft: Stop-set / LL(2) demotion notes.
+    :ivar soft: Stop-set / window demotion notes.
     :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
     :ivar covered: How many of :attr:`hard` an attempt licence covers (the
         ungatable-loop notes filed into ``Taxonomy.attempt_loops``); a rule

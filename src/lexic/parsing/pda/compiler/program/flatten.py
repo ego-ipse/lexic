@@ -23,10 +23,11 @@ from collections.abc import Callable, Mapping
 from typing import Any, Never
 
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
+    GATE_GREEDY,
     GATE_KWIN,
-    GATE_PAIR,
     GATE_PEEK,
     GATE_STOP,
     M_VALUE,
@@ -143,24 +144,75 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         chars, negated = gate
         return (ch != "" and ch not in chars) if negated else ch in chars
     if gk == GATE_ATTEMPT:
-        ch = text[pos : pos + 1]
-        chars, negated = gate[0]
-        take = (ch != "" and ch not in chars) if negated else ch in chars
-        if take:
-            fchars, fnegated = gate[1]
-            if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
-                raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable",
-                    pos,
-                )
-        return take
-    if gk == GATE_PAIR:
-        return text[pos : pos + 2] in gate
+        return _attempt_admits(text, pos, gate)
+    return _wide_gate_take(text, pos, gk, gate)
+
+
+def _wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
+    """The gates that read more than two characters.
+
+    Split from :func:`gate_take` so the three one- and two-character kinds —
+    the ones a hot loop consults per iteration — keep their comparison and
+    return with nothing in front of them. A gate that is about to scan a window,
+    a noise run or a whole tail can afford the call it costs to get here.
+    """
+    if gk == GATE_GREEDY:
+        return not _at_the_unit_end(text, pos, gate)
     if gk == GATE_KWIN:
         return window_admits(text, pos, gate)
     if gk == GATE_PEEK:
         return _peek_admits(text, pos, gate)
     return scan_gate_take(text, pos, gate)  # GATE_SCAN — the ScanGate itself
+
+
+def _attempt_admits(text: str, pos: int, gate: Any) -> bool:
+    """The TERMINAL attempt loop's decision — take while the char is FIRST-only.
+
+    :raises PdaFail: A boundary whose char both the FIRST and the stored soft
+        continuation accept is an arm choice in loop clothing, and a terminal
+        loop has no sub-run to consult, so it bails to the gated engine.
+    """
+    ch = text[pos : pos + 1]
+    chars, negated = gate[0]
+    take = (ch != "" and ch not in chars) if negated else ch in chars
+    if take:
+        fchars, fnegated = gate[1]
+        if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
+            raise ProbeFork(
+                f"attempt loop at {pos}: taking and stopping are both viable", pos
+            )
+    return take
+
+
+def _at_the_unit_end(text: str, pos: int, gate: Any) -> bool:
+    """Is what remains the unit's tail and its certified continuation?
+
+    The split-greedy licence's whole predicate. The loop runs greedily because
+    the leftmost chain does, so the only place it may stop is where no further
+    item could be carved without leaving the unit no tail to end with.
+
+    ``starters`` present means the continuation's first characters cannot begin
+    an item: the tail followed by one of them locates where the continuation
+    BEGINS, and the continuation is parsed normally from there. Absent, the
+    continuation is matched by spelling to the end of the input — its own
+    characters could otherwise start an item, and a FIRST set is not an
+    occurrence boundary.
+
+    Answering ``False`` says only "not here": ordinary item recognition and the
+    loop's minimum decide whether another iteration actually parses.
+    """
+    tail, close, starters = gate
+    if not text.startswith(tail, pos):
+        return False
+    after = pos + len(tail)
+    if starters is None:
+        # Length FIRST, then a bounded startswith. `text[after:] == close`
+        # copies the whole remaining suffix every time the tail matches, which
+        # on a run of terminators is O(n) boundaries × O(n) copy — quadratic
+        # character work, from a gate whose entire claim is that it reads a
+        # bounded window.
+        return after + len(close) == len(text) and text.startswith(close, after)
+    return after == len(text) or text[after] in starters
 
 
 def arm_expected(clone: FlatClone) -> tuple[tuple[str, ...], bool]:
@@ -240,9 +292,9 @@ class FlatArm(IrLeaf[IrSelf, IrSelf]):
         precedent) so the hot loop reads it without a per-access ``cast``.
     :ivar los: Per-item quantifier lower bound.
     :ivar his: Per-item quantifier upper bound (``HI_UNBOUNDED`` for none).
-    :ivar gate_kinds: Per-item loop-gate code (``GATE_STOP`` / ``GATE_PAIR``).
+    :ivar gate_kinds: Per-item loop-gate code (``GATE_STOP`` / ``GATE_KWIN``).
     :ivar gate_data: Per-item gate body — a ``(chars, negated)`` pair (stop) or
-        a frozenset of 2-char prefixes (pair). ``Any``-typed for the same reason
+        a tuple of `CharSet` windows (kwin). ``Any``-typed for the same reason
         as :attr:`payloads`.
     """
 
@@ -314,8 +366,9 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
     :ivar ctor: What this clone's completion calls to build its value — the
         declared class, or the surface transform its symbol resolved to — or
-        ``None`` when the clone builds nothing. Called by KEYWORD; the
-        positional shortcut is :attr:`fast`.
+        ``None`` when the clone builds nothing. Called by KEYWORD; a
+        ``sequence`` clone's positional shortcut is :attr:`build`, and
+        :attr:`fast` is the positional constructor :func:`vstr_model` calls.
     :ivar matched: The field :attr:`ctor` fills from the clone's OWN matched
         extent, ``""`` when no field does. What makes the ``value_str``
         construction sayable without a field name spelled in engine code.
@@ -327,13 +380,21 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         clone builds nothing.
     :ivar plan: The fused build's POSITIONAL plan — one ``(mode, item, lo,
         default)`` entry per field of the model class, in the record's own
-        field order, so a build reads the plan straight into a values list and
-        constructs the tuple. Empty without a fast licence. Building by name
-        instead cost a defaults-dict copy, a supplied-key set and a read-back
-        through ``map(parts.get, cls._fields)`` per model.
+        field order. Read once, at bake, to compose :attr:`build`; no build
+        walks it. Empty without a fast licence. Building by name instead cost
+        a defaults-dict copy, a supplied-key set and a read-back through
+        ``map(parts.get, cls._fields)`` per model.
+    :ivar build: This shape's whole build, composed from :attr:`plan` at bake
+        (:func:`~lexic.parsing.pda.compiler.program.lowering.shape_build`) — one
+        operation per field, bound once, and no mode read per record. The two
+        travel together: a pass that rewrites one MUST rewrite the other.
+        :data:`~lexic.parsing.pda.compiler.program.lowering.no_shape_build` when the
+        clone has no positional build, a ``value_str`` clone included
+        (:func:`vstr_model` owns that construction).
     :ivar fast: The class's positional constructor when it granted the
         validation-skip licence, else ``None`` (the runtime builds through
-        :attr:`ctor` by keyword).
+        :attr:`ctor` by keyword). Called by :func:`vstr_model`; a ``sequence``
+        clone's own build goes through :attr:`build`.
     :ivar defaults: The construction's field defaults the fused build seeds
         each plan entry from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
@@ -372,6 +433,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "fields",
         "plan",
         "fast",
+        "build",
         "defaults",
         "leaf",
         "chartable",
@@ -395,6 +457,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     fields: tuple[tuple[int, int, str, int], ...]
     plan: BuildPlan[Carry]
     fast: FastConstruction[Carry]
+    build: ShapeBuild[Carry]
     defaults: Mapping[str, ProductValue[Carry]] | None
     leaf: bool
     chartable: Any  # dict[str, Carry] | None — specialized table payload
@@ -438,6 +501,7 @@ def clear_build[Carry](clone: FlatClone[Carry]) -> None:
     clone.fields = ()
     clone.plan = ()
     clone.fast = no_fast_construction
+    clone.build = no_shape_build
     clone.defaults = None
 
 

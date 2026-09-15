@@ -48,6 +48,8 @@ uv run pytest tests/ -q                  # full suite
 uv run pytest tests/ -q -n auto          # ... in parallel (~3x); same result, xdist is a dev dep
 tools/guarded.sh 8G 600 -- uv run pytest tests/ -q   # memory-capped (use for property tests)
 tools/auto_fix.sh                        # ruff format + isort + ruff --fix — run before hand-fixing lint
+tools/quick_checks.sh [ref]              # the gate for ONE diff: lint/type the changed files, run the tests that can see them
+tools/diff_runs.sh <before> <after>      # two remote matrix runs paired row by row: ratio-of-ratios, intervals, what moved
 tools/run_checks.sh                      # THE done-gate; work is done when this exits 0
 tools/run_examples.sh                    # every getting_started/ex*.py must exit 0
 uv run python tools/check_generated.py   # generated-twin tool-clean gate
@@ -320,9 +322,11 @@ src/lexic/
         __init__.py                The PDA analysis — decide every decision point, then store the gate specs
         analysis.py                Grammar analysis + decision taxonomy — the PDA compiler's oracle
         conflicts.py               Late conflict classifiers split from the oracle
+        demote.py                  The demotion cascade — what a conflicted decision may be demoted TO
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
+          greedy.py           The split-greedy licence — a loop the split rule settles, not lookahead
           kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
           leftrec.py          Left-recursion detection — the predictive-descent impossibility check
           noise.py            Noise/semantic attribution — the P6 licence + P3 noise-skip substrate
@@ -341,6 +345,7 @@ src/lexic/
           __init__.py              Flat-program package marker
           flatten.py               Flat int-coded runtime records and readers
           lower.py                 Clone-set lowering
+          lowering.py              The per-shape build tail — one callable composed once, at bake
           opcodes.py               Runtime program vocabulary
           product.py               The product-side build bake — a clone's build state from its rule product
           specialize.py            Post-flatten specialization passes

@@ -27,13 +27,30 @@ carry one (vyx does).
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import IrAst
+from tools.benchmark.cases.corpora import (
+    announced_corpus,
+    arith_corpus,
+    backtrack_corpus,
+    csv_corpus,
+    dense_earley_corpus,
+    ground_truth,
+    island_corpus,
+    json_corpus,
+    lexrun_corpus,
+    markdown_corpus,
+    meta_corpus,
+    mixedends_corpus,
+    nested_corpus,
+    split_nullable_corpus,
+    vyx_corpus,
+    wrapped_unit_corpus,
+)
 from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -289,17 +306,99 @@ is what makes this the shape a certified speculative fallback exists for, where
 speculative route today, so both engage and report a parallel number."""
 
 
-def _announced_corpus(sections: int) -> str:
-    """Sections of a header and four body lines, with no readable boundary."""
-    letters = "abcdefghijklmnopqrstuvwxyz"
-    out: list[str] = []
-    for n in range(sections):
-        out.append(f"#section {letters[n % 26] * 3} heading\n")
-        for k in range(4):
-            out.append(
-                f"body line {letters[k]} of section {letters[(n + k) % 26] * 2} here\n"
-            )
-    return "".join(out)
+_SPLIT_NULLABLE = """root ::= para+
+para ::= line+ blank
+line ::= [a-z ]* nl
+blank ::= nl
+nl ::= "\\n"
+"""
+"""Paragraphs of lines, where a line's body may be EMPTY and the paragraph ends
+with the same character a line does.
+
+Every carving of a blank run is the same production over the same span: a blank
+line is the paragraph's tail, or one more empty line inside it and the tail
+after. That is a SPLIT, not an arm choice, so it has a defined answer — the
+leftmost chain — and no ``k`` separates it, because after a newline the next
+character being a body character is consistent with both readings.
+
+The row prices the shape where the decision is settled by the split rule rather
+than by lookahead. Nothing else here reaches it: every other repetition row is
+decided by a first character, an attempt, or a scan."""
+
+
+_WRAPPED_UNIT = """root ::= open body close
+body ::= para+
+open ::= "<<<" nl
+close ::= ">>>" nl
+para ::= line+ blank
+line ::= [a-z ]* nl
+blank ::= nl
+nl ::= "\\n"
+"""
+"""The same split-ambiguous unit, wrapped: a fixed prefix, a fixed closer, and
+the repetition factored into a rule of its own.
+
+The wrapper is consumed once, outside every boundary the split decision moves,
+so the shape is the same language question with three things around it that a
+proof about the repetition must be stated carefully enough to ignore. Kept
+beside :data:`_SPLIT_NULLABLE` so a revision that decides the bare shape and not
+the wrapped one shows up as two different numbers rather than one."""
+
+
+_ISLAND_EARLEY = """root ::= expr nl
+expr ::= expr addop term | term
+term ::= call | name
+call ::= name lparen text rparen
+name ::= [a-z] [a-z0-9_]*
+text ::= [a-z0-9.,_/]*
+addop ::= " + " | " - "
+lparen ::= "("
+rparen ::= ")"
+nl ::= "\\n"
+"""
+"""A LEFT-RECURSIVE spine over a long deterministic interior.
+
+Predictive descent cannot run a left-recursive rule at all, so ``expr`` is an
+island and the Earley route executes for real — on every other row it does not
+run once. The interior is deliberately substantial: each term is a call whose
+arguments are ordinary character runs, so the row's cost is the gated engine
+doing ordinary work rather than a pathological ambiguity.
+
+That is what it exists to price. Earley's cost on the roster is otherwise
+invisible, so a change to the chart, the forest or the completion has no row
+that can regress — and a row nobody can regress is a gap, not a guarantee."""
+
+
+_DENSE_EARLEY = """root ::= line+
+line ::= expr nl
+expr ::= expr op term | term
+term ::= [a-z]
+op ::= "+"
+nl ::= "\\n"
+"""
+"""The DENSE Earley control: left-recursive, and one character per unit.
+
+`island-earley` reaches the same engine over a long deterministic interior, so
+its terminals collapse into runs and a terminal step crosses many characters at
+once — on a 10 KiB input barely 4% of its chart columns ever hold an item. A
+per-column change therefore reports a saving there whether or not it taxes the
+columns that ARE occupied, and no row on the roster contradicts it.
+
+This row is that contradiction. Every unit is a single character, so essentially
+every column is occupied; the recursion is left, so the predictive path declines
+and the chart is really built; the grammar is unambiguous and the chain is
+bounded per line, so the cost is linear and the row is a control rather than a
+pathology.
+
+**A control that does not finish reads nothing.** Both arms of an A/B run this
+row up to the pair ceiling in fresh processes, and a size that makes the base
+arm time out does not produce a cautious verdict — it produces no verdict, on
+the one row the others cannot speak for. So the samples are sized against the
+roster's other Earley row rather than against the largest chart they could
+build: a dense column costs about fifteen times what a run-collapsed one does,
+and these two documents put this row's worker processes at or below what
+`island-earley`'s already cost. The full sample stays above four workers' worth
+of the split floor, so the mt seats still carve it."""
 
 
 _MIXEDENDS = """root ::= record+
@@ -338,124 +437,9 @@ cut, and until a mechanism reaches it the row reports the sequential number
 with its mt row declining in the open."""
 
 
-def _mixedends_corpus(rows: int) -> str:
-    """A stream interleaving all three record kinds, none of them separated."""
-    out: list[str] = []
-    for n in range(rows):
-        out.append(f"%key{n % 40}_a=value/{n}.{n % 7};")
-        out.append(f"<span{n % 30}:{n * 3}>")
-        out.append(f"note{n} carries {n % 11} words here\n")
-    return "".join(out)
-
-
-def _markdown_corpus(sections: int) -> str:
-    """A document exercising every block and inline kind this subset defines."""
-    out: list[str] = ["# Release notes\n", "\n"]
-    for n in range(sections):
-        out.append(f"## Section {n}\n")
-        out.append(f"Prose for section {n} with *stress*, **weight** and `code`.\n")
-        out.append(
-            f"See [the docs](http://example.test/{n}) or ![figure](img/{n}.png).\n"
-        )
-        out.append(f"- bullet {n} carrying `inline` and *accent*\n")
-        out.append(f"{n % 9 + 1}. numbered {n} with **weight**\n")
-        out.append(f"> quoted remark {n}\n")
-        if n % 4 == 0:
-            out.append("```python\n")
-            out.append(f"value = compute({n})\n")
-            out.append("return value\n")
-            out.append("```\n")
-        if n % 5 == 0:
-            out.append("---\n")
-        out.append("\n")
-    return "".join(out)
-
-
-def _nested_corpus(depth: int, rows: int) -> str:
-    """Nesting to ``depth`` at the spine, with breadth at each level."""
-    out: list[str] = []
-    for r in range(rows):
-        inner = f"leaf{'' if r % 2 else 'x'}".replace("0", "o")
-        text = "".join(ch for ch in inner if ch.isalpha())
-        for d in range(depth):
-            text = f"({text},{'ab'[d % 2]})" if d % 3 == 0 else f"({text})"
-        out.append(text)
-    return ",".join(out).join("()")
-
-
-def _lexrun_corpus(rows: int) -> str:
-    """Entries whose terminals are long — the inverse of the arithmetic row."""
-    out: list[str] = []
-    for n in range(rows):
-        name = "field_" + "n" * (n % 40 + 8) + f"_{n}"
-        if n % 3 == 0:
-            value = '"' + ("text value " * (n % 6 + 3)).strip() + '"'
-        elif n % 3 == 1:
-            value = "path/to/some." + "segment" * (n % 5 + 2)
-        else:
-            value = str(n) * (n % 12 + 4)
-        out.append(f"{name}={value}")
-    return "\n".join(out)
-
-
-def _backtrack_corpus(rows: int) -> str:
-    """Statements whose arm is decided only after an unbounded shared prefix."""
-    out: list[str] = []
-    for n in range(rows):
-        name = "n" + "a" * (n % 30 + 2) + str(n)
-        if n % 2:
-            out.append(f"def {name}() {{body{n}}}\n")
-        else:
-            out.append(f"def {name}() = value{n};\n")
-    return "".join(out)
-
-
-def _arith_corpus(target: int) -> str:
-    """A left-nested arithmetic expression of roughly ``target`` characters."""
-    parts: list[str] = ["1"]
-    size = 1
-    ops = ("+", "*", "-", "/")
-    while size < target:
-        step = len(parts)
-        term = f"({step % 97 + 1}+{step % 89 + 2})"
-        parts.append(ops[step % 4])
-        parts.append(term)
-        size += 1 + len(term)
-    return "".join(parts)
-
-
-def _csv_corpus(rows: int) -> str:
-    """A rectangular CSV body — no quoting, so the grammar stays unambiguous."""
-    return "\n".join(",".join(f"cell {r}{c}" for c in range(6)) for r in range(rows))
-
-
-def _json_corpus(items: int) -> str:
-    """A nested json document of ``items`` records."""
-    body = ", ".join(
-        f'{{"id{n}": "row {n}", "tags": ["a", "b"]}}' for n in range(items)
-    )
-    return f'{{"rows": [{body}], "ok": "yes"}}'
-
-
 def _vyx_packet(body: str) -> str:
     """A block-body vyx packet wrapping ``body`` with an exact L-budget."""
     return f"!I o:wf L{len(body.encode())}<\n{body}>"
-
-
-def _vyx_corpus(rows: int) -> str:
-    """A template-carrying vyx packet whose block body mixes the line types.
-
-    Each row contributes one kv-line, one indented scope-line, one seq-item and
-    one nl-text prose line — the D.17 body shapes a real packet interleaves.
-    """
-    lines: list[str] = []
-    for n in range(rows):
-        lines.append(f"id=ORD-{n:04d} qty={n % 9 + 1} note=_")
-        lines.append(f" ship: meth=express carr=DHL leg={n % 5}")
-        lines.append(f'- type=feature idx={n} title="Widget {n}"')
-        lines.append("free prose line about the widget catalogue")
-    body = "\n".join(lines) + "\n"
-    return f"T:w=o:inv s:@buyer r:@supplier\n!I %w n:7 L{len(body.encode())}<\n{body}>"
 
 
 def _self_grammar_source(flavour) -> str:
@@ -469,58 +453,25 @@ def _self_grammar_source(flavour) -> str:
     return str(flavour.apply(flavour.grammar))
 
 
-def _ground_truth(stem: str) -> str:
-    """A ground-truth grammar file — the meta row's input."""
-    return (_ROOT / "resources" / "ground_truth" / stem).read_text(encoding="utf-8")
-
-
-def _meta_corpus(stem: str, copies: int) -> str:
-    """A large grammar file: the ground-truth grammar, concatenated.
-
-    Each copy's rule names get a ``c<k>-`` prefix — references included, so
-    every copy stays a well-formed grammar fragment and the whole keeps a
-    real file's shape rather than inventing rules. Quoted literals are left
-    alone: ``true`` is a rule name AND a spelled keyword, and renaming the
-    keyword would change the described language mid-corpus.
-    """
-    source = _ground_truth(stem)
-    quoted = re.compile(r'"(?:\\.|[^"\\])*"')
-    names = re.findall(r"^([A-Za-z][A-Za-z0-9-]*)\s*(?:::=|=)", source, re.MULTILINE)
-    rename = re.compile(
-        r"\b(" + "|".join(sorted(set(names), key=len, reverse=True)) + r")\b"
-    )
-    out: list[str] = []
-    for copy in range(copies):
-        at = 0
-        pieces: list[str] = []
-        for match in quoted.finditer(source):
-            pieces.append(rename.sub(rf"c{copy}-\1", source[at : match.start()]))
-            pieces.append(match.group())
-            at = match.end()
-        pieces.append(rename.sub(rf"c{copy}-\1", source[at:]))
-        out.append("".join(pieces))
-    return "".join(out)
-
-
 _DEFINED_BENCHES = (
     _bench(
         "arithmetic",
         _ARITH,
-        Samples(_arith_corpus(4000), _arith_corpus(32 * 1024)),
+        Samples(arith_corpus(4000), arith_corpus(32 * 1024)),
         ("1+2", "(1)", "12*3", "1/2-3", "((1+2))"),
         ("1+", "()", "1++2", "", "1 + 2"),
     ),
     _bench(
         "csv",
         _CSV,
-        Samples(_csv_corpus(220), _csv_corpus(560)),
+        Samples(csv_corpus(220), csv_corpus(560)),
         ("x", "1,2", "a b,c", "a\nb"),
         (",", "a,,b", "a\n\nb", "", "a;b"),
     ),
     _bench(
         "json",
         _JSON,
-        Samples(_json_corpus(60), _json_corpus(790)),
+        Samples(json_corpus(60), json_corpus(790)),
         # each of these is a place a fixed token set has to guess: `true` inside
         # a string, a space both `ws` and `chars` hold, digits both `number` and
         # `chars` hold. They are what proved the ANTLR translation was
@@ -534,7 +485,7 @@ _DEFINED_BENCHES = (
     _bench(
         "gbnf-meta",
         _self_grammar_source(GBNF_FLAVOUR),
-        Samples(_ground_truth("json.gbnf"), _meta_corpus("json.gbnf", 24)),
+        Samples(ground_truth("json.gbnf"), meta_corpus("json.gbnf", 24)),
         ('# a b c\nroot ::= "x"\n', "root ::= [a-z]+\n", 'root ::= "a" | "b"\n'),
         # each must be refused by the GRAMMAR, not by a later pipeline stage:
         # `root ::=` is grammatical GBNF (an empty body) that lexic rejects at
@@ -544,7 +495,7 @@ _DEFINED_BENCHES = (
     _bench(
         "abnf-meta",
         _self_grammar_source(ABNF_FLAVOUR),
-        Samples(_ground_truth("json.abnf"), _meta_corpus("json.abnf", 16)),
+        Samples(ground_truth("json.abnf"), meta_corpus("json.abnf", 16)),
         ('a = "x"\r\n', "a = 1*2DIGIT\r\n", '; note here\r\na = "y"\r\n'),
         ("a =", "= b", "a b", "a = %", "a = <"),
     ),
@@ -557,8 +508,8 @@ _DEFINED_BENCHES = (
     # V25 bare "&" kv value) plus non-packets.
     _bench(
         "vyx",
-        _ground_truth("vyx.gbnf"),
-        Samples(_vyx_corpus(24), _vyx_corpus(230)),
+        ground_truth("vyx.gbnf"),
+        Samples(vyx_corpus(24), vyx_corpus(230)),
         (
             "!I o:inv ^003\n",
             "!I o:env s:@weather L22< city=Porto temp=22 >\n",
@@ -582,7 +533,7 @@ _DEFINED_BENCHES = (
     _bench(
         "markdown",
         _MARKDOWN,
-        Samples(_markdown_corpus(30), _markdown_corpus(135)),
+        Samples(markdown_corpus(30), markdown_corpus(135)),
         (
             "# h\n",
             "---\n",
@@ -609,7 +560,7 @@ _DEFINED_BENCHES = (
     _bench(
         "nested",
         _NESTED,
-        Samples(_nested_corpus(200, 3), _nested_corpus(200, 61)),
+        Samples(nested_corpus(200, 3), nested_corpus(200, 61)),
         ("x", "(x)", "(x,y)", "((x),y)", "(((z)))", "(x,y,z)"),
         ("", "(", "()", "(x,)", "x)", "(x))"),
     ),
@@ -618,7 +569,7 @@ _DEFINED_BENCHES = (
     _bench(
         "lexruns",
         _LEXRUNS,
-        Samples(_lexrun_corpus(120), _lexrun_corpus(420)),
+        Samples(lexrun_corpus(120), lexrun_corpus(420)),
         ('a="x"', "a=b", "a=1", 'a="a b c"', "_k=path/to.x", "z9=0123456789"),
         ("", "a=", "=b", "a b", 'a="unterminated', "1a=b"),
     ),
@@ -627,7 +578,7 @@ _DEFINED_BENCHES = (
     _bench(
         "backtrack",
         _BACKTRACK,
-        Samples(_backtrack_corpus(90), _backtrack_corpus(860)),
+        Samples(backtrack_corpus(90), backtrack_corpus(860)),
         (
             "def a() {b}\n",
             "def a() = b;\n",
@@ -643,7 +594,7 @@ _DEFINED_BENCHES = (
     _bench(
         "mixedends",
         _MIXEDENDS,
-        Samples(_mixedends_corpus(60), _mixedends_corpus(560)),
+        Samples(mixedends_corpus(60), mixedends_corpus(560)),
         ("%k=v;", "<a:1>", "x\n", "a b c\n", "%a_b=c/d.e;<z:9>w one\n"),
         ("", "%k=v", "<a:1", "no newline", "%k=v;extra;", "<A:1>"),
     ),
@@ -653,9 +604,47 @@ _DEFINED_BENCHES = (
     _bench(
         "announced",
         _ANNOUNCED,
-        Samples(_announced_corpus(30), _announced_corpus(300)),
+        Samples(announced_corpus(30), announced_corpus(300)),
         ("#h\n", "#h\nbody\n", "#a\nb\n#c\n", "#h with spaces\n"),
         ("", "no hash\n", "#h", "#h\nx", "#H\n"),
+    ),
+    # The split-ambiguous repetition: a nullable item body and a tail spelled
+    # like the item's own terminator. Decided by the split rule, not by any
+    # window — the one shape no lookahead tier reaches.
+    _bench(
+        "split-nullable",
+        _SPLIT_NULLABLE,
+        Samples(split_nullable_corpus(60), split_nullable_corpus(480)),
+        ("\n\n", "a\n\n", "a\nb\n\n", "\n\n\n", "a\n\n\nb\n\n"),
+        ("", "\n", "a\n", "a", "A\n\n"),
+    ),
+    # The same unit wrapped — a fixed prefix, a fixed closer, and the
+    # repetition in a rule of its own.
+    _bench(
+        "wrapped-unit",
+        _WRAPPED_UNIT,
+        Samples(wrapped_unit_corpus(60), wrapped_unit_corpus(480)),
+        ("<<<\n\n\n>>>\n", "<<<\na\n\n>>>\n", "<<<\na\nb\n\n\n\n>>>\n"),
+        ("", "<<<\n>>>\n", "\n\n", "<<<\na\n\n", "a\n\n>>>\n"),
+    ),
+    # The only row whose ISLAND executes: a left-recursive spine the predictive
+    # path cannot run at all, so the gated engine does the work and a change to
+    # it has somewhere to show.
+    # The DENSE counterpart: same engine, every column occupied, so a
+    # per-column change cannot report a sparse chart's saving unopposed.
+    _bench(
+        "dense-earley",
+        _DENSE_EARLEY,
+        Samples(dense_earley_corpus(2000), dense_earley_corpus(4800)),
+        ("a\n", "a+b\n", "a+b+c\n", "z\nz\n", "a+b\nc+d\n"),
+        ("", "a", "a+\n", "+a\n", "a++b\n", "A\n", "a b\n"),
+    ),
+    _bench(
+        "island-earley",
+        _ISLAND_EARLEY,
+        Samples(island_corpus(32), island_corpus(300)),
+        ("a\n", "a + b\n", "af1(x.y,1)\n", "a + bf1(p/q) - c\n", "a_1 - b\n"),
+        ("", "a", "a +\n", "a ++ b\n", "1a\n", "af1(x\n", "A\n"),
     ),
 )
 BENCHES: tuple[Bench, ...] = tuple(

@@ -17,32 +17,22 @@ the open-``IrTypeMap`` atom dispatch idiom.
 
 A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis`: it takes the rule table
 (``Mapping[str, IrRule]``) and the pre-computed FOLLOW sets it needs as plain
-arguments, so ``analysis`` imports this, never the reverse. It also homes the
-older 2-char LL(2) prefix machinery (:func:`two_prefix_seq` /
-:func:`atom_two_prefix`, the pivot-6 ``pairs`` substrate) as free functions
-over the analysis — superseded by the k-window fixpoint for demotion, still
-the :class:`~lexic.parsing.pda.compiler.clones.PairGate` source.
+arguments, so ``analysis`` imports this, never the reverse.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, cast
+from typing import Mapping, Sequence
 
 from lexic.ir import (
-    IrAction,
-    IrAlternation,
-    IrCharClass,
     IrItem,
-    IrLambda,
-    IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
-    IrTypeMap,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
+    END,
     FollowWindows,
     KWindowFirst,
     Pref,
@@ -59,18 +49,28 @@ def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
 
 
 __all__ = [
+    "FOLLOW_LOOP_K",
     "MAX_K",
     "arm_gate",
     "follow_arm_gate",
+    "follow_loop_gate",
     "loop_gate",
-    "two_prefix_seq",
-    "group_two_prefix",
-    "atom_two_prefix",
+    "rule_references",
 ]
 
 
 MAX_K = 3
 """The widest lookahead window any gate tries (``k ≤ 3``)."""
+
+FOLLOW_LOOP_K = 2
+"""The one width :func:`follow_loop_gate` tries.
+
+Not a budget to be raised. Measured across the roster's loop conflicts, every
+decision FOLLOW\\ :sub:`k` settles is settled at ``k = 2``, nothing further
+separates at 3 or 4, and the fixpoint's cost climbs from unmeasurable at 2 to
+seconds at 4 on the self-grammars — which would put those seconds on COMPILING
+every grammar that reaches this tier, in exchange for nothing.
+"""
 
 
 # ── atom-prefix dispatch (open IrTypeMap, budget on nc) ────────────────────
@@ -83,6 +83,35 @@ MAX_K = 3
 
 
 # ── FOLLOW_k windows (the k-deep generalization of FOLLOW) ─────────────────
+
+
+def rule_references(rules: Mapping[str, IrRule], name: str) -> int:
+    """How many times ``name`` is referenced anywhere in the grammar.
+
+    A gate stored per RULE is applied at every use of it while being proved
+    against ONE occurrence's continuation, so a gate whose proof reads a rule's
+    FOLLOW is only sound where that FOLLOW belongs to a single site. Counting
+    is the cheap way to know: one reference means the rule's FOLLOW IS its call
+    site's continuation, and the union a FOLLOW fixpoint computes is a union of
+    one.
+
+    The walk is over each rule body's own tree, never through a reference, so
+    it terminates on a recursive grammar without a visited set.
+
+    :param rules: The grammar's rule table.
+    :param name: The rule name to count references to.
+    :returns: The number of :class:`IrRuleRef` nodes naming ``name``.
+    """
+    return sum(_refs_in(body, name) for body in rules.values())
+
+
+def _refs_in(node: object, name: str) -> int:
+    """References to ``name`` in one node's tree — IR records ARE tuples."""
+    if isinstance(node, IrRuleRef):
+        return int(str(node) == name)
+    if isinstance(node, str) or not isinstance(node, tuple):
+        return 0
+    return sum(_refs_in(child, name) for child in node)
 
 
 def follow_arm_gate(
@@ -189,142 +218,69 @@ def loop_gate(
     return None
 
 
-# ── 2-char LL(2) prefix machinery (the pivot-6 ``pairs`` substrate) ────────
-# Moved from ``analysis.py`` (C0302 headroom); superseded by the k-window
-# fixpoint for demotion, still the PairGate source via ``loop_policy``.
+def follow_loop_gate(
+    rules: Mapping[str, IrRule],
+    start: str,
+    items: Sequence[IrItem],
+    idx: int,
+    label: str,
+) -> tuple[tuple[CharSet, ...], ...] | None:
+    """An ARM-FINAL loop's take/skip decision under a ``k``-deep FOLLOW.
 
+    :func:`loop_gate` takes the enclosing rule's FOLLOW as a single
+    :class:`CharSet`, which :func:`~...windows.extend_follow` turns into exactly
+    ONE length-1 window; :func:`~...windows.collide` compares two prefixes over
+    their shorter length. So when the looping item is the arm's LAST, the skip
+    side is one position wide and separation collapses to
+    ``FIRST(item) ∩ FOLLOW(rule) = ∅`` — the single-character stop-set test.
+    Every character past the first is compared against nothing, and widening
+    ``k`` cannot change the verdict. This asks the same decision with both sides
+    ``k`` deep, over the :class:`FollowWindows` fixpoint that already serves
+    :func:`follow_arm_gate`.
 
-_MAX_PAIR_PRODUCT = 4096
-"""Cap on the ``|FIRST(a)| * |FIRST(b)|`` product a 2-char prefix set will
-enumerate; a wider product is treated as non-derivable (``None``)."""
+    **Soundness — the direction of approximation.** ``taken`` is FIRST\\ :sub:`k`
+    of one more iteration, an over-approximation of what a real continuation can
+    look like. ``skip`` is built from the SOFT FOLLOW, which over-approximates
+    what can follow a real exit — soft is the correct side here, and the hard
+    tail would be unsound because it is too small. Two over-approximations that
+    are disjoint imply the true sets are disjoint, so a separation proved here is
+    stronger than the runtime needs: the window admits every real continuation
+    and no real exit.
 
+    **Why one reference — a COST bound, not a soundness one.** The fixpoint
+    unions every call site's continuation, and that union is a SUPERSET of any
+    one site's. Disjointness against the superset therefore implies disjointness
+    at every site: extra references can only make the proof harder to obtain,
+    never make an obtained proof wrong. So the precondition is not what makes
+    the gate sound — the direction of approximation above already does that.
 
-def _single_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The single leading char of a non-empty literal, as a one-element set."""
-    text = str(n)
-    return frozenset({text[0]}) if text else None
+    It is here because the fixpoint is whole-grammar work and a multiply
+    referenced rule is refused before one is built. Measured over the roster and
+    the ground-truth corpus: of the 27 arm-final loop conflicts that reach this
+    gate, requiring one reference licenses exactly the same 6 as not requiring
+    it, so the bound costs no reach on any grammar measured. (Dropping it
+    licenses more *arm-final loops* in the abstract — but those are loops that
+    never conflict, and a loop that never conflicts never consults this gate.)
 
-
-def _single_charclass(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The member set of a positive char class; ``None`` if it went co-finite."""
-    assert isinstance(n, IrCharClass)
-    cs = CharSet.from_charclass(n)
-    return None if cs.negated else cs.chars
-
-
-def _single_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Rule refs, groups and negations are not single deterministic chars."""
-    return None
-
-
-def _two_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The 2-char prefix of a ≥2-char literal, else ``None``."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _two_group(d: Any, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The union of the arms' 2-char prefixes, or ``None`` if any is underivable."""
-    assert isinstance(n, IrAlternation)
-    return group_two_prefix(d, n)
-
-
-def _two_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A char class, negation or rule ref yields no standalone 2-char prefix."""
-    return None
-
-
-def _lead_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A leading ≥2-char literal's 2-char prefix, else ``None`` (literal-only)."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _lead_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Only a leading literal short-circuits a sequence's 2-char prefix."""
-    return None
-
-
-_SINGLE: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_single_literal)),
-    IrAction(IrCharClass, IrLambda(_single_charclass)),
-    IrAction(IrNot, IrLambda(_single_none)),
-    IrAction(IrRuleRef, IrLambda(_single_none)),
-    IrAction(IrAlternation, IrLambda(_single_none)),
-)
-
-_TWO_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_two_literal)),
-    IrAction(IrCharClass, IrLambda(_two_none)),
-    IrAction(IrNot, IrLambda(_two_none)),
-    IrAction(IrRuleRef, IrLambda(_two_none)),
-    IrAction(IrAlternation, IrLambda(_two_group)),
-)
-
-_LEAD_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_lead_literal)),
-    IrAction(IrCharClass, IrLambda(_lead_none)),
-    IrAction(IrNot, IrLambda(_lead_none)),
-    IrAction(IrRuleRef, IrLambda(_lead_none)),
-    IrAction(IrAlternation, IrLambda(_lead_none)),
-)
-
-
-def _single_chars(d: Any, atom: IrSelf) -> frozenset[str] | None:
-    """The finite positive single-char set of ``atom``, or ``None``.
-
-    A literal contributes its leading char, a positive char class its members;
-    refs, groups, negations and co-finite classes yield ``None``. ``d`` is the
-    nullability oracle (the :class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis`
-    at every call site — ``Any``-typed to keep this module a leaf).
+    :param rules: The grammar's rule table.
+    :param start: The start rule name (the FOLLOW fixpoint's EOF seed).
+    :param items: The enclosing arm's items.
+    :param idx: The looping item's index — must be the arm's last.
+    :param label: The enclosing rule, whose FOLLOW\\ :sub:`k` extends both sides.
+    :returns: The ``taken`` windows, ready for the ``GATE_KWIN`` runtime op, or
+        ``None`` where any precondition fails or the decision does not separate.
     """
-    return cast("frozenset[str] | None", _SINGLE.resolve(atom).eval(d, atom, ()))
-
-
-def two_prefix_seq(d: Any, items: Sequence[IrItem]) -> frozenset[str] | None:
-    """The 2-char prefix set of a sequence, or ``None`` (not derivable).
-
-    A leading ≥2-char literal supplies it; else the first two non-nullable
-    single-char atoms' cross-product, subject to :data:`_MAX_PAIR_PRODUCT`.
-    ``d`` is the nullability oracle (see :func:`_single_chars`).
-    """
-    if items and not d.item_nullable(items[0]):
-        atom = items[0].atom
-        lead = cast(
-            "frozenset[str] | None", _LEAD_PREFIX.resolve(atom).eval(d, atom, ())
-        )
-        if lead is not None:
-            return lead
-    if len(items) < 2:
-        return None
-    first_item, second_item = items[0], items[1]
-    if d.item_nullable(first_item) or d.item_nullable(second_item):
-        return None
-    first_chars = _single_chars(d, first_item.atom)
-    second_chars = _single_chars(d, second_item.atom)
-    if first_chars is None or second_chars is None:
-        return None
-    if len(first_chars) * len(second_chars) > _MAX_PAIR_PRODUCT:
-        return None
-    return frozenset(a + b for a in first_chars for b in second_chars)
-
-
-def group_two_prefix(d: Any, group: IrAlternation) -> frozenset[str] | None:
-    """The union of a group's arms' 2-char prefixes, else ``None``."""
-    out: set[str] = set()
-    for arm in group:
-        sub = two_prefix_seq(d, _items(arm))
-        if sub is None:
-            return None
-        out |= sub
-    return frozenset(out)
-
-
-def atom_two_prefix(d: Any, atom: IrSelf) -> frozenset[str] | None:
-    """The standalone 2-char prefix set of ``atom``, or ``None``.
-
-    ``d`` is the nullability oracle (see :func:`_single_chars`).
-
-    :raises UnsupportedConstructError: On an unregistered atom type.
-    """
-    return cast("frozenset[str] | None", _TWO_PREFIX.resolve(atom).eval(d, atom, ()))
+    if idx != len(items) - 1:
+        return None  # not arm-final: `loop_gate`'s skip side is already k deep
+    if rule_references(rules, label) != 1:
+        return None  # a cost bound — see "Why one reference", not soundness
+    k = FOLLOW_LOOP_K
+    windows = FollowWindows(rules, start, k)
+    follow = windows.follow.get(label, set())
+    if not follow:
+        return None  # nothing known to follow: a zero-length skip side collides
+    item = items[idx]
+    loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
+    taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
+    skip = extend_follow({((), END)}, follow, k)
+    return windows_of(taken) if separable([taken, skip]) else None

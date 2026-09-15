@@ -653,7 +653,7 @@ def test_from_values_takes_models_fields_already_coerced():
     """A ``models`` field arrives as a tuple — the build coerces, not the ctor.
 
     The kernel hands the fold a live sink list; coercing it in
-    :func:`~lexic.parsing.pda.runtime.build._fast_values` is what keeps the
+    :func:`~lexic.parsing.pda.compiler.program.lowering.shape_build` is what keeps the
     stored tuple un-aliased, so the constructor itself does no per-field work.
     """
     ctor, _defaults, _order = Root.fast_construct()

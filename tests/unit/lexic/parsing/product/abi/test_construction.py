@@ -61,7 +61,7 @@ class _Licensable(NamedTuple):
     b: int = 9
 
 
-_LICENCE = ConstructionLicence(_Licensable._make, {"b": 9}, ("a", "b"))
+_LICENCE = ConstructionLicence(_Licensable._make, {"b": 9}, ("a", "b"), _Licensable)
 """The licence a declarer would read off ``_Licensable`` and carry."""
 
 

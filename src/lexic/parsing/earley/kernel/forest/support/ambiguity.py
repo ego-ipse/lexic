@@ -26,7 +26,11 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items
-from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
+from lexic.parsing.earley.kernel.tables.splits import (
+    canonical_indices,
+    is_arm_choice,
+    spec_for,
+)
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -371,9 +375,22 @@ def _flipped_witness[Value, NodeValue](
     Nested and lazy: the alternates are visited one at a time and the walk
     stops at the first difference, so a span whose first alternate settles the
     question never enumerates the rest.
+
+    **One alternate per ARM.** The walk used to visit every family at the
+    point, carvings the split rule had already rejected included, and a
+    difference found against one of those refuses a span over a derivation this
+    engine cannot produce. What the grammar left open here is the choice of
+    arm, so that is what is offered:
+    :func:`~lexic.parsing.earley.kernel.tables.splits.canonical_indices` names
+    each arm's own carving and the walk flips between those.
     """
+    kernel = run.kernel
+    codes = kernel.tables.codes
+    bits = kernel.tables.packing.bits
     for point in choices:
-        for family in range(1, len(run.kernel.st.links[point])):
+        bucket = kernel.st.links[point]
+        spec = spec_for(codes, bits, kernel.tables.code_choice, point)
+        for family in canonical_indices(kernel.st.links, bucket, spec)[1:]:
             built = replayed(run, point, family, memo)
             if built is not None and not same_value(base.value, built.value):
                 return built

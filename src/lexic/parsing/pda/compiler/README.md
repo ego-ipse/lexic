@@ -20,7 +20,7 @@ Island rules are never cloned — a reference carries an `IslandRef`, and a
 **Item specs.** Each grammar item compiles to a flat `ItemSpec`
 (`lit` / `cc` / `ref` / `grp`) with its bounds and, for a loop, exactly one
 loop gate drawn from the stored taxonomy: `StopGate` (the call-site-exact
-stop-set), `PairGate` (2-char), `KTupleGate` (k-window), `PeekGate` (char-set
+stop-set), `KTupleGate` (k-window), `PeekGate` (char-set
 noise-skip), or `ScanGate` (structured noise-skip / probe). Arm selection is a
 FIRST-gated `ArmSpec` list plus at most one nullable **default** arm; a
 FIRST-overlapping alternation with no stored spec raises — the anti-guess
@@ -29,7 +29,7 @@ tripwire.
 ## `specs.py` — the compiler intermediate
 
 The tuple-coded NamedTuples `compile_pda` produces before lowering:
-`CloneKey`, `IslandRef`, the loop gates (`StopGate` / `PairGate` /
+`CloneKey`, `IslandRef`, the loop gates (`StopGate` /
 `KTupleGate` / `PeekGate`, with `ScanGate` from `core/` completing the union),
 and `ItemSpec` / `ArmSpec` / `GroupSpec` / `CloneSpec`. This is the shape the
 structural tests pin. A pure-data leaf — it imports only `CharSet`, the rule's
