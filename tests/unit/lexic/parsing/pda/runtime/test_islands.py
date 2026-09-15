@@ -40,6 +40,7 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
     IslandPolicy,
@@ -430,3 +431,104 @@ def test_authored_arm_past_the_second_derivation_still_refuses():
         island_derivation(
             kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         )
+
+
+# ── the window climb stops at the first window that refuses ─────────────
+
+_CLIMB_HOST = (
+    "root ::= head inner tail\n"
+    'head ::= "<"\n'
+    'tail ::= ">"\n'
+    "inner ::= expr\n"
+    "expr ::= expr op term | term\n"
+    "term ::= [a-z]\n"
+    'op ::= "+"\n'
+)
+"""A left-recursive island inside a delimited host — the shape whose climb
+doubles. `expr`'s own FOLLOW holds the operator, so every completion but the
+first has a shorter one the continuation accepts."""
+
+
+def _windows(source: str, text: str, key: str) -> list[int]:
+    """Every island window width the production seam opens for one parse."""
+    compiled = compile_text(source, cache_key=key)
+    widths: list[int] = []
+    real = islands.island_run
+
+    def watched(tables, window_text, delegates):
+        """Record the width, then run the window."""
+        widths.append(len(window_text))
+        return real(tables, window_text, delegates)
+
+    islands.island_run = watched
+    try:
+        compiled.parse(text, cores=1)
+    finally:
+        islands.island_run = real
+    return widths
+
+
+def test_an_island_that_cannot_settle_refuses_at_the_first_window():
+    """The refusal the climb used to reach last is reached first.
+
+    Completion ends only accumulate, so the answer at 256 characters is the
+    answer at every width — the climb was re-deriving it four more times over
+    a document that never had a different one to give.
+    """
+    terms = 3 * ISLAND_WINDOW  # two characters each, so the input doubles twice
+    text = (
+        "<" + "+".join("abcdefghijklmnopqrstuvwxyz"[n % 26] for n in range(terms)) + ">"
+    )
+    assert len(text) > 4 * ISLAND_WINDOW, "the input must be wide enough to double"
+
+    widths = _windows(_CLIMB_HOST, text, "climb-refuses")
+
+    assert widths == [ISLAND_WINDOW], f"the climb doubled past its answer: {widths}"
+
+
+def test_an_island_that_settles_still_settles():
+    """One completion, no shorter alternative, no refusal — and a parse."""
+    compiled = compile_text(_CLIMB_HOST, cache_key="climb-settles")
+
+    model = compiled.parse("<a>", cores=1)
+
+    assert model.to_text() == "<a>"
+
+
+def test_the_climb_still_grows_when_nothing_refuses():
+    """The doubling is not removed — only the re-derivation of a refusal.
+
+    A window narrower than the island, with a continuation no shorter end
+    composes with, must still widen until the island fits.
+    """
+    tables = compile_tables(
+        IrAst(
+            rules=IrSeq(
+                IrRule(
+                    "x",
+                    IrAlternation(
+                        IrSequence(IrItem(IrRuleRef("x")), IrItem(IrLiteral("a"))),
+                        IrSequence(IrItem(IrLiteral("a"))),
+                    ),
+                )
+            ),
+            start="x",
+        )
+    )
+    text = "a" * (ISLAND_WINDOW * 2)
+    widths: list[int] = []
+    real = islands.island_run
+
+    def watched(inner_tables, window_text, delegates):
+        """Record the width, then run the window."""
+        widths.append(len(window_text))
+        return real(inner_tables, window_text, delegates)
+
+    islands.island_run = watched
+    try:
+        _tree, end = island_parse(tables, text, 0, "x", IslandPolicy())
+    finally:
+        islands.island_run = real
+
+    assert end == len(text)
+    assert widths == [ISLAND_WINDOW, ISLAND_WINDOW * 2], widths
