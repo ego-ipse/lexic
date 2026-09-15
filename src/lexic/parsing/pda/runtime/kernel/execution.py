@@ -27,6 +27,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_shape_build,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -353,7 +354,9 @@ class KernelExecutionMixin[Carry]:
         if frame.inherited is not None:
             frame.adopt_inherited()
         clone = frame.clone
-        if mode == BUILD_SEQ:
+        if mode == BUILD_FOLD:
+            model = _folded(self.text, frame, clone)
+        elif mode == BUILD_SEQ:
             if clone.build is not no_shape_build and frame.arm.n == clone.n_items:
                 model = clone.build(self.text, frame.ends or (), frame.sinks)
             else:
@@ -366,3 +369,40 @@ class KernelExecutionMixin[Carry]:
             model = frame.alt_model()
         if model is not None:
             frame.out.append(model)
+
+
+def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> Carry:
+    """A left-recursive rule's model, folded out of its rewritten loop.
+
+    The rule was rewritten to ``(γ)(β)*`` so the predictive descent could run
+    it (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). Its VALUE is the
+    one the original arms build: the base, then each iteration folded through
+    the recursive arm's own composed build, left-nested —
+    ``A(A(A(γ, β), β), β)``.
+
+    Each iteration is that build handed a synthetic sinks array: slot 0 the
+    value accumulated so far, the rest that iteration's own captures. So the
+    node is constructed by the arm's own plan with the arm's own values, and
+    is identical to what the arm would have built by construction rather than
+    by comparison.
+
+    :param text: The document (the composed build's first argument).
+    :param frame: The completing frame — ``sinks[0]`` the base, ``sinks[1]``
+        every iteration's captures, flat and in order.
+    :param clone: The folding clone, carrying the per-iteration build.
+    :returns: The folded model.
+    """
+    sinks = frame.sinks
+    fold = clone.fold
+    if sinks is None or not sinks[0]:
+        raise PdaFail(f"fold {clone.name!r}: no base value to fold from", 0)
+    model = sinks[0][0]
+    steps = sinks[1] if len(sinks) > 1 and sinks[1] is not None else ()
+    width = fold.width
+    scratch: list[Any] = [None] * fold.slots
+    for at in range(0, len(steps) - width + 1, width):
+        scratch[0] = [model]
+        for offset in range(width):
+            scratch[offset + 1] = [steps[at + offset]]
+        model = fold.step(text, (), scratch)
+    return model

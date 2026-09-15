@@ -7,6 +7,7 @@ arm, item and selector becomes ints in one pass. What it produces is defined in
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, NamedTuple, Sequence, cast
 
 from lexic.parsing.pda.compiler.eligibility import extent_pattern
@@ -519,7 +520,9 @@ def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pat
     }
 
 
-def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClone]:
+def flatten_clones(
+    clones: dict[CloneKey, CloneSpec], folds: Mapping[str, Any] | None = None
+) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
@@ -532,6 +535,10 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
     each sub-clone copies its parent's FINAL baked state. Inline groups attempt
     too and are drained from :attr:`Lowering.groups` in the same pass — they
     are minted mid-walk and have no key to be looked up by.
+
+    ``folds`` names the rules the left-recursion rewrite turned into loops, so
+    their clones complete by folding the iterations back through the recursive
+    arm's own build instead of constructing one node from one arm's items.
     """
     low = Lowering({key: FlatClone.__new__(FlatClone) for key in clones}, [])
     for key, spec in clones.items():
@@ -550,7 +557,9 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
         clone.attempt = (
             (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
         )
-        bake_product_build(clone, spec.routine)
+        bake_product_build(
+            clone, spec.routine, None if folds is None else folds.get(key.name)
+        )
     optimize_program(list(low.shells.values()), _consults(clones, low))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
@@ -579,10 +588,12 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 
 
 def flatten_program(
-    clones: dict[CloneKey, CloneSpec], start_key: CloneKey | IslandRef
+    clones: dict[CloneKey, CloneSpec],
+    start_key: CloneKey | IslandRef,
+    folds: Mapping[str, Any] | None = None,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
-    shells = flatten_clones(clones)
+    shells = flatten_clones(clones, folds)
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )

@@ -745,7 +745,7 @@ def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
     its extent is bounded at the end of the document and one sub-parse over
     the remainder settles it.
     """
-    pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
+    pda = pda_from_text('root ::= x\nx ::= y "a" | "b"\ny ::= x\n')
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
@@ -768,11 +768,13 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
 def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
     """When the start rule is itself an island, PdaProgram.start is the
     IslandRef marker directly — no FlatClone entry point at all. The fixture
-    islands by LEFT RECURSION (the ungatable digit-prefix overlap shape now
-    legitimately attempts, as the ``"a"? "a"`` shape before it demoted).
+    islands by LEFT RECURSION — INDIRECT, through a helper, because direct
+    left recursion no longer islands: the fold rewrites it into a loop and
+    builds the model back, so a start rule that recursed directly would no
+    longer reach this path at all.
     """
-    pda = pda_from_text('root ::= root "a" | "b"\n')
-    assert pda.islands == frozenset({"root", "root-arm1"})  # the hoisted arm too
+    pda = pda_from_text('root ::= step "a" | "b"\nstep ::= root\n')
+    assert pda.islands == frozenset({"root", "root-arm1", "step"})
     assert pda.program.start == IslandRef("root", fail=False)
 
 

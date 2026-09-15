@@ -41,7 +41,7 @@ where anything that wants to read them asks.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence, cast
+from typing import Any, Mapping, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -65,6 +65,9 @@ from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
+from lexic.parsing.pda.compiler.leftrec.build import fold_build
+from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
+from lexic.parsing.pda.compiler.leftrec.shape import foldable
 from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
@@ -314,6 +317,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "clones",
         "pending",
         "continuations",
+        "folds",
         "draining",
     )
 
@@ -323,6 +327,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     pending: list[CloneKey]
     draining: bool
     continuations: IslandContinuations
+    folds: dict[str, Any]
 
     def __init__(
         self,
@@ -336,6 +341,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.pending = []
         self.draining = False
         self.continuations = IslandContinuations(analysis, self.islands)
+        self.folds = {}
 
     def _attempt_window(
         self, items: Sequence[IrItem]
@@ -628,6 +634,38 @@ def _attach_delegates(
     )
 
 
+def folded_grammar(
+    lifted: IrAst, binding: ModelExecutable
+) -> tuple[IrAst, dict[str, Any]]:
+    """``lifted`` with its foldable left recursion rewritten, and the folds.
+
+    A rule the predictive descent cannot run is rewritten into one it can —
+    `A ::= A β | γ` parsed as `(γ)(β)*` — and each rewritten rule's
+    per-iteration build is returned beside it, so the value is the one the
+    original arms build. A rule whose shape the fold cannot take, or whose
+    routine it cannot fold through, is left exactly as it was and islands as
+    before.
+
+    :param lifted: The lifted codegen grammar the PDA compiles.
+    :param binding: The bound model product, for the routines the fold calls.
+    :returns: ``(grammar, folds by rule name)``.
+    """
+    analysis = GrammarAnalysis(lifted)
+    rules = {str(rule.name): rule for rule in lifted.rules}
+    shapes = {}
+    builds: dict[str, Any] = {}
+    for name, rule in rules.items():
+        shape = foldable(name, rule, rules, analysis.item_nullable)
+        if shape is None:
+            continue
+        build = fold_build(shape, binding.routines)
+        if build is None:
+            continue  # the shape folds, the VALUE cannot — leave it islanding
+        shapes[name] = shape
+        builds[name] = build
+    return fold_grammar(lifted, shapes), builds
+
+
 def compile_clones(
     lifted: IrAst, binding: ModelExecutable
 ) -> tuple[PdaCompiler, CloneKey | IslandRef]:
@@ -646,7 +684,9 @@ def compile_clones(
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle.
     """
-    compiler = PdaCompiler(GrammarAnalysis(lifted), binding.routines)
+    grammar, folds = folded_grammar(lifted, binding)
+    compiler = PdaCompiler(GrammarAnalysis(grammar), binding.routines)
+    compiler.folds = folds
     return compiler, compiler.compile_start()
 
 

@@ -367,13 +367,16 @@ def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():
 
 
 def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
-    """``x ::= x "a" | "b"`` is LEFT-RECURSIVE — the island class no attempt
-    order can settle (the unbounded digit-prefix overlap shape it replaces now
-    legitimately attempts), so ``x`` is flagged an island, and a ref to it from
-    ``root`` carries an :class:`IslandRef`, never a :class:`CloneKey`.
+    """``x`` recurses through ``y`` — the island class no attempt order can
+    settle, so it is flagged an island and a ref to it from ``root`` carries an
+    :class:`IslandRef`, never a :class:`CloneKey`.
+
+    INDIRECT, because direct left recursion no longer islands: the fold
+    rewrites it into a loop and builds the model back. The helper joins the
+    island set with it — every rule on the cycle does.
     """
-    specs = specs_from_text('root ::= x\nx ::= x "a" | "b"\n')
-    assert specs.islands == frozenset({"x", "x-arm1"})  # the hoisted arm too
+    specs = specs_from_text('root ::= x\nx ::= y "a" | "b"\ny ::= x\n')
+    assert specs.islands == frozenset({"x", "x-arm1", "y"})
     root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
@@ -506,7 +509,9 @@ def test_an_island_refs_continuation_excludes_the_islands_own_recursion():
     left-recursive island with an infix operator refused on its first
     completion, every time, and the whole document fell back to Earley.
     """
-    specs = specs_from_text('root ::= item "e"\nitem ::= item "d" | "a"\n')
+    specs = specs_from_text(
+        'root ::= item "e"\nitem ::= step "d" | "a"\nstep ::= item\n'
+    )
     assert "item" in specs.islands
     cont = specs.continuations.follow("item")
     assert cont.has("e"), "the caller's continuation is the evidence"

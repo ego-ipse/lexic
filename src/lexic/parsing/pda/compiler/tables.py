@@ -91,7 +91,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self.start_key = start_key
         self.islands = compiler.islands
         self.instance_grammar = instance_grammar
-        self.program = flatten_program(compiler.clones, start_key)
+        self.program = flatten_program(compiler.clones, start_key, compiler.folds)
         self._island_tables = {}
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:

@@ -16,7 +16,14 @@ from tests.unit.lexic.parsing.pda.compiler.test_clones import (
     specs_from_text,
 )
 
-LEFT_RECURSIVE = 'root ::= x\nx ::= x "a" | "b"\n'
+LEFT_RECURSIVE = 'root ::= x\nx ::= y "a" | "b"\ny ::= x\n'
+"""INDIRECT left recursion — `x` reaches itself through `y`.
+
+Direct left recursion no longer islands: the fold rewrites `A ::= A β | γ` to
+`(γ)(β)*` and builds the model back
+(:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). What still islands is the
+recursion the fold refuses, and this is the smallest such shape — a fixture for
+island behaviour has to be one the fold does not take, or it pins nothing."""
 
 
 def test_program_and_clones_are_populated_after_compilation():

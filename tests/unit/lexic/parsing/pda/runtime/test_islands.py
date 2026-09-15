@@ -443,13 +443,20 @@ _CLIMB_HOST = (
     'head ::= "<"\n'
     'tail ::= ">"\n'
     "inner ::= expr\n"
-    "expr ::= expr op term | term\n"
+    "expr ::= step op term | term\n"
+    "step ::= expr\n"
     "term ::= [a-z]\n"
     'op ::= "+"\n'
 )
 """A left-recursive island inside a delimited host — the shape whose climb
 doubles. `expr`'s own FOLLOW holds the operator, so every completion but the
-first has a shorter one the continuation accepts."""
+first has a shorter one the continuation accepts.
+
+The recursion goes through `step` rather than directly, because DIRECT left
+recursion no longer islands — the fold rewrites it into a loop and builds the
+model back (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). The fold does
+not take indirect recursion, so this still reaches the island seam, which is
+what these tests are about."""
 
 
 def _windows(source: str, text: str, key: str) -> list[int]:
@@ -583,8 +590,8 @@ def test_an_island_whose_alphabet_misses_its_continuation_parses_once():
     """
     text = "a+b+c\nd+e\n"
     compiled = compile_text(
-        "root ::= line+\nline ::= expr nl\nexpr ::= expr op term | term\n"
-        'term ::= [a-z]\nop ::= "+"\nnl ::= "\\n"\n',
+        "root ::= line+\nline ::= expr nl\nexpr ::= step op term | term\n"
+        'step ::= expr\nterm ::= [a-z]\nop ::= "+"\nnl ::= "\\n"\n',
         cache_key="exact-window",
     )
     widths: list[int] = []
