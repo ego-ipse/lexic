@@ -244,15 +244,22 @@ class KernelExecutionMixin[Carry]:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end = self._island_subparse(name, cont, exact)
-        result = island_value(lambda: executor.splice(tree), name, self.pos)
+        tree, end, built = self._island_subparse(name, cont, exact)
+        # The settle step builds the value to answer the ambiguity question and
+        # retains it for exactly this reason; splicing the same tree again cost
+        # a third of a small island's parse and produced the same value twice.
+        result = (
+            built
+            if built is not None
+            else island_value(lambda: executor.splice(tree), name, self.pos)
+        )
         if isinstance(result, Completed):
             sink.append(result.value)
         self.pos += end
 
     def _island_subparse(
         self, name: str, cont: CharSet, exact: bool
-    ) -> tuple[Any, int]:
+    ) -> tuple[Any, int, Any]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
         The island tables over the cursor's window, with this cursor's interior
@@ -264,7 +271,8 @@ class KernelExecutionMixin[Carry]:
             takes plain longest-match.
         :param exact: That same set bounds the island's extent, so the window
             is one scan away and one sub-parse settles it.
-        :returns: ``(tree, consumed length)``.
+        :returns: ``(tree, consumed length, the value the settle step built)``
+            — the value is ``None`` where none was built.
         """
         return island_parse(
             self.tables.island_tables(name, tier_for(len(self.text))),

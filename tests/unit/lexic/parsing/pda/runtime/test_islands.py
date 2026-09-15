@@ -95,7 +95,7 @@ def test_island_run_finds_the_longest_origin_zero_completion(sss_grammar: IrAst)
 def test_island_parse_happy_path_returns_tree_and_end(digit_grammar: IrAst):
     """The common case: a matching window decodes to (tree, consumed_len)."""
     tables = compile_tables(digit_grammar)
-    tree, end = island_parse(tables, "5", 0, "digit")
+    tree, end, _value = island_parse(tables, "5", 0, "digit")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "digit"
     assert end == 1
@@ -104,7 +104,7 @@ def test_island_parse_happy_path_returns_tree_and_end(digit_grammar: IrAst):
 def test_island_parse_starts_from_the_given_position(digit_grammar: IrAst):
     """The window opens at pos, not at the start of text."""
     tables = compile_tables(digit_grammar)
-    tree, end = island_parse(tables, "x5", 1, "digit")
+    tree, end, _value = island_parse(tables, "x5", 1, "digit")
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -140,14 +140,14 @@ def test_island_parse_commits_longest_when_the_shorter_cannot_compose():
     """A shorter end whose next char the continuation refuses is no
     alternative — longest-match stays the defined answer."""
     policy = IslandPolicy(follow=CharSet(frozenset("z")))
-    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+    tree, end, _value = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
     assert isinstance(tree, ParseTree)
     assert end == 2
 
 
 def test_island_parse_without_follow_keeps_plain_longest_match():
     """No continuation evidence (the direct-call seam) — legacy longest-match."""
-    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x")
+    tree, end, _value = island_parse(_cross_span_tables(), "abc", 0, "x")
     assert isinstance(tree, ParseTree)
     assert end == 2
 
@@ -174,7 +174,7 @@ def test_island_parse_grows_past_a_window_cut_multi_char_literal():
     )
     tables = compile_tables(IrAst(rules=IrSeq(x, pre), start="x"))
     text = "a" * (ISLAND_WINDOW - 2) + "bcd"
-    tree, end = island_parse(tables, text, 0, "x")
+    tree, end, _value = island_parse(tables, text, 0, "x")
     assert isinstance(tree, ParseTree)
     assert end == len(text)
 
@@ -190,7 +190,7 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     is the behaviour being exercised and the default now refuses it.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(
+    tree, end, _value = island_parse(
         tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
     )
     assert isinstance(tree, ParseTree)
@@ -225,7 +225,7 @@ def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
     )
     ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
     tables = compile_tables(ready)
-    tree, end = island_parse(
+    tree, end, _value = island_parse(
         tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
     )
     assert isinstance(tree, ParseTree)
@@ -241,7 +241,7 @@ def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
     misses must still parse under the default.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(tables, "a", 0, "s")
+    tree, end, _value = island_parse(tables, "a", 0, "s")
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -255,7 +255,7 @@ def test_island_derivation_returns_the_first_derivation(sss_grammar: IrAst):
     kern, best = island_run(tables, "aaa")
     assert best is not None
     item, end = best
-    tree = island_derivation(kern, item, end, "s")
+    tree, _value = island_derivation(kern, item, end, "s")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "s"
 
@@ -336,12 +336,12 @@ def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
     """
     compiled, kern, best = _vyx_span(seed)
     item, end = best
-    assert isinstance(
-        island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
-        ),
-        ParseTree,
+    tree, value = island_derivation(
+        kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
     )
+
+    assert isinstance(tree, ParseTree)
+    assert value is not None, "the settle step built a value and must hand it back"
 
 
 def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
@@ -355,12 +355,12 @@ def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
     """
     compiled, kern, best = _vyx_span(146)
     item, end = best
-    assert isinstance(
-        island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
-        ),
-        ParseTree,
+    tree, value = island_derivation(
+        kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
     )
+
+    assert isinstance(tree, ParseTree)
+    assert value is not None, "the settle step built a value and must hand it back"
 
 
 class _CountingExecutor(ProductExecutor):
@@ -420,7 +420,7 @@ def test_two_derivations_both_meaning_none_settle_as_one_meaning(sss_grammar: Ir
     assert best is not None
     item, end = best
     executor = _CountingExecutor([Completed(None), Completed(None)])
-    tree = island_derivation(
+    tree, _value = island_derivation(
         kern, item, end, "s", policy=IslandPolicy(executor=executor)
     )
     assert isinstance(tree, ParseTree)
@@ -540,7 +540,7 @@ def test_the_climb_still_grows_when_nothing_refuses():
 
     islands.island_run = watched
     try:
-        _tree, end = island_parse(tables, text, 0, "x", IslandPolicy())
+        _tree, end, _value = island_parse(tables, text, 0, "x", IslandPolicy())
     finally:
         islands.island_run = real
 
@@ -656,3 +656,54 @@ def test_bounded_window_skips_the_end_of_input_sentinel():
     assert bounded_window("abcdef", 2, CharSet.from_chars("")) == 4
     # and beside a real character, the real one still bounds it
     assert bounded_window("ab\ncd", 0, CharSet.from_chars("", "\n")) == 2
+
+
+# ── the value the settle step built is the value the seam splices ──────────
+
+
+def test_the_settled_value_is_what_a_fresh_splice_would_build() -> None:
+    """The handed-back value equals re-splicing the same tree, model for model.
+
+    `different_meaning` builds the baseline to answer the ambiguity question
+    and retains it — its own docstring says a resolver "does not construct its
+    chosen result again". The seam used to discard it and splice the same tree
+    a second time, which was 610 µs per island on a 48-character island and a
+    third of that row's parse.
+
+    Identical BY CONSTRUCTION — same builder, same tree — so this compares the
+    two answers directly rather than trusting the argument, and it asks through
+    the public entry rather than reaching into the settle step.
+    """
+    compiled = compile_text(
+        'root ::= number\nnumber ::= ("-"? ([0-9] | [1-9] [0-9]{0,15}))',
+        cache_key="settled-value",
+    )
+    tables = compile_tables(
+        normalize(lift_optional_nullables(compiled.codegen_grammar))
+    )
+
+    _tree, _end, value = island_parse(
+        tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
+    )
+    fresh = compiled.executor.splice(_tree)
+
+    assert value is not None, "the settle step built a value and must hand it back"
+    assert isinstance(value, Completed) and isinstance(fresh, Completed)
+    assert value.value.dump() == fresh.value.dump()
+    assert value.value.to_text() == fresh.value.to_text()
+
+
+def test_an_executor_less_island_hands_back_no_value(digit_grammar: IrAst) -> None:
+    """No product, nothing built — the seam completes the tree itself.
+
+    The ``None`` is the honest answer rather than a failure: it is what tells
+    the caller to splice, and a value invented here would be a value built
+    without a product to build it with.
+    """
+    tables = compile_tables(digit_grammar)
+
+    tree, end, value = island_parse(tables, "5", 0, "digit")
+
+    assert isinstance(tree, ParseTree)
+    assert end == 1
+    assert value is None
