@@ -5,10 +5,17 @@ runs it on every push. That is the wrong instrument mid-change: a tree-wide
 sweep costs minutes, reports failures nobody in this diff caused, and is slow
 enough that it stops being run at all.
 
-This selects instead. Given the paths a diff touches it emits the lint, type and
-test commands that CAN see those paths, prints each one before running it, and
-exits on the first failure. Nothing here is a new rule — every command is the
-one `tools/checks/*.sh` already runs, narrowed to files.
+This selects instead. Given the paths a diff touches it emits the commands that
+CAN see those paths, prints each one before running it, and exits on the first
+failure. Nothing here is a new rule — every command is one `tools/checks/*.sh`
+or `tools/auto_fix.sh` already runs, narrowed to files.
+
+**It FIXES before it checks.** `ruff format`, `isort` and `ruff check --fix` run
+on the changed files first, then the verifying pass. `tools/auto_fix.sh` does
+the same three things over the whole tree, so reaching for it mid-diff is the
+sweep this tool exists to replace; a gate that only reported left the fixable
+half to be done by hand, which meant doing it tree-wide. This tool therefore
+WRITES to the files it was given — nothing else, and nothing it was not.
 
 **Nothing here is ever tree-wide.** A cross-file check — `pylint`'s duplicate
 blocks, an annotation that no longer matches a caller elsewhere — is real, and
@@ -215,8 +222,19 @@ def plan(
     commands: list[Command] = []
     if python:
         commands += [
+            # FIX first, on the changed files only. `tools/auto_fix.sh` does
+            # the same three things over the WHOLE tree, so reaching for it
+            # mid-diff is the sweep this tool exists to replace — and a gate
+            # that only reported left the fixable half to be done by hand,
+            # which meant doing it tree-wide.
+            Command("ruff format", ("uv", "run", "ruff", "format", *python)),
+            Command("isort", ("uv", "run", "isort", *python)),
+            Command(
+                "ruff check --fix", ("uv", "run", "ruff", "check", "--fix", *python)
+            ),
+            # Then verify. `ruff check` runs again because `--fix` leaves what
+            # it cannot fix, and its exit code is the one that matters.
             Command("ruff check", ("uv", "run", "ruff", "check", *python)),
-            Command("ruff format", ("uv", "run", "ruff", "format", "--check", *python)),
             Command("pyright", ("uv", "run", "pyright", *python)),
             Command("pylint", ("uv", "run", "pylint", *python)),
         ]

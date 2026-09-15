@@ -33,6 +33,13 @@ STATE_MIRROR = "tests/unit/lexic/parsing/earley/kernel/loop/test_state.py"
 STATE_MODULE = "lexic.parsing.earley.kernel.loop.state"
 IMPORTER = "tests/integration/lexic/invariants/test_layering_invariants.py"
 
+FIXERS = ["ruff format", "isort", "ruff check --fix"]
+"""What runs on the changed files BEFORE anything is judged, in order."""
+
+CHECKERS = ["ruff check", "pyright", "pylint"]
+"""What then judges them — `ruff check` again, because `--fix` leaves what it
+cannot fix and its exit code is the verdict."""
+
 
 def _everything(_path: str) -> bool:
     """An ``exists`` predicate for a tree where every named path is a file."""
@@ -96,13 +103,7 @@ def test_a_source_change_lints_the_file_and_runs_its_mirror() -> None:
     """The four file-scoped checks, then the one test file that mirrors it."""
     commands = plan([STATE], _only(STATE, STATE_MIRROR), {})
 
-    assert _labels(commands) == [
-        "ruff check",
-        "ruff format",
-        "pyright",
-        "pylint",
-        "pytest",
-    ]
+    assert _labels(commands) == [*FIXERS, *CHECKERS, "pytest"]
     assert _argv(commands, "ruff check") == ("uv", "run", "ruff", "check", STATE)
     # The witness is not in this tree, so it is correctly absent; the case
     # where it exists is `test_a_change_under_parsing_always_runs_the_witness`.
@@ -154,7 +155,7 @@ def test_a_missing_mirror_is_not_a_pytest_target() -> None:
     commands = plan([STATE], _only(STATE), {})
 
     assert "pytest" not in _labels(commands)
-    assert _labels(commands) == ["ruff check", "ruff format", "pyright", "pylint"]
+    assert _labels(commands) == [*FIXERS, *CHECKERS]
 
 
 def test_a_deleted_file_is_not_handed_to_a_linter() -> None:
@@ -176,13 +177,7 @@ def test_a_test_change_lints_and_runs_only_itself() -> None:
     """
     commands = plan([IMPORTER], _only(IMPORTER), {})
 
-    assert _labels(commands) == [
-        "ruff check",
-        "ruff format",
-        "pyright",
-        "pylint",
-        "pytest",
-    ]
+    assert _labels(commands) == [*FIXERS, *CHECKERS, "pytest"]
     assert _argv(commands, "pytest") == ("uv", "run", "pytest", IMPORTER, "-q")
 
 
@@ -296,6 +291,26 @@ def test_every_declared_coupling_names_real_files() -> None:
             assert (ROOT / path).is_file(), path
 
 
+def test_the_fixers_run_before_anything_judges() -> None:
+    """Order is the contract: a formatter that ran after `ruff check` would
+    report a failure it was about to fix, and one that never ran at all left
+    the tree-wide `auto_fix.sh` as the only way to do it."""
+    labels = _labels(plan([STATE], _everything, {}))
+
+    assert labels[: len(FIXERS)] == FIXERS
+    assert labels.index("ruff check") > labels.index("ruff check --fix")
+
+
+def test_every_fixer_is_given_files_and_never_a_directory() -> None:
+    """`auto_fix.sh` runs these three over the whole tree; this must not."""
+    commands = plan([STATE, IMPORTER], _everything, {})
+
+    for label in FIXERS:
+        argv = _argv(commands, label)
+        assert argv[-2:] == (STATE, IMPORTER), label
+        assert "." not in argv, label
+
+
 # ── what earns nothing ─────────────────────────────────────────────────
 
 
@@ -316,7 +331,7 @@ def test_a_tools_change_lints_itself_and_runs_its_mirror_if_there_is_one() -> No
     """`tools/` has no `src/lexic` mirror rule, so only a direct test counts."""
     commands = plan(["tools/quick_checks.py"], _everything, {})
 
-    assert _labels(commands) == ["ruff check", "ruff format", "pyright", "pylint"]
+    assert _labels(commands) == [*FIXERS, *CHECKERS]
 
 
 @pytest.mark.parametrize(
@@ -327,4 +342,4 @@ def test_every_python_change_is_linted_by_all_four(path: str) -> None:
     """No python file is exempt from the file-scoped four."""
     labels = _labels(plan([path], _everything, {}))
 
-    assert labels[:4] == ["ruff check", "ruff format", "pyright", "pylint"]
+    assert labels[: len(FIXERS) + len(CHECKERS)] == [*FIXERS, *CHECKERS]
