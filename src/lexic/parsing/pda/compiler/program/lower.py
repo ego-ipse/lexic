@@ -167,10 +167,7 @@ def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
         return OP_GRP, _flatten_group(cast(GroupSpec, payload), low)
     target = payload  # REF
     if isinstance(target, IslandRef):
-        # An OP_ISLAND payload is `(name, occurrence continuation)`: the seam's
-        # two-ends check is about what may follow the island HERE, which is a
-        # property of this reference and not of the island rule.
-        return (OP_FAIL if target.fail else OP_ISLAND), (target.name, target.cont)
+        return (OP_FAIL if target.fail else OP_ISLAND), target.name
     return OP_REF, low.shells[cast(CloneKey, target)]
 
 

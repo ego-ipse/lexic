@@ -266,8 +266,7 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
-        cont = compiler.occurrence_follow(name)
-        return ItemSpec(REF, IslandRef(name, fail, cont), ctx.lo, ctx.hi, ctx.gate)
+        return ItemSpec(REF, IslandRef(name, fail), ctx.lo, ctx.hi, ctx.gate)
     if name in compiler.analysis.taxonomy.attempts:
         # ONE canonical clone per attemptable rule (the analysis-level hard
         # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
@@ -349,7 +348,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "routines",
         "clones",
         "pending",
-        "_occurrences",
         "draining",
     )
 
@@ -358,7 +356,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
-    _occurrences: dict[str, CharSet]
 
     def __init__(
         self,
@@ -371,7 +368,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones = {}
         self.pending = []
         self.draining = False
-        self._occurrences = {}
 
     def _attempt_window(
         self, items: Sequence[IrItem]
@@ -410,57 +406,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     def fail_islands(self) -> frozenset[str]:
         """The fail-island subset — references raise ``PdaFail``."""
         return self.analysis.fail_islands
-
-    def occurrence_follow(self, name: str) -> CharSet:
-        """What may follow island ``name`` where it is REFERENCED, unioned.
-
-        The seam's two-ends evidence. It is deliberately not the island rule's
-        own FOLLOW, and deliberately not one site's continuation either.
-
-        *Not the rule's FOLLOW*, because the fixpoint walks the island's own
-        arms too: ``expr ::= expr op term`` puts ``op``'s FIRST into
-        FOLLOW(``expr``) purely because the rule places ``expr`` before ``op``.
-        A shorter end followed by ``+`` is then the island CONTINUING ITSELF,
-        which longest-match absorbs under the same arm — not the caller
-        accepting it. Reading the rule's FOLLOW made every left-recursive
-        island with an infix operator refuse by construction, on its first
-        completion, every time.
-
-        *Not one site's continuation*, because the caller may reach the island
-        through more than one arm and the PDA commits to an arm BEFORE
-        entering. With ``root ::= expr "+" term nl | expr nl`` the two sites
-        see ``{'+'}`` and ``{'\n'}``; ``a+b\n`` derives both ways and means
-        two different things. Asking only the entered site's set answers it
-        silently. The union asks whether the shorter end could compose with
-        ANY way back into the caller, which is the question.
-
-        The island's own arms contribute nothing because an island rule is
-        never cloned — its internal recursion is resolved inside the Earley
-        sub-parse and never reaches a reference site here.
-
-        :param name: The island rule name.
-        :returns: The union over external reference sites; empty when the
-            island is referenced from nowhere (the start rule itself), which
-            carries no evidence and accepts plain longest-match.
-        """
-        cached = self._occurrences.get(name)
-        if cached is not None:
-            return cached
-        analysis = self.analysis
-        found = CharSet.EMPTY
-        for rule, body in analysis.rules.items():
-            if rule in self.islands:
-                continue  # an island's own arms are never entry sites
-            for arm in body.body:
-                items = _items(arm)
-                for k, item in enumerate(items):
-                    atom = item.atom
-                    if isinstance(atom, IrRuleRef) and str(atom) == name:
-                        found = found.union(
-                            analysis.cont_at(items, k, analysis.follow[rule])
-                        )
-        self._occurrences[name] = found
-        return found
 
     def compile_start(self) -> CloneKey | IslandRef:
         """Compile the start clone (EOF-only tail), or return the

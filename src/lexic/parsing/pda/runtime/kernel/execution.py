@@ -40,7 +40,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
@@ -209,7 +208,7 @@ class KernelExecutionMixin[Carry]:
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, ref: tuple[str, CharSet], sink: list[Carry]) -> None:
+    def _island(self, name: str, sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
@@ -225,35 +224,31 @@ class KernelExecutionMixin[Carry]:
         those apart; the completion result can, which is why the splice reads
         it rather than the value.
 
-        :param ref: ``(island rule name, this occurrence's continuation)``.
+        :param name: The island rule name.
         :param sink: The enclosing sink the value splices into.
         :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
             product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        name, cont = ref
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end = self._island_subparse(name, cont)
+        tree, end = self._island_subparse(name)
         result = island_value(lambda: executor.splice(tree), name, self.pos)
         if isinstance(result, Completed):
             sink.append(result.value)
         self.pos += end
 
-    def _island_subparse(self, name: str, cont: CharSet) -> tuple[Any, int]:
+    def _island_subparse(self, name: str) -> tuple[Any, int]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
         The island tables over the cursor's window, with this cursor's interior
         delegate table threaded in.
 
         :param name: The island rule name.
-        :param cont: What may follow the island at THIS occurrence — the seam's
-            two-ends evidence. An empty set carries no evidence and the seam
-            takes plain longest-match.
         :returns: ``(tree, consumed length)``.
         """
         return island_parse(
@@ -262,7 +257,7 @@ class KernelExecutionMixin[Carry]:
             self.pos,
             name,
             self.policy.for_island(
-                self._delegates(name), None if cont.is_empty() else cont
+                self._delegates(name), self.tables.island_follow.get(name)
             ),
         )
 

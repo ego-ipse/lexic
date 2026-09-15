@@ -68,20 +68,10 @@ class IslandRef(NamedTuple):
     :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
         rule) — the reference raises :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`
         (engine fallback) rather than risking a divergent longest-match parse.
-    :ivar cont: What the ENCLOSING rule puts after this occurrence — the
-        characters that could follow the island *here*. The seam's two-ends
-        check reads it, and reading the island rule's own FOLLOW instead is
-        what made every left-recursive island refuse by construction: in
-        ``expr ::= expr op term`` the rule's FOLLOW contains ``op``'s FIRST,
-        because the rule puts ``expr`` before ``op`` — so a shorter end
-        followed by ``+`` looked like the caller accepting it when it was the
-        island continuing itself. Empty is *unknown*, which accepts plain
-        longest-match, and is what the start-rule marker carries.
     """
 
     name: str
     fail: bool = False
-    cont: CharSet = CharSet.EMPTY
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────

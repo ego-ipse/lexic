@@ -732,22 +732,16 @@ def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
 # ── island / fail-island flattening ─────────────────────────────────────
 
 
-def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
-    """A ref to a genuine (non-fail) island flattens to OP_ISLAND.
-
-    The payload is ``(name, continuation)``: the runtime's splice-in marker
-    AND the seam's two-ends evidence, which is a property of the reference —
-    what the CALLER puts after the island — and not of the island rule, whose
-    own FOLLOW holds its own recursion. The fixture islands by LEFT RECURSION,
-    the class no attempt can settle, and ``root ::= x`` puts nothing after it.
+def test_island_ref_flattens_to_op_island_carrying_the_rule_name():
+    """A ref to a genuine (non-fail) island flattens to OP_ISLAND with the
+    island's rule name as payload — the runtime's splice-in marker. The
+    fixture islands by LEFT RECURSION — the class no attempt can settle.
     """
     pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
-    name, cont = arm.payloads[0]
-    assert name == "x"
-    assert not cont.has("a"), "the island's own recursion is not the caller's"
+    assert arm.payloads == ("x",)
 
 
 def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
@@ -757,7 +751,7 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
     pda = pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
     arm = only_arm(pda.program.start)
     assert arm.kinds[0] == OP_FAIL
-    assert arm.payloads[0][0] == "x"
+    assert arm.payloads[0] == "x"
 
 
 def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
