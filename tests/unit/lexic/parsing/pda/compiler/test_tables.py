@@ -23,10 +23,18 @@ def test_program_and_clones_are_populated_after_compilation():
     assert pda.clones  # at least the root clone
 
 
-def test_islands_is_the_island_follow_key_set():
-    """``islands`` is derived from ``island_follow``, not stored separately."""
+def test_islands_is_the_compilers_island_set():
+    """``islands`` is the compiler's residue, carried as a plain set.
+
+    It used to be the key set of a per-island FOLLOW map. The values of that
+    map were the seam's two-ends evidence and are now wrong for the job — the
+    set a two-ends check needs is what the island's REFERENCES are followed
+    by — so the evidence moved onto the reference and the map became a dict
+    nothing read the values of.
+    """
     pda = pda_from_text(LEFT_RECURSIVE)
-    assert pda.islands == frozenset(pda.island_follow.keys())
+    assert not hasattr(pda, "island_follow")
+    assert isinstance(pda.islands, frozenset)
     assert "x" in pda.islands
 
 
