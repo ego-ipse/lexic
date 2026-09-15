@@ -322,7 +322,9 @@ def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
         assert isinstance(gate, StopGate)
         assert gate.charset == CharSet.from_chars(" ", "\t", "\n", "\r")
     assert not any(
-        spec.kind == REF and spec.payload == IslandRef("ws")
+        spec.kind == REF
+        and isinstance(spec.payload, IslandRef)
+        and spec.payload.name == "ws"
         for spec in all_specs(specs)
     )
 
@@ -375,7 +377,8 @@ def test_hand_grammar_ref_to_a_genuine_island_carries_islandref():
     root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
-    assert ref_spec.payload == IslandRef("x")
+    assert isinstance(ref_spec.payload, IslandRef)
+    assert (ref_spec.payload.name, ref_spec.payload.fail) == ("x", False)
 
 
 def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
@@ -397,7 +400,8 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
     assert ref_spec.kind == REF
-    assert ref_spec.payload == IslandRef("x", fail=True)
+    assert isinstance(ref_spec.payload, IslandRef)
+    assert (ref_spec.payload.name, ref_spec.payload.fail) == ("x", True)
 
     lifted = lift_optional_nullables(
         build_codegen_grammar(canonical_grammar(text, GBNF_FLAVOUR))
@@ -490,14 +494,37 @@ def test_island_tables_cache_per_name_and_tier():
     assert default.packing.bits == ORIGIN_BITS
 
 
-def test_island_follow_carries_a_charset_per_island():
-    """Every island name keys a follow CharSet holding what can follow it —
-    the continuation evidence the island seam's cross-span check reads. The
-    fixture islands by LEFT RECURSION (the cross-span overlap shape it
-    replaces now attempts instead of islanding)."""
-    pda = pda_from_text('root ::= item "e"\nitem ::= item "d" | "a"\n')
-    assert "item" in pda.islands
-    assert set(pda.island_follow) == set(pda.islands)
-    follow = pda.island_follow["item"]
-    assert follow.has("d") and follow.has("e")
-    assert not follow.has("z")
+def test_an_island_refs_continuation_excludes_the_islands_own_recursion():
+    """``root ::= item "e"`` / ``item ::= item "d" | "a"`` — the evidence is ``e``.
+
+    The seam's two-ends check asks whether a SHORTER completion could compose
+    with the caller, so its evidence is what the island's REFERENCES are
+    followed by. ``d`` is not that: the island rule's own arm puts ``item``
+    before ``"d"``, so a shorter end followed by ``d`` is the island
+    continuing ITSELF, which longest-match absorbs under the same arm. This
+    used to read the island rule's FOLLOW, which holds both — and so every
+    left-recursive island with an infix operator refused on its first
+    completion, every time, and the whole document fell back to Earley.
+    """
+    specs = specs_from_text('root ::= item "e"\nitem ::= item "d" | "a"\n')
+    assert "item" in specs.islands
+    cont = specs.occurrence_follow("item")
+    assert cont.has("e"), "the caller's continuation is the evidence"
+    assert not cont.has("d"), "the island's own recursion is not the caller"
+    assert not cont.has("z")
+
+
+def test_an_island_refs_continuation_unions_every_reference_site():
+    """Two arms reach the island, and the union is what the seam must ask.
+
+    The PDA commits to ONE of the caller's arms before entering the island, so
+    asking only the entered site's continuation answers a cross-arm ambiguity
+    silently. ``a+b\n`` under this grammar really does derive two ways — the
+    union is what refuses it.
+    """
+    specs = specs_from_text(
+        'root ::= expr "+" term nl | expr nl\n'
+        'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n'
+    )
+    cont = specs.occurrence_follow("expr")
+    assert cont.has("+") and cont.has("\n")
