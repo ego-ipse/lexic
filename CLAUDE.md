@@ -48,6 +48,7 @@ uv run pytest tests/ -q                  # full suite
 uv run pytest tests/ -q -n auto          # ... in parallel (~3x); same result, xdist is a dev dep
 tools/guarded.sh 8G 600 -- uv run pytest tests/ -q   # memory-capped (use for property tests)
 tools/auto_fix.sh                        # ruff format + isort + ruff --fix — run before hand-fixing lint
+tools/quick_checks.sh [ref]              # the gate for ONE diff: lint/type the changed files, run the tests that can see them
 tools/run_checks.sh                      # THE done-gate; work is done when this exits 0
 tools/run_examples.sh                    # every getting_started/ex*.py must exit 0
 uv run python tools/check_generated.py   # generated-twin tool-clean gate
