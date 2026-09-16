@@ -100,3 +100,35 @@ def test_the_plan_is_the_arms_own_plan() -> None:
     assert got is not None
     assert got.step is not None
     assert got.slots == len(routine.captures)
+
+
+def test_a_step_that_captures_nothing_is_refused() -> None:
+    """``A ::= A "a" | "a"`` folds in SHAPE and cannot fold in VALUE.
+
+    The β is a bare literal, so the arm's routine captures only the recursive
+    slot and an iteration leaves nothing in the sink. The nesting depth is then
+    the whole information and the sink carries none of it — one iteration is
+    indistinguishable from ten.
+
+    This shipped as a crash rather than a wrong model (`range()` with a step of
+    zero, on a grammar the repo has an adversarial test for), which is the
+    better of the two failures but not by design. The refusal is what makes it
+    neither.
+    """
+    shape, product = parts('root ::= root "a" | "a"\n', "root")
+
+    assert shape is not None, "the SHAPE reader takes it"
+    assert fold_build(shape, product.binding.routines) is None, "the VALUE cannot"
+
+
+def test_the_shape_it_refuses_still_parses() -> None:
+    """Refusing the fold puts the rule back on the island path, not off a cliff.
+
+    A refusal that lost the parse would be a worse bug than the crash it
+    replaces, so the acceptance is a parse and a round trip, not the absence of
+    an exception.
+    """
+    compiled = compile_text('root ::= root "a" | "a"\n', cache_key="fold-refused-parse")
+
+    assert compiled.parse("aaa").to_text() == "aaa"
+    assert compiled.parse("a").to_text() == "a"

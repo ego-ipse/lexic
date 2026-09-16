@@ -24,7 +24,11 @@ model rather than a slow one:
   per-item ends of its own to give;
 * **captures that are not the leading recursive slot followed by the rest** —
   the synthetic array is built by position, and a routine reading some other
-  slot would read a value that is not there.
+  slot would read a value that is not there;
+* **a β that captures nothing at all** — ``A ::= A "a" | "a"`` builds a node
+  per iteration whose only field is the recursive one, so the iterations leave
+  NO values in the sink and their number cannot be recovered from it. The
+  nesting depth is the whole information and the sink carries none of it.
 """
 
 from __future__ import annotations
@@ -76,7 +80,10 @@ def fold_build(
     if licence is None:
         return None
     captures = routine.captures
-    if not captures or any(one.mode in _ENDS_MODES for one in captures):
+    # `len(captures) == 1` is the recursive slot ALONE: the iteration captures
+    # nothing, so a flat sink holds nothing to count iterations by and one
+    # iteration is indistinguishable from ten.
+    if len(captures) < 2 or any(one.mode in _ENDS_MODES for one in captures):
         return None
     if [one.slot for one in captures] != list(range(len(captures))):
         return None
