@@ -64,9 +64,12 @@ SPLITS: dict[str, bool] = {
     "mixedends": True,
     "announced": True,
     "dense-earley": True,
-    # The three the descent is FOR. They must become True, and a change that
-    # makes them True without disturbing the thirteen above is the whole goal.
-    "split-nullable": False,
+    # split-nullable now divides: its `line+` is reached as a terminated
+    # interior, where before only its `para+` was considered and that has one
+    # instance per document. The other two do not, and each for its own stated
+    # reason — wrapped-unit's repetition sits one rule deeper than a two-slot
+    # stitch route can express, and island-earley has no repetition at all.
+    "split-nullable": True,
     "wrapped-unit": False,
     "island-earley": False,
 }

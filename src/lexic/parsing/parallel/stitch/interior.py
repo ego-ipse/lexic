@@ -51,20 +51,57 @@ def interior_route[M: IrNamedTuple](
 
 
 def stitch_interior[S: GrammarModel](
-    shell: S, pieces: list[GrammarModel], route: tuple[int, int]
+    shell: S, pieces: list[GrammarModel], route: tuple[int, int], whole: bool = False
 ) -> S | None:
     """Put the pieces' runs back into the shell; ``None`` = shape surprise."""
     slot, child = route
     fields = list(shell.children())
-    stand = fields[slot] if slot < len(fields) else None
+    held = fields[slot] if slot < len(fields) else None
+    # A whole-extent interior is a member of its enclosing RUN, not a field of
+    # its own: `root ::= para*` holds the stand-in para inside the repetition,
+    # where a delimited interior sits in a field. The route's step says which,
+    # and `splice` has always taken both.
+    stand = held[0] if whole and is_run(held) and len(held) == 1 else held
     if not isinstance(stand, GrammarModel):
         return None
-    merged = _merged_run(pieces, child)
+    merged = _merged_whole(pieces, slot, child) if whole else _merged_run(pieces, child)
     if merged is None:
         return None
     rebuilt: list[Bound] = list(stand.children())
     rebuilt[child] = merged
-    return splice(shell, ((slot, None),), stand.rebuild(rebuilt))
+    step = (slot, 0) if whole else (slot, None)
+    return splice(shell, (step,), stand.rebuild(rebuilt))
+
+
+def _merged_whole(
+    pieces: list[GrammarModel], slot: int, child: int
+) -> tuple[IrSelf, ...] | None:
+    """Every piece's run when the piece is a whole START document.
+
+    A whole-extent interior's piece parses under the start rule rather than
+    under the interior's own rule, because that is what the predictive engine
+    settles. So its run sits one level deeper than a delimited piece's: the
+    start model's repetition holds exactly ONE element — the piece is one unit
+    by construction — and the run is inside that.
+
+    A piece holding more than one is a shape surprise and declines, because the
+    concatenation would then be joining runs that were never one run.
+    """
+    merged: list[IrSelf] = []
+    for piece in pieces:
+        outer = list(piece.children())
+        held = outer[slot] if slot < len(outer) else None
+        if not is_run(held) or len(held) != 1:
+            return None
+        node = held[0]
+        if not isinstance(node, GrammarModel):
+            return None
+        inner = list(node.children())
+        found = inner[child] if child < len(inner) else None
+        if not is_run(found):
+            return None
+        merged.extend(found)
+    return tuple(merged)
 
 
 def _merged_run(pieces: list[GrammarModel], child: int) -> tuple[IrSelf, ...] | None:
@@ -94,9 +131,11 @@ def routed_split[M: IrNamedTuple](
     """
     text, binding, resolve = ask
     plan = routed_plan(grammar)
-    region = locate(text, plan) if plan is not None else None
-    parts = divide(text, region, pool.workers) if region is not None else None
-    if plan is None or region is None or parts is None:
+    if plan is None:
+        return None
+    region = locate(text, plan)
+    parts = divide(text, region, pool.workers, plan) if region is not None else None
+    if region is None or parts is None:
         return None
     route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
     if route is None:
@@ -109,7 +148,7 @@ def routed_split[M: IrNamedTuple](
     shell, pieces = parsed
     if not isinstance(shell, GrammarModel):
         return None
-    return stitch_interior(shell, pieces, route)
+    return stitch_interior(shell, pieces, route, plan.whole)
 
 
 def _parsed[M: IrNamedTuple](
