@@ -18,7 +18,8 @@ from lexic.compile import compile_text
 from lexic.ir import IrRule
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec.shape import Fold, foldable
+from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
+from tools.benchmark.cases.grammars import BENCHES
 
 
 def shapes(source: str) -> dict[str, Fold]:
@@ -98,3 +99,35 @@ def test_a_rule_that_does_not_recurse_is_not_a_fold() -> None:
 
     assert "x" not in got
     assert not got, "no rule in this grammar folds"
+
+
+def test_the_pre_test_agrees_with_the_full_test_wherever_it_matters() -> None:
+    """`any_candidate` may say yes wrongly; it must never say NO wrongly.
+
+    It exists to skip building a `GrammarAnalysis` on a grammar that cannot
+    fold — 9-13% of the compile on every such grammar, which is all of them
+    but two rules. A pre-test that could answer NO for a grammar that DOES
+    fold would silently stop folding it, and nothing downstream would notice
+    because not folding is a legal outcome.
+
+    So the direction is checked, not just the agreement: every grammar the
+    full test finds a fold in must pass the pre-test.
+    """
+    for bench in BENCHES:
+        grammar = lift_optional_nullables(bench.compiled.codegen_grammar)
+        analysis = GrammarAnalysis(grammar)
+        rules = {str(one.name): one for one in grammar.rules}
+        folds = any(
+            foldable(name, rule, rules, analysis.item_nullable) is not None
+            for name, rule in rules.items()
+        )
+        if folds:
+            assert any_candidate(rules), f"{bench.name}: folds but the pre-test said no"
+
+
+def test_the_pre_test_skips_a_grammar_with_nothing_self_leading() -> None:
+    """The common case, and the one the saving is for."""
+    compiled = compile_text('root ::= a "!"\na ::= "x" | "y"\n', cache_key="pre-none")
+    grammar = lift_optional_nullables(compiled.codegen_grammar)
+
+    assert not any_candidate({str(one.name): one for one in grammar.rules})

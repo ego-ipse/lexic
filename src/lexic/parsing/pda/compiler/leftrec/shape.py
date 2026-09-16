@@ -82,6 +82,33 @@ def _leads_with(items: list[IrItem], name: str) -> bool:
     )
 
 
+def any_candidate(rules: dict[str, IrRule]) -> bool:
+    """Whether ANY rule even leads an arm with a reference to itself.
+
+    A cheap structural pre-test, and it exists to keep the fold from costing
+    anything on a grammar it cannot serve. The full test needs a nullability
+    oracle, and building one means a second :class:`GrammarAnalysis` over every
+    rule — measured at +9% on csv's compile, +10% on arithmetic's and +13% on
+    markdown's, to be told there was nothing to fold. Two rules in 782 fold, so
+    the common answer is "no" and it should be reached without paying an
+    analysis to say so.
+
+    Deliberately weaker than :func:`foldable`: it may say yes where the full
+    test says no, never the reverse. A pre-test that could say NO wrongly would
+    silently stop folding a rule that qualifies.
+    """
+    for name, rule in rules.items():
+        for arm in rule.body:
+            items = through_hoist(arm_items(arm), rules)
+            if (
+                items
+                and isinstance(items[0].atom, IrRuleRef)
+                and str(items[0].atom) == name
+            ):
+                return True
+    return False
+
+
 def foldable(
     name: str, rule: IrRule, rules: dict[str, IrRule], nullable
 ) -> Fold | None:
