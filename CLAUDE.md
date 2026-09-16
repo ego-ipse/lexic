@@ -337,10 +337,16 @@ src/lexic/
       compiler/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
+        continuation.py            What may follow an island REFERENCE, and whether that bounds the island
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
         eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
+        leftrec/
+          __init__.py              The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
+          build.py                 Folding the iterations back into the model the grammar's arms build
+          rewrite.py               `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
+          shape.py                 Which rules the fold can take, and what their pieces are
         program/
           __init__.py              Flat-program package marker
           flatten.py               Flat int-coded runtime records and readers

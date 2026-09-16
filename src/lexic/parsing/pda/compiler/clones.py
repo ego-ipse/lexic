@@ -65,9 +65,7 @@ from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
-from lexic.parsing.pda.compiler.leftrec.build import fold_build
-from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
-from lexic.parsing.pda.compiler.leftrec.shape import foldable
+from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
@@ -632,38 +630,6 @@ def _attach_delegates(
         binding,
         (PdaCompiler, flatten_clones),
     )
-
-
-def folded_grammar(
-    lifted: IrAst, binding: ModelExecutable
-) -> tuple[IrAst, dict[str, Any]]:
-    """``lifted`` with its foldable left recursion rewritten, and the folds.
-
-    A rule the predictive descent cannot run is rewritten into one it can —
-    `A ::= A β | γ` parsed as `(γ)(β)*` — and each rewritten rule's
-    per-iteration build is returned beside it, so the value is the one the
-    original arms build. A rule whose shape the fold cannot take, or whose
-    routine it cannot fold through, is left exactly as it was and islands as
-    before.
-
-    :param lifted: The lifted codegen grammar the PDA compiles.
-    :param binding: The bound model product, for the routines the fold calls.
-    :returns: ``(grammar, folds by rule name)``.
-    """
-    analysis = GrammarAnalysis(lifted)
-    rules = {str(rule.name): rule for rule in lifted.rules}
-    shapes = {}
-    builds: dict[str, Any] = {}
-    for name, rule in rules.items():
-        shape = foldable(name, rule, rules, analysis.item_nullable)
-        if shape is None:
-            continue
-        build = fold_build(shape, binding.routines)
-        if build is None:
-            continue  # the shape folds, the VALUE cannot — leave it islanding
-        shapes[name] = shape
-        builds[name] = build
-    return fold_grammar(lifted, shapes), builds
 
 
 def compile_clones(

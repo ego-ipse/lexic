@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrItem, IrRule, IrRuleRef, IrSelf
+from lexic.ir import IrItem, IrRule, IrRuleRef
+from lexic.parsing.pda.compiler.specs import arm_items
 
 
 class Recursive(NamedTuple):
@@ -50,11 +51,6 @@ class Fold(NamedTuple):
 
     base: tuple[int, ...]
     steps: tuple[Recursive, ...]
-
-
-def arm_items(seq: IrSelf) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order."""
-    return [one for one in seq if isinstance(one, IrItem)]
 
 
 def through_hoist(items: list[IrItem], rules: dict[str, IrRule]) -> list[IrItem]:

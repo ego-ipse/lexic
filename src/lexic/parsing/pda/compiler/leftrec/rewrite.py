@@ -25,9 +25,11 @@ from lexic.ir import (
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSeq,
     IrSequence,
 )
+from lexic.ir.identity import field_children
 from lexic.parsing.pda.compiler.leftrec.shape import Fold
 
 
@@ -78,18 +80,20 @@ def _reachable(rules: dict[str, IrRule], start: str) -> set[str]:
     return seen
 
 
-def _referenced(node: object) -> list[str]:
+def _referenced(node: IrSelf) -> list[str]:
     """Every rule name mentioned anywhere under ``node``.
 
-    A plain recursive walk: the spine's records ARE their field tuples, so a
-    node is iterated to reach its children and an ``IrRuleRef`` IS its name.
+    Children come from :func:`~lexic.ir.identity.field_children`, the spine's
+    ONE stated child definition, rather than from a hand-rolled iterability
+    probe here. That matters for more than tidiness: a scalar leaf IS its
+    payload on this spine, so a walk that iterates whatever looks iterable
+    descends an ``IrStr`` into one-character strings forever. The stated walk
+    answers "the node-valued parts it carries", which is the question.
     """
     if isinstance(node, IrRuleRef):
         return [str(node)]
-    if isinstance(node, (str, bytes)) or not hasattr(node, "__iter__"):
-        return []
     found: list[str] = []
-    for child in node:
+    for child in field_children(node):
         found.extend(_referenced(child))
     return found
 
