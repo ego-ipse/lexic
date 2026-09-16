@@ -43,7 +43,7 @@ def _bench(grammar: str) -> Bench:
     return bench
 
 
-def _engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy | None:
+def engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy | None:
     """What one untimed split attempt did, or ``None`` if the row is sequential.
 
     A sequential row is not asked at all, which is a different answer from
@@ -56,7 +56,7 @@ def _engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy
     return declined_reason(built.artifact, built.document, cores)
 
 
-def _split_fields(seen: Occupancy | None) -> tuple[bool | None, str, int]:
+def split_fields(seen: Occupancy | None) -> tuple[bool | None, str, int]:
     """One attempt's ``(engaged, split digest, workers)`` for the observation."""
     if seen is None:
         return None, "", 1
@@ -75,7 +75,7 @@ def _payload(
         contract = build_contract(
             bench, engine, built.document, workers, gc.isenabled()
         )
-        engaged, split, effective = _split_fields(_engagement(engine, built, cores))
+        engaged, split, effective = split_fields(engagement(engine, built, cores))
         result = result_identity(built)
         timing = observe(built, rounds)
         observation = Observation(
@@ -111,7 +111,7 @@ def report_payload(
     parse = built.parse
     try:
         samples = interleaved({engine: parse}, {engine: built.document}, rounds)
-        engaged, _split, _cores = _split_fields(_engagement(engine, built, cores))
+        engaged, _split, _cores = split_fields(engagement(engine, built, cores))
         warmed = getattr(parse, "warmed", None)
         return {
             "samples": samples[engine],

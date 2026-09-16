@@ -441,7 +441,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "runarm",
         "needs_ends",
         "completion",
-        "fold",
     )
 
     name: str
@@ -466,7 +465,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
     completion: int
-    fold: Any  # FoldBuild | None — set only on a left-recursion fold
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

@@ -143,19 +143,40 @@ def bake_product_build[Carry](
         was rewritten to a loop — the mode then says so, and the completion
         folds the iterations back through the arm's own build rather than
         constructing one node from one arm's items.
+
+        It is written into ``build`` and ``n_items`` rather than into a field
+        of its own. :data:`BUILD_FOLD` already says a clone folds, so a field
+        saying it again widened the record EVERY clone of EVERY grammar
+        carries — 208 bytes to 216 — for a transformation that fires on two
+        rules in 782. A folding clone reaches neither the sequence build nor
+        the item-count guard those two fields exist for, so the mode decides
+        which reading applies and there is only ever one.
     """
     clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
     clone.runarm = None
-    clone.fold = fold
     clone.mode = BUILD_FOLD if fold is not None else _build_mode(routine)
     clone.n_items = 0 if routine is None else routine.n_items
     clone.needs_ends = clone.mode == BUILD_VALUE_STR or (
         routine is not None
         and any(capture.mode in _ENDS_MODES for capture in routine.captures)
     )
+    if fold is not None:
+        # Before the construction check, because a FOLDED rule's own routine
+        # has no construction — it is the alternation whose arms build, and
+        # the fold calls one of those arms' builds per iteration. The bake
+        # would otherwise clear the very fields the fold just wrote.
+        clone.build = fold.step
+        clone.n_items = fold.slots
+        clone.ctor = no_construction
+        clone.matched = ""
+        clone.fields = ()
+        clone.plan = ()
+        clone.fast = no_fast_construction
+        clone.defaults = None
+        return
     construction = None if routine is None else routine.construction
     if routine is None or construction is None:
         clone.ctor = no_construction

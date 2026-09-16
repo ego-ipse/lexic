@@ -393,16 +393,19 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     :returns: The folded model.
     """
     sinks = frame.sinks
-    fold = clone.fold
     if sinks is None or not sinks[0]:
         raise PdaFail(f"fold {clone.name!r}: no base value to fold from", 0)
     model = sinks[0][0]
     steps = sinks[1] if len(sinks) > 1 and sinks[1] is not None else ()
-    width = fold.width
-    scratch: list[Any] = [None] * fold.slots
+    # A folding clone's `build` IS its per-iteration build and its `n_items`
+    # the synthetic array's width; the mode is what says to read them that way.
+    # See `bake_product_build` for why they are not fields of their own.
+    slots = clone.n_items
+    width = slots - 1
+    scratch: list[Any] = [None] * slots
     for at in range(0, len(steps) - width + 1, width):
         scratch[0] = [model]
         for offset in range(width):
             scratch[offset + 1] = [steps[at + offset]]
-        model = fold.step(text, (), scratch)
+        model = clone.build(text, (), scratch)
     return model

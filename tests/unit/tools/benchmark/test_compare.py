@@ -122,7 +122,7 @@ def test_control_order_flips_on_its_own_schedule(
         assert head_first is not control_a_first
 
 
-def _slot_reading(first: Job, second: Job, row: str) -> tuple[float, float]:
+def _slot_reading(_first: Job, _second: Job, _row: str) -> tuple[float, float]:
     """A machine whose FIRST process always reads twice the second's.
 
     Slot-dependent and nothing else: the two jobs are byte-identical code, so
@@ -254,7 +254,7 @@ def test_the_control_reversal_survives_an_offset_growth_round(
 def _cost_under_a_slot_penalty(slot: float, head_cost: float):
     """A reading function: head costs ``head_cost``, the first process ``slot``."""
 
-    def reading(first: Job, second: Job, row: str) -> tuple[float, float]:
+    def reading(first: Job, second: Job, _row: str) -> tuple[float, float]:
         """Both readings, with the first process paying the slot penalty."""
         return (_tree_cost(first, head_cost) * slot, _tree_cost(second, head_cost))
 
@@ -648,12 +648,16 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
 
 SEMANTIC_CASES = (
     ("verdict", "parsing: input does not derive from 'root'"),
-    ("engaged", True),
-    ("split_digest", "carved-elsewhere"),
     ("result_digest", "other-text"),
     ("shape_digest", "other-shape"),
 )
-"""One differing field per case — each on its own makes the pair meaningless."""
+"""One differing field per case — each on its own makes the pair meaningless.
+
+``engaged`` and ``split_digest`` are NOT here any more. They say how an arm
+reached its answer, not what the answer was, and a head that learns to split a
+document its base could not has measured the same workload better rather than a
+different workload. Refusing the pair for that discarded the reading that would
+have shown the improvement. What guards them now is asymmetric — see below."""
 
 
 @pytest.mark.parametrize("field,value", SEMANTIC_CASES)
@@ -670,15 +674,67 @@ def test_arms_that_did_not_produce_the_same_result_refuse(
 
 def test_the_refusal_names_the_two_arms_and_both_values() -> None:
     """The refusal is diagnosable without re-running the pair."""
-    base = _arm("json/lexic-mt/base", engaged=True, split_digest="eight-pieces")
-    head = _arm("json/lexic-mt/head", engaged=False, split_digest="one-piece")
+    base = _arm("json/lexic-mt/base", result_digest="one-text")
+    head = _arm("json/lexic-mt/head", result_digest="another-text")
 
     with pytest.raises(ValueError) as caught:
         compare.comparable(base, head, "json/lexic-mt")
 
     detail = str(caught.value)
-    assert "engaged" in detail and "split_digest" in detail
+    assert "result_digest" in detail
     assert "json/lexic-mt/base" in detail and "json/lexic-mt/head" in detail
+
+
+def test_a_head_that_stops_splitting_is_refused() -> None:
+    """Doing less work is not doing the same work faster.
+
+    The asymmetry's whole point: an arm that no longer splits a document its
+    base split will read as a speedup, and the ratio would be a measurement of
+    the regression rather than a warning about it.
+    """
+    base = _arm("json/lexic-mt/base", engaged=True)
+    head = _arm("json/lexic-mt/head", engaged=False)
+
+    with pytest.raises(ValueError, match="no longer splits"):
+        compare.comparable(base, head, "json/lexic-mt")
+
+
+def test_a_head_that_starts_splitting_is_reported_and_compared() -> None:
+    """The other direction is the improvement, and must reach the estimator.
+
+    This is the case that killed split-nullable's job the first time it carved:
+    the head engaged where the base had not, the pair was refused as "not the
+    same result", and the row produced no timing at all.
+    """
+    base = _arm("json/lexic-mt/base", engaged=False)
+    head = _arm("json/lexic-mt/head", engaged=True)
+
+    assert compare.comparable(base, head, "json/lexic-mt") is None
+
+
+def test_a_different_carving_alone_is_reported_not_refused() -> None:
+    """Two arms that split the same document differently still built one model.
+
+    The model identity is asserted separately and is what makes this safe: the
+    carving is how the work was divided, and the fields above already say the
+    answer was the same.
+    """
+    base = _arm("json/lexic-mt/base", split_digest="eight-pieces")
+    head = _arm("json/lexic-mt/head", split_digest="five-pieces")
+
+    assert compare.comparable(base, head, "json/lexic-mt") is None
+
+
+def test_a_control_pair_is_asked_no_strategy_question() -> None:
+    """Neither side of a control pair is a head, so there is nothing to compare.
+
+    Asking would be asking whether a tree differs from itself, and the answer
+    would depend on which of the two labels happened to sort first.
+    """
+    left = _arm("json/lexic-mt/control-a", engaged=True)
+    right = _arm("json/lexic-mt/control-b", engaged=False)
+
+    assert compare.comparable(left, right, "json/lexic-mt") is None
 
 
 def test_two_arms_that_built_the_same_product_compare() -> None:
@@ -754,7 +810,7 @@ def test_alternation_holds_across_every_growth_round(
     ]
     assert candidate == expected
     assert candidate.count("head") == compare.MAX_PAIRS
-    assert [pair for pair in zip(*[iter(candidate)] * 2)].count(("head", "base")) == 8
+    assert list(zip(*[iter(candidate)] * 2)).count(("head", "base")) == 8
 
 
 def test_the_controls_own_schedule_also_survives_growth(

@@ -137,12 +137,19 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 
 
 def test_flatclone_declares_exactly_the_selector_and_build_fields():
-    """FlatClone carries exactly the arm-selector + build fields, no extras."""
+    """FlatClone carries exactly the arm-selector + build fields, no extras.
+
+    The count is the point, not the names. Every clone of every grammar
+    carries this record, so a field added for one feature is paid for by all
+    of them — the left-recursion fold's per-clone state briefly lived here and
+    cost 8 bytes on each of the roster's 490 clones to serve two rules in 782.
+    It is carried in the fields its own build mode frees up instead.
+    """
     expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "completion", "fold"}
+    expected |= {"runarm", "needs_ends", "completion"}
     assert set(FlatClone.__slots__) == expected
 
 

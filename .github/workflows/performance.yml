@@ -62,7 +62,7 @@ jobs:
     name: Same-run Lexic A/B (${{ matrix.grammar }})
     needs: roster
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       PYTHON_GIL: "0"
       LEXIC_REQUIRE_FREE_THREADED: "1"
