@@ -21,7 +21,6 @@ from lexic.parsing.pda.runtime.build import (
 
 __all__ = [
     "NO_ROUTE",
-    "PROBE_DEPTH",
     "RouteLane",
     "Side",
     "control_signature",
@@ -45,12 +44,6 @@ A UNIFORM triple. The lane slot is ``None`` for every program without route
 continuations rather than the tuple changing arity by product, so the
 boundary-decision path stays one shape and one call signature whatever is
 being parsed."""
-
-PROBE_DEPTH = 24
-"""Stop-probe nesting cap. Past it a boundary reads as undecidable
-(:class:`~lexic.parsing.pda.core.errors.ProbeFork` — viable, so the parse
-bails to the gated engine); the cap only ever costs a fallback, never a
-wrong commit."""
 
 
 def admits(char: str, chars: Any, negated: Any) -> bool:
@@ -99,12 +92,10 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar deleg: Island name → its wrapped interior delegate table.
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
-    :ivar probing: The live stop-probe nesting depth. A boundary inside a
-        probe resolves by a NESTED probe — its completion is the outer
-        answer, its failure lets the outer probe drive on — capped at
-        :data:`PROBE_DEPTH`, past which a boundary raises
-        :class:`~lexic.parsing.pda.core.errors.ProbeFork` (undecidable reads
-        as viable).
+    :ivar probing: How many probes are live. Non-zero means a boundary is
+        resolved GREEDILY by class rather than by forking again, which is what
+        makes probes never nest. A counter rather than a flag because
+        :meth:`_advance` counts its own drive too.
     :ivar uncertain: Set when a probe's drive resolved a both-viable
         boundary GREEDILY (probes never nest — the exponential chain of a
         rules-list grammar probing every later line is cut to one linear
@@ -152,6 +143,23 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     through the original — at the one moment it is read, which is its build.
     Two live universes therefore still append only to their own lists.
     """
+    # Forks never nest, so every `inherited` chain is length 1 and
+    # `adopt_inherited` prepending ONE origin's sinks is the whole prefix. The
+    # ROOT frame is the witness: it is never popped before the drive reaches
+    # end of input, so a forked stack still carries its marker. Checking the
+    # TOP frame would prove nothing — frames pushed during a probe's drive are
+    # fresh and unmarked.
+    #
+    # Raised, not asserted: `-O` strips asserts, and a nested fork loses the
+    # grandparent's values and builds a SHORT model with no exception
+    # anywhere. `RuntimeError` rather than `PdaFail` or a `LexicError`
+    # because both of those are caught — `PdaFail` at the engine seam, which
+    # would fall back to Earley and hide the breach behind a correct parse —
+    # and this is the engine's own invariant, not a verdict about a grammar.
+    if stack and stack[0].inherited is not None:
+        raise RuntimeError(
+            "frames_copy: a fork inside a fork — probes are not allowed to nest"
+        )
     remap: dict[int, list[Any]] = {}
     copies: list[Frame[Carry]] = []
     for frame in stack:

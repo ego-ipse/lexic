@@ -113,9 +113,36 @@ These live in `resources/ground_truth/`. All integration and property tests run 
 
 `arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
+## Probes never nest — a POLICY invariant, not a shape one
+
+A fork's frames carry `inherited`, and `adopt_inherited` prepends **one**
+origin's sinks at the build. That is the whole prefix only because forks never
+nest: every `inherited` chain is length 1.
+
+Nothing structural prevents nesting. One branch does — `if self._caches.probing:`
+in `decisions.py`, which resolves an interior boundary greedily by class instead
+of forking again. `_fork_verdict` is the only entry to either `frames_copy` call
+site, and it sits in that branch's `elif`. `frames_copy` raises if the root frame
+of the stack it is copying already carries `inherited`, so the policy is checked
+rather than carried.
+
+Two plausible optimisations break it **silently**, producing a model with values
+missing and no exception anywhere:
+
+- committing a winning probe's stack instead of re-driving a decision already
+  paid for — the committed frames would still be marked;
+- resolving interior boundaries exactly, to kill `uncertain` — that is the very
+  branch the invariant rests on.
+
+Either needs `adopt_inherited` to walk the chain first. Do not add that walk
+before then: with forks that cannot nest it is dead code that makes nesting look
+supported.
+
 ## What these invariants mean in practice
 
 - You cannot add a new atom type without updating every open dispatch table it touches (`codegen/binding.py`, `codegen/model_emitter.py`, each flavour's emit `actions`, its `Reducer`).
 - You cannot change `to_text()` without running property tests.
 - You cannot add a new entry point that bypasses `compile.py` without a discussion.
 - You cannot open a new runtime→codegen import edge.
+- You cannot make an interior boundary resolve by forking without teaching
+  `adopt_inherited` to walk the `inherited` chain first.

@@ -2105,3 +2105,23 @@ census must descend only into objects the compile CREATED. A walk that crosses
 one pre-existing object reaches a type, then a method, then that module's
 globals, and from there the whole interpreter — the first version reported a
 delta of zero on every row because the first owner had swallowed the process.
+
+## Forks never nest, and the reason is a branch rather than a shape
+
+`adopt_inherited` prepends one origin's sinks, which is correct only if
+`inherited` chains are length 1. Two independent reads reached the same line —
+`if self._caches.probing:` in `decisions.py` — and the same conclusion: the only
+entry to either fork site sits in that branch's `elif`, so a fork cannot be
+taken from inside one. An instrumented run over the roster agreed: 294 forks,
+none copying a stack that held an unadopted frame.
+
+It is recorded in `invariants.md` as a POLICY invariant because nothing about
+the shapes prevents nesting — a branch does, and two optimisations anyone might
+reach for would remove it while the model quietly came out short. `frames_copy`
+now raises on the root frame's marker rather than assuming, and raises rather
+than asserts: `-O` strips asserts, and `PdaFail` would be caught by the engine
+seam and fall back to Earley, hiding the breach behind a correct parse.
+
+`PROBE_DEPTH` went with it — dead, exported, and named by a docstring that still
+described the nested-with-a-depth-cap policy three lines above a sentence saying
+probes never nest.

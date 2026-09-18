@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits, frames_copy
 from lexic.parsing.pda.runtime.build import Frame
@@ -191,3 +193,51 @@ def test_frames_copy_isolates_a_slot_assignment():
     copied_sinks[1] = [IrStr("probe")]
     assert sinks[0] is committed
     assert sinks[1] is None
+
+
+def test_a_fork_of_an_already_forked_frame_is_refused() -> None:
+    """Probes never nest, and the copy CHECKS that rather than assuming it.
+
+    `adopt_inherited` prepends ONE origin's sinks. That is the whole prefix
+    only because a frame being forked still owns every value it holds — which
+    holds because a boundary reached while `probing` resolves greedily by
+    class instead of forking, so both fork sites are unreachable from inside a
+    fork.
+
+    If that ever stopped being true, C forked from B forked from A would take
+    B's own values and never reach A's: the model would come out missing
+    values, silently, with no exception anywhere. That is the failure this
+    guard converts into a loud one.
+
+    A raise rather than an assert, because `-O` strips asserts and a short
+    model is exactly what must not pass quietly. `RuntimeError` rather than
+    `PdaFail`, because the engine seam CATCHES `PdaFail` and falls back to
+    Earley — the breach would then hide behind a correct parse.
+    """
+    forked = frames_copy([_frame([], [0], [[IrStr("a")]])])[0]
+
+    assert forked.inherited is not None, "the copy records where it came from"
+    with pytest.raises(RuntimeError, match="not allowed to nest"):
+        frames_copy([forked])
+
+
+def test_the_prefix_is_whole_because_one_origin_holds_it_all() -> None:
+    """One adopt recovers everything, since each level owns only its own.
+
+    The counterpart to the refusal above: given that forks do not nest, a
+    single prepend IS the complete prefix. Adoption happens at the pop, so a
+    frame that is still on the stack has never adopted and its sinks hold
+    exactly what it appended itself.
+    """
+    original: list[IrSelf] = [IrStr("was-there")]
+    frame = _frame([], [0], [original])
+    forked = frames_copy([frame])[0]
+    assert forked.sinks is not None
+    mine = forked.sinks[0]
+    assert mine is not None
+    mine.append(IrStr("added-by-the-fork"))
+
+    forked.adopt_inherited()
+
+    assert forked.sinks[0] == [IrStr("was-there"), IrStr("added-by-the-fork")]
+    assert original == [IrStr("was-there")], "and the original is untouched"
