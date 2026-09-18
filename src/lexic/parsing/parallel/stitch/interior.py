@@ -13,7 +13,7 @@ replaced by the concatenation.
 
 from __future__ import annotations
 
-from lexic.exceptions import LexicError
+from lexic.exceptions import EngineInvariantError, LexicError
 from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
@@ -96,13 +96,10 @@ def _walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | Non
             return None
         fields = list(current.children())
         if slot >= len(fields):
-            # Provisional pending item 2 (the engine-invariant exception).
             # The chain's slots come from the binding's own routines, so a
             # slot the model does not have means the chain and the model
-            # disagree about the grammar — not a document shape. `LexicError`
-            # is caught by the split seam and would fall back to a correct
-            # sequential parse, hiding it.
-            raise RuntimeError(
+            # disagree about the grammar — not a document shape.
+            raise EngineInvariantError(
                 f"routed chain names slot {slot} of "
                 f"{type(current).__name__}, which has {len(fields)}"
             )

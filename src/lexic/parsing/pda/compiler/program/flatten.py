@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple, Never, Protocol
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -44,12 +45,12 @@ def no_construction(
     *_args: ProductValue[Never], **_kwargs: ProductValue[Never]
 ) -> Never:
     """Refuse an impossible call through a recognition-only clone."""
-    raise RuntimeError("recognition-only clone has no construction")
+    raise EngineInvariantError("recognition-only clone has no construction")
 
 
 def no_fast_construction[Carry](_values: list[ProductValue[Carry]]) -> Carry:
     """Refuse an impossible positional build without a granted licence."""
-    raise RuntimeError("clone has no positional construction licence")
+    raise EngineInvariantError("clone has no positional construction licence")
 
 
 def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:
@@ -334,7 +335,9 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
         # moves. `RuntimeError` for the reason `frames_copy` uses it: the
         # engine seam catches `PdaFail` and would hide this behind an Earley
         # parse that succeeds.
-        raise RuntimeError(f"select_gated: {clone.name!r} has no wide selection")
+        raise EngineInvariantError(
+            f"select_gated: {clone.name!r} has no wide selection"
+        )
     got = wide.select(text, pos)
     if got is None and clone.default is None:
         raise PdaFail(

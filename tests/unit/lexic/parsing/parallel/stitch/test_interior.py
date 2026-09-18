@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import Directives, compile_from_path, compile_text
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel.plan.routed import REF, Descent, routed_plan
 from lexic.parsing.parallel.stitch.interior import (
@@ -110,7 +110,7 @@ def test_stitch_interior_refuses_a_chain_the_model_does_not_have():
     text = routed_document(20)
     shell = parse_model(grammar, text, binding)
 
-    with pytest.raises(RuntimeError, match="names slot 999"):
+    with pytest.raises(EngineInvariantError, match="names slot 999"):
         stitch_interior(shell, [shell], (((999, None),), 0))
 
 

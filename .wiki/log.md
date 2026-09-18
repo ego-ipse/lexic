@@ -2125,3 +2125,22 @@ seam and fall back to Earley, hiding the breach behind a correct parse.
 `PROBE_DEPTH` went with it — dead, exported, and named by a docstring that still
 described the nested-with-a-depth-cap policy three lines above a sentence saying
 probes never nest.
+
+## EngineInvariantError — the engine's own breaches leave the LexicError family
+
+`EngineInvariantError(RuntimeError)` added to `exceptions.py` with its five
+raisers in one commit. The family `LexicError` is what a caller catches to fall
+back — to a sequential parse, or to the gated engine — so a breach wearing it
+would be answered with a correct-looking parse and the wrong model would never
+surface.
+
+Membership is decided by what a breach PRODUCES: an engine invariant's breach
+yields a wrong answer a fallback hides; a precondition's breach crashes at the
+site, and keeps Python's own vocabulary. Ten candidates were read, five taken.
+The five left out are recorded with a reason each in the effort's report —
+four `assert ... is not None` sites that each die on the next line anyway, and
+a dispatch-signature `TypeError` whose migration would make the class mean two
+things.
+
+`error-vocabulary.md`'s "All inherit from `LexicError(Exception)`" was amended
+rather than extended: it became false the moment this landed.

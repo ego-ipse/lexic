@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
@@ -149,11 +150,10 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     # The ROOT frame, because it is never popped before the drive reaches end
     # of input; the top frame is fresh and would prove nothing. Raised rather
     # than asserted because `-O` strips asserts and a nested fork builds a
-    # SHORT model silently. `RuntimeError` because `PdaFail` and `LexicError`
-    # are both caught — the first at the engine seam, which would fall back to
-    # Earley and hide the breach behind a correct parse. See `invariants.md`.
+    # SHORT model silently; the class says why it is outside the LexicError
+    # family. See `invariants.md`.
     if stack and stack[0].inherited is not None:
-        raise RuntimeError(
+        raise EngineInvariantError(
             "frames_copy: a fork inside a fork — probes are not allowed to nest"
         )
     remap: dict[int, list[Any]] = {}

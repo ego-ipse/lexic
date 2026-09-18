@@ -420,7 +420,12 @@ def test_lease_bounds_retained_pools_per_worker_count():
         try:
             pool.map(lambda item: item, [1])
             alive += 1
-        except RuntimeError:
+        except RuntimeError as shutdown:
+            # Narrowed to the executor's own words. `except RuntimeError`
+            # whole would also catch an `EngineInvariantError` raised INSIDE
+            # the map and count it as a closed pool — a breach converted into
+            # the expected outcome, with the assertion still passing.
+            assert "after shutdown" in str(shutdown), shutdown
             closed += 1
     assert alive == RETAINED
     assert closed == 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits, frames_copy
 from lexic.parsing.pda.runtime.build import Frame
@@ -217,7 +218,7 @@ def test_a_fork_of_an_already_forked_frame_is_refused() -> None:
     forked = frames_copy([_frame([], [0], [[IrStr("a")]])])[0]
 
     assert forked.inherited is not None, "the copy records where it came from"
-    with pytest.raises(RuntimeError, match="not allowed to nest"):
+    with pytest.raises(EngineInvariantError, match="not allowed to nest"):
         frames_copy([forked])
 
 

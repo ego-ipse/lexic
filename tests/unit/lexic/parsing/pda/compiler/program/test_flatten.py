@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import BIND_MODES
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
@@ -390,5 +391,5 @@ def test_a_clone_with_no_wide_selection_is_an_impossible_state() -> None:
     `RuntimeError` because the engine seam catches `PdaFail` and would hide it
     behind an Earley parse that succeeds.
     """
-    with pytest.raises(RuntimeError, match="no wide selection"):
+    with pytest.raises(EngineInvariantError, match="no wide selection"):
         select_gated("a", 0, _gated(None, default=object()))
