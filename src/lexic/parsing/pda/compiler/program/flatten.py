@@ -506,7 +506,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "chartotal",
         "runarm",
         "needs_ends",
-        "completion",
     )
 
     name: str
@@ -529,7 +528,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
-    completion: int
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

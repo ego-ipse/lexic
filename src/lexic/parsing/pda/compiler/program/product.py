@@ -158,7 +158,6 @@ def bake_product_build[Carry](
         those two fields exist for, so the mode decides which reading applies
         and there is only ever one.
     """
-    clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
