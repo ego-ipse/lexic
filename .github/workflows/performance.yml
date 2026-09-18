@@ -11,7 +11,11 @@ on:
       - "tools/benchmark/**"
       - "uv.lock"
   pull_request:
-    branches: [main]
+    # No `branches:` filter. That filter is on the PR's TARGET, so a branch
+    # opened against another branch — the working pattern here, each branch
+    # judged against the green head it will merge into — produced no
+    # performance read at all. Against a distant `main` a dozen commits of
+    # small moves pile into `unresolved` and a real 1% is invisible.
     paths:
       - ".github/workflows/performance.yml"
       - "pyproject.toml"
@@ -83,7 +87,14 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            sha="${{ github.event.pull_request.base.sha }}"
+            # The target's head AS IT IS NOW. `pull_request.base.sha` is a
+            # snapshot taken when the event fired: if the target moves after
+            # that, the base is a commit the target no longer points at and
+            # the delta is measured against history rather than against the
+            # thing this branch will actually merge into.
+            git fetch --no-tags --depth=1 origin \
+              "${{ github.event.pull_request.base.ref }}"
+            sha="$(git rev-parse FETCH_HEAD)"
           elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             sha="${{ github.event.before }}"
             if [[ "$sha" =~ ^0+$ ]]; then
@@ -146,6 +157,13 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `actions: read` is what lets this job LIST the run's artifacts. The
+    # runner's own artifact service needs no such grant, which is why
+    # `download-artifact` never asked for one — and why it cannot tell two
+    # artifacts of the same name apart. Read-only, and only this job has it.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Check out the aggregator
         uses: actions/checkout@v7.0.1
@@ -153,12 +171,34 @@ jobs:
           sparse-checkout: tools
           sparse-checkout-cone-mode: false
 
-      - name: Download every grammar's result
-        uses: actions/download-artifact@v8.0.1
-        with:
-          pattern: ab-*
-          path: results
-          merge-multiple: true
+      - name: Download the NEWEST result per row
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          # `download-artifact` with `merge-multiple` resolved a duplicated
+          # name to the OLDER artifact, so a re-run's fresh reading was
+          # uploaded and never read — re-running a failed row could not clear
+          # it. On run 35027232682 that had the gate fail twice calling
+          # dense-earley/lexic-mt `slower` at 1.0177 while the re-run it
+          # ignored had measured the same row `faster` at 0.7713.
+          mkdir -p results
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --jq '.artifacts[] | [.name, .created_at, (.id|tostring)] | @tsv' \
+          | sort -t"$(printf '\t')" -k1,1 -k2,2r \
+          | awk -F'\t' '!seen[$1]++ {print $1 "\t" $3}' \
+          | while IFS="$(printf '\t')" read -r name id; do
+              # Ordered by created_at and NOT by id. On 35027232682 the STALE
+              # artifact is 10421606237 and the fresh one 10421359055 — the
+              # stale id is the HIGHER of the two, so `max(id)` picks exactly
+              # the wrong artifact. Do not "simplify" this to an id sort.
+              gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+                > "${name}.zip"
+              unzip -o -q "${name}.zip" -d results
+              rm "${name}.zip"
+            done
+          ls -1 results
 
       - name: Combine and judge every row
         shell: bash
