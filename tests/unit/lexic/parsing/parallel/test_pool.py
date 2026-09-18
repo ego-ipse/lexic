@@ -336,31 +336,44 @@ def test_an_interrupt_in_an_item_reaches_the_caller() -> None:
 
 
 def test_a_refusal_still_drains_the_phase_before_it_is_raised() -> None:
-    """The earliest refusal is raised only after its siblings have finished.
+    """An EARLIER item is waited for, though a later one raised first.
 
     The drain is what makes "earliest INPUT" answerable at all: a phase that
     raised on the first refusal to arrive would report whichever chunk lost
     the race, and the split would then move the wrong cut.
+
+    Pinned on an event, not on a schedule. Item 0 does not begin its work until
+    item 1 has already raised, so the phase demonstrably had a refusal in hand
+    and waited anyway — and it waited for an item whose index is BELOW the
+    raiser's, which is the only class :func:`_drained` promises to wait for.
+
+    Asserting that an item PAST the raiser also finished would be asserting
+    the opposite of what the drain does: it cancels those deliberately, since
+    their answer cannot change which input is earliest. Whether any of them
+    had started first is the scheduler's business, and on a contended
+    four-core runner the answer is sometimes none — which is exactly how this
+    test failed there while passing everywhere else.
     """
+    raised = Event()
     finished: list[int] = []
     lock = Lock()
 
     def work(item: int) -> int:
         if item == 0:
-            sleep(0.05)
+            raised.wait(timeout=5)  # the later refusal is already in hand
+            with lock:
+                finished.append(item)
             raise UnsupportedConstructError("earliest input")
         if item == 1:
+            raised.set()
             raise UnsupportedConstructError("later input, first to raise")
-        sleep(0.02)
-        with lock:
-            finished.append(item)
         return item
 
     with WorkPool(4) as pool:
         with pytest.raises(UnsupportedConstructError, match="earliest input"):
             pool.map(work, [0, 1, 2, 3])
 
-    assert finished, "the phase raised before its siblings could finish"
+    assert finished == [0], "the phase raised before the earlier item finished"
 
 
 def test_explicit_cores_is_the_worker_count():
