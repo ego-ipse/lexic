@@ -39,9 +39,9 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     The authored :class:`CloneSpec` layer is **not** part of it. Those specs
     are what the clone compiler produces on the way here; once
     :func:`~lexic.parsing.pda.compiler.program.lower.flatten_program` has
-    lowered them the artifact is the program, and holding them on as well left
-    a fifth to two fifths of this artifact's GC-tracked population alive for
-    the life of the process with nothing reading it. A caller that wants to
+    lowered them the artifact is the program, and holding them on as well kept
+    a large share of its GC-tracked population alive for the life of the
+    process with nothing reading it. A caller that wants to
     READ the specs compiles them itself
     (:func:`~lexic.parsing.pda.compiler.clones.compile_clones`), where their
     lifetime is its own.

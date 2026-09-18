@@ -41,7 +41,7 @@ where anything that wants to read them asks.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, cast
+from typing import Mapping, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -70,6 +70,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -325,7 +326,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     pending: list[CloneKey]
     draining: bool
     continuations: IslandContinuations
-    folds: dict[str, Any]
+    folds: dict[str, FoldBuild]
 
     def __init__(
         self,

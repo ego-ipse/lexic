@@ -10,21 +10,20 @@ there is one door and it hands back both.
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.ir import IrAst
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
 from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
 from lexic.parsing.pda.compiler.leftrec.shape import any_candidate, foldable
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 
 __all__ = ["folded_grammar"]
 
 
 def folded_grammar(
     lifted: IrAst, binding: ModelExecutable
-) -> tuple[IrAst, dict[str, Any]]:
+) -> tuple[IrAst, dict[str, FoldBuild]]:
     """``lifted`` with its foldable left recursion rewritten, and the folds.
 
     A rule the predictive descent cannot run is rewritten into one it can —
@@ -43,15 +42,13 @@ def folded_grammar(
     :returns: ``(grammar, folds by rule name)``.
     """
     rules = {str(rule.name): rule for rule in lifted.rules}
-    # The analysis is built ONLY where a rule could fold. It is a full second
-    # pass over every rule, and paying it to be told "nothing here" cost 9-13%
-    # of the compile on grammars that fold nothing — which is all but two rules
-    # in the roster and the ground truth combined.
+    # The analysis is built ONLY where a rule could fold: it is a full second
+    # pass over every rule, and almost no grammar folds anything.
     if not any_candidate(rules):
         return lifted, {}
     analysis = GrammarAnalysis(lifted)
     shapes = {}
-    builds: dict[str, Any] = {}
+    builds: dict[str, FoldBuild] = {}
     for name, rule in rules.items():
         shape = foldable(name, rule, rules, analysis.item_nullable)
         if shape is None:

@@ -131,21 +131,24 @@ class IslandPolicy[M](NamedTuple):
     it. ``follow`` is what may follow the island AT THIS OCCURRENCE — the
     cross-span composition evidence; ``None`` (a caller without analysis)
     accepts plain longest-match. ``window`` is an EXACT width to parse at,
-    settling the island in one sub-parse; ``0`` climbs from
-    :data:`ISLAND_WINDOW` by doubling.
+    settling the island in one sub-parse; ``None`` climbs from
+    :data:`ISLAND_WINDOW` by doubling. ``None`` rather than ``0`` because a
+    bound of zero is a real answer — a continuation character sitting AT the
+    cursor bounds a nullable island to an empty window — and spelling it the
+    same as "no bound" sent that island climbing instead.
     """
 
     delegates: dict[int, Delegate] | None = None
     resolve: Resolver | None = None
     executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
-    window: int = 0
+    window: int | None = None
 
     def for_island(
         self,
         delegates: dict[int, Delegate] | None,
         follow: CharSet | None,
-        window: int = 0,
+        window: int | None = None,
     ) -> IslandPolicy[M]:
         """This policy with the per-reference parts filled in — what one island
         reference hands to its sub-parse. The delegates, the continuation and
@@ -166,10 +169,9 @@ def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet)
     later-appearing alternative — the next window asks again — but it cannot
     invent one.
 
-    What it saves is the whole climb on an island that cannot settle: a
-    left-recursive island over a 3,392-character corpus re-parsed 7,232
-    characters of chart across five widths to reach the same refusal its first
-    256 already held.
+    What it saves is the whole climb on an island that cannot settle: without
+    it the window doubles to the end of the input to reach the refusal its
+    first window already held.
 
     :param kern: The window's finished kernel.
     :param end: The longest completion's end over this window.
@@ -243,11 +245,11 @@ def island_parse(
         any. An island is the ONE place the model path chooses between
         derivations — everywhere else it is predictive and produces one by
         construction — so it is where the refusal (or the resolver) applies.
-        ``policy.window``, when non-zero, is an EXACT width: the island
-        cannot derive a character of its own continuation, so no completion
-        reaches past the first one — see
-        :meth:`~lexic.parsing.pda.compiler.clones.PdaCompiler.bounded_by_continuation`
-        — and one sub-parse at that width settles it. Zero climbs from
+        ``policy.window``, when it is not ``None``, is an EXACT width: the
+        island cannot derive a character of its own continuation, so no
+        completion reaches past the first one — see
+        :meth:`~lexic.parsing.pda.compiler.continuation.IslandContinuations.bounds`
+        — and one sub-parse at that width settles it. ``None`` climbs from
         :data:`ISLAND_WINDOW` by doubling, re-parsing the same characters at
         every width.
     :returns: ``(tree, end, value)`` — the derivation, its consumed length,
@@ -259,10 +261,8 @@ def island_parse(
         ``to_text()`` reproduces the input for whichever derivation was taken.
     """
     remaining = len(text) - pos
-    window = policy.window
-    exact = window > 0
-    if not exact:
-        window = ISLAND_WINDOW
+    exact = policy.window is not None
+    window = ISLAND_WINDOW if policy.window is None else policy.window
     while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
         if best is not None and policy.follow is not None:
@@ -305,12 +305,10 @@ def _decoded(
         # packs more than one family or the root has many productions.
         slow, value = island_derivation(kern, item, end, name, policy=policy)
         return slow, end, value
-    # ...and the fast path SUCCEEDING is not proof of unambiguity either, which
-    # is what this used to assume. Measured: `FastTree` builds a tree for a
-    # completion whose arms mean different things, so trusting it here answered
-    # an ambiguous input instead of refusing it. The value route does not rely
-    # on the fast path as an oracle — `different_meaning` asks this question
-    # separately — and the model path must ask it too.
+    # The fast path SUCCEEDING is not proof of unambiguity: `FastTree` builds
+    # a tree for a completion whose arms mean different things. It is not an
+    # oracle — `different_meaning` asks that question separately, and the
+    # model path asks it too.
     settled, value = _settle_two_meanings(kern, handle, tree, name, policy)
     return settled, end, value
 
@@ -328,12 +326,8 @@ def _settle_two_meanings(
         and the caller's resolver.
     :returns: ``(derivation, its completed value)`` — the value ``None`` only
         where none was built, which is the executor-less path. Everywhere else
-        the answer came FROM a built value and handing it back is the whole
-        point: :func:`different_meaning` retains it ("a resolver choosing
-        either tree therefore does not construct its chosen result again"),
-        and the seam used to discard it and splice the same tree a second
-        time — 610 µs per island on a 48-character island, a third of that
-        row's parse, spent rebuilding a value already in hand.
+        the answer came FROM a built value, and :func:`different_meaning`
+        retains it so the seam can splice that rather than build it again.
     :raises UnsupportedConstructError: When the span means two things and no
         resolver was supplied.
     """

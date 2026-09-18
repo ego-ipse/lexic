@@ -129,13 +129,11 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     once via an identity map and every reference re-resolved through it, so a
     list two frames share is one list on the far side too.
 
-    **The containers fork EMPTY.** Copying their contents moved the whole
-    accumulated parse into every fork, and a linear number of forks each
-    copying a linearly-growing sink is quadratic: on a 512 KB grammar document
-    it was 830 million list elements moved so that 14,632 could be read. What
-    a fork needs is what it BUILDS; the prefix it inherited is common to every
-    side by construction, which is the same fact :func:`pending_values`
-    already relies on to compare deltas rather than whole states.
+    **The containers fork EMPTY.** A fork needs the values it BUILDS; the
+    prefix it inherited is common to every side by construction, which is the
+    same fact :func:`pending_values` relies on to compare deltas rather than
+    whole states. Copying that prefix made a linear number of forks each copy
+    a linearly-growing sink.
 
     Each copy keeps a reference to the frame it came from
     (:attr:`~lexic.parsing.pda.runtime.build.Frame.inherited`) and takes the
@@ -143,19 +141,12 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     through the original — at the one moment it is read, which is its build.
     Two live universes therefore still append only to their own lists.
     """
-    # Forks never nest, so every `inherited` chain is length 1 and
-    # `adopt_inherited` prepending ONE origin's sinks is the whole prefix. The
-    # ROOT frame is the witness: it is never popped before the drive reaches
-    # end of input, so a forked stack still carries its marker. Checking the
-    # TOP frame would prove nothing — frames pushed during a probe's drive are
-    # fresh and unmarked.
-    #
-    # Raised, not asserted: `-O` strips asserts, and a nested fork loses the
-    # grandparent's values and builds a SHORT model with no exception
-    # anywhere. `RuntimeError` rather than `PdaFail` or a `LexicError`
-    # because both of those are caught — `PdaFail` at the engine seam, which
-    # would fall back to Earley and hide the breach behind a correct parse —
-    # and this is the engine's own invariant, not a verdict about a grammar.
+    # The ROOT frame, because it is never popped before the drive reaches end
+    # of input; the top frame is fresh and would prove nothing. Raised rather
+    # than asserted because `-O` strips asserts and a nested fork builds a
+    # SHORT model silently. `RuntimeError` because `PdaFail` and `LexicError`
+    # are both caught — the first at the engine seam, which would fall back to
+    # Earley and hide the breach behind a correct parse. See `invariants.md`.
     if stack and stack[0].inherited is not None:
         raise RuntimeError(
             "frames_copy: a fork inside a fork — probes are not allowed to nest"

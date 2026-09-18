@@ -16,6 +16,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     PdaProgram,
 )
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -521,7 +522,7 @@ def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pat
 
 
 def flatten_clones(
-    clones: dict[CloneKey, CloneSpec], folds: Mapping[str, Any] | None = None
+    clones: dict[CloneKey, CloneSpec], folds: Mapping[str, FoldBuild] | None = None
 ) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
@@ -590,7 +591,7 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 def flatten_program(
     clones: dict[CloneKey, CloneSpec],
     start_key: CloneKey | IslandRef,
-    folds: Mapping[str, Any] | None = None,
+    folds: Mapping[str, FoldBuild] | None = None,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
     shells = flatten_clones(clones, folds)

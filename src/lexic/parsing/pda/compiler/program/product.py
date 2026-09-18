@@ -39,7 +39,7 @@ may be absent, and what an omitted field falls back to all come off the record.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Mapping
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -48,7 +48,11 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_construction,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import no_shape_build, shape_build
+from lexic.parsing.pda.compiler.program.lowering import (
+    FoldBuild,
+    no_shape_build,
+    shape_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_FOLD,
@@ -123,7 +127,7 @@ def _build_mode[Carry](routine: RuleRoutine[Carry] | None) -> int:
 def bake_product_build[Carry](
     clone: FlatClone[Carry],
     routine: RuleRoutine[Carry] | None,
-    fold: Any = None,
+    fold: FoldBuild[Carry] | None = None,
 ) -> None:
     """Fill a clone's build state from its rule's verified routine, in place.
 
@@ -145,12 +149,11 @@ def bake_product_build[Carry](
         constructing one node from one arm's items.
 
         It is written into ``build`` and ``n_items`` rather than into a field
-        of its own. :data:`BUILD_FOLD` already says a clone folds, so a field
-        saying it again widened the record EVERY clone of EVERY grammar
-        carries — 208 bytes to 216 — for a transformation that fires on two
-        rules in 782. A folding clone reaches neither the sequence build nor
-        the item-count guard those two fields exist for, so the mode decides
-        which reading applies and there is only ever one.
+        of its own: :data:`BUILD_FOLD` already says a clone folds, so a field
+        saying it again widens the record every clone of every grammar carries.
+        A folding clone reaches neither the sequence build nor the item-count
+        guard those two fields exist for, so the mode decides which reading
+        applies and there is only ever one.
     """
     clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final

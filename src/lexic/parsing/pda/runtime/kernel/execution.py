@@ -246,9 +246,9 @@ class KernelExecutionMixin[Carry]:
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
         tree, end, built = self._island_subparse(name, cont, exact)
-        # The settle step builds the value to answer the ambiguity question and
-        # retains it for exactly this reason; splicing the same tree again cost
-        # a third of a small island's parse and produced the same value twice.
+        # The settle step builds the value to answer the ambiguity question
+        # and retains it for exactly this reason; splicing the same tree again
+        # would build the same value twice.
         result = (
             built
             if built is not None
@@ -283,7 +283,7 @@ class KernelExecutionMixin[Carry]:
             self.policy.for_island(
                 self._delegates(name),
                 None if cont.is_empty() else cont,
-                bounded_window(self.text, self.pos, cont) if exact else 0,
+                bounded_window(self.text, self.pos, cont) if exact else None,
             ),
         )
 
@@ -392,9 +392,10 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     :param clone: The folding clone, carrying the per-iteration build.
     :returns: The folded model.
     """
+    at = frame.span_start()
     sinks = frame.sinks
     if sinks is None or not sinks[0]:
-        raise PdaFail(f"fold {clone.name!r}: no base value to fold from", 0)
+        raise PdaFail(f"fold {clone.name!r}: no base value to fold from", at)
     model = sinks[0][0]
     steps = sinks[1] if len(sinks) > 1 and sinks[1] is not None else ()
     # A folding clone's `build` IS its per-iteration build and its `n_items`
@@ -402,10 +403,20 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     # See `bake_product_build` for why they are not fields of their own.
     slots = clone.n_items
     width = slots - 1
+    if width < 1 or len(steps) % width:
+        # Every iteration contributes exactly `width` values, so a remainder
+        # means the sink does not hold whole iterations. Folding the whole
+        # ones and dropping the rest would build a SHORT model and report
+        # nothing; a refusal falls back to the engine that can answer.
+        raise PdaFail(
+            f"fold {clone.name!r}: {len(steps)} values do not divide into "
+            f"iterations of {width}",
+            at,
+        )
     scratch: list[Any] = [None] * slots
-    for at in range(0, len(steps) - width + 1, width):
+    for start in range(0, len(steps), width):
         scratch[0] = [model]
         for offset in range(width):
-            scratch[offset + 1] = [steps[at + offset]]
+            scratch[offset + 1] = [steps[start + offset]]
         model = clone.build(text, (), scratch)
     return model

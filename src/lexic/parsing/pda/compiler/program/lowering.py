@@ -30,6 +30,7 @@ argument, an attribute load — re-introduces the cost being removed.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
@@ -43,7 +44,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.product.abi.construction import ProductValue
 
-__all__ = ["UNROLL_LIMIT", "ShapeBuild", "no_shape_build", "shape_build"]
+__all__ = ["UNROLL_LIMIT", "FoldBuild", "ShapeBuild", "no_shape_build", "shape_build"]
 
 UNROLL_LIMIT = 8
 """Widest arity with a template of its own.
@@ -73,6 +74,21 @@ touch them test for that — the same test the generic dispatcher paid.
 
 type ShapeBuild[Carry] = Callable[[str, Sequence[int], Sinks[Carry]], Carry]
 """One shape's whole build."""
+
+
+class FoldBuild[Carry](NamedTuple):
+    """What a folding clone's completion needs.
+
+    :ivar step: The per-iteration build — the step arm's own composed build,
+        called with a synthetic sinks array.
+    :ivar width: How many captured values one iteration contributes, which is
+        how the flat sink is cut back into iterations.
+    :ivar slots: How wide the synthetic array must be.
+    """
+
+    step: ShapeBuild[Carry]
+    width: int
+    slots: int
 
 
 def no_shape_build[Carry](

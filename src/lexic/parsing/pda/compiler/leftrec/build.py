@@ -34,30 +34,15 @@ model rather than a slow one:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, NamedTuple
+from typing import Any
 
 from lexic.parsing.pda.compiler.leftrec.shape import Fold
-from lexic.parsing.pda.compiler.program.lowering import shape_build
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild, shape_build
 from lexic.parsing.pda.compiler.program.product import build_plan
 from lexic.parsing.product import CaptureMode, RuleRoutine
 
 _ENDS_MODES = frozenset((int(CaptureMode.TEXT), int(CaptureMode.EXTENT)))
 """Capture modes that read an item's end position off the frame."""
-
-
-class FoldBuild(NamedTuple):
-    """What a folding clone's completion needs.
-
-    :ivar step: The per-iteration build — the step arm's own composed build,
-        called with a synthetic sinks array.
-    :ivar width: How many captured values one iteration contributes, which is
-        how the flat sink is cut back into iterations.
-    :ivar slots: How wide the synthetic array must be.
-    """
-
-    step: Any
-    width: int
-    slots: int
 
 
 def fold_build(

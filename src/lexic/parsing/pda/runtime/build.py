@@ -157,12 +157,9 @@ class Frame[Carry]:
     def adopt_inherited(self) -> None:
         """Put back the values this frame was forked away from, once.
 
-        A forked frame starts its sinks EMPTY, because copying them moved the
-        whole accumulated parse into every fork and that is what made a
-        grammar-sized document quadratic. The values are still needed the
-        moment the frame is actually BUILT, and only then: on a 512 KB
-        document 14,632 values are read this way where 830 million were being
-        copied.
+        A forked frame starts its sinks EMPTY. The values are needed the
+        moment the frame is actually BUILT, and only then, so they are taken
+        here rather than copied at the fork.
 
         The originals are never written through — the inherited prefix is
         copied in front of what this fork built, so the other universe's list

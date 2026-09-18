@@ -53,19 +53,16 @@ class IslandContinuations:
         *Not the rule's FOLLOW*, because the fixpoint walks the island's own
         arms too: ``expr ::= expr op term`` puts ``op``'s FIRST into
         FOLLOW(``expr``) purely because the rule places ``expr`` before ``op``.
-        A shorter end followed by ``+`` is then the island CONTINUING ITSELF,
+        A shorter end followed by ``+`` is then the island continuing ITSELF,
         which longest-match absorbs under the same arm — not the caller
-        accepting it. Reading the rule's FOLLOW made every left-recursive
-        island with an infix operator refuse by construction, on its first
-        completion, every time.
+        accepting it.
 
         *Not one site's continuation*, because the caller may reach the island
         through more than one arm and the PDA commits to an arm BEFORE
         entering. With ``root ::= expr "+" term nl | expr nl`` the two sites
-        see ``{'+'}`` and ``{'\\n'}``; ``a+b\\n`` derives both ways and means
-        two different things. Asking only the entered site's set answers it
-        silently. The union asks whether the shorter end could compose with
-        ANY way back into the caller, which is the question.
+        see ``{'+'}`` and ``{'\\n'}``, and ``a+b\\n`` derives both ways meaning
+        two different things. The union asks whether the shorter end could
+        compose with ANY way back into the caller, which is the question.
 
         The island's own arms contribute nothing because an island rule is
         never cloned — its internal recursion is resolved inside the Earley

@@ -267,10 +267,9 @@ so the pair is refused before its duration can reach the estimator.
 ``engaged`` and ``split_digest`` are deliberately NOT here, and neither is
 ``effective_workers``. They describe HOW an arm reached its answer, not what
 the answer was, and a commit may legitimately change strategy: a head that
-learns to split a document its base could not has not measured a different
-workload, it has measured the same one better. Refusing the pair for that
-threw away the reading that would have shown the improvement — which is
-exactly what happened to ``split-nullable`` the first time it carved.
+learns to split a document its base could not has measured the same workload
+better, not a different one. Refusing the pair for that throws away the
+reading that would show the improvement.
 
 What strategy still gets is an ASYMMETRIC guard (:func:`_strategy`), because
 the two directions are not the same risk: an arm that stops splitting looks

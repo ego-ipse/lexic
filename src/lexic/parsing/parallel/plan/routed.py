@@ -259,16 +259,12 @@ def _terminated_at(
 ) -> RoutedPlan | None:
     """The terminated interior the item at ``at`` reaches, if it reaches one.
 
-    The item's OWN rule must be the interior. The descent does not pass through
-    intermediate rules, and that is a correctness bound rather than
-    conservatism: :func:`~...stitch.interior.interior_route` expresses a route
-    of exactly two slots — the interior's slot in the container, and the run's
-    slot inside it. A grammar reaching its repetition one rule deeper
-    (``root ::= open body close`` with ``body ::= para+``) has a THREE-level
-    model, and a two-slot route writes the run into the wrong node's field —
-    a wrong model rather than a refusal, which is the failure this bound
-    exists to prevent. Serving that shape means making the route a path, not
-    relaxing this.
+    The item's OWN rule must be the interior, and that is a correctness bound
+    rather than conservatism: the route expresses two slots, so a repetition
+    one rule deeper — ``root ::= open body close`` with ``body ::= para+`` —
+    would have its run written into the wrong node's field, a wrong model
+    rather than a refusal. Serving that shape means making the route a path,
+    not relaxing this.
     """
     atom = items[at].atom
     if not isinstance(atom, IrRuleRef):
@@ -318,13 +314,11 @@ def _proven_terminated(
         CharSet.EMPTY,
         at,
         0,
-        # Rooted at the START rule, not at the interior's own. Rooting a piece
-        # at `para` makes the predictive engine fail it — `line*` is greedy and
-        # eats the tail the piece wears, so `blank` finds nothing — and the
-        # parse falls back to Earley at 32x the cost per character, which is
-        # the whole margin the split was for. Under the start rule the same
-        # text is one complete document and settles predictively at the same
-        # rate as its share of the whole.
+        # Rooted at the START rule, not at the interior's own. A piece rooted
+        # at the interior fails predictively — a greedy repetition eats the
+        # tail the piece wears, leaving nothing for the terminator — and falls
+        # back to Earley. Under the start rule the same text is one complete
+        # document and settles predictively.
         # `grammar` ITSELF, not an equal copy: tables and per-worker replicas
         # are keyed by grammar identity, so a copy compiles a second set of
         # everything the enclosing parse already has and every worker builds
