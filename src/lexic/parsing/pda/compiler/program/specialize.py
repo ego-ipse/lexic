@@ -68,10 +68,8 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
     """
     if clone.mode == BUILD_DISPATCH:
         return []
-    if clone.kwin_selectors is not None:
-        arms = [arm for _windows, arm in clone.kwin_selectors]
-    elif clone.pn_selectors is not None:
-        arms = [arm for _chars, _negated, arm in clone.pn_selectors[1]]
+    if clone.wide_selectors is not None:
+        arms = list(clone.wide_selectors.arms)
     else:
         arms = [arm for _chars, _negated, arm in clone.selectors]
     if clone.default is not None:
@@ -127,8 +125,7 @@ def _vstr_inlinable(clone: Any) -> bool:
     return (
         clone.mode == BUILD_VALUE_STR
         and clone.attempt is None
-        and clone.kwin_selectors is None
-        and clone.pn_selectors is None
+        and clone.wide_selectors is None
         and clone.struct_arm is None
         and all(
             all(kind in TERMINAL_OPS for kind in arm.kinds) for arm in clone_arms(clone)
@@ -339,7 +336,7 @@ def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
         return None
     if clone.attempt is not None or clone.struct_arm is not None:
         return None
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return None
     arms = clone_arms(clone)
     if not arms:
@@ -535,10 +532,8 @@ def convert_dispatch(clone: FlatClone) -> None:
     pass-through, so entering the selected target with the parent's sink is
     observationally identical to the frame it replaces.
     """
-    if clone.mode != BUILD_ALT or clone.kwin_selectors is not None:
-        return  # a k-window-gated alternation selects by window, not lead char
-    if clone.pn_selectors is not None:
-        return  # a noise-skip alternation selects by post-noise peek
+    if clone.mode != BUILD_ALT or clone.wide_selectors is not None:
+        return  # selects by window or post-noise peek, not by the lead char
     if clone.struct_arm is not None:
         return  # an empty-arm gate must run before any lead-char dispatch
     if clone.attempt is not None:
@@ -583,7 +578,7 @@ def _mark_leaves(clone: FlatClone) -> None:
         return
     if clone.mode != BUILD_SEQ:
         return
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
@@ -629,8 +624,7 @@ def _runs_frameless(sub: FlatClone) -> bool:
     gated = (
         sub.attempt is not None
         or sub.struct_arm is not None
-        or sub.kwin_selectors is not None
-        or sub.pn_selectors is not None
+        or sub.wide_selectors is not None
     )
     return sub.leaf and sub.mode == BUILD_SEQ and not gated
 

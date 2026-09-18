@@ -500,9 +500,7 @@ class PdaKernel[M](
                 return False  # consumed inline — empty arm, or an attempt run
             clone = settled
         if (
-            clone.kwin_selectors is not None
-            or clone.pn_selectors is not None
-            or clone.struct_arm is not None
+            clone.wide_selectors is not None or clone.struct_arm is not None
         ) and self._enter_gated(clone, out):
             return True  # short-circuits: an ungated clone never pays the call
         if clone.leaf:
@@ -533,7 +531,7 @@ class PdaKernel[M](
         :returns: ``True`` when a frame was pushed, ``False`` to continue.
         :raises PdaFail: When a refusing struct gate has no escape arm.
         """
-        if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        if clone.wide_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(Frame(gated, out, clone, self.pos))
             return True

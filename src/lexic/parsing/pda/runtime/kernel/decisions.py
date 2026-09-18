@@ -93,7 +93,7 @@ def _clone_admits(clone: FlatClone, char: str) -> bool:
     """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
     if clone.attempt is not None:
         return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return True  # windowed selection — MAY
     if clone.default is not None:
         return True  # a nullable default may defer admission further down

@@ -134,9 +134,9 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     same fact :func:`pending_values` relies on to compare deltas rather than
     whole states. Copying that prefix made a linear number of forks each copy
     a linearly-growing sink — and it is a prefix almost nothing goes on to
-    read, so the work was quadratic in the fork count and wasted besides.
-    Over the benchmark corpus the copies moved four orders of magnitude more
-    list elements than any build read back. That ratio is what the eighth
+    read, so the work was quadratic in the fork count and wasted besides. On a
+    256 KB gbnf-meta document the copies moved 407 M list elements, of which
+    the builds read 14,632 back. That is what the eighth
     :class:`~lexic.parsing.pda.runtime.build.Frame` slot buys: ``inherited``
     costs one pointer per frame and removes the copy entirely.
 

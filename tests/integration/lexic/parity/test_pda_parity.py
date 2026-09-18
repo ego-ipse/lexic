@@ -204,7 +204,7 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert not prod(cg).pda.islands
     clones = all_clones([prod(cg).pda.program.start])
-    assert any(clone.kwin_selectors is not None for clone in clones), (
+    assert any(clone.wide_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )
     assert pda_model(prod(cg).pda, "12", cg.executor).to_text() == "12"

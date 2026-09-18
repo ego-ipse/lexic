@@ -14,7 +14,10 @@ from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    KWindowSelect,
+    NoiseSkipSelect,
     PdaProgram,
+    WideSelect,
 )
 from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -183,14 +186,18 @@ def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
 
 def _flatten_selectors(
     arms: Sequence[ArmSpec], low: Lowering
-) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
+) -> tuple[
+    tuple[tuple[frozenset[str], bool, FlatArm], ...],
+    WideSelect | None,
+]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
-    P2 (:attr:`ArmSpec.windows`) lowers to ``kwin_selectors``; P3
-    (:attr:`ArmSpec.peek`) to ``pn_selectors``; otherwise the FIRST-gated
-    single-char triples are built.
+    P2 (:attr:`ArmSpec.windows`) lowers to a :class:`KWindowSelect`; P3
+    (:attr:`ArmSpec.peek`) to a :class:`NoiseSkipSelect`; otherwise the
+    FIRST-gated single-char triples are built.
 
-    :returns: ``(selectors, kwin_selectors, pn_selectors)`` — at most one set.
+    :returns: ``(selectors, wide_selectors)`` — exactly one of the two is set,
+        which is why they share a slot on the record.
     """
     if arms and arms[0].windows is not None:
         kwin = tuple(
@@ -200,7 +207,7 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), kwin, None
+        return (), KWindowSelect(kwin)
     if arms and arms[0].peek is not None:
         w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
         sels = tuple(
@@ -211,12 +218,12 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), None, ((w.chars, w.negated), sels)
+        return (), NoiseSkipSelect((w.chars, w.negated), sels)
     selectors = tuple(
         (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, low))
         for arm in arms
     )
-    return selectors, None, None
+    return selectors, None
 
 
 def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
@@ -230,9 +237,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     """
     clone = FlatClone.__new__(FlatClone)
     clone.name = ""  # an inline group stands for no rule the grammar named
-    clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-        group.arms, low
-    )
+    clone.selectors, clone.wide_selectors = _flatten_selectors(group.arms, low)
     clone.default = (
         _flatten_arm(group.default, low) if group.default is not None else None
     )
@@ -367,10 +372,8 @@ def _clone_arms(clone: FlatClone) -> tuple[FlatArm, ...]:
     selection empties ``selectors`` and holds its arms in its own table, so
     reading only ``selectors`` would silently yield nothing there.
     """
-    if clone.kwin_selectors is not None:
-        return tuple(arm for _windows, arm in clone.kwin_selectors)
-    if clone.pn_selectors is not None:
-        return tuple(arm for _chars, _negated, arm in clone.pn_selectors[1])
+    if clone.wide_selectors is not None:
+        return clone.wide_selectors.arms
     return tuple(arm for _chars, _negated, arm in clone.selectors)
 
 
@@ -452,8 +455,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     """
     sub = FlatClone.__new__(FlatClone)
     sub.name = clone.name  # the sub-run stands for the parent's rule
-    sub.kwin_selectors = None
-    sub.pn_selectors = None
+    sub.wide_selectors = None
     sub.struct_arm = None
     sub.attempt = None
     sub.mode = clone.mode
@@ -545,9 +547,7 @@ def flatten_clones(
     for key, spec in clones.items():
         clone = low.shells[key]
         clone.name = spec.name
-        clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-            spec.arms, low
-        )
+        clone.selectors, clone.wide_selectors = _flatten_selectors(spec.arms, low)
         clone.default = (
             _flatten_arm(spec.default, low) if spec.default is not None else None
         )

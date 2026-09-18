@@ -19,6 +19,8 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    KWindowSelect,
+    NoiseSkipSelect,
     no_construction,
     no_fast_construction,
     vstr_model,
@@ -163,8 +165,7 @@ _BARE_CLONE_DEFAULTS = {
     "mode": BUILD_VALUE_STR,
     "attempt": None,
     "struct_arm": None,
-    "kwin_selectors": None,
-    "pn_selectors": None,
+    "wide_selectors": None,
     "selectors": (),
     "default": None,
 }
@@ -211,13 +212,15 @@ def test_consult_arm_declines_a_struct_gated_clone():
 def test_consult_arm_declines_a_kwindow_gated_clone():
     """A k-window-gated alternation selects arms by a wider lookahead than
     the single-char selectors a consult would be baked beside."""
-    clone = _bare_clone(kwin_selectors=(((),),), selectors=())
+    clone = _bare_clone(wide_selectors=KWindowSelect((((), None),)), selectors=())
     assert consult_arm(clone, re.compile("x")) is None
 
 
 def test_consult_arm_declines_a_noise_skip_gated_clone():
     """The P3 noise-skip peek path is the other gated shape the licence excludes."""
-    clone = _bare_clone(pn_selectors=(((frozenset(), False), ())), selectors=())
+    clone = _bare_clone(
+        wide_selectors=NoiseSkipSelect((frozenset(), False), ()), selectors=()
+    )
     assert consult_arm(clone, re.compile("x")) is None
 
 
