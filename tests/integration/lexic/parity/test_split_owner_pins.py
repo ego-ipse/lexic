@@ -64,13 +64,13 @@ SPLITS: dict[str, bool] = {
     "mixedends": True,
     "announced": True,
     "dense-earley": True,
-    # split-nullable now divides: its `line+` is reached as a terminated
-    # interior, where before only its `para+` was considered and that has one
-    # instance per document. The other two do not, and each for its own stated
-    # reason — wrapped-unit's repetition sits one rule deeper than a two-slot
-    # stitch route can express, and island-earley has no repetition at all.
+    # split-nullable and wrapped-unit both divide: each reaches a terminated
+    # interior. wrapped-unit's sits one rule deeper than the old two-slot
+    # route could express — the route is a PATH now, one step per descent, so
+    # depth is no longer a bound. island-earley still does not: it has no
+    # repetition at all, which no route shape changes.
     "split-nullable": True,
-    "wrapped-unit": False,
+    "wrapped-unit": True,
     "island-earley": False,
 }
 

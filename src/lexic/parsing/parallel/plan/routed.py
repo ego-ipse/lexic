@@ -43,6 +43,30 @@ _PLANS: dict[int, tuple[IrAst, "RoutedPlan | None"]] = memo({})
 id, so a recycled id can never alias a live entry."""
 
 
+REF, INTO_UNIT = "ref", "into-unit"
+"""The two kinds of step a descent takes.
+
+``REF`` follows a single-occurrence reference to the rule below. ``INTO_UNIT``
+descends into a rule that a REPETITION repeats — a different move, because the
+model child at that step is a RUN and the step addresses an element of it
+rather than a field. Conflating them is what makes an intermediate step read
+like the interior itself.
+"""
+
+
+class Descent(NamedTuple):
+    """One step from a rule to the rule below it.
+
+    :ivar rule: The rule this step is taken IN.
+    :ivar item: The item index within that rule's single arm.
+    :ivar kind: :data:`REF` or :data:`INTO_UNIT`.
+    """
+
+    rule: str
+    item: int
+    kind: str
+
+
 class RoutedPlan(NamedTuple):
     """An interior reached by the start rule's own route.
 
@@ -63,8 +87,13 @@ class RoutedPlan(NamedTuple):
     :ivar lead: What a head unit before the interior can begin with; the
         locator walks those lines off before the interior can start.
     :ivar tail: What may stand after the closing character.
-    :ivar at: The interior's item index in the start rule's arm.
-    :ivar run: The repetition's item index inside the interior.
+    :ivar chain: The descent from the start rule to the rule holding the
+        interior's repetition — one :class:`Descent` per step. One step for a
+        delimited interior, which is the shape it has always had, spelled
+        explicitly; more where the interior sits deeper. The route is built by
+        mapping THIS, so a route reaching the wrong node cannot be constructed:
+        the only thing deciding the depth is the chain the descent recorded.
+    :ivar run: The repetition's item index inside the chain's last rule.
     :ivar rooted: The grammar rooted at the interior, which a piece parses
         under. Built once with the plan so its tables compile once.
     :ivar whole: The interior is its enclosing node's WHOLE extent, so there is
@@ -85,7 +114,7 @@ class RoutedPlan(NamedTuple):
     mark: str
     lead: CharSet
     tail: CharSet
-    at: int
+    chain: tuple[Descent, ...]
     run: int
     rooted: IrAst
     whole: bool = False
@@ -257,28 +286,80 @@ def _terminated_at(
     items: tuple[IrItem, ...],
     at: int,
 ) -> RoutedPlan | None:
-    """The terminated interior the item at ``at`` reaches, if it reaches one.
+    """The terminated interior the item at ``at`` reaches, however deep.
 
-    The item's OWN rule must be the interior, and that is a correctness bound
-    rather than conservatism: the route expresses two slots, so a repetition
-    one rule deeper — ``root ::= open body close`` with ``body ::= para+`` —
-    would have its run written into the wrong node's field, a wrong model
-    rather than a refusal. Serving that shape means making the route a path,
-    not relaxing this.
+    A SEARCH, not a walk. A descent taking each rule's first reference goes
+    ``root ::= open body close`` into ``open`` — a dead end — and finds
+    nothing; the interior is reached through item 1. So every item is tried and
+    the branch that ends at a qualifying repetition is kept.
+
+    The stopping condition is a repetition whose unit ``terminates_once``, NOT
+    the first repetition. ``body ::= para+`` is a repetition and ``para`` does
+    not terminate once (a paragraph CONTAINS newlines), so stopping there cuts
+    a document mid-paragraph. The descent continues through such a repetition
+    into the repeated rule itself — an :data:`INTO_UNIT` step.
     """
     atom = items[at].atom
     if not isinstance(atom, IrRuleRef):
         return None
-    name = str(atom)
+    start = str(grammar.start)
+    found = _descend(
+        grammar, rules, str(atom), (Descent(start, at, REF),), frozenset({start})
+    )
+    if found is None:
+        return None
+    chain, shape, owner = found
+    return _proven_terminated(grammar, rules, items, (at, shape, owner), chain)
+
+
+def _descend(
+    grammar: IrAst,
+    rules: dict[str, IrRule],
+    name: str,
+    chain: tuple[Descent, ...],
+    seen: frozenset[str],
+) -> tuple[tuple[Descent, ...], tuple[str, str, str, str], str] | None:
+    """The first branch below ``name`` ending at a qualifying repetition.
+
+    Single-armed rules only: a rule with two arms would make a piece's own
+    shape depend on the document. ``seen`` bounds the walk on a recursive
+    grammar, where a branch could otherwise descend for ever.
+    """
     target = rules.get(name)
     arms = tuple(target.body) if target is not None else ()
-    if len(arms) != 1:
+    if len(arms) != 1 or name in seen:
         return None
     inner = tuple(one for one in tuple(arms[0]) if isinstance(one, IrItem))
     shape = _terminated_arm(inner, rules)
-    if shape is None:
-        return None
-    return _proven_terminated(grammar, rules, items, (at, shape, name))
+    if shape is not None and _qualifies(grammar, rules, shape[2]):
+        return chain, shape, name  # `chain` is how this rule was reached
+    for at, item in enumerate(inner):
+        atom = item.atom
+        if not isinstance(atom, IrRuleRef):
+            continue
+        kind = INTO_UNIT if unbounded(item) else REF
+        below = _descend(
+            grammar, rules, str(atom), chain + (Descent(name, at, kind),), seen | {name}
+        )
+        if below is not None:
+            return below
+    return None
+
+
+def _qualifies(grammar: IrAst, rules: dict[str, IrRule], unit: str) -> bool:
+    """Whether a repeated unit's mark is its own final edge, grammar-wide.
+
+    :func:`~lexic.parsing.parallel.stitch.safety.terminates_once` and never
+    :func:`terminates_once_ref`. The weaker reading asks only that every ARM
+    end at the mark, which ``para ::= line+ blank`` satisfies — and a paragraph
+    CONTAINS newlines, so a cut on any interior one lands inside it. The two
+    disagree on exactly that rule, and the weaker one admits it.
+    """
+    inner = rules.get(unit)
+    if inner is None:
+        return False
+    mark = literal_text(tuple(tuple(inner.body)[0])[-1], rules)
+    return mark is not None and len(mark) == 1 and terminates_once(grammar, unit, mark)
 
 
 def _proven_terminated(
@@ -286,6 +367,7 @@ def _proven_terminated(
     rules: dict[str, IrRule],
     items: tuple[IrItem, ...],
     candidate: tuple[int, tuple[str, str, str, str], str],
+    chain: tuple[Descent, ...],
 ) -> RoutedPlan | None:
     """Discharge the terminator proof for a terminated interior.
 
@@ -312,7 +394,7 @@ def _proven_terminated(
         mark,
         CharSet.EMPTY,
         CharSet.EMPTY,
-        at,
+        chain,
         0,
         # Rooted at the START rule, not at the interior's own. A piece rooted
         # at the interior fails predictively — a greedy repetition eats the
@@ -340,11 +422,48 @@ def _spelled_run(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> str | N
     """
     out: list[str] = []
     for item in items:
-        spelled = literal_text(item, rules)
+        spelled = _spelled_item(item, rules, frozenset())
         if spelled is None:
             return None
         out.append(spelled)
     return "".join(out)
+
+
+def _spelled_item(
+    item: IrItem, rules: dict[str, IrRule], seen: frozenset[str]
+) -> str | None:
+    """What one item spells, resolving a single-armed rule of its own.
+
+    :func:`literal_text` resolves through a rule whose arm is ONE item, which
+    is what a delimiter needs. A neighbour is not a delimiter: ``open ::= "<<<"
+    nl`` spells a fixed string through two items, and refusing it leaves a
+    whole-extent interior unservable for a reason that has nothing to do with
+    its terminator. So a single-armed rule is spelled item by item here.
+
+    Only where every item spells one — a repetition or a character class still
+    declines, because the interior's start would then be unknowable without
+    parsing. ``seen`` bounds a recursive neighbour.
+    """
+    direct = literal_text(item, rules)
+    if direct is not None:
+        return direct
+    atom = item.atom
+    if not isinstance(atom, IrRuleRef) or item.quantifier.lo != 1:
+        return None
+    name = str(atom)
+    target = rules.get(name)
+    arms = tuple(target.body) if target is not None else ()
+    if len(arms) != 1 or name in seen or unbounded(item):
+        return None
+    parts = []
+    for inner in tuple(arms[0]):
+        if not isinstance(inner, IrItem):
+            return None
+        spelled = _spelled_item(inner, rules, seen | {name})
+        if spelled is None:
+            return None
+        parts.append(spelled)
+    return "".join(parts)
 
 
 def _routed_at(
@@ -394,7 +513,7 @@ def _proven(
         mark,
         lead,
         tail,
-        at,
+        (Descent(str(grammar.start), at, REF),),
         1,
         IrAst(grammar.rules, piece),
     )
@@ -513,8 +632,13 @@ def divide(
     if len(bounds) < 3 or widest > 2 * target:
         return None
     if plan.whole:
+        # A whole-extent piece parses under the START rule, so it must wear
+        # whatever that rule puts either side of the interior as well as the
+        # unit's tail. For `root ::= para*` those are empty and a piece is its
+        # lines and nothing else; for `root ::= open body close` they are the
+        # opener and closer, without which the piece derives nothing at all.
         return [
-            text[bounds[at] : bounds[at + 1]] + plan.closing
+            plan.before + text[bounds[at] : bounds[at + 1]] + plan.closing + plan.after
             for at in range(len(bounds) - 1)
         ]
     opening, closing = text[region.opener], text[region.closer]

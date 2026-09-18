@@ -11,11 +11,17 @@ entry point via ``lexic.parsing.parallel.orchestrate``.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import Directives, compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
-from lexic.parsing.parallel.plan.routed import routed_plan
-from lexic.parsing.parallel.stitch.interior import interior_route, stitch_interior
+from lexic.parsing.parallel.plan.routed import REF, Descent, routed_plan
+from lexic.parsing.parallel.stitch.interior import (
+    _walk_down,
+    interior_route,
+    stitch_interior,
+)
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
@@ -35,18 +41,23 @@ def _vyx_document(rows: int) -> str:
 
 
 def test_interior_route_finds_the_shells_slot_and_the_runs_slot():
-    """``at`` (the arm's own item index) and ``run`` (the unit's item index
-    inside the interior rule) resolve to real field slots on both models."""
+    """The descent's chain maps step for step onto real field slots.
+
+    One route step per `Descent`, so the route says exactly as much as the
+    descent did — the two-integer form it replaces derived the interior's
+    depth and its run's index independently and could disagree.
+    """
     compiled = compile_text(ROUTED_GRAMMAR)
     grammar, binding = compiled.codegen_grammar, compiled.product
     plan = routed_plan(grammar)
     assert plan is not None
 
-    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
 
     assert route is not None
-    slot, child = route
-    assert isinstance(slot, int)
+    steps, child = route
+    assert len(steps) == len(plan.chain), "one step per descent, never derived"
+    assert all(isinstance(slot, int) for slot, _index in steps)
     assert isinstance(child, int)
 
 
@@ -56,8 +67,10 @@ def test_interior_route_declines_a_container_or_rule_the_fold_does_not_know():
     compiled = compile_text(ROUTED_GRAMMAR)
     binding = compiled.product
 
-    assert interior_route(binding, "no-such-rule", 0, "block", 1) is None
-    assert interior_route(binding, "start", 0, "no-such-rule", 1) is None
+    unknown = (Descent("no-such-rule", 0, REF),)
+    assert interior_route(binding, unknown, "block", 1, False) is None
+    known = (Descent("start", 0, REF),)
+    assert interior_route(binding, known, "no-such-rule", 1, False) is None
 
 
 def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces():
@@ -78,7 +91,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     )
     shell = parse_model(grammar, stand_in, binding)
     pieces = [parse_model(plan.rooted, part, binding) for part in parts]
-    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
     assert route is not None
 
     stitched = stitch_interior(shell, pieces, route)
@@ -89,7 +102,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     assert stitched.to_text() == text
 
 
-def test_stitch_interior_declines_a_shape_surprise_at_the_slot():
+def test_stitch_interior_refuses_a_chain_the_model_does_not_have():
     """A route slot that does not land on a model at all is a shape
     surprise, not a crash."""
     compiled = compile_text(ROUTED_GRAMMAR)
@@ -97,7 +110,8 @@ def test_stitch_interior_declines_a_shape_surprise_at_the_slot():
     text = routed_document(20)
     shell = parse_model(grammar, text, binding)
 
-    assert stitch_interior(shell, [shell], (999, 0)) is None
+    with pytest.raises(RuntimeError, match="names slot 999"):
+        stitch_interior(shell, [shell], (((999, None),), 0))
 
 
 # ── the public seam: exactness, non-vacuity, refusal parity ───────────────
@@ -213,3 +227,57 @@ def test_a_malformed_vyx_document_declines_then_sequential_parse_refuses():
             assert "does not derive" in str(error)
         else:
             raise AssertionError(f"cores={cores} did not refuse a malformed document")
+
+
+WRAPPED_TWO_PARA = (
+    "root ::= open body close\n"
+    "body ::= para+\n"
+    'open ::= "<<<" nl\n'
+    'close ::= ">>>" nl\n'
+    "para ::= line+ blank\n"
+    "line ::= [a-z ]+ nl\n"  # `+`, so a blank line is NOT a line
+    "blank ::= nl\n"
+    'nl ::= "\\n"\n'
+)
+"""wrapped-unit's shape, but a blank line cannot be absorbed as a line.
+
+The shipped grammar writes `line ::= [a-z ]* nl`, so a blank line parses AS a
+line and `line+` swallows the whole body: every document has exactly one
+paragraph, and an intermediate run step can only ever address one element.
+This variant is what makes a second paragraph reachable at all.
+"""
+
+
+def test_an_intermediate_run_of_two_declines_rather_than_taking_the_first():
+    """The arity guard: `splice` bounds a run INDEX but never checks arity.
+
+    `model.py`'s `repeated >= len(child)` lets a step naming element 0 of a
+    run of three succeed and rewrite the first, leaving the other two — a
+    wrong model, not a refusal. The exactly-one check that used to stand in
+    the two-slot caller was written about a PIECE, where one unit is true by
+    construction; an intermediate step walks the WHOLE model, where it is not.
+    """
+    compiled = compile_text(WRAPPED_TWO_PARA, cache_key="wrapped-two-para")
+    para = "".join("line of text here\n" for _ in range(400)) + "\n"
+    document = "<<<\n" + para * 2 + ">>>\n"
+
+    model = compiled.parse(document, cores=1)
+    body = list(list(model.children())[1].children())[0]
+    assert len(body) == 2, "the variant grammar really does build two paragraphs"
+
+    walked = _walk_down(model, ((1, None), (0, 0)))
+
+    assert walked is None, "a run of two is not one run; the plan declines"
+
+
+def test_the_two_paragraph_document_parses_identically_at_every_width():
+    """Declining is not enough — the answer must still be the right one."""
+    compiled = compile_text(WRAPPED_TWO_PARA, cache_key="wrapped-two-para-widths")
+    para = "".join("line of text here\n" for _ in range(400)) + "\n"
+    document = "<<<\n" + para * 2 + ">>>\n"
+    sequential = compiled.parse(document, cores=1)
+
+    for cores in (2, 4, 8, 16):
+        split = compiled.parse(document, cores=cores)
+        assert split.dump() == sequential.dump(), cores
+        assert split.to_text() == document, cores
