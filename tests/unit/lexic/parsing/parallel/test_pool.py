@@ -10,6 +10,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from threading import Barrier, Event, Lock, Thread, active_count
+from threading import enumerate as enumerate_threads
 from time import monotonic, sleep
 
 import pytest
@@ -83,9 +84,11 @@ class _AdmissionExecutor:
 
     instances: list[_AdmissionExecutor] = []
 
-    def __init__(self, max_workers: int) -> None:
+    def __init__(self, max_workers: int, thread_name_prefix: str = "") -> None:
         """Create a real executor and expose admission counters."""
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix=thread_name_prefix
+        )
         self.maximum = 0
         self.submitted = 0
         self.window_reached = Event()
@@ -423,20 +426,32 @@ def test_lease_bounds_retained_pools_per_worker_count():
     assert closed == 1
 
 
+def _own_threads(pool: WorkPool) -> int:
+    """How many live threads belong to THIS pool, by the name it gives them."""
+    mine = f"{pool.name}_"
+    return sum(thread.name.startswith(mine) for thread in enumerate_threads())
+
+
 def test_lease_keeps_thread_count_stable_across_many_sequential_parses():
-    """Sequential borrow/release never grows the retained thread count."""
-    baseline = active_count()
+    """Sequential borrow/release reuses one pool and never outgrows its width.
+
+    Counted per POOL, not per process. ``active_count()`` measures the weather:
+    a pool from an earlier test dying mid-loop moves it, and so does this
+    pool's own lazy spin-up, which reaches the third worker on whichever
+    iteration the executor first finds no idle thread — not on a fixed one. A
+    count of the pool's own threads asks what the lease is actually for.
+    """
     seen: set[int] = set()
     counts = []
     for _ in range(10):
         with PoolLease(3) as pool:
             seen.add(id(pool))
             pool.map(lambda item: item + 1, list(range(6)))
-        counts.append(active_count())
+            counts.append(_own_threads(pool))
 
     assert len(seen) == 1
-    assert counts[-1] >= baseline
-    assert len(set(counts[2:])) == 1
+    assert max(counts) <= 3
+    assert counts == sorted(counts)
 
 
 def test_lease_closes_the_pool_when_the_body_raises():
