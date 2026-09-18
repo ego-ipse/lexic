@@ -17,11 +17,13 @@ import pytest
 
 from tools.quick_checks import (
     COUPLED,
+    FANOUT_CAP,
     PAID_PATH,
     ROOT,
     TESTS,
     WITNESS,
     Command,
+    _test_targets,
     helper_of,
     mirror_of,
     module_of,
@@ -343,3 +345,57 @@ def test_every_python_change_is_linted_by_all_four(path: str) -> None:
     labels = _labels(plan([path], _everything, {}))
 
     assert labels[: len(FIXERS) + len(CHECKERS)] == [*FIXERS, *CHECKERS]
+
+
+def test_a_wide_fan_out_is_cut_and_the_direct_hits_are_kept() -> None:
+    """A module near the import root must not drag the whole suite in.
+
+    A module near the import root is seen by nearly every test, so "the tests
+    that can see this change" becomes the whole suite — and then this tool
+    costs what the done-gate costs while covering less. The fan-out is cut;
+    the DIRECT hits (the mirror, the witness) are never cut, because they are
+    cheap and are what the change most likely broke.
+    """
+    wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
+    targets, cut = _test_targets(
+        [STATE],
+        _only(STATE, STATE_MIRROR, WITNESS, *wide),
+        {STATE_MODULE: wide},
+    )
+
+    assert cut == ((STATE_MODULE, len(wide)),), "the cut names its module"
+    assert not set(wide) & set(targets), "the fan-out is not run"
+    assert STATE_MIRROR in targets, "the mirror is a direct hit and is kept"
+
+
+def test_a_fan_out_at_the_cap_is_still_run() -> None:
+    """The cap is a ceiling, not a threshold — exactly at it, nothing is cut."""
+    at_cap = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP))
+    targets, cut = _test_targets(
+        [STATE],
+        _only(STATE, STATE_MIRROR, WITNESS, *at_cap),
+        {STATE_MODULE: at_cap},
+    )
+
+    assert not cut
+    assert set(at_cap) <= set(targets)
+
+
+def test_a_narrow_fan_out_is_untouched_when_another_is_cut() -> None:
+    """Cutting is per MODULE, so one wide import does not silence the rest.
+
+    A diff touching both `exceptions.py` and a leaf must still run the leaf's
+    importers — the point is to drop the one fan-out that is too wide, not to
+    give up on the diff.
+    """
+    other = "src/lexic/parsing/other.py"
+    wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
+    narrow = "tests/integration/lexic/test_narrow.py"
+    targets, cut = _test_targets(
+        [STATE, other],
+        _only(STATE, other, STATE_MIRROR, WITNESS, narrow, *wide),
+        {STATE_MODULE: wide, "lexic.parsing.other": (narrow,)},
+    )
+
+    assert [name for name, _count in cut] == [STATE_MODULE]
+    assert narrow in targets, "the narrow fan-out still runs"

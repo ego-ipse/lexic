@@ -24,6 +24,14 @@ tool the thing it exists to replace, and a gate that costs minutes is a gate
 nobody runs. The only directory any command ever receives is a changed
 `conftest.py`'s own, and only as a pytest target.
 
+**A fan-out too wide to be quick is CUT, and said.** A module near the root of
+the import graph makes "the tests that can see this" the whole suite, and then
+this tool costs what the done-gate costs while covering less. Past :data:`FANOUT_CAP` that module's
+transitive tests are dropped with a line naming the module and the count; the
+direct hits (mirror, changed test, coupled pin, witness) are never dropped. The
+remote's full gate is what answers the rest, which is where a tree-wide
+question belonged anyway.
+
 Selection is a pure function of the changed paths (:func:`plan`), so what this
 tool decides to run is testable without running anything.
 """
@@ -41,6 +49,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SRC = "src/lexic/"
 TESTS = "tests/"
+FANOUT_CAP = 30
+"""Most test files ONE changed module may drag in before its fan-out is cut.
+
+A module near the root of the import graph is seen by nearly every test, so
+"the tests that can see this file" degenerates into the whole suite — and then
+this tool costs what `run_checks.sh` costs while covering less than it does.
+At that point the honest answer is not to run a slow subset badly: it is to run
+the direct hits, say which module was cut, and let the remote's full gate
+answer the rest.
+
+Chosen between the two populations rather than picked round: well above the
+widest fan-out a non-root module reached in a real diff, and well below what a
+root module reaches. The counts themselves are not written down — a suite's
+fan-out moves every time a test file is added, and a number here would go
+quietly wrong while reading as though it had been checked.
+"""
+
 PAID_PATH = "src/lexic/parsing/"
 WITNESS = "tests/integration/lexic/invariants/test_paid_path_witness.py"
 """Pinned bytecode for the per-character loops — run whenever `parsing/` moves.
@@ -180,9 +205,18 @@ def _test_targets(
     paths: Sequence[str],
     exists: Callable[[str], bool],
     importers: Mapping[str, tuple[str, ...]],
-) -> tuple[str, ...]:
-    """Every test path this diff can have broken."""
+) -> tuple[tuple[str, ...], tuple[tuple[str, int], ...]]:
+    """Every test path this diff can have broken, and the fan-outs cut.
+
+    DIRECT hits are always kept — a changed test file, a mirror, a coupled pin,
+    the paid-path witness. Only the TRANSITIVE half, the tests that merely
+    import a changed module, is subject to :data:`FANOUT_CAP`.
+
+    :returns: ``(targets, cut)`` — the paths to run, and ``(module, count)``
+        for each module whose fan-out was dropped.
+    """
     targets: set[str] = set()
+    cut: list[tuple[str, int]] = []
     for path in paths:
         if path.startswith(TESTS) and _collected(path) and exists(path):
             targets.add(path)
@@ -194,14 +228,19 @@ def _test_targets(
         if mirror is not None and exists(mirror):
             targets.add(mirror)
         for dotted in (module_of(path), helper_of(path)):
-            if dotted is not None:
-                targets.update(one for one in importers.get(dotted, ()) if exists(one))
+            if dotted is None:
+                continue
+            reached = tuple(one for one in importers.get(dotted, ()) if exists(one))
+            if len(reached) > FANOUT_CAP:
+                cut.append((dotted, len(reached)))
+                continue
+            targets.update(reached)
         if path.startswith(PAID_PATH) and exists(WITNESS):
             targets.add(WITNESS)
         for prefix, coupled in COUPLED:
             if path.startswith(prefix):
                 targets.update(one for one in coupled if exists(one))
-    return tuple(sorted(targets))
+    return tuple(sorted(targets)), tuple(sorted(set(cut)))
 
 
 def plan(
@@ -238,10 +277,19 @@ def plan(
             Command("pyright", ("uv", "run", "pyright", *python)),
             Command("pylint", ("uv", "run", "pylint", *python)),
         ]
-    targets = _test_targets(paths, exists, importers)
+    targets, _cut = _test_targets(paths, exists, importers)
     if targets:
         commands.append(Command("pytest", ("uv", "run", "pytest", *targets, "-q")))
     return tuple(commands)
+
+
+def cut_fanouts(
+    paths: Sequence[str],
+    exists: Callable[[str], bool],
+    importers: Mapping[str, tuple[str, ...]],
+) -> tuple[tuple[str, int], ...]:
+    """The modules whose transitive fan-out this diff is too wide to run."""
+    return _test_targets(paths, exists, importers)[1]
 
 
 def run(commands: Sequence[Command]) -> int:
@@ -259,6 +307,11 @@ def run(commands: Sequence[Command]) -> int:
     return 0
 
 
+def _is_file(path: str) -> bool:
+    """Whether a repo-relative path is a file in the tree."""
+    return (ROOT / path).is_file()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Select and run this diff's checks.
 
@@ -274,11 +327,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     for path in paths:
         print(f"  {path}")
     named = {module_of(path) for path in paths} | {helper_of(path) for path in paths}
-    commands = plan(
-        paths,
-        lambda path: (ROOT / path).is_file(),
-        importing_tests(sorted(one for one in named if one is not None)),
-    )
+    seen = importing_tests(sorted(one for one in named if one is not None))
+    for dotted, count in cut_fanouts(paths, _is_file, seen):
+        print(
+            f"quick checks: {dotted} is imported by {count} test files "
+            f"(cap {FANOUT_CAP}) — its fan-out is NOT run here; "
+            "the remote's full gate covers it"
+        )
+    commands = plan(paths, _is_file, seen)
     if not commands:
         print("quick checks: nothing to run for these paths")
         return 0
