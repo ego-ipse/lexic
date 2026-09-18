@@ -481,13 +481,20 @@ def _split_regions[M: IrNamedTuple](
 ) -> M | None:
     """Split eligible nested bracket regions; ``None`` means sequential.
 
-    The routed region is tried FIRST, and a successful one never pays for the
-    sweep. The plan cascade is ordered by certainty — terminated, separated,
-    envelope, then regions — and a routed region belongs at the certain end: it
-    is proof-certified against the start rule's own shape, where the sweep's
+    Reached only once every plan has declined, and then routed before the
+    sweep: it is proof-certified against the start rule's own shape, where
     :func:`~...discovery.regions.choose` is a size heuristic over whatever
-    brackets a document happens to contain. A certified source outranks a
-    speculative one wherever both apply.
+    brackets a document happens to contain.
+
+    The cascade's rule is FIRST MATCH AMONG SURVIVORS, and the survivor set is
+    fixed at DERIVATION rather than by trying things: one certified family
+    survives — terminated, else separated, else envelope, a fixed preference
+    and not a choice by fitness, so a family the ``or`` drops never returns —
+    then proposals are appended after it, and a safety proof filters what is
+    left, which can drop a certified plan while keeping a proposal.
+
+    :func:`split_plan` returns the FIRST survivor, so a caller there sees one
+    plan where this loop tries them all; the two agree wherever the first wins.
     """
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
