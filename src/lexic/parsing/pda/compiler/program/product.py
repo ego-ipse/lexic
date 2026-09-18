@@ -150,10 +150,13 @@ def bake_product_build[Carry](
 
         It is written into ``build`` and ``n_items`` rather than into a field
         of its own: :data:`BUILD_FOLD` already says a clone folds, so a field
-        saying it again widens the record every clone of every grammar carries.
-        A folding clone reaches neither the sequence build nor the item-count
-        guard those two fields exist for, so the mode decides which reading
-        applies and there is only ever one.
+        saying it again would be a 23rd slot on
+        :class:`~lexic.parsing.pda.compiler.program.flatten.FlatClone` — a
+        record every clone of every grammar carries — to restate what the mode
+        already says, for a transformation almost no rule takes. A folding
+        clone reaches neither the sequence build nor the item-count guard
+        those two fields exist for, so the mode decides which reading applies
+        and there is only ever one.
     """
     clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final

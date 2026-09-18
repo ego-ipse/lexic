@@ -14,11 +14,14 @@ test for the direct shape finds zero rules across the whole corpus.
 
 from __future__ import annotations
 
-from lexic.compile import compile_text
-from lexic.ir import IrRule
+from lexic.compile import compile_from_path, compile_text, parse_grammar
+from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrAst, IrRule, IrRuleRef
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
+from lexic.parsing.pda.compiler.specs import arm_items
+from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -105,10 +108,10 @@ def test_the_pre_test_agrees_with_the_full_test_wherever_it_matters() -> None:
     """`any_candidate` may say yes wrongly; it must never say NO wrongly.
 
     It exists to skip building a `GrammarAnalysis` on a grammar that cannot
-    fold — 9-13% of the compile on every such grammar, which is all of them
-    but two rules. A pre-test that could answer NO for a grammar that DOES
-    fold would silently stop folding it, and nothing downstream would notice
-    because not folding is a legal outcome.
+    fold, which is nearly every grammar — so the skip is the common path and
+    the analysis the rare one. A pre-test that could answer NO for a grammar
+    that DOES fold would silently stop folding it, and nothing downstream
+    would notice because not folding is a legal outcome.
 
     So the direction is checked, not just the agreement: every grammar the
     full test finds a fold in must pass the pre-test.
@@ -131,3 +134,64 @@ def test_the_pre_test_skips_a_grammar_with_nothing_self_leading() -> None:
     grammar = lift_optional_nullables(compiled.codegen_grammar)
 
     assert not any_candidate({str(one.name): one for one in grammar.rules})
+
+
+def _corpus() -> list[tuple[str, IrAst]]:
+    """Every grammar the project ships, as codegen grammars the PDA sees."""
+    rows = [(bench.name, bench.compiled.codegen_grammar) for bench in BENCHES]
+    for path in sorted(GROUND_TRUTH.glob("*.[gae]*")):
+        if path.suffix in {".gbnf", ".abnf", ".ebnf"}:
+            rows.append((path.name, compile_from_path(path).codegen_grammar))
+    return rows
+
+
+def _direct_left_recursive(rules: dict[str, IrRule]) -> list[str]:
+    """Rules with an arm whose FIRST item references the rule itself.
+
+    The textbook shape, spelled out here rather than imported: a census that
+    asked the reader under test what the shape is would agree with it by
+    construction and prove nothing.
+    """
+    return [
+        name
+        for name, rule in rules.items()
+        for arm in rule.body
+        if (items := arm_items(arm))
+        and isinstance(items[0].atom, IrRuleRef)
+        and str(items[0].atom) == name
+    ]
+
+
+def test_nothing_in_the_corpus_is_directly_left_recursive() -> None:
+    """Why the reader reads through a hoisted arm instead of matching `A ::= A β`.
+
+    `hoist_arms` lifts every arm into its own rule before the PDA sees the
+    grammar, so direct left recursion is indirect by construction: the
+    recursion arrives one rule below where it was written. A reader matching
+    only the direct shape would find nothing to fold in anything shipped.
+
+    Two guards keep the census from being vacuous. A blind detector would
+    report zero, so it is first shown to fire on the same grammar BEFORE the
+    hoist; and a corpus with no left recursion at all would report zero, so
+    the fold must find something to take through the hoist.
+    """
+    written = parse_grammar('x ::= x "d" | "a"\n', GBNF_FLAVOUR)
+    assert _direct_left_recursive({str(one.name): one for one in written.rules}) == [
+        "x"
+    ], "the detector does not match the shape it exists to find"
+
+    direct: list[str] = []
+    folding: list[str] = []
+    for label, codegen in _corpus():
+        grammar = lift_optional_nullables(codegen)
+        rules = {str(one.name): one for one in grammar.rules}
+        nullable = GrammarAnalysis(grammar).item_nullable
+        direct += [f"{label}:{name}" for name in _direct_left_recursive(rules)]
+        folding += [
+            f"{label}:{name}"
+            for name, rule in rules.items()
+            if foldable(name, rule, rules, nullable) is not None
+        ]
+
+    assert not direct, f"the direct shape the reader does NOT match: {direct}"
+    assert folding, "nothing folds anywhere — the zero above proves nothing"

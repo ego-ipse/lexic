@@ -11,10 +11,13 @@ leading reference.
 alternation arm into a rule of its own before the PDA sees the grammar, so a
 grammar whose source says `expr ::= expr op term | term` arrives as
 `expr ::= expr-arm1 | term` with `expr-arm1 ::= expr op term`. Direct left
-recursion is therefore indirect *by construction* here, and a test for the
-direct shape matches nothing. Reading through a one-armed rule that an arm
-consists of entirely is exactly undoing that hoist, and is not a general
-inlining.
+recursion is therefore indirect *by construction* here, and a reader matching
+only the direct shape would find nothing to fold in anything the project ships
+— which is a census, not a claim, and is asserted over every bench and
+ground-truth grammar by
+`test_nothing_in_the_corpus_is_directly_left_recursive`. Reading through a
+one-armed rule that an arm consists of entirely is exactly undoing that hoist,
+and is not a general inlining.
 """
 
 from __future__ import annotations
