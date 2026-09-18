@@ -2144,3 +2144,29 @@ things.
 
 `error-vocabulary.md`'s "All inherit from `LexicError(Exception)`" was amended
 rather than extended: it became false the moment this landed.
+
+## The identity walk descends a repetition's run
+
+`field_children` treated a model's repeated field as a leaf: a run is a plain
+`tuple`, not an `IrSelf`, so filtering the parts to `IrSelf` stopped at the
+first one and a census of a whole csv document returned four nodes. It now
+splices a run's members in place of the run.
+
+Measured both ways before and after: the grammar-AST censuses do not move (no
+grammar node holds a bare run, and that CONDITION is what the gate asserts —
+not a count, which would rot as the corpus grows), while a model's census now
+equals an independent position walk to the unit. The one model census in the
+suite reads 24 against 67 emission extents, so the sharing gate it feeds keeps
+its margin.
+
+`ir-shapes.md` gains the paragraph, including the scope boundary — `transpile`
+walks models through `children()` and is NOT reached — and the count of places
+the repo spells "is a run", now four, so a fifth is visible rather than
+accidental.
+
+The freeze test names each route's evidence for what it is. Two are exercised
+end to end; the stitch family is cited to the split tests that already cover
+it; and the validated keyword path is pinned against its constructor rather
+than through a document, because no shipped grammar reaches it carrying a run
+— the fast licence is granted on every clone in the roster and the ground-truth
+corpus, so that path is entered only by an empty alternate arm.

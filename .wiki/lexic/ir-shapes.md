@@ -226,6 +226,16 @@ Two consequences of the definition, both deliberate and both gated:
 - it drops nothing `_child_attrs` drops: `IrRule.name` is a node, and an identity walk that missed it would undercount;
 - it opens the tables. `children()` reports an `IrMapping` as a leaf, because rebuilding a table is not what a transform does — but a dispatch table's whole content is its entries. A flavour's reducer censuses as 272 nodes rather than 5, and a compiled grammar's `fold.bodies` as 115 rather than 1, of which 35 are the `IrLambda(<class>)` constructors that ARE the refusal boundary. Under a tuple-only definition that boundary read as an empty set on every real artefact.
 
+### A model's repeated field is a plain tuple, and the walk descends it
+
+A generated model stores a repeated field as a **plain `tuple` of models** — not an `IrSeq`, not any node. That container is therefore not an `IrSelf`, and a child definition that filtered the parts to `IrSelf` stopped at the first run: a census of a whole csv document returned FOUR nodes. A run is a way THROUGH, not a node, so its members are the children and the run itself is not one of them.
+
+The freeze is deliberate and lives at **two sites**: `_read_models` in the fused PDA build (`"the item's whole run, frozen"`), and `GrammarModel.__new__`, which coerces a list because stored raw it "would alias per-parse state and make the record unhashable" — and a list-held record compares UNEQUAL to the same record built from a tuple, so two parses of one document would not be one value. The parallel stitch family is structurally safe by its route: it rebuilds through `IrNamedTuple.rebuild` into the checked constructor. The validated keyword path reaches the checked constructor too, and no shipped grammar reaches THAT path with a run at all — the fast licence is granted universally, so it is entered only by an empty alternate arm, which carries no captures. The unchecked constructor (`_from_values` / `fast_construct`) bypasses the coercion, and its callers pass text rather than a run — a property of the callers, held by a two-route test that requires a static scan and a runtime interception to name the same set.
+
+Testing "is this a run" is `type(part) is tuple` and never `isinstance`, because every record and every `IrTuple` IS a tuple subclass and none of them is a run. That test is now spelled in **four** places: `is_run` in the stitch, `transpile`'s check, `field_children`'s filter, and `field_children`'s new descent. `ir` is the leaf every other layer imports, so it cannot borrow the stitch's. The count is stated here so a fifth is visible rather than accidental.
+
+**Scope.** This reaches `field_children` and `census`, and nothing else. `transpile` walks models through `children()` and descends a bare tuple itself, so it is untouched — and any other `children()`-based model walk keeps the same blind spot. Said here rather than discovered later.
+
 `unspellable` is the refusal boundary: `IrLambda` (the spine's one callable-carrying node), plus any node holding a bare callable that is neither a node nor a class — a class has a name and the notation spells names.
 
 ## Equality up to renaming (`ir/grammar/alignment.py`)

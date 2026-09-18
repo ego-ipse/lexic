@@ -45,16 +45,39 @@ from lexic.ir.spine.spine import IrLambda, IrSelf
 def field_children(node: IrSelf) -> tuple[IrSelf, ...]:
     """This node's children — the node-valued parts it carries.
 
+    **A repetition's RUN is descended, not treated as a leaf.** A generated
+    model stores a repeated field as a plain ``tuple`` of models, which is not
+    itself an ``IrSelf`` — so filtering the parts to ``IrSelf`` alone stopped
+    at the first run and reported a whole csv document as four nodes. A run is
+    a way THROUGH, not a node: its members are the children.
+
+    The test for one is ``part.__class__ is tuple`` and not ``isinstance``, because
+    every record and every :class:`~lexic.ir.spine.records.IrTuple` IS a tuple
+    subclass and none of them is a run — the same reasoning, and the same test,
+    as :func:`~lexic.parsing.parallel.stitch.model.is_run`. That makes this the
+    FOURTH place the repo spells "is a run"; ``ir`` is the leaf every other
+    layer imports, so it cannot borrow the one in ``stitch``. The count is
+    stated in ``ir-shapes.md`` so the fourth is visible rather than accidental.
+
     :param node: Any node.
-    :returns: A tuple node's elements in field order; a map's entries in table
-        order, each key before its value; empty for a scalar or any other node
-        whose payload is neither.
+    :returns: A tuple node's elements in field order, with a run's members
+        spliced in place of the run; a map's entries in table order, each key
+        before its value; empty for a scalar or any other node whose payload
+        is neither.
     """
     if isinstance(node, IrMapping):
         parts: tuple[object, ...] = tuple(chain.from_iterable(node.items()))
     else:
         parts = tuple(node) if isinstance(node, tuple) else ()
-    return tuple(part for part in parts if isinstance(part, IrSelf))
+    out: list[IrSelf] = []
+    for part in parts:
+        if isinstance(part, IrSelf):
+            out.append(part)
+        elif isinstance(part, tuple) and part.__class__ is tuple:
+            members = [one for one in part if isinstance(one, IrSelf)]
+            if len(members) == len(part):
+                out.extend(members)
+    return tuple(out)
 
 
 def unspellable(node: IrSelf) -> bool:
