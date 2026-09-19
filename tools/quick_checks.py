@@ -48,7 +48,18 @@ from typing import NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 
 SRC = "src/lexic/"
+TOOLS = "tools/"
 TESTS = "tests/"
+
+IMPORTABLE_ROOTS = ((SRC, "src/"), (TOOLS, ""))
+"""Every root whose ``.py`` files are modules, and what is not part of the name.
+
+``src`` is a source directory rather than a package, so it is stripped and
+``src/lexic/a/b.py`` is ``lexic.a.b``; ``tools`` is itself the package, so
+``tools/a/b.py`` is ``tools.a.b``. Stated once, read by both
+:func:`module_of` and :func:`mirror_of`, because a gate that can see one root's
+importers and not the other's reports a clean diff over a red one.
+"""
 FANOUT_CAP = 30
 """Most test files ONE changed module may drag in before its fan-out is cut.
 
@@ -110,24 +121,57 @@ class Command(NamedTuple):
     argv: tuple[str, ...]
 
 
-def module_of(path: str) -> str | None:
-    """The dotted module a source path defines, or ``None`` if it is not one."""
-    if not path.startswith(SRC) or not path.endswith(".py"):
+def package_parts(path: str) -> list[str] | None:
+    """One importable path's package-relative parts, or ``None`` if it has none.
+
+    The repo has two importable roots and ONE rule over both: a module's dotted
+    name and its mirroring unit test are read off the same parts. They differ
+    only in what precedes the package — ``src`` is a source directory and is
+    stripped, ``tools`` IS the package and is kept.
+
+    Anything else is not a module: a shell script, a data file, a `.py` under
+    neither root. Those get ``None``, and the callers fall back to the direct
+    hits.
+
+    :param path: A repo-relative path.
+    :returns: The dotted name's parts, or ``None``.
+    """
+    if not path.endswith(".py"):
         return None
-    dotted = path[len("src/") : -len(".py")].replace("/", ".")
+    for root, strip in IMPORTABLE_ROOTS:
+        if path.startswith(root):
+            return path[len(strip) : -len(".py")].split("/")
+    return None
+
+
+def module_of(path: str) -> str | None:
+    """The dotted module a source path defines, or ``None`` if it is not one.
+
+    :param path: A repo-relative path.
+    :returns: ``lexic.a.b`` / ``tools.a.b``, a package as itself, or ``None``.
+    """
+    parts = package_parts(path)
+    if parts is None:
+        return None
+    dotted = ".".join(parts)
     return dotted.removesuffix(".__init__") if dotted.endswith("__init__") else dotted
 
 
 def mirror_of(path: str) -> str | None:
     """The unit test that mirrors one source path, by this repo's convention.
 
-    ``src/lexic/a/b.py`` is mirrored by ``tests/unit/lexic/a/test_b.py``, and a
-    package's ``__init__.py`` by ``tests/unit/lexic/a/test_init_a.py`` — named
-    for the package, because ``test___init__.py`` collides across packages.
+    ``src/lexic/a/b.py`` is mirrored by ``tests/unit/lexic/a/test_b.py`` and
+    ``tools/a/b.py`` by ``tests/unit/tools/a/test_b.py`` — the same convention
+    over both roots, since the tests tree mirrors the package path either way.
+    A package's ``__init__.py`` is mirrored by ``test_init_<package>.py``,
+    named for the package because ``test___init__.py`` collides across them.
+
+    :param path: A repo-relative path.
+    :returns: The mirroring test path, or ``None`` if the path is not a module.
     """
-    if not path.startswith(SRC) or not path.endswith(".py"):
+    parts = package_parts(path)
+    if parts is None:
         return None
-    parts = path[len("src/") : -len(".py")].split("/")
     if parts[-1] == "__init__":
         parts = [*parts[:-1], f"test_init_{parts[-2]}"]
     else:
