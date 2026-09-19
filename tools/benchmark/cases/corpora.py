@@ -76,6 +76,40 @@ def dense_earley_corpus(terms: int, per_line: int = 24) -> str:
     return "\n".join(lines) + "\n"
 
 
+def start_fallback_corpus(units: int) -> str:
+    """A run of units for a left-recursive START rule the fold refuses.
+
+    The rule's recursive arm captures nothing, so the fold declines it
+    (``fold_build`` returns ``None``) and the predictive path raises — the
+    product's own fallback then parses the whole document on Earley. The
+    document is one flat run because the shape, not its content, is what
+    reaches the engine.
+    """
+    return "a" * units
+
+
+def interior_exact_corpus(units: int) -> str:
+    """The same refused recursion as an INTERIOR rule, with a disjoint tail.
+
+    The island's alphabet cannot contain the tail's first character, so the
+    continuation analysis proves an exact width and the sub-parse runs ONCE at
+    it. This is the bounded half of the island window.
+    """
+    return "a" * units + "\n"
+
+
+def interior_climb_corpus(units: int) -> str:
+    """The same shape with an OVERLAPPING tail — so the window must climb.
+
+    The island's alphabet contains the continuation's first character, so no
+    exact width is provable and the sub-parse re-runs at 256, 512, 1024 …
+    until the chart stops extending. Every proper prefix is followed by an
+    ``a``, which the tail refuses, so exactly one end composes and the island
+    still ANSWERS rather than falling back.
+    """
+    return "z" + "a" * units + "zz\n"
+
+
 def announced_corpus(sections: int) -> str:
     """Sections of a header and four body lines, with no readable boundary."""
     letters = "abcdefghijklmnopqrstuvwxyz"

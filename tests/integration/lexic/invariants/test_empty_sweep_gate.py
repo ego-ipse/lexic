@@ -213,7 +213,10 @@ def test_every_bench_grammar_is_unchanged(bench, workers: int) -> None:
     """Every roster grammar parses to the same model it always did."""
     model = bench.compiled.parse(bench.full, cores=workers)
     assert model.to_text() == bench.full
-    assert model == bench.compiled.parse(bench.full, cores=1)
+    # Compared by dump: a left-nested model is as deep as its document, and
+    # `==` recurses one C frame per level, so a long one raises RecursionError
+    # on the COMPARISON while the parse and the model are both fine.
+    assert model.dump() == bench.compiled.parse(bench.full, cores=1).dump()
 
 
 # ── opacity decides before the empty-separator gate is ever asked ─────────

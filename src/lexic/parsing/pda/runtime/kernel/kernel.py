@@ -386,11 +386,13 @@ class PdaKernel[M](
     def _descend_island(self, arm: FlatArm, i: int, pos: int, sink: list[M]) -> int:
         """A due ``OP_ISLAND`` splice or ``OP_FAIL`` raise — the descent's cold tail.
 
-        Hosted out of :meth:`_quant_step` because it never runs: an island is
-        the residue no attempt can settle, and none survives on any grammar the
-        engine has been measured against (zero ``OP_ISLAND`` and zero
-        ``OP_FAIL`` steps across the whole benchmark). The hot path keeps the
-        branch budget instead.
+        Hosted out of :meth:`_quant_step` because it is cold BY CONSTRUCTION:
+        an island is the residue no attempt can settle, so wherever the
+        predictive path runs at all this step does not, and the hot path keeps
+        the branch budget instead.
+
+        Stated as a property rather than as a census: a count is a fact about
+        one roster on one day, and the placement rests on the construction.
         """
         if arm.kinds[i] == OP_FAIL:
             raise PdaFail(
