@@ -55,13 +55,29 @@ def _drained[M](
     return failures[min(failures)]
 
 
+_POOLS = count()
+"""Numbers the pools, so each one's threads are named after the pool alone."""
+
+
 class WorkPool:
-    """One executor reused by differently typed phases of a split parse."""
+    """One executor reused by differently typed phases of a split parse.
+
+    :ivar workers: The resolved worker ceiling.
+    :ivar name: This pool's own thread-name prefix. Unique per pool, so a
+        thread is attributable to the pool that made it — in a fault dump, a
+        profile, or a test counting one pool's threads rather than the
+        process's. The executor's default prefix would also be unique, but it
+        is not reachable from the pool, and a thread nobody can attribute is
+        a thread nobody can account for.
+    """
 
     def __init__(self, cores: int = AUTO) -> None:
         """Resolve the worker ceiling and create the lazy executor."""
         self.workers = doc_workers(cores)
-        self._pool = ThreadPoolExecutor(max_workers=self.workers)
+        self.name = f"lexic-pool-{next(_POOLS)}"
+        self._pool = ThreadPoolExecutor(
+            max_workers=self.workers, thread_name_prefix=self.name
+        )
         self._slots = local()
         self._taken = count()
         self._slot_lock = Lock()

@@ -17,11 +17,13 @@ import pytest
 
 from tools.quick_checks import (
     COUPLED,
+    FANOUT_CAP,
     PAID_PATH,
     ROOT,
     TESTS,
     WITNESS,
     Command,
+    _test_targets,
     helper_of,
     mirror_of,
     module_of,
@@ -272,10 +274,19 @@ def test_a_coupled_test_that_does_not_exist_is_not_a_target() -> None:
 
 
 def test_a_change_elsewhere_in_tools_is_not_coupled_to_the_roster() -> None:
-    """The prefix is the cases directory, not `tools/` — a row must stay narrow."""
-    commands = plan(["tools/benchmark/compare.py"], _everything, {})
+    """The prefix is the cases directory, not `tools/` — a row must stay narrow.
 
-    assert "pytest" not in _labels(commands)
+    Its own mirror is a different question and IS selected; what must not
+    appear is the pair coupled to the roster by content.
+    """
+    commands = plan(["tools/benchmark/compare.py"], _everything, {})
+    targets = _argv(commands, "pytest")
+
+    assert "tests/integration/lexic/invariants/test_readme_render.py" not in targets
+    assert (
+        "tests/integration/lexic/invariants/test_performance_matrix.py" not in targets
+    )
+    assert "tests/unit/tools/benchmark/test_compare.py" in targets
 
 
 def test_every_declared_coupling_names_real_files() -> None:
@@ -328,10 +339,16 @@ def test_an_empty_diff_earns_no_commands() -> None:
 
 
 def test_a_tools_change_lints_itself_and_runs_its_mirror_if_there_is_one() -> None:
-    """`tools/` has no `src/lexic` mirror rule, so only a direct test counts."""
+    """The mirror convention is ONE rule over both importable roots.
+
+    `tools/quick_checks.py` is mirrored at `tests/unit/tools/test_quick_checks.py`
+    by the same rule that mirrors `src/lexic/a/b.py` — this very file is where
+    that rule puts it.
+    """
     commands = plan(["tools/quick_checks.py"], _everything, {})
 
-    assert _labels(commands) == [*FIXERS, *CHECKERS]
+    assert _labels(commands) == [*FIXERS, *CHECKERS, "pytest"]
+    assert "tests/unit/tools/test_quick_checks.py" in _argv(commands, "pytest")
 
 
 @pytest.mark.parametrize(
@@ -343,3 +360,126 @@ def test_every_python_change_is_linted_by_all_four(path: str) -> None:
     labels = _labels(plan([path], _everything, {}))
 
     assert labels[: len(FIXERS) + len(CHECKERS)] == [*FIXERS, *CHECKERS]
+
+
+def test_a_wide_fan_out_is_cut_and_the_direct_hits_are_kept() -> None:
+    """A module near the import root must not drag the whole suite in.
+
+    A module near the import root is seen by nearly every test, so "the tests
+    that can see this change" becomes the whole suite — and then this tool
+    costs what the done-gate costs while covering less. The fan-out is cut;
+    the DIRECT hits (the mirror, the witness) are never cut, because they are
+    cheap and are what the change most likely broke.
+    """
+    wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
+    targets, cut = _test_targets(
+        [STATE],
+        _only(STATE, STATE_MIRROR, WITNESS, *wide),
+        {STATE_MODULE: wide},
+    )
+
+    assert cut == ((STATE_MODULE, len(wide)),), "the cut names its module"
+    assert not set(wide) & set(targets), "the fan-out is not run"
+    assert STATE_MIRROR in targets, "the mirror is a direct hit and is kept"
+
+
+def test_a_fan_out_at_the_cap_is_still_run() -> None:
+    """The cap is a ceiling, not a threshold — exactly at it, nothing is cut."""
+    at_cap = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP))
+    targets, cut = _test_targets(
+        [STATE],
+        _only(STATE, STATE_MIRROR, WITNESS, *at_cap),
+        {STATE_MODULE: at_cap},
+    )
+
+    assert not cut
+    assert set(at_cap) <= set(targets)
+
+
+def test_a_narrow_fan_out_is_untouched_when_another_is_cut() -> None:
+    """Cutting is per MODULE, so one wide import does not silence the rest.
+
+    A diff touching both `exceptions.py` and a leaf must still run the leaf's
+    importers — the point is to drop the one fan-out that is too wide, not to
+    give up on the diff.
+    """
+    other = "src/lexic/parsing/other.py"
+    wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
+    narrow = "tests/integration/lexic/test_narrow.py"
+    targets, cut = _test_targets(
+        [STATE, other],
+        _only(STATE, other, STATE_MIRROR, WITNESS, narrow, *wide),
+        {STATE_MODULE: wide, "lexic.parsing.other": (narrow,)},
+    )
+
+    assert [name for name, _count in cut] == [STATE_MODULE]
+    assert narrow in targets, "the narrow fan-out still runs"
+
+
+# ── the two importable roots, under one rule ───────────────────────────
+
+
+ROSTER = "tools/benchmark/cases/grammars.py"
+ROSTER_MODULE = "tools.benchmark.cases.grammars"
+ROSTER_COUNT_PIN = "tests/unit/tools/benchmark/test_regression.py"
+ROSTER_NAME_TABLE = "tests/integration/lexic/invariants/test_benchmark_emitters.py"
+
+
+def test_a_tools_module_maps_to_its_dotted_name_and_its_mirror() -> None:
+    """One rule over both roots: `src` is stripped, `tools` is the package.
+
+    The asymmetry is real and deliberate — `src` is a source directory nothing
+    imports by that name, while `tools` IS the package an import statement
+    names — so the rule keeps one and drops the other.
+    """
+    assert module_of("tools/benchmark/regression.py") == "tools.benchmark.regression"
+    assert (
+        mirror_of("tools/benchmark/regression.py")
+        == "tests/unit/tools/benchmark/test_regression.py"
+    )
+    assert module_of("tools/benchmark/cases/__init__.py") == "tools.benchmark.cases"
+    assert (
+        mirror_of("tools/benchmark/cases/__init__.py")
+        == "tests/unit/tools/benchmark/cases/test_init_cases.py"
+    )
+    assert module_of("tools/guarded.sh") is None
+    assert mirror_of("tools/guarded.sh") is None
+
+
+def test_a_roster_change_selects_the_tests_that_import_it_by_name() -> None:
+    """The count pin and the per-name table, both reached by IMPORT.
+
+    A roster diff's reds are not in its mirror — there isn't one — they are in
+    the files that assert its shape: a count pin that says how many grammars
+    there are, and a per-name table with a row for each. Both import the module
+    for real, so the import walk is what has to find them.
+    """
+    commands = plan(
+        [ROSTER],
+        _only(ROSTER, ROSTER_COUNT_PIN, ROSTER_NAME_TABLE),
+        {ROSTER_MODULE: (ROSTER_COUNT_PIN, ROSTER_NAME_TABLE)},
+    )
+    targets = _argv(commands, "pytest")
+
+    assert ROSTER_COUNT_PIN in targets
+    assert ROSTER_NAME_TABLE in targets
+
+
+def test_a_tools_module_nothing_imports_selects_only_its_mirror() -> None:
+    """No importer means no fan-out — the mirror, and nothing invented.
+
+    The import walk widens a selection only as far as the imports go. A module
+    nothing under `tests/` names must not drag the roster's coupled pair in, or
+    every `tools/` change would cost what a roster change costs.
+    """
+    mirror = "tests/unit/tools/benchmark/test_compare.py"
+    commands = plan(
+        ["tools/benchmark/compare.py"],
+        _only("tools/benchmark/compare.py", mirror, ROSTER_COUNT_PIN),
+        {"tools.benchmark.compare": ()},
+    )
+    targets = _argv(commands, "pytest")
+
+    assert mirror in targets
+    assert ROSTER_COUNT_PIN not in targets
+    assert not [one for one in targets if one.startswith(TESTS) and one != mirror]

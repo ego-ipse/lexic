@@ -20,7 +20,7 @@ because their groups write the cursor's own state.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrTuple
@@ -46,6 +46,7 @@ from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product import ProductExecutor
+from lexic.parsing.product.tree import CompletionResult
 
 __all__ = [
     "ISLAND_WINDOW",
@@ -127,24 +128,94 @@ class IslandPolicy[M](NamedTuple):
     ``executor`` is the bound product's completion, and it is here for the
     ambiguity question alone: whether two derivations are a real ambiguity is
     a question about the VALUES they build, and only the product can answer
-    it. ``follow`` is the island rule's continuation charset (analysis soft
-    FOLLOW) — the cross-span composition evidence; ``None`` (a caller without
-    analysis) accepts plain longest-match.
+    it. ``follow`` is what may follow the island AT THIS OCCURRENCE — the
+    cross-span composition evidence; ``None`` (a caller without analysis)
+    accepts plain longest-match. ``window`` is an EXACT width to parse at,
+    settling the island in one sub-parse; ``None`` climbs from
+    :data:`ISLAND_WINDOW` by doubling. ``None`` rather than ``0`` because a
+    bound of zero is a real answer — a continuation character sitting AT the
+    cursor bounds a nullable island to an empty window — and spelling it the
+    same as "no bound" sent that island climbing instead.
     """
 
     delegates: dict[int, Delegate] | None = None
     resolve: Resolver | None = None
     executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
+    window: int | None = None
 
     def for_island(
-        self, delegates: dict[int, Delegate] | None, follow: CharSet | None
+        self,
+        delegates: dict[int, Delegate] | None,
+        follow: CharSet | None,
+        window: int | None = None,
     ) -> IslandPolicy[M]:
-        """This policy with the per-island parts filled in — what one island
-        reference hands to its sub-parse. The delegates and the follow set are
-        the only per-island parts; the executor and the resolver belong to the
-        whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.executor, follow)
+        """This policy with the per-reference parts filled in — what one island
+        reference hands to its sub-parse. The delegates, the continuation and
+        the window belong to the reference; the executor and the resolver
+        belong to the whole parse."""
+        return IslandPolicy(delegates, self.resolve, self.executor, follow, window)
+
+
+def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet) -> int:
+    """A shorter completion end this window cannot settle against, or ``-1``.
+
+    Asked after every window rather than only after the climb, and that is
+    sound because **completion ends only accumulate as the window grows**: a
+    derivation over a prefix survives every longer window, so an alternative
+    found at 256 characters is an alternative at every width, and the longest
+    end is non-decreasing. A refusal raised at the first window is therefore a
+    refusal the last window would also have raised. Early checking can MISS a
+    later-appearing alternative — the next window asks again — but it cannot
+    invent one.
+
+    What it saves is the whole climb on an island that cannot settle: without
+    it the window doubles to the end of the input to reach the refusal its
+    first window already held.
+
+    :param kern: The window's finished kernel.
+    :param end: The longest completion's end over this window.
+    :param text: The full input.
+    :param pos: Where the island opened.
+    :param follow: The island rule's continuation charset.
+    :returns: The shorter end, or ``-1`` when every one of them is refused by
+        the continuation and longest-match is still a defined answer.
+    """
+    for alt in start_completion_ends(kern):
+        if alt < end and follow.has(text[pos + alt]):
+            return alt
+    return -1
+
+
+def bounded_window(text: str, pos: int, cont: CharSet) -> int:
+    """How far an island can reach when it cannot hold its own continuation.
+
+    The distance from ``pos`` to the first continuation character at or after
+    it, or the rest of the input when there is none. One ``str.find`` per
+    continuation character, each a C-level scan — the sets that reach here are
+    small (a newline, a closing bracket), and a set large enough for this to
+    matter is one the caller declined to call bounded.
+
+    **The end-of-input sentinel is skipped, and skipping it is the point.**
+    It is spelled ``""``, and ``text.find("", pos)`` is ``pos`` — every string
+    contains the empty one at every position — so scanning for it would bound
+    every island that may run to the end of the document to a width of zero.
+    A continuation of "the end of input" bounds the island at the end of the
+    input, which is what falling through to ``len(text)`` gives.
+
+    :param text: The full input.
+    :param pos: Where the island opens.
+    :param cont: The occurrence continuation, positive and non-empty.
+    :returns: The exact window width.
+    """
+    found = len(text)
+    for char in cont.chars:
+        if not char:
+            continue  # the EOF sentinel — see above
+        at = text.find(char, pos)
+        if 0 <= at < found:
+            found = at
+    return found - pos
 
 
 def island_parse(
@@ -153,7 +224,7 @@ def island_parse(
     pos: int,
     name: str,
     policy: IslandPolicy = IslandPolicy(),
-) -> tuple[ParseTree, int]:
+) -> tuple[ParseTree, int, CompletionResult[Any] | None]:
     """Longest completion of island ``name`` over a doubling window from ``pos``.
 
     Grows the window while the chart is still live at its edge and input
@@ -174,47 +245,77 @@ def island_parse(
         any. An island is the ONE place the model path chooses between
         derivations — everywhere else it is predictive and produces one by
         construction — so it is where the refusal (or the resolver) applies.
-    :returns: ``(tree, end)`` — the derivation and its consumed length.
+        ``policy.window``, when it is not ``None``, is an EXACT width: the
+        island cannot derive a character of its own continuation, so no
+        completion reaches past the first one — see
+        :meth:`~lexic.parsing.pda.compiler.continuation.IslandContinuations.bounds`
+        — and one sub-parse at that width settles it. ``None`` climbs from
+        :data:`ISLAND_WINDOW` by doubling, re-parsing the same characters at
+        every width.
+    :returns: ``(tree, end, value)`` — the derivation, its consumed length,
+        and the completed value when the settle step already built one
+        (``None`` when it did not, and the caller completes the tree itself).
     :raises PdaFail: When the island completes over no window.
     :raises UnsupportedConstructError: On an ambiguous island with no resolver.
         The round-trip invariant cannot catch a wrong choice here:
         ``to_text()`` reproduces the input for whichever derivation was taken.
     """
     remaining = len(text) - pos
-    window = ISLAND_WINDOW
-    kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
-    while window < remaining and _may_extend(kern):
-        window *= 2
+    exact = policy.window is not None
+    window = ISLAND_WINDOW if policy.window is None else policy.window
+    while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
-    if best is None:
-        raise PdaFail(f"island {name!r}: no match at {pos}", pos)
-    item, end = best
-    if policy.follow is not None:
-        for alt in start_completion_ends(kern):
-            if alt < end and policy.follow.has(text[pos + alt]):
+        if best is not None and policy.follow is not None:
+            alt = _unsettled_end(kern, best[1], text, pos, policy.follow)
+            if alt >= 0:
                 raise PdaFail(
                     f"island {name!r} at {pos}: arm choice spans two ends "
-                    f"({alt}, {end}) and the shorter could compose",
+                    f"({alt}, {best[1]}) and the shorter could compose",
                     pos,
                 )
+        if exact or window >= remaining or not _may_extend(kern):
+            break
+        window *= 2
+    if best is None:
+        raise PdaFail(f"island {name!r}: no match at {pos}", pos)
+    return _decoded(kern, best, name, policy)
+
+
+def _decoded(
+    kern: Kernel, best: tuple[int, int], name: str, policy: IslandPolicy
+) -> tuple[ParseTree, int, CompletionResult[Any] | None]:
+    """The winning completion as a derivation, its length and its value.
+
+    Split from the window loop because the two answer different questions: the
+    loop decides HOW MUCH text the island covers, and this decides what that
+    span MEANS. Only the second one builds anything.
+
+    :param kern: The finished kernel whose chart holds the completion.
+    :param best: The accepting ``(item, end)``.
+    :param name: The island rule name (for the failure message).
+    :param policy: The resolver and the product completion.
+    :returns: ``(tree, end, value)``; the value is ``None`` where none was
+        built, which is the executor-less path.
+    """
+    item, end = best
     handle = (item << kern.tables.packing.bits) | end
     tree = FastTree(kern).build(handle)
     if not isinstance(tree, ParseTree):
         # The fast path declining is NOT ambiguity — it also declines when a key
         # packs more than one family or the root has many productions.
-        return island_derivation(kern, item, end, name, policy=policy), end
-    # ...and the fast path SUCCEEDING is not proof of unambiguity either, which
-    # is what this used to assume. Measured: `FastTree` builds a tree for a
-    # completion whose arms mean different things, so trusting it here answered
-    # an ambiguous input instead of refusing it. The value route does not rely
-    # on the fast path as an oracle — `different_meaning` asks this question
-    # separately — and the model path must ask it too.
-    return _settle_two_meanings(kern, handle, tree, name, policy), end
+        slow, value = island_derivation(kern, item, end, name, policy=policy)
+        return slow, end, value
+    # The fast path SUCCEEDING is not proof of unambiguity: `FastTree` builds
+    # a tree for a completion whose arms mean different things. It is not an
+    # oracle — `different_meaning` asks that question separately, and the
+    # model path asks it too.
+    settled, value = _settle_two_meanings(kern, handle, tree, name, policy)
+    return settled, end, value
 
 
 def _settle_two_meanings(
     kern: Kernel, handle: int, tree: ParseTree, name: str, policy: IslandPolicy
-) -> ParseTree:
+) -> tuple[ParseTree, CompletionResult[Any] | None]:
     """The derivation to keep when this completion may mean a second thing.
 
     :param kern: The island's Earley kernel.
@@ -223,14 +324,16 @@ def _settle_two_meanings(
     :param name: The island rule name (for the failure message).
     :param policy: Carries the product completion that answers the question,
         and the caller's resolver.
-    :returns: ``tree`` when every derivation means the same thing, else what
-        the resolver chooses.
+    :returns: ``(derivation, its completed value)`` — the value ``None`` only
+        where none was built, which is the executor-less path. Everywhere else
+        the answer came FROM a built value, and :func:`different_meaning`
+        retains it so the seam can splice that rather than build it again.
     :raises UnsupportedConstructError: When the span means two things and no
         resolver was supplied.
     """
     executor = policy.executor
     if executor is None:
-        return tree
+        return tree, None
     # The value-once route, and the OCCURRENCE completion within it. Value-once
     # because the baseline is built once and an alternate replays only what it
     # changed, where the tree-consumer view rebuilt the whole span per
@@ -245,13 +348,21 @@ def _settle_two_meanings(
         tree,
     )
     if pair.witness is None:
-        return tree
+        return tree, pair.first.value
     if policy.resolve is None:
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — supply a resolver to choose between them"
         )
-    return policy.resolve(tree, pair.witness.tree)
+    chosen = policy.resolve(tree, pair.witness.tree)
+    # Both candidates arrive built, so a resolver that returns one of them
+    # returns a value too. One that returns some third tree is answering a
+    # question this seam did not ask, and is completed the ordinary way.
+    if chosen is tree:
+        return chosen, pair.first.value
+    if chosen is pair.witness.tree:
+        return chosen, pair.witness.value
+    return chosen, None
 
 
 def island_run(
@@ -279,7 +390,7 @@ def island_derivation(
     name: str,
     *,
     policy: IslandPolicy = IslandPolicy(),
-) -> ParseTree:
+) -> tuple[ParseTree, CompletionResult[Any] | None]:
     """First derivation of an island completion the fast path did not build.
 
     Under the default setting a SECOND derivation is refused — but only when it
@@ -300,14 +411,17 @@ def island_derivation(
     :param name: The island rule name (for the failure message).
     :param policy: Carries the product completion that answers the question,
         and the caller's resolver.
-    :returns: The first derivation tree, or what the resolver chooses.
+    :returns: ``(derivation, its completed value)`` — the value ``None`` on
+        the executor-less path, where none is built. The settle step builds it
+        to answer the ambiguity question and it is handed on rather than
+        rebuilt, exactly as on the fast path.
     :raises PdaFail: When the completion decodes to no derivation.
     :raises UnsupportedConstructError: When a second derivation builds a
         different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end
     if policy.executor is None:
-        return _one_derivation(kern, handle, name)
+        return _one_derivation(kern, handle, name), None
     tree = _one_derivation(kern, handle, name, {})
     return _settle_two_meanings(kern, handle, tree, name, policy)
 

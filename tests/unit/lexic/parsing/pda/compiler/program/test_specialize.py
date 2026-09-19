@@ -19,6 +19,8 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    KWindowSelect,
+    NoiseSkipSelect,
     no_construction,
     no_fast_construction,
     vstr_model,
@@ -163,8 +165,7 @@ _BARE_CLONE_DEFAULTS = {
     "mode": BUILD_VALUE_STR,
     "attempt": None,
     "struct_arm": None,
-    "kwin_selectors": None,
-    "pn_selectors": None,
+    "wide_selectors": None,
     "selectors": (),
     "default": None,
 }
@@ -211,13 +212,15 @@ def test_consult_arm_declines_a_struct_gated_clone():
 def test_consult_arm_declines_a_kwindow_gated_clone():
     """A k-window-gated alternation selects arms by a wider lookahead than
     the single-char selectors a consult would be baked beside."""
-    clone = _bare_clone(kwin_selectors=(((),),), selectors=())
+    clone = _bare_clone(wide_selectors=KWindowSelect((((), None),)), selectors=())
     assert consult_arm(clone, re.compile("x")) is None
 
 
 def test_consult_arm_declines_a_noise_skip_gated_clone():
     """The P3 noise-skip peek path is the other gated shape the licence excludes."""
-    clone = _bare_clone(pn_selectors=(((frozenset(), False), ())), selectors=())
+    clone = _bare_clone(
+        wide_selectors=NoiseSkipSelect((frozenset(), False), ()), selectors=()
+    )
     assert consult_arm(clone, re.compile("x")) is None
 
 
@@ -732,16 +735,27 @@ def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
 # ── island / fail-island flattening ─────────────────────────────────────
 
 
-def test_island_ref_flattens_to_op_island_carrying_the_rule_name():
-    """A ref to a genuine (non-fail) island flattens to OP_ISLAND with the
-    island's rule name as payload — the runtime's splice-in marker. The
-    fixture islands by LEFT RECURSION — the class no attempt can settle.
+def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
+    """A ref to a genuine (non-fail) island flattens to OP_ISLAND.
+
+    The payload is ``(name, continuation, exact)``: the runtime's splice-in
+    marker, the seam's two-ends evidence, and whether that evidence also
+    BOUNDS the island's extent. The continuation is a property of the
+    reference — what the CALLER puts after the island — and not of the island
+    rule, whose own FOLLOW holds its own recursion. The fixture islands by
+    LEFT RECURSION, the class no attempt can settle, and ``root ::= x`` puts
+    only the end of input after it — which the island cannot derive either, so
+    its extent is bounded at the end of the document and one sub-parse over
+    the remainder settles it.
     """
-    pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
+    pda = pda_from_text('root ::= x\nx ::= y "a" | "b"\ny ::= x\n')
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
-    assert arm.payloads == ("x",)
+    name, cont, exact = arm.payloads[0]
+    assert name == "x"
+    assert not cont.has("a"), "the island's own recursion is not the caller's"
+    assert exact, "root puts only the end of input after it, which bounds it"
 
 
 def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
@@ -751,17 +765,19 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
     pda = pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
     arm = only_arm(pda.program.start)
     assert arm.kinds[0] == OP_FAIL
-    assert arm.payloads[0] == "x"
+    assert arm.payloads[0][0] == "x"
 
 
 def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
     """When the start rule is itself an island, PdaProgram.start is the
     IslandRef marker directly — no FlatClone entry point at all. The fixture
-    islands by LEFT RECURSION (the ungatable digit-prefix overlap shape now
-    legitimately attempts, as the ``"a"? "a"`` shape before it demoted).
+    islands by LEFT RECURSION — INDIRECT, through a helper, because direct
+    left recursion no longer islands: the fold rewrites it into a loop and
+    builds the model back, so a start rule that recursed directly would no
+    longer reach this path at all.
     """
-    pda = pda_from_text('root ::= root "a" | "b"\n')
-    assert pda.islands == frozenset({"root", "root-arm1"})  # the hoisted arm too
+    pda = pda_from_text('root ::= step "a" | "b"\nstep ::= root\n')
+    assert pda.islands == frozenset({"root", "root-arm1", "step"})
     assert pda.program.start == IslandRef("root", fail=False)
 
 

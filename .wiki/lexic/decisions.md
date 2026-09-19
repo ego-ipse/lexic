@@ -205,10 +205,21 @@ is settled by convergence"* below.
   redirects to one clone compiled at the analysis' hard FOLLOW
   (`_spec_ruleref`); per-call-site clones fragmented the table ~60% for
   nothing.
-- **Optimizer licences exclude gated clones.** `OP_VSTR` inlining, leaf
-  marking and dispatch conversion all require `attempt`/`kwin`/`pn`/`struct`
-  to be absent — `select_arm` reads plain selectors, which gated clones leave
-  empty; inlining one mis-parses (the abnf `defined` regression).
+- **Optimizer licences exclude gated clones — except dispatch conversion.**
+  `OP_VSTR` inlining and leaf marking require `attempt`/`kwin`/`pn`/`struct`
+  to be absent: `select_arm` reads plain selectors, which gated clones leave
+  empty, and inlining one mis-parses (the abnf `defined` regression).
+  **Dispatch conversion does not**, because it does not read `selectors` to
+  decide — it asks whether every arm is a single unit reference, which is a
+  question about what the alternation BUILDS, not about how it chooses. A
+  `kwin`/`pn` clone qualifying on those terms converts and keeps its
+  selection, its targets rebuilt into it; `attempt` and `struct` still refuse,
+  since both make a decision that must precede any dispatch.
+- **A dispatch clone's targets sit where its selection does.** Lead-char:
+  `selectors`. Window or post-noise peek: the selection itself, with
+  `selectors` empty. Every consumer enumerating a dispatch clone's outgoing
+  edges must read whichever holds them — one reading `selectors` alone sees a
+  wide clone's default and would licence targets it never examined.
 - **`ProbeFork` is a `PdaFail` subtype meaning UNDECIDABLE, not failed** — an
   arm miss must not swallow it, or a later arm commits what the gated engine
   may refuse. Public soundness is unchanged: `parse_model` falls back on any

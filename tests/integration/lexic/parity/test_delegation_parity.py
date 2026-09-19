@@ -81,16 +81,22 @@ def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> objec
 
 
 SYNTH_GRAMMAR = """root ::= item+
-item ::= item "!" | a | b
+item ::= step "!" | a | b
+step ::= item
 a ::= digits "x"
 b ::= digits "y"
 digits ::= [0-9]+
 """
 """A minimal delegation payoff grammar: ``item`` is a LEFT-RECURSIVE island
-(the class no attempt settles — the plain shared-digit-prefix alternation it
-once was now attempts instead of islanding), and its interior delegable rule
-``digits`` (``[0-9]+``) is an unbounded run — a long predictive span the
-delegate resolves on its clone instead of the island's Earley item machinery."""
+(the class no attempt settles), and its interior delegable rule ``digits``
+(``[0-9]+``) is an unbounded run — a long predictive span the delegate resolves
+on its clone instead of the island's Earley item machinery.
+
+The recursion goes through ``step`` rather than directly. Direct left recursion
+no longer islands — the fold rewrites it into a loop and builds the model back
+(:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`) — so a directly recursive
+``item`` would leave this test with no island to delegate inside, which is the
+whole thing it measures."""
 
 SYNTH_SAMPLES: tuple[str, ...] = (
     "1x2y3x",
@@ -185,8 +191,8 @@ def test_delegation_synthetic_long_interior() -> None:
     """A long digit run under an alternation island: delegates fire, parity holds."""
     cg = compile_text(SYNTH_GRAMMAR, cache_key="delegation-synth")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
-    assert sorted(prod(cg).pda.islands) == ["item", "item-arm1"], (
-        "synthetic island set (the hoisted left-recursive arm islands too)"
+    assert sorted(prod(cg).pda.islands) == ["item", "item-arm1", "step"], (
+        "synthetic island set (the hoisted arm and the recursion helper too)"
     )
     names = {
         prod(cg).instance_grammar.rules[rid].name

@@ -68,10 +68,8 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
     """
     if clone.mode == BUILD_DISPATCH:
         return []
-    if clone.kwin_selectors is not None:
-        arms = [arm for _windows, arm in clone.kwin_selectors]
-    elif clone.pn_selectors is not None:
-        arms = [arm for _chars, _negated, arm in clone.pn_selectors[1]]
+    if clone.wide_selectors is not None:
+        arms = list(clone.wide_selectors.arms)
     else:
         arms = [arm for _chars, _negated, arm in clone.selectors]
     if clone.default is not None:
@@ -127,8 +125,7 @@ def _vstr_inlinable(clone: Any) -> bool:
     return (
         clone.mode == BUILD_VALUE_STR
         and clone.attempt is None
-        and clone.kwin_selectors is None
-        and clone.pn_selectors is None
+        and clone.wide_selectors is None
         and clone.struct_arm is None
         and all(
             all(kind in TERMINAL_OPS for kind in arm.kinds) for arm in clone_arms(clone)
@@ -147,7 +144,15 @@ def _vdisp_landing(target: Any) -> bool:
         return False  # DISPATCH_EMPTY: an empty arm is not a value_str match
     if target.mode != BUILD_DISPATCH:
         return _vstr_inlinable(target)
-    steps = [step for _chars, _negated, step in target.selectors]
+    if target.wide_selectors is not None:
+        # A wide dispatch keeps its targets in the SELECTION; `selectors` is
+        # empty for it, so enumerating that alone would see the default and
+        # grant this licence over every target it never examined. Enumerated
+        # here rather than refused: the licence is about where the chase can
+        # LAND, and a wide hop lands in the same places a lead-char hop does.
+        steps = list(target.wide_selectors.arms)
+    else:
+        steps = [step for _chars, _negated, step in target.selectors]
     if target.default is not None:
         steps.append(target.default)
     return bool(steps) and all(_vdisp_landing(step) for step in steps)
@@ -339,7 +344,7 @@ def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
         return None
     if clone.attempt is not None or clone.struct_arm is not None:
         return None
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return None
     arms = clone_arms(clone)
     if not arms:
@@ -392,6 +397,14 @@ def _dispatch_chartable(clone: FlatClone) -> "dict[str, object] | None":
     its own table, the whole chase collapses into one composed lookup — the
     character-wide models of a lexical alternation, without the chase.
     """
+    if clone.wide_selectors is not None:
+        # REFUSED, not enumerated. This table answers ONE character by
+        # lookup, and a wide selection is by definition one that a single
+        # character cannot make — a window match or a post-noise peek. There
+        # is no per-character answer to compose, and `selectors` being empty
+        # for such a clone would otherwise compose an EMPTY table that admits
+        # nothing while reading as a complete one.
+        return None
     table: dict[str, object] = {}
     for chars, negated, target in clone.selectors:
         if negated or "" in chars or len(chars) > CHARTABLE_CAP:
@@ -529,22 +542,37 @@ def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
 def convert_dispatch(clone: FlatClone) -> None:
     """Rewrite a qualifying ``alternation`` clone into a dispatch table.
 
-    Qualifies when every gated arm is a single unit clone reference and the
-    default (if any) is empty or itself a unit clone reference — the exact
-    shape hoist_arms guarantees for rule alternations. The alternation is a
+    Qualifies when every arm is a single unit clone reference and the default
+    (if any) is empty or itself a unit clone reference — the exact shape
+    hoist_arms guarantees for rule alternations. The alternation is a
     pass-through, so entering the selected target with the parent's sink is
     observationally identical to the frame it replaces.
+
+    HOW the arm is chosen does not bear on that: a clone selecting by window
+    or post-noise peek qualifies on the same terms as one selecting by lead
+    char, and keeps its selection. Its targets are rebuilt INTO that selection
+    rather than into ``selectors``, which stays empty for a wide clone, so the
+    chase asks the selection and there is no second place to look.
+
+    Sound because the choice is made before the target's own attempt or struct
+    decision at the same cursor, and the cursor does not move across the
+    chase — so the target faces exactly the position the frame would have
+    handed it.
     """
-    if clone.mode != BUILD_ALT or clone.kwin_selectors is not None:
-        return  # a k-window-gated alternation selects by window, not lead char
-    if clone.pn_selectors is not None:
-        return  # a noise-skip alternation selects by post-noise peek
+    if clone.mode != BUILD_ALT:
+        return
     if clone.struct_arm is not None:
-        return  # an empty-arm gate must run before any lead-char dispatch
+        return  # an empty-arm gate must run before any dispatch
     if clone.attempt is not None:
         return  # an attempt clone tries arms in order, never dispatches one
-    targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
-    if any(target is None for target in targets):
+    wide = clone.wide_selectors
+    arms = (
+        wide.arms
+        if wide is not None
+        else tuple(arm for _chars, _negated, arm in clone.selectors)
+    )
+    targets = [_unit_ref_target(arm) for arm in arms]
+    if not targets or any(target is None for target in targets):
         return
     default: Any = None
     if clone.default is not None:
@@ -554,10 +582,13 @@ def convert_dispatch(clone: FlatClone) -> None:
             default = _unit_ref_target(clone.default)
             if default is None:
                 return
-    clone.selectors = tuple(
-        (chars, negated, target)
-        for (chars, negated, _arm), target in zip(clone.selectors, targets)
-    )
+    if wide is not None:
+        clone.wide_selectors = wide.with_payloads(tuple(targets))
+    else:
+        clone.selectors = tuple(
+            (chars, negated, target)
+            for (chars, negated, _arm), target in zip(clone.selectors, targets)
+        )
     clone.default = default
     clone.mode = BUILD_DISPATCH
 
@@ -583,7 +614,7 @@ def _mark_leaves(clone: FlatClone) -> None:
         return
     if clone.mode != BUILD_SEQ:
         return
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
@@ -629,8 +660,7 @@ def _runs_frameless(sub: FlatClone) -> bool:
     gated = (
         sub.attempt is not None
         or sub.struct_arm is not None
-        or sub.kwin_selectors is not None
-        or sub.pn_selectors is not None
+        or sub.wide_selectors is not None
     )
     return sub.leaf and sub.mode == BUILD_SEQ and not gated
 

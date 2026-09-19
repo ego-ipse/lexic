@@ -436,11 +436,24 @@ def test_free_text_lines_with_a_blank_line_boundary_engage() -> None:
 
 def test_free_text_lines_that_may_be_empty_decline() -> None:
     """One character apart again: allow an empty line and the paragraph
-    assembles its own terminator internally, so the wider spelling stops being
-    a boundary and the plan declines."""
+    assembles its own terminator internally, so the wider ``\n\n`` spelling
+    stops being a boundary — and the PARAGRAPH-level plan still declines for
+    exactly that reason.
+
+    What changed is that declining there is no longer the end of it. The
+    repetition one level down (``line+``) is reached as a terminated interior,
+    and ``line`` has the property ``para`` cannot have: it ends with exactly
+    one ``\n``, its own final edge, which ``terminates_once`` proves. So the
+    split engages on a boundary this grammar DOES have rather than on the one
+    it does not.
+
+    The faithfulness assertion is unchanged and is what makes the flip safe to
+    make: the same model at every worker count, byte-identical to the
+    sequential parse.
+    """
     source = _FREE_LINES.replace("line ::= [a-z0-9 ]+ nl", "line ::= [a-z0-9 ]* nl")
     text = _free_text(300)
-    assert_faithful(source, text, "free-text-empty-lines", engaged=False)
+    assert_faithful(source, text, "free-text-empty-lines", engaged=True)
 
 
 def test_runs_of_the_mark_never_cut_adjacent_or_empty() -> None:

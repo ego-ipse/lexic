@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from tools.benchmark import compare, quick
+from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.execution.isolation import Job
 from tools.benchmark.measurement.contract import (
     CLOCKS,
@@ -494,21 +495,14 @@ def test_the_run_names_which_paths_selected_which_seats(
     assert "lexic-pda" in printed
 
 
-ROSTER_GRAMMARS = (
-    "abnf-meta",
-    "announced",
-    "arithmetic",
-    "backtrack",
-    "csv",
-    "gbnf-meta",
-    "json",
-    "lexruns",
-    "markdown",
-    "mixedends",
-    "nested",
-    "vyx",
-)
-"""Every grammar the benchmark roster carries; none may be named in the tier."""
+ROSTER_GRAMMARS = tuple(bench.name for bench in BENCHES)
+"""Every grammar the benchmark roster carries; none may be named in the tier.
+
+DERIVED, never listed. A hand-written copy goes stale silently and the guard
+below then checks LESS than it reads as checking: a name absent from the copy
+could be hardcoded in the tier and still pass. Reading the roster means a row
+added anywhere is guarded here the day it lands.
+"""
 
 
 def test_no_grammar_name_is_written_into_this_module() -> None:

@@ -254,26 +254,36 @@ def agree(base: RowContract, head: RowContract, row: str) -> None:
 
 SEMANTIC = (
     "verdict",
-    "engaged",
-    "split_digest",
     "result_digest",
     "shape_digest",
 )
-"""What two arms must have DONE identically for their durations to compare.
+"""What two arms must have PRODUCED identically for their durations to compare.
 
 A pair disagreeing on any of these is not a slow arm and a fast arm; it is two
-different workloads. One refused while the other parsed, one split while the
-other declined, one carved the document differently, one emitted different
-characters, or one built a different tree — each of those makes the ratio
-meaningless, so the pair is refused before its duration can reach the estimator.
+different workloads. One refused while the other parsed, one emitted different
+characters, or one built a different tree — each makes the ratio meaningless,
+so the pair is refused before its duration can reach the estimator.
 
-``effective_workers`` is deliberately NOT here. How many threads picked the
-pieces up is the executor's answer, not the workload's: thirty identical
+``engaged`` and ``split_digest`` are deliberately NOT here, and neither is
+``effective_workers``. They describe HOW an arm reached its answer, not what
+the answer was, and a commit may legitimately change strategy: a head that
+learns to split a document its base could not has measured the same workload
+better, not a different one. Refusing the pair for that throws away the
+reading that would show the improvement.
+
+What strategy still gets is an ASYMMETRIC guard (:func:`_strategy`), because
+the two directions are not the same risk: an arm that stops splitting looks
+fast for it, and that must fail; one that starts splitting is the thing being
+measured, and is reported.
+
+``effective_workers`` is out for a different reason again — thirty identical
 attempts on one artefact occupied eight workers twenty-eight times and seven
 twice, so a same-tree control pair would have been refused for being scheduled.
-The carving those threads shared is what identifies the work, and that is
-``split_digest``; the occupancy travels beside it as evidence to read.
 """
+
+STRATEGY = ("engaged", "split_digest")
+"""How each arm reached its answer — reported beside the ratio, never asserted
+into it."""
 
 
 def comparable(one: Arm, other: Arm, row: str) -> None:
@@ -284,6 +294,7 @@ def comparable(one: Arm, other: Arm, row: str) -> None:
         if getattr(one.observation, field) != getattr(other.observation, field)
     )
     if not fields:
+        _strategy(one, other, row)
         return
     detail = ", ".join(
         f"{field}: {one.label}={getattr(one.observation, field)!r} "
@@ -291,6 +302,45 @@ def comparable(one: Arm, other: Arm, row: str) -> None:
         for field in fields
     )
     raise ValueError(f"{row}: the two arms did not produce the same result — {detail}")
+
+
+def _sided(one: Arm, other: Arm) -> tuple[Arm, Arm] | None:
+    """``(base, head)`` when the labels say which is which, else ``None``.
+
+    A control pair (``control-a`` / ``control-b``) has no base and no head, and
+    asking a strategy question of it would be asking whether a tree differs
+    from itself.
+    """
+    for first, second in ((one, other), (other, one)):
+        if first.label.endswith("/base") and second.label.endswith("/head"):
+            return first, second
+    return None
+
+
+def _strategy(one: Arm, other: Arm, row: str) -> None:
+    """Guard the one strategy change that would flatter the head, report the rest.
+
+    Asymmetric on purpose. A head that STOPS splitting a document its base
+    split is doing less work and will look faster for it — that is a regression
+    wearing a speedup's clothes, and it fails. A head that STARTS splitting is
+    the improvement being measured; refusing it would discard the very reading
+    that shows it, so it is reported and the ratio stands.
+
+    :raises ValueError: When the head no longer engages a split the base did.
+    """
+    pair = _sided(one, other)
+    if pair is None:
+        return
+    base, head = pair
+    if base.observation.engaged and not head.observation.engaged:
+        raise ValueError(
+            f"{row}: head no longer splits where base did — a head that stops "
+            "splitting is doing less work, not the same work faster"
+        )
+    for field in STRATEGY:
+        was, now = getattr(base.observation, field), getattr(head.observation, field)
+        if was != now:
+            print(f"{row}: strategy changed — {field}: base={was!r} head={now!r}")
 
 
 def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:

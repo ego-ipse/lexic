@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.compiler.clones import PdaCompiler, compile_clones
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     _model_product,
@@ -25,6 +27,17 @@ def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
     pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""
     return _model_product(cg.codegen_grammar, cg.product)
+
+
+def clone_specs(cg: CompiledGrammar) -> PdaCompiler:
+    """The AUTHORED clone specs for a CompiledGrammar — the compiler intermediate.
+
+    :class:`~lexic.parsing.pda.compiler.tables.PdaTables` carries the lowered
+    flat program alone, so a structural pin on what the clone compiler built
+    asks the clone compiler. Its inputs are the ones
+    :func:`~lexic.parsing.products._model_product` uses.
+    """
+    return compile_clones(lift_optional_nullables(cg.codegen_grammar), cg.product)[0]
 
 
 def compiled() -> CompiledGrammar:

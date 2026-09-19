@@ -154,7 +154,7 @@ def test_locate_finds_an_empty_interior_and_divide_declines_it():
 
     assert region is not None
     assert region.marks == ()
-    assert divide(text, region, 4) is None
+    assert divide(text, region, 4, plan) is None
 
 
 # ── divide: exact pieces ───────────────────────────────────────────────────
@@ -242,7 +242,7 @@ def test_divide_caps_workers_at_the_per_piece_floor():
     assert plan is not None
     region = locate(tiny, plan)
     assert region is not None
-    assert divide(tiny, region, 16) is None
+    assert divide(tiny, region, 16, plan) is None
 
 
 def test_a_multi_arm_head_unit_not_ending_at_the_mark_declines():

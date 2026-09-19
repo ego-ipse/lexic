@@ -7,14 +7,19 @@ arm, item and selector becomes ints in one pass. What it produces is defined in
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, NamedTuple, Sequence, cast
 
 from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    KWindowSelect,
+    NoiseSkipSelect,
     PdaProgram,
+    WideSelect,
 )
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -167,20 +172,32 @@ def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
         return OP_GRP, _flatten_group(cast(GroupSpec, payload), low)
     target = payload  # REF
     if isinstance(target, IslandRef):
-        return (OP_FAIL if target.fail else OP_ISLAND), target.name
+        # An OP_ISLAND payload is `(name, occurrence continuation, exact)`: the
+        # seam's two-ends check is about what may follow the island HERE, which
+        # is a property of this reference and not of the island rule, and
+        # `exact` says that same set bounds the island's extent.
+        return (OP_FAIL if target.fail else OP_ISLAND), (
+            target.name,
+            target.cont,
+            target.exact,
+        )
     return OP_REF, low.shells[cast(CloneKey, target)]
 
 
 def _flatten_selectors(
     arms: Sequence[ArmSpec], low: Lowering
-) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
+) -> tuple[
+    tuple[tuple[frozenset[str], bool, FlatArm], ...],
+    WideSelect | None,
+]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
-    P2 (:attr:`ArmSpec.windows`) lowers to ``kwin_selectors``; P3
-    (:attr:`ArmSpec.peek`) to ``pn_selectors``; otherwise the FIRST-gated
-    single-char triples are built.
+    P2 (:attr:`ArmSpec.windows`) lowers to a :class:`KWindowSelect`; P3
+    (:attr:`ArmSpec.peek`) to a :class:`NoiseSkipSelect`; otherwise the
+    FIRST-gated single-char triples are built.
 
-    :returns: ``(selectors, kwin_selectors, pn_selectors)`` — at most one set.
+    :returns: ``(selectors, wide_selectors)`` — exactly one of the two is set,
+        which is why they share a slot on the record.
     """
     if arms and arms[0].windows is not None:
         kwin = tuple(
@@ -190,7 +207,7 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), kwin, None
+        return (), KWindowSelect(kwin)
     if arms and arms[0].peek is not None:
         w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
         sels = tuple(
@@ -201,12 +218,12 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), None, ((w.chars, w.negated), sels)
+        return (), NoiseSkipSelect((w.chars, w.negated), sels)
     selectors = tuple(
         (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, low))
         for arm in arms
     )
-    return selectors, None, None
+    return selectors, None
 
 
 def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
@@ -220,9 +237,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     """
     clone = FlatClone.__new__(FlatClone)
     clone.name = ""  # an inline group stands for no rule the grammar named
-    clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-        group.arms, low
-    )
+    clone.selectors, clone.wide_selectors = _flatten_selectors(group.arms, low)
     clone.default = (
         _flatten_arm(group.default, low) if group.default is not None else None
     )
@@ -357,10 +372,8 @@ def _clone_arms(clone: FlatClone) -> tuple[FlatArm, ...]:
     selection empties ``selectors`` and holds its arms in its own table, so
     reading only ``selectors`` would silently yield nothing there.
     """
-    if clone.kwin_selectors is not None:
-        return tuple(arm for _windows, arm in clone.kwin_selectors)
-    if clone.pn_selectors is not None:
-        return tuple(arm for _chars, _negated, arm in clone.pn_selectors[1])
+    if clone.wide_selectors is not None:
+        return clone.wide_selectors.arms
     return tuple(arm for _chars, _negated, arm in clone.selectors)
 
 
@@ -390,7 +403,13 @@ def _union_source(
 def _dispatch_prefix_source(
     clone: FlatClone, depth: int
 ) -> tuple[str, bool, bool] | None:
-    """A frame-less dispatch alternation's targets, unioned."""
+    """A frame-less dispatch alternation's targets, unioned.
+
+    A WIDE dispatch is refused by the empty-``selectors`` test below rather
+    than enumerated: its targets are chosen by a window or a post-noise peek,
+    so the prefix a caller would read off them is not the prefix the selection
+    actually admits, and a wrong prefix here widens a pattern silently.
+    """
     if depth <= 0 or not clone.selectors:
         return None
     return _union_source(
@@ -442,8 +461,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     """
     sub = FlatClone.__new__(FlatClone)
     sub.name = clone.name  # the sub-run stands for the parent's rule
-    sub.kwin_selectors = None
-    sub.pn_selectors = None
+    sub.wide_selectors = None
     sub.struct_arm = None
     sub.attempt = None
     sub.mode = clone.mode
@@ -511,7 +529,9 @@ def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pat
     }
 
 
-def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClone]:
+def flatten_clones(
+    clones: dict[CloneKey, CloneSpec], folds: Mapping[str, FoldBuild] | None = None
+) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
@@ -524,14 +544,16 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
     each sub-clone copies its parent's FINAL baked state. Inline groups attempt
     too and are drained from :attr:`Lowering.groups` in the same pass — they
     are minted mid-walk and have no key to be looked up by.
+
+    ``folds`` names the rules the left-recursion rewrite turned into loops, so
+    their clones complete by folding the iterations back through the recursive
+    arm's own build instead of constructing one node from one arm's items.
     """
     low = Lowering({key: FlatClone.__new__(FlatClone) for key in clones}, [])
     for key, spec in clones.items():
         clone = low.shells[key]
         clone.name = spec.name
-        clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-            spec.arms, low
-        )
+        clone.selectors, clone.wide_selectors = _flatten_selectors(spec.arms, low)
         clone.default = (
             _flatten_arm(spec.default, low) if spec.default is not None else None
         )
@@ -542,7 +564,9 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
         clone.attempt = (
             (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
         )
-        bake_product_build(clone, spec.routine)
+        bake_product_build(
+            clone, spec.routine, None if folds is None else folds.get(key.name)
+        )
     optimize_program(list(low.shells.values()), _consults(clones, low))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
@@ -571,10 +595,12 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 
 
 def flatten_program(
-    clones: dict[CloneKey, CloneSpec], start_key: CloneKey | IslandRef
+    clones: dict[CloneKey, CloneSpec],
+    start_key: CloneKey | IslandRef,
+    folds: Mapping[str, FoldBuild] | None = None,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
-    shells = flatten_clones(clones)
+    shells = flatten_clones(clones, folds)
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )

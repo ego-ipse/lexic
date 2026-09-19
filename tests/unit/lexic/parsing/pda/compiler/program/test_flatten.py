@@ -19,14 +19,20 @@ reached through ``module._name`` attribute access, matching
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import BIND_MODES
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    KWindowSelect,
+    NoiseSkipSelect,
     PdaProgram,
     gate_take,
+    select_gated,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
@@ -58,6 +64,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
     TERMINAL_OPS,
 )
+from lexic.parsing.pda.core.errors import PdaFail
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -137,12 +144,19 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 
 
 def test_flatclone_declares_exactly_the_selector_and_build_fields():
-    """FlatClone carries exactly the arm-selector + build fields, no extras."""
-    expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
+    """FlatClone carries exactly the arm-selector + build fields, no extras.
+
+    The count is the point, not the names. Every clone of every grammar
+    carries this record, so a field added for one feature is paid for by all
+    of them — the left-recursion fold's per-clone state briefly lived here, a
+    slot on every clone of every grammar to serve the few rules that fold. It
+    is carried in the fields its own build mode frees up instead.
+    """
+    expected = {"name", "selectors", "wide_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "completion"}
+    expected |= {"runarm", "needs_ends"}
     assert set(FlatClone.__slots__) == expected
 
 
@@ -313,3 +327,69 @@ def test_every_gate_kind_still_answers_through_the_one_entry_point() -> None:
     ]
     for label, kind, gate, text, pos, expected in table:
         assert gate_take(text, pos, kind, gate) is expected, label
+
+
+def _window(char: str, arm: object) -> tuple[Any, object]:
+    """One k-window entry: a single one-position window admitting ``char``."""
+    position = (frozenset(char), False)
+    return ((position,),), arm
+
+
+def _gated(wide, default=None) -> FlatClone:
+    """A clone carrying only what `select_gated` reads."""
+    clone = FlatClone.__new__(FlatClone)
+    clone.name = "gated"
+    clone.selectors = ()
+    clone.wide_selectors = wide
+    clone.default = default
+    return clone
+
+
+def test_a_wide_selection_answers_with_its_own_matching_arm() -> None:
+    """The ordinary path: the selection picks, `select_gated` does not."""
+    hit = object()
+    wide = KWindowSelect((_window("a", hit),))
+
+    assert select_gated("ab", 0, _gated(wide)) is hit
+
+
+def test_a_noise_skip_selection_peeks_past_the_run_it_skips() -> None:
+    """The lead char is noise on every arm — the decision is the one after it."""
+    hit = object()
+    wide = NoiseSkipSelect((frozenset(" "), False), ((frozenset("b"), False, hit),))
+
+    assert select_gated("   b", 0, _gated(wide)) is hit
+    assert select_gated("b", 0, _gated(wide)) is hit, "an empty run still peeks"
+
+
+def test_no_gate_admitting_the_character_is_an_ordinary_refusal() -> None:
+    """A wide selection that matches nothing is a parse failure, not a bug.
+
+    `PdaFail` and nothing else: the engine seam catches it and answers the
+    document with Earley. Raising the engine's own invariant error here would
+    crash every gated alternation that legitimately misses.
+    """
+    wide = KWindowSelect((_window("z", object()),))
+
+    with pytest.raises(PdaFail):
+        select_gated("a", 0, _gated(wide))
+
+
+def test_a_missed_gate_takes_the_default_arm_when_there_is_one() -> None:
+    """The same miss, with somewhere to fall — no refusal at all."""
+    escape = object()
+    wide = KWindowSelect((_window("z", object()),))
+
+    assert select_gated("a", 0, _gated(wide, default=escape)) is escape
+
+
+def test_a_clone_with_no_wide_selection_is_an_impossible_state() -> None:
+    """The other `None`, one line away, and a different answer.
+
+    Every caller guards on `wide_selectors is not None`. Falling through to
+    the default instead would turn a broken guard into a quietly WRONG arm;
+    `RuntimeError` because the engine seam catches `PdaFail` and would hide it
+    behind an Earley parse that succeeds.
+    """
+    with pytest.raises(EngineInvariantError, match="no wide selection"):
+        select_gated("a", 0, _gated(None, default=object()))

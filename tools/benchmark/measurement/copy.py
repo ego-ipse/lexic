@@ -32,6 +32,7 @@ PROTOCOL_MODULES = (
     "regression.py",
     "cases/corpora.py",
     "cases/directives.py",
+    "cases/engine_reach.py",
     "cases/grammars.py",
     "diagnostics/split_ab.py",
     "engines/seats.py",
