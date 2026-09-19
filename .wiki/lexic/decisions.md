@@ -849,3 +849,38 @@ the analysis islands it and Earley owns the boundary. No shipped grammar
 exhibits it; the synthetic case is pinned in
 `tests/adversarial/lexic/test_split_ownership.py`.
 
+
+---
+
+## The parallel layer reads the fold's shape analysis, not a fourth split kind
+
+A left recursion `A ::= A β | γ` carries a repetition the grammar never states.
+The predictive path already recovers it — the fold rewrites `A` as `(γ)(β)*` and
+builds the iterations back through the arm's own routine — so the split layer
+asks that same analysis where the spine is, rather than deriving a second
+opinion or adding a plan kind for it.
+
+The decision is about RESPONSIBILITY, not case count. `plan/folded.py` is a
+region SOURCE: it locates the spine's extent and preserves the shell around it.
+Certification and partition stay where they are, and the stitch reconstructs
+through the original binding. That is why it is a third source beside
+`plan/routed.py`'s two shapes and not a third way to split.
+
+It does NOT share `routed.py`'s extent arithmetic. A whole-extent terminated
+interior ends at the LAST mark, because its units own their final character; on
+a separated spine that offset is the last OPERATOR, and everything past it is
+the final term. Reusing it would drop that term silently rather than decline.
+
+**The boundary proof is per character, deliberately.** `rule_spells` answers
+"can spell" for any mark wider than `MARK_ARITY`, so a three-character mark
+like `" + "` cannot be asked as a whole. Exclusion on a substring implies
+exclusion on every superstring, so asking every character separately is both
+askable and the stronger statement; with a non-empty remainder between two
+marks it proves each occurrence is aligned. No border theory is involved:
+`" + "` and `"aba"` have the same border structure, and what separates them is
+whether an owner can emit the character a spurious occurrence would need.
+
+The bordered widening — exclude `mark[0]`, then for each border offset exclude
+the character at `len - k` — is sound and NOT taken. It is what a grammar whose
+owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
+would need, and nothing on the roster does.

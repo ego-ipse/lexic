@@ -49,7 +49,7 @@ from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
-from lexic.parsing.parallel.stitch.interior import routed_split
+from lexic.parsing.parallel.stitch.interior import source_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
@@ -499,9 +499,9 @@ def _split_regions[M: IrNamedTuple](
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    routed = routed_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
-    if routed is not None:
-        return routed
+    sourced = source_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
+    if sourced is not None:
+        return sourced
     # A bracket span may cover the whole source while still sit BELOW a
     # wrapper start model (``root ::= node``). Routing, not byte position,
     # decides whether it has a replaceable owner; a true root-region model

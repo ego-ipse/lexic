@@ -11,15 +11,21 @@ entry point via ``lexic.parsing.parallel.orchestrate``.
 
 from __future__ import annotations
 
+from typing import NamedTuple, cast
+
 import pytest
 
 from lexic.compile import Directives, compile_from_path, compile_text
 from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
+from lexic.model import GrammarModel
 from lexic.parsing import parse_model
+from lexic.parsing.parallel.plan.folded import divide, folded_plan, locate
 from lexic.parsing.parallel.plan.routed import REF, Descent, routed_plan
 from lexic.parsing.parallel.stitch.interior import (
     _walk_down,
+    fold_spines,
     interior_route,
+    left_slot,
     stitch_interior,
 )
 from tests.paths import GROUND_TRUTH
@@ -281,3 +287,124 @@ def test_the_two_paragraph_document_parses_identically_at_every_width():
         split = compiled.parse(document, cores=cores)
         assert split.dump() == sequential.dump(), cores
         assert split.to_text() == document, cores
+
+
+# ── the folded spine's join, and the licence it builds through ────────────
+
+
+FOLDED = (
+    "root ::= expr nl\n"
+    "expr ::= expr op term | term\n"
+    "term ::= [a-z]+\n"
+    'op ::= " + "\n'
+    'nl ::= "\\n"\n'
+)
+"""A spine under a required tail — the folded source's served shape."""
+
+
+class FoldedCase(NamedTuple):
+    """One folded document, parsed into the pieces a join is given.
+
+    Named rather than a bare tuple of four: three of its members are models of
+    a generated class and the fourth is the text they came from, and a caller
+    unpacking them positionally is exactly how the lead models and the spines
+    get swapped.
+
+    :ivar spines: Each piece's folded-rule model, in document order.
+    :ivar leads: The removed separators' models — one per join.
+    :ivar step: The generated class one iteration of the spine is.
+    :ivar text: The document the pieces were cut from.
+    """
+
+    spines: list[GrammarModel]
+    leads: tuple[GrammarModel, ...]
+    step: type[GrammarModel]
+    text: str
+
+
+def folded_pieces(terms: int, workers: int) -> FoldedCase:
+    """One folded document of ``terms``, divided into ``workers`` pieces.
+
+    The term count is chosen against the 2 KiB per worker floor, not for
+    readability: a document too small for ``workers`` pieces divides into
+    fewer, and a case that quietly got two where it asked for four would still
+    pass while testing a narrower join than it names.
+    """
+    compiled = compile_text(FOLDED, cache_key="interior-folded")
+    plan = folded_plan(compiled.codegen_grammar)
+    assert plan is not None
+    text = " + ".join("abcdefgh" for _ in range(terms)) + "\n"
+    region = locate(text, plan)
+    assert region is not None
+    cut = divide(text, region, workers, plan)
+    assert cut is not None
+    assert len(cut.parts) == workers, (
+        f"{terms} terms divided into {len(cut.parts)} pieces, not {workers} — "
+        "the document is under the split floor for this worker count"
+    )
+    roots = [compiled.parse(part, cores=1) for part in cut.parts]
+    leads = [
+        parse_model(plan.lead_grammar, mark, compiled.product, None)
+        for mark in cut.leads
+    ]
+    spines = [root.children()[0] for root in roots]
+    # The narrowing sits here, once, at the boundary where a parse hands back
+    # the protocol's base and this file needs the model. Everything below
+    # reads plain fields.
+    assert all(isinstance(one, GrammarModel) for one in (*spines, *leads))
+    kept = cast(list[GrammarModel], spines)
+    return FoldedCase(kept, tuple(cast(list[GrammarModel], leads)), type(kept[0]), text)
+
+
+def test_left_slot_is_the_recursive_fields_own_index() -> None:
+    """The licence wants a FIELD index, not a rank among bound children.
+
+    They coincide whenever every item captures, which is every shape the
+    roster offers — so a reading that returned the bound rank would pass every
+    end-to-end case here and be wrong on the first class with an unbound
+    field. Both are asserted, and their agreement is asserted as a FACT about
+    this class rather than assumed of every class.
+    """
+    step = folded_pieces(1200, 2).step
+    at = left_slot(step)
+    bound = sorted(step.bound_fields().items())
+    assert at == step._fields.index(bound[0][1][0])
+    assert step._fields[at] == "expr"
+
+
+def test_the_licence_build_is_the_checked_build() -> None:
+    """The fold's fast construction produces what ``rebuild`` produces.
+
+    The join skips the validating constructor because the values it holds are
+    already-parsed models — the same reason the parse itself skips it. This is
+    what says the two agree, since nothing else would notice if they stopped.
+    """
+    case = folded_pieces(1200, 2)
+    spines, step = case.spines, case.step
+    node = spines[0]
+    at = left_slot(step)
+    kids = list(node.children())
+    construct, _defaults, _fields = step.fast_construct()
+    values = list(node)
+    values[at] = kids[0]
+    assert construct(values).dump() == node.rebuild(kids).dump()
+
+
+def test_the_join_rebuilds_the_removed_mark() -> None:
+    """The stitched spine round-trips — so no separator went missing.
+
+    The cut CONSUMES its mark, so the join is the only thing that can put it
+    back. Without that the model is one level short PER CUT, which reads as a
+    plain off-by-one at a single width and is why the widths vary here.
+    """
+    for workers in (2, 3, 4, 5):
+        case = folded_pieces(1200, workers)
+        merged = fold_spines(list(case.spines), case.leads, case.step)
+        assert merged is not None
+        assert merged.to_text() + "\n" == case.text
+
+
+def test_a_lead_count_that_does_not_match_the_pieces_declines() -> None:
+    """One mark per join, or the fold has no idea what joins what."""
+    case = folded_pieces(1200, 4)
+    assert fold_spines(list(case.spines), case.leads[:-1], case.step) is None

@@ -2194,3 +2194,25 @@ now enumerates the selection's targets; the char table refuses a wide clone
 outright, since a table answering one character cannot stand in for a
 selection that one character cannot make.
 
+
+## A folded left recursion becomes a split source
+
+`plan/folded.py` joins `plan/routed.py` as a region source. It reads
+`leftrec/shape.foldable` over the codegen grammar — the same analysis the
+predictive path uses to decide the fold, never its compiled clones — holds the
+start rule's fixed-text shell out of the spine's extent, and enumerates the
+separator offsets inside it. The cut consumes its mark as any separated cut
+does; the stitch folds the pieces' spines left-associatively, grafting the
+accumulated value onto the next piece's innermost base through the removed
+mark's re-parsed model, and the accumulator is never re-walked.
+
+Two things are written down because they were nearly got wrong. The extent is
+its own arithmetic: `_whole_region` ends an interior at the last mark, which on
+a separated spine is the last operator and drops the final term. And the
+boundary proof is asked of EVERY CHARACTER of the mark rather than the first —
+`"+a"` over `[a-z]+` excludes `"+"` and not `"a"`, so a first-character
+criterion would have served a mark whose occurrences are not aligned.
+
+`parallel-parsing.md` gains the plan-kind row and the proof's shape;
+`decisions.md` records why it is a source rather than a fourth plan kind, and
+that the bordered widening is sound and untaken.

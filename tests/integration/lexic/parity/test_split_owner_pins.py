@@ -14,10 +14,11 @@ range wide enough to be safe would be too wide to catch anything. What is
 pinned instead is the fact of splitting, which is stable, and the model, which
 is the property that actually matters.
 
-**Two rows split with no owner to pin.** `json`, `nested` and `vyx` reach
-`_split_regions` — a second mechanism with no `SplitPlan` at all — so their pin
-is behavioural only. That is a fact about the parallel layer having two split
-paths, not a gap in this suite.
+**Four rows split with no owner to pin.** `json`, `nested`, `vyx` and
+`island-earley` reach `_split_regions` — the region SOURCES, which divide
+without a `SplitPlan` at all — so their pin here is behavioural only. That is a
+fact about the parallel layer having two split paths, not a gap in this suite;
+each source pins its own plan by name in its own file.
 """
 
 from __future__ import annotations
@@ -46,9 +47,17 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     "split-nullable": ("para", "\n"),
     "wrapped-unit": None,
     "dense-earley": ("line", "\n"),
+    # island-earley derives no SplitPlan and splits anyway, through the folded
+    # SOURCE — the fourth row to do so, beside json, nested and vyx. Its owner
+    # and mark are pinned by name where that source's plan lives, in
+    # `test_folded_spine_split`; here it is `None` because that is what the
+    # PLANNER derives, which is what this table is about.
     "island-earley": None,
-    # The three engine-reach rows derive no plan, for island-earley's reason:
-    # each is a left-recursive spine with no repetition for a cut to own.
+    # The three engine-reach rows derive no plan and no folded source either.
+    # Their reason is now distinct from island-earley's and worth naming: the
+    # fold TAKES each of them, but the recursive arm's remainder is a bare
+    # literal (`A ::= A "a" | "a"`), so there is no separator RULE — nothing to
+    # spell a mark, and nothing to re-parse a removed one under.
     "start-fallback": None,
     "interior-exact": None,
     "interior-climb": None,
@@ -72,13 +81,20 @@ SPLITS: dict[str, bool] = {
     # split-nullable and wrapped-unit both divide: each reaches a terminated
     # interior. wrapped-unit's sits one rule deeper than the old two-slot
     # route could express — the route is a PATH now, one step per descent, so
-    # depth is no longer a bound. island-earley still does not: it has no
-    # repetition at all, which no route shape changes.
+    # depth is no longer a bound.
     "split-nullable": True,
     "wrapped-unit": True,
-    "island-earley": False,
-    # No plan means no cut, so these three never divide either — measured at
-    # four workers on the full sample: zero piece-parses, not one.
+    # island-earley divides through the folded SOURCE. It has no repetition
+    # the grammar STATES — which is why no route shape ever reached it — but
+    # the predictive path folds `expr ::= expr addop term | term` into
+    # `term (addop term)*`, and the source reads that shape analysis to find
+    # the spine. The separator is ` + ` / ` - `, owned by `term`.
+    "island-earley": True,
+    # These three never divide, and their reason is NOT island-earley's. The
+    # fold takes each of them too, but `A ::= A "a" | "a"` has no separator
+    # rule between its terms, so the source declines before any boundary proof
+    # is asked — measured at four workers on the full sample: zero
+    # piece-parses, not one.
     "start-fallback": False,
     "interior-exact": False,
     "interior-climb": False,

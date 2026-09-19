@@ -50,6 +50,13 @@ from lexic.parsing.pda.core.charsets import CharSet
 class Separator(NamedTuple):
     """One repetition separator, with the rules a split orchestration needs.
 
+    Derived from a repetition the grammar STATES. A left recursion carries one
+    the grammar does not — the fold turns ``A ::= A β | γ`` into ``γ (β)*`` —
+    and :mod:`~lexic.parsing.parallel.plan.folded` reads that chain as its own
+    candidate source instead. Which plan a proof licenses is
+    :mod:`~lexic.parsing.parallel.stitch.safety`'s question either way, which
+    is why neither derivation carries the gate.
+
     :ivar mark: The separator spelling.
     :ivar container: The rule owning the ``unit item*`` arm (``members``).
     :ivar item: The repeated rule (``members-item``); ``""`` for an inline

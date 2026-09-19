@@ -42,9 +42,29 @@ document and are never cached across two of them**.
 | terminated, boundary route | unit emits its own mark (continuation lines) | the unit ANNOUNCES itself: a certified prefix, filtered at runtime by `admits` |
 | envelope | optional head/tail wrapping the repetition, separator is a noise run | the envelope's own certified boundary |
 | routed | an interior a character sweep cannot see | route-derived interiors |
+| folded | a left recursion the predictive path folds into `(γ)(β)*` | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
+
+**The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
+`plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
+same `parallel -> pda` edge `plan/speculation.py` already uses for
+`GrammarAnalysis`. The repetition it splits is one the grammar never states, so
+no arm shape describes it and the character sweep has nothing to find.
+
+Its boundary proof is the per-character form of `owner_excludes`. A mark wider
+than `MARK_ARITY` gets "can spell" from `rule_spells` by design, so the whole
+spelling is unaskable; exclusion on a substring implies exclusion on every
+superstring, so asking each character separately is both askable and stronger.
+With a non-empty remainder between two marks that proves every occurrence is a
+separator, with no border theory: `" + "` and `"aba"` have the same borders, and
+what separates them is the character a spurious occurrence would need.
+
+It over-refuses and never mis-splits, which is the direction a decline is free
+in. The refusal it is easiest to get wrong is a mark whose FIRST character is
+excluded and whose later one is not — `"+a"` over `[a-z]+` — so that is a
+committed witness rather than a note.
 
 ---
 

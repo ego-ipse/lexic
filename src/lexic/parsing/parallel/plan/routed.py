@@ -16,6 +16,11 @@ What comes back is an ordinary :class:`~...discovery.regions.Region`, so the
 existing division, stand-in shell and stitch handle it exactly as they handle
 a region the sweep found. This module is a second SOURCE of regions, not a
 second way to split one.
+
+Its sibling source is :mod:`~lexic.parsing.parallel.plan.folded`, which locates
+a folded left recursion's spine. The two answer the same question about
+different shapes and deliberately do NOT share extent arithmetic: a terminated
+interior ends at its last mark, and a separated spine does not.
 """
 
 from __future__ import annotations

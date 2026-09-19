@@ -9,9 +9,19 @@ run back where it came from.
 The enclosing document is parsed once with a single-unit stand-in interior —
 small, and shaped exactly like the real one — and the stand-in's run is
 replaced by the concatenation.
+
+A FOLDED spine is the third source's stitch, and it is the same left fold with
+a different seed and step: ``reduce(concatenate, pieces, ())`` becomes a reduce
+whose seed is the first piece's spine and whose step grafts the accumulated
+value onto the next piece's innermost base. It shares this module because it
+shares the shape — locate, divide, parse, reconstruct through the binding —
+and differs only in what the join builds.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, cast
 
 from lexic.exceptions import EngineInvariantError, LexicError
 from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
@@ -19,6 +29,10 @@ from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import Region
+from lexic.parsing.parallel.plan.folded import FoldedPlan, Pieces
+from lexic.parsing.parallel.plan.folded import divide as folded_divide
+from lexic.parsing.parallel.plan.folded import folded_plan
+from lexic.parsing.parallel.plan.folded import locate as folded_locate
 from lexic.parsing.parallel.plan.routed import (
     INTO_UNIT,
     Descent,
@@ -30,7 +44,7 @@ from lexic.parsing.parallel.plan.routed import (
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.stitch.model import ModelStep, is_run, splice
-from lexic.parsing.parallel.stitch.plan import field_slot
+from lexic.parsing.parallel.stitch.plan import field_slot, model_type
 
 
 def interior_route[M: IrNamedTuple](
@@ -240,3 +254,222 @@ def _stand_in(text: str, region: Region) -> str:
     """The document with the interior reduced to its first unit."""
     keep = text[region.opener + 1 : region.marks[0] + 1]
     return text[: region.opener + 1] + keep + text[region.closer :]
+
+
+def fold_route[M: IrNamedTuple](
+    binding: ModelExecutable[M], chain: tuple[Descent, ...]
+) -> tuple[ModelStep, ...] | None:
+    """The model route from a piece's root down to the folded rule's node.
+
+    Every step is a single-occurrence reference, so no step addresses a run —
+    which is what tells this route apart from a routed interior's, where the
+    last step reaches an element of a repetition.
+    """
+    steps: list[ModelStep] = []
+    for step in chain:
+        routine = binding.routines.get(step.rule)
+        slot = field_slot(routine, step.item) if routine is not None else None
+        if slot is None:
+            return None
+        steps.append((slot, None))
+    return tuple(steps)
+
+
+def _left_edge(
+    node: GrammarModel, step: type[GrammarModel], at: int
+) -> tuple[list[GrammarModel], GrammarModel]:
+    """One spine's step nodes, outermost first, and the base beneath them.
+
+    Iterative because the spine is as deep as its piece: the recursive reading
+    of this walk raises on exactly the models it exists to measure.
+
+    The descent reads ``node[at]`` rather than ``children()[0]``. A record IS
+    its field tuple on this spine, so the field index is a C-level index,
+    where ``children`` builds a list per node — which is the whole cost of a
+    walk that otherwise does nothing.
+    """
+    spine: list[GrammarModel] = []
+    while node.__class__ is step:
+        spine.append(node)
+        below = node[at]
+        if not isinstance(below, GrammarModel):
+            return spine, node
+        node = below
+    return spine, node
+
+
+def left_slot(step: type[GrammarModel]) -> int:
+    """Which FIELD of a step node holds the value it recurses into.
+
+    The recursive item leads the arm, so it is the first BOUND field — and
+    what the licence below wants is that field's index among all of them,
+    which a class with an unbound field would put elsewhere.
+    """
+    bound = sorted(step.bound_fields().items())
+    return step._fields.index(bound[0][1][0]) if bound else -1
+
+
+def fold_spines(
+    spines: list[GrammarModel],
+    leads: tuple[GrammarModel, ...],
+    step: type[GrammarModel],
+) -> GrammarModel | None:
+    """The pieces' spines as one, left-associated; ``None`` = shape surprise.
+
+    The same left fold the concatenating stitch runs, with a different seed
+    and a different step: the seed is the first piece's spine, and each join
+    grafts the accumulated value onto the NEXT piece's innermost base through
+    the removed mark — which the cut consumed and only the join can rebuild.
+
+    The accumulator is never re-walked. Each piece's left edge is walked once
+    and rebuilt from the graft upwards, so the whole stitch costs one
+    construction per iteration the cuts separated, rather than one per
+    iteration per join.
+
+    **Those constructions go through the class's own positional licence**, the
+    one the parse builds every node of this spine with. ``rebuild`` derives
+    the bound-field map per call and then pays the checked constructor, which
+    measured 11 us a node against a 5.8 ms whole parse — the stitch alone cost
+    more than half of what it was dividing.
+    """
+    at = left_slot(step)
+    if at < 0 or len(leads) != len(spines) - 1:
+        return None
+    edges = [_left_edge(spine, step, at) for spine in spines]
+    template = next((nodes[-1] for nodes, _base in edges if nodes), None)
+    if template is None:
+        return None
+    construct, _defaults, _fields = step.fast_construct()
+    joined = edges[0][0][0] if edges[0][0] else edges[0][1]
+    for index in range(1, len(spines)):
+        nodes, base = edges[index]
+        graft = template.rebuild([joined, leads[index - 1], base])
+        joined = _regraft(nodes, at, construct, graft)
+    return joined
+
+
+def _regraft(
+    nodes: list[GrammarModel],
+    at: int,
+    construct: Callable[[list[Any]], GrammarModel],
+    value: GrammarModel,
+) -> GrammarModel:
+    """Rebuild one piece's left edge above a grafted value, innermost first.
+
+    A record IS its field tuple here, so each level is one list copy with one
+    slot replaced and one positional construction — no field map, no
+    validation, and no walk of what was already built.
+    """
+    for node in reversed(nodes):
+        values = list(node)
+        values[at] = value
+        value = construct(values)
+    return value
+
+
+def folded_split[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    pool: WorkPool,
+) -> M | None:
+    """Split a folded left recursion across the pool, or ``None`` = sequential.
+
+    Every piece is a whole document — it re-wears the shell the source held
+    out — so the concurrent work is the spine and nothing else, and what comes
+    back is stitched through the step rule's own generated class.
+    """
+    text, binding, resolve = ask
+    plan = folded_plan(grammar)
+    if plan is None:
+        return None
+    region = folded_locate(text, plan)
+    pieces = (
+        folded_divide(text, region, pool.workers, plan) if region is not None else None
+    )
+    route = fold_route(binding, plan.chain)
+    step = model_type(binding.routines.get(plan.step))
+    if pieces is None or route is None or step is None:
+        return None
+    parsed = _folded_models(
+        parse, grammar, (text, binding, resolve), (plan, pieces), pool
+    )
+    if parsed is None:
+        return None
+    return _folded_stitch(parsed, route, step)
+
+
+def _folded_stitch[M: IrNamedTuple](
+    parsed: tuple[list[M], tuple[GrammarModel, ...]],
+    route: tuple[ModelStep, ...],
+    step: type[GrammarModel],
+) -> M | None:
+    """Fold the pieces' spines and put the result back in the first shell.
+
+    The guard is the PLAN's, and agreement is by IDENTITY: the class the plan
+    names for the step rule must be the class the pieces' spine nodes are. A
+    plan and a model that disagree decline here rather than building a model
+    out of whichever fields happened to line up.
+    """
+    roots, leads = parsed
+    spines = [_walk_down(root, route) for root in roots]
+    if any(spine is None for spine in spines):
+        return None
+    found = cast(list[GrammarModel], spines)
+    if not any(node.__class__ is step for node in found):
+        return None
+    merged = fold_spines(found, leads, step)
+    if merged is None:
+        return None
+    rebuilt = splice(cast(GrammarModel, roots[0]), route, merged)
+    return cast(M, rebuilt) if rebuilt is not None else None
+
+
+def _folded_models[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    work: tuple[FoldedPlan, Pieces],
+    pool: WorkPool,
+) -> tuple[list[M], tuple[GrammarModel, ...]] | None:
+    """Every piece's document model and every removed mark's, or decline."""
+    _text, binding, resolve = ask
+    plan, pieces = work
+    try:
+        parts = pool.map(
+            lambda k: worker_parse(parse, grammar, pieces.parts[k], binding, resolve),
+            list(range(len(pieces.parts))),
+        )
+        leads = [
+            parse(plan.lead_grammar, mark, binding, resolve) for mark in pieces.leads
+        ]
+    except LexicError:
+        return None
+    if any(not isinstance(one, GrammarModel) for one in (*parts, *leads)):
+        return None
+    return list(parts), tuple(cast(list[GrammarModel], leads))
+
+
+SOURCES = (routed_split, folded_split)
+"""The region sources, in the order a split asks them.
+
+A source LOCATES a region the plan cascade cannot describe and splits it. The
+routed one reads the start rule's route to an interior; the folded one reads
+the fold's shape analysis to a spine. The order is the ordinary preference —
+shapes the grammar STATES before one it only implies — and not a fitness test:
+a source that declines declines for a stated reason, and the next is asked.
+"""
+
+
+def source_split[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    pool: WorkPool,
+) -> M | None:
+    """The first source that takes this document, or ``None`` for sequential."""
+    for source in SOURCES:
+        found = source(parse, grammar, ask, pool)
+        if found is not None:
+            return found
+    return None
