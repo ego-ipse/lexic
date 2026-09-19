@@ -47,6 +47,11 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     "wrapped-unit": None,
     "dense-earley": ("line", "\n"),
     "island-earley": None,
+    # The three engine-reach rows derive no plan, for island-earley's reason:
+    # each is a left-recursive spine with no repetition for a cut to own.
+    "start-fallback": None,
+    "interior-exact": None,
+    "interior-climb": None,
 }
 
 # row -> whether a parse at four workers divides the document at all
@@ -72,6 +77,11 @@ SPLITS: dict[str, bool] = {
     "split-nullable": True,
     "wrapped-unit": True,
     "island-earley": False,
+    # No plan means no cut, so these three never divide either — measured at
+    # four workers on the full sample: zero piece-parses, not one.
+    "start-fallback": False,
+    "interior-exact": False,
+    "interior-climb": False,
 }
 
 _SITES = (orchestrate, interior, tasks, replicas)
