@@ -18,6 +18,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     NoiseSkipSelect,
     PdaProgram,
     WideSelect,
+    clone_arms,
 )
 from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -47,7 +48,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
 )
 from lexic.parsing.pda.compiler.program.product import bake_product_build
-from lexic.parsing.pda.compiler.program.specialize import (
+from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
     optimize_program,
 )
@@ -120,7 +121,7 @@ class Lowering(NamedTuple):
         so recursion needs no id indirection.
     :ivar groups: Every ATTEMPTING inline-group clone, paired with the arm
         specs its entries are built from. Filled during the walk and drained
-        after :func:`~lexic.parsing.pda.compiler.program.specialize.optimize_program`,
+        after :func:`~lexic.parsing.pda.compiler.program.specialize.passes.optimize_program`,
         because an attempt's sub-clones copy their parent's FINAL baked state —
         and unlike a rule clone, a group has no key the second pass could look
         it up by.
@@ -363,20 +364,6 @@ def _arm_prefix_source(arm: FlatArm, depth: int) -> tuple[str, bool, bool]:
     return "".join(parts), True, unbounded
 
 
-def _clone_arms(clone: FlatClone) -> tuple[FlatArm, ...]:
-    """Every arm ``clone`` can take, whichever structure its selection uses.
-
-    A gate CHOOSES among arms; it does not add or remove any, so the union
-    below is a superset of what the clone derives however it is selected —
-    which is all a necessary condition needs. A ``k``-window or peek
-    selection empties ``selectors`` and holds its arms in its own table, so
-    reading only ``selectors`` would silently yield nothing there.
-    """
-    if clone.wide_selectors is not None:
-        return clone.wide_selectors.arms
-    return tuple(arm for _chars, _negated, arm in clone.selectors)
-
-
 def _union_source(
     branches: list[tuple[str, bool, bool] | None],
 ) -> tuple[str, bool, bool] | None:
@@ -430,7 +417,13 @@ def _clone_prefix_source(clone: Any, depth: int) -> tuple[str, bool, bool] | Non
         return None
     if clone.mode == BUILD_DISPATCH:
         return _dispatch_prefix_source(clone, depth)
-    return _union_source([_arm_prefix_source(arm, depth) for arm in _clone_arms(clone)])
+    # `clone_arms` is a SUPERSET of what this needs — it appends the default
+    # and answers `[]` for a dispatch clone — and both differences are
+    # unreachable from here: the guard above returns on a non-`None` default,
+    # and the branch above that returns on `BUILD_DISPATCH`. The safety is
+    # this CALLER's property, not the function's; move either guard and the
+    # union silently widens.
+    return _union_source([_arm_prefix_source(arm, depth) for arm in clone_arms(clone)])
 
 
 def _arm_prefix(arm: FlatArm) -> Pattern | None:

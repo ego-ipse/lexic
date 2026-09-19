@@ -1,6 +1,6 @@
-"""Tests for lexic.parsing.pda.compiler.program.specialize — the post-flatten passes.
+"""Tests for lexic.parsing.pda.compiler.program.specialize.passes.
 
-:mod:`lexic.parsing.pda.compiler.program.specialize` rewrites the flat artefact once it
+:mod:`lexic.parsing.pda.compiler.program.specialize.passes` rewrites the flat artefact once it
 exists: terminal specialisation, dispatch conversion, char tables, ``value_str``
 inlining, the frame-less leaf licence and the exactly-once call codes. Each pass
 is pinned by what it must and must NOT licence — an over-broad licence is a
@@ -21,6 +21,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     KWindowSelect,
     NoiseSkipSelect,
+    clone_arms,
     no_construction,
     no_fast_construction,
     vstr_model,
@@ -52,15 +53,16 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
     TERMINAL_OPS,
 )
-from lexic.parsing.pda.compiler.program.specialize import (
+from lexic.parsing.pda.compiler.program.specialize.frameless import (
+    vdisp_target,
+    vstr_inlinable,
+)
+from lexic.parsing.pda.compiler.program.specialize.passes import (
     CHARTABLE_CAP,
     NO_CONSULTS,
     _inline_value_strs,
-    _vstr_inlinable,
     bake_consults,
-    clone_arms,
     consult_arm,
-    vdisp_target,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
@@ -431,7 +433,7 @@ def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
     # `chunk` is match_only and proves regular (its one arm's boundary does
     # not overlap ";"), so it earns a whole-extent consult and fills its
     # table as a run-keyed cache (`{}`), not `None`.
-    assert _vstr_inlinable(target) and target.chartable == {}
+    assert vstr_inlinable(target) and target.chartable == {}
     assert target.runarm is not None and target.runarm.kinds[0] == OP_CONSULT
 
     arm.kinds = (OP_REF, *arm.kinds[1:])

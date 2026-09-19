@@ -10,7 +10,7 @@ flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks with
 integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
-:mod:`lexic.parsing.pda.compiler.program.specialize` holds the passes that REWRITE
+:mod:`lexic.parsing.pda.compiler.program.specialize.passes` holds the passes that REWRITE
 this artefact once it exists; this module is the artefact itself plus the
 readers the runtime walks it with. It imports nothing from ``pda_tables`` (it
 is a leaf w.r.t. the compiler and the spec types); the ``spec → flat`` bridge
@@ -26,12 +26,14 @@ from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
     GATE_PEEK,
     GATE_STOP,
     M_VALUE,
+    OP_GRP,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
@@ -647,3 +649,48 @@ character are alphabets (digits, letters, a token's glyphs), and those fit.
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────
+
+
+def clone_arms(clone: FlatClone) -> list[FlatArm]:
+    """A clone's arms (gated + default), skipping dispatch clones' targets.
+
+    Here beside :class:`FlatClone` and :class:`FlatArm` because it is their
+    walker, not a specialisation policy: a dispatch clone holds TARGETS rather
+    than arms, and a gated one holds its arms on its selection with
+    ``selectors`` empty, so reading either structure directly is the mistake
+    this exists to not make.
+
+    :param clone: Any flat clone.
+    :returns: Its arms, or ``[]`` for a dispatch clone.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        return []
+    if clone.wide_selectors is not None:
+        arms = list(clone.wide_selectors.arms)
+    else:
+        arms = [arm for _chars, _negated, arm in clone.selectors]
+    if clone.default is not None:
+        arms.append(clone.default)
+    return arms
+
+
+def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
+    """Every clone reachable from ``roots``, groups included (worklist walk).
+
+    :param roots: The clones to start from.
+    :returns: Every reachable clone, each once.
+    """
+    seen: set[int] = set()
+    out: list[FlatClone] = []
+    work = list(roots)
+    while work:
+        clone = work.pop()
+        if id(clone) in seen:
+            continue
+        seen.add(id(clone))
+        out.append(clone)
+        for arm in clone_arms(clone):
+            for kind, payload in zip(arm.kinds, arm.payloads):
+                if kind == OP_GRP:
+                    work.append(payload)
+    return out

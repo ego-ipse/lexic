@@ -354,7 +354,10 @@ src/lexic/
           lowering.py              The per-shape build tail — one callable composed once, at bake
           opcodes.py               Runtime program vocabulary
           product.py               The product-side build bake — a clone's build state from its rule product
-          specialize.py            Post-flatten specialization passes
+          specialize/
+            __init__.py            Post-flatten specialisation package marker
+            frameless.py           Frame-less entry — what qualifies, and the licences that read it
+            passes.py              Post-flatten specialization passes
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail
         charsets.py                CharSet — polarity-aware co-finite character sets
