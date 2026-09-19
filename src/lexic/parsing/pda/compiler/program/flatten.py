@@ -248,11 +248,28 @@ class WideSelect(Protocol):
 
     @property
     def arms(self) -> tuple[Any, ...]:
-        """Every arm this selection can choose, gate stripped."""
+        """Every payload this selection can choose, gate stripped.
+
+        Arms before the dispatch rewrite, target clones after it: the
+        selection carries whatever its clone's mode says it carries.
+        """
         raise NotImplementedError
 
     def select(self, text: str, pos: int) -> Any:
-        """The arm this selection admits at ``pos``, or ``None`` for none."""
+        """The payload this selection admits at ``pos``, or ``None`` for none."""
+        raise NotImplementedError
+
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "WideSelect":
+        """This selection with its payloads replaced, gates and order intact.
+
+        The one operation the dispatch rewrite needs, so a wide alternation's
+        targets live in the selection that chooses them rather than in a table
+        beside it. Cold — it runs once at bake and never on a parse — and it
+        RETURNS A NEW selection, because the record it maps is shared.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A selection of the same kind, choosing the same way.
+        """
         raise NotImplementedError
 
 
@@ -272,8 +289,21 @@ class KWindowSelect(NamedTuple):
         """Every arm this selection can choose, gate stripped."""
         return tuple(arm for _windows, arm in self.entries)
 
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "KWindowSelect":
+        """This selection over new payloads, the window sets unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A fresh :class:`KWindowSelect`.
+        """
+        return KWindowSelect(
+            tuple(
+                (windows, payload)
+                for (windows, _arm), payload in zip(self.entries, payloads, strict=True)
+            )
+        )
+
     def select(self, text: str, pos: int) -> Any:
-        """The arm whose window set matches at ``pos``, or ``None``."""
+        """The payload whose window set matches at ``pos``, or ``None``."""
         for windows, candidate in self.entries:
             if window_admits(text, pos, windows):
                 return candidate
@@ -308,8 +338,24 @@ class NoiseSkipSelect(NamedTuple):
         """Every arm this selection can choose, gate stripped."""
         return tuple(arm for _chars, _negated, arm in self.entries)
 
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "NoiseSkipSelect":
+        """This selection over new payloads, the peek gates unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A fresh :class:`NoiseSkipSelect`.
+        """
+        return NoiseSkipSelect(
+            self.noise,
+            tuple(
+                (chars, negated, payload)
+                for (chars, negated, _arm), payload in zip(
+                    self.entries, payloads, strict=True
+                )
+            ),
+        )
+
     def select(self, text: str, pos: int) -> Any:
-        """The arm admitting the first post-noise character, or ``None``."""
+        """The payload admitting the first post-noise character, or ``None``."""
         at = _skip_noise(text, pos, self.noise[0], self.noise[1])
         char = text[at : at + 1]
         for chars, negated, candidate in self.entries:

@@ -403,7 +403,13 @@ def _union_source(
 def _dispatch_prefix_source(
     clone: FlatClone, depth: int
 ) -> tuple[str, bool, bool] | None:
-    """A frame-less dispatch alternation's targets, unioned."""
+    """A frame-less dispatch alternation's targets, unioned.
+
+    A WIDE dispatch is refused by the empty-``selectors`` test below rather
+    than enumerated: its targets are chosen by a window or a post-noise peek,
+    so the prefix a caller would read off them is not the prefix the selection
+    actually admits, and a wrong prefix here widens a pattern silently.
+    """
     if depth <= 0 or not clone.selectors:
         return None
     return _union_source(

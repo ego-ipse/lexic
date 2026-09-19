@@ -2170,3 +2170,27 @@ it; and the validated keyword path is pinned against its constructor rather
 than through a document, because no shipped grammar reaches it carrying a run
 — the fast licence is granted on every clone in the roster and the ground-truth
 corpus, so that path is entered only by an empty alternate arm.
+
+## The window-gated pass-through alternation dispatches without a frame
+
+`convert_dispatch` refused any clone selecting by window or post-noise peek,
+so a pass-through alternation that one lookahead character could not decide
+paid a frame to hand its sink to the clone its arm named. The refusal was
+about the SELECTION; the rewrite's soundness is about what the alternation
+builds, and a wide clone whose every arm is a single unit reference builds
+nothing either.
+
+Such a clone now converts and keeps its selection, its arms rebuilt as targets
+through one payload-mapping operation on the selection contract, so there is
+no table beside it and no second lookup. `chase_dispatch` takes the text and
+selects per hop by the clone's own selection when it has one and by lead char
+when it does not — one implementation, because a chain can mix the two in
+either order, and the position does not move across it.
+
+Two consumers had to change for a reason worth recording: a wide dispatch
+leaves `selectors` empty, so anything enumerating a dispatch clone's edges
+from `selectors` alone sees only the default. The `OP_VDISP` landing licence
+now enumerates the selection's targets; the char table refuses a wide clone
+outright, since a table answering one character cannot stand in for a
+selection that one character cannot make.
+

@@ -114,9 +114,15 @@ BUILD_DISPATCH = 4
 """A frame-less ``alternation`` clone: after hoist_arms every arm is a single
 unit ruleref, and the alternation itself is a pass-through (the matched arm's
 sub-model reports straight to the parent sink) — so the post-flatten pass
-rewrites qualifying clones into dispatch tables whose selectors carry the
-target :class:`FlatClone` directly and the runtime chases them in
-:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
+rewrites qualifying clones into dispatch tables carrying the target
+:class:`FlatClone` directly, and the runtime chases them in
+:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame.
+
+WHERE the targets sit follows how the clone selects. One selecting by lead
+char carries them in ``selectors``; one selecting by window or post-noise peek
+carries them in its own selection and leaves ``selectors`` empty. A consumer
+enumerating a dispatch clone's outgoing edges must read whichever holds them —
+reading ``selectors`` alone sees a wide clone's default and nothing else."""
 
 BUILD_FOLD = 5
 """A rule the left-recursion rewrite turned into a loop

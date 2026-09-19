@@ -451,16 +451,15 @@ class PdaKernel[M](
             sinks[i] = sink = []
         return sink
 
-    def _chase_dispatch(self, clone: FlatClone[M], char: str) -> FlatClone[M] | None:
+    def _chase_dispatch(self, clone: FlatClone[M]) -> FlatClone[M] | None:
         """Chase a frame-less dispatch alternation to its concrete target clone.
 
         :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
-        :param char: The lookahead char selecting each dispatch step.
         :returns: The concrete target clone, or ``None`` when the dispatch lands
             on its empty (nullable) arm (the caller then consumes nothing).
         :raises PdaFail: When no selector matches and there is no default.
         """
-        return chase_dispatch(clone, char, self.pos)
+        return chase_dispatch(clone, self.text, self.pos)
 
     def _enter(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
@@ -483,13 +482,12 @@ class PdaKernel[M](
             was consumed inline (a leaf run, or a dispatch clone's empty arm).
         :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
-        char = self.text[self.pos : self.pos + 1]
         if clone.mode == BUILD_DISPATCH:
             # The common substitution, taken straight: a chase alone needs no
             # fixpoint, and on five of six bench grammars EVERY dispatch entry
             # reached _settle only to chase. The fixpoint is still there for the
             # chains that need it — an attempt landing installs another clone.
-            chased = chase_dispatch(clone, char, self.pos)
+            chased = chase_dispatch(clone, self.text, self.pos)
             if chased is None:
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
@@ -497,7 +495,7 @@ class PdaKernel[M](
             # Most entries resolve to themselves; pay the call only when one of
             # the two substituting shapes is actually present (measured: the
             # unconditional call cost 1-3% on every grammar).
-            settled = self._settle(clone, char, out)
+            settled = self._settle(clone, out)
             if settled is None:
                 return False  # consumed inline — empty arm, or an attempt run
             clone = settled
@@ -508,6 +506,11 @@ class PdaKernel[M](
         if clone.leaf:
             self._leaf_run(clone, out)
             return False
+        # Taken HERE, where it is read, and nowhere above: an entry resolving
+        # through the chase, an attempt, a gate or a leaf run returns without
+        # ever reaching this walk, and a dispatch entry would otherwise slice
+        # the same character twice — once here and once inside the chase.
+        char = self.text[self.pos : self.pos + 1]
         arm = None
         for chars, negated, candidate in clone.selectors:
             if (char != "" and char not in chars) if negated else char in chars:
@@ -530,6 +533,11 @@ class PdaKernel[M](
         struct-gated clone whose gate REFUSES takes its escape (default) arm. A
         struct gate that takes falls through to the ordinary lead-char path.
 
+        The wide clones reaching here are the ones the dispatch rewrite
+        REFUSED — an arm that builds, an attempt, a struct gate. One whose
+        every arm is a unit reference is a ``BUILD_DISPATCH`` clone before the
+        parse begins, and is chased rather than framed, so it never arrives.
+
         :returns: ``True`` when a frame was pushed, ``False`` to continue.
         :raises PdaFail: When a refusing struct gate has no escape arm.
         """
@@ -545,9 +553,7 @@ class PdaKernel[M](
         self.stack.append(Frame(arm, out, clone, self.pos))
         return True
 
-    def _settle(
-        self, clone: FlatClone[M], char: str, out: list[M]
-    ) -> FlatClone[M] | None:
+    def _settle(self, clone: FlatClone[M], out: list[M]) -> FlatClone[M] | None:
         """Resolve dispatch chases and attempt substitutions to a fixpoint.
 
         Either step installs a *different* clone, and the clone it installs has
@@ -568,7 +574,6 @@ class PdaKernel[M](
         bounded by the depth of an acyclic FIRST graph.
 
         :param clone: The clone to resolve.
-        :param char: The lookahead, for the dispatch selectors.
         :param out: The parent sink, for an attempt run's inline consumption.
         :returns: The clone the caller should enter, or ``None`` when the walk
             was consumed inline (a dispatch clone's empty arm, or an attempt
@@ -576,7 +581,7 @@ class PdaKernel[M](
         """
         while True:
             if clone.mode == BUILD_DISPATCH:
-                chased = self._chase_dispatch(clone, char)
+                chased = self._chase_dispatch(clone)
                 if chased is None:
                     return None  # the empty (nullable) arm — nothing consumed
                 clone = chased

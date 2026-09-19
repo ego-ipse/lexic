@@ -37,31 +37,61 @@ from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
 
 
 def chase_dispatch[Carry](
-    clone: FlatClone[Carry], char: str, pos: int
+    clone: FlatClone[Carry], text: str, pos: int
 ) -> FlatClone[Carry] | None:
     """Chase a frame-less dispatch alternation to its concrete target clone.
 
-    The selection a dispatch alternation IS: a lead-char walk over selectors
-    whose payloads are clones. Cursor-free, so both the kernel's entry path and
-    the inline :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` matcher run
-    the one implementation — and refuse in the same words at the same position.
+    The selection a dispatch alternation IS, per hop: a clone carrying a wide
+    selection asks that selection, and one without walks its lead-char
+    selectors. A chain may mix the two in any order — a lead-char dispatch can
+    land on a window-gated one and the reverse — so both live in this one
+    implementation, and the kernel's entry path, :meth:`_settle` and the
+    inline :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` matcher
+    refuse in the same words at the same position.
+
+    The position does NOT move across the chase: every hop selects at ``pos``,
+    which is what makes the landed clone face exactly the cursor the elided
+    frames would have handed it.
+
+    A clone with no wide selection pays one attribute load and an ``is None``
+    per hop — the loop reads ``wide_selectors`` where it already read ``mode``
+    — and then runs the lead-char walk unchanged, with the lookahead character
+    taken once before the loop rather than per hop.
 
     :param clone: A ``BUILD_DISPATCH`` clone.
-    :param char: The lookahead char selecting each dispatch step.
-    :param pos: The cursor position, for the refusal.
+    :param text: The document, for a wide selection's own match.
+    :param pos: The cursor position, for the selection and for the refusal.
     :returns: The concrete target clone, or ``None`` on the empty (nullable)
         arm — the caller then consumes nothing.
     :raises PdaFail: When no selector matches and there is no default.
     """
+    char = text[pos : pos + 1]
     while clone.mode == BUILD_DISPATCH:
-        nxt = None
-        for chars, negated, target in clone.selectors:
-            if (char != "" and char not in chars) if negated else char in chars:
-                nxt = target
-                break
+        wide = clone.wide_selectors
+        if wide is None:
+            nxt = None
+            for chars, negated, target in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    nxt = target
+                    break
+        else:
+            nxt = wide.select(text, pos)
         if nxt is None:
             nxt = clone.default
             if nxt is None:
+                if wide is not None:
+                    # A wide clone's miss is the refusal `select_gated` raised
+                    # before this clone was a dispatch — same rule, same
+                    # wanted set. A bare refusal here would name no rule, and
+                    # the document would be refused by an anonymous path.
+                    raise PdaFail(
+                        f"no arm at {pos}",
+                        pos,
+                        rule=clone.name,
+                        wanted=arm_expected(clone),
+                    )
+                # A lead-char miss keeps the words it always had: the
+                # `chartotal` refusal below mirrors them verbatim.
                 raise PdaFail(f"no arm at {pos}", pos)
             if nxt is DISPATCH_EMPTY:
                 return None
@@ -86,7 +116,7 @@ def vdisp_once[Carry](
 
     :raises PdaFail: From the chase (no arm) or the match (terminal mismatch).
     """
-    target = chase_dispatch(clone, text[pos : pos + 1], pos)
+    target = chase_dispatch(clone, text, pos)
     if target is None:  # licence-excluded; a defensive read, not a live path
         raise PdaFail(f"no arm at {pos}", pos)
     return vstr_once(text, intern, target, sink, pos)

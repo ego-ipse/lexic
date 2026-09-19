@@ -28,9 +28,14 @@ import pytest
 
 import lexic.parsing.pda.runtime.islands as islands_mod
 import lexic.parsing.pda.runtime.kernel.execution as execution_mod
+import lexic.parsing.pda.runtime.kernel.kernel as kernel_mod
+import lexic.parsing.pda.runtime.matchers as matchers_mod
 import lexic.parsing.products as products_mod
 from lexic.compile import compile_text
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
+from lexic.parsing.products import _model_product
+from tests.clone_walk import walk_program_clones
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -230,3 +235,94 @@ def test_refusal_after_a_climb_falls_back_and_round_trips(reach):
     )
     assert reach["earley"] == 1, "the refusal did not reach the product's fallback"
     assert model.to_text() == text
+
+
+# ── the window-gated pass-through dispatch ──────────────────────────────
+
+
+WIDE_ROWS = {"gbnf-meta": 16, "abnf-meta": 6, "markdown": 2}
+"""Roster rows converting a wide alternation, and how many clones each does.
+
+Counted in the FINAL program. The same rows count the same at convert time;
+`vyx` converts 48 there and **none here**, because those clones are not
+reachable in the program that ships — a count is a fact about a moment in the
+pipeline, and this one names its moment.
+"""
+
+WIDE_HOPS = {"markdown": 2_088, "abnf-meta": 1_552, "gbnf-meta": 984}
+"""Wide dispatch hops each row takes on its full sample, at cores=1.
+
+A hop is one CHASE STEP, not one entry, and ONE parse at cores=1 is the
+measurement — a counter left installed across a second parse doubles these
+without saying so.
+"""
+
+
+def wide_dispatch_clones(compiled) -> int:
+    """Wide-selecting dispatch clones reachable in the final program."""
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    return sum(
+        1
+        for one in walk_program_clones(product.pda.program.start).values()
+        if one.wide_selectors is not None and one.mode == BUILD_DISPATCH
+    )
+
+
+def wide_hops(row, text: str) -> int:
+    """Wide dispatch hops one parse takes, counted at BOTH call-site bindings."""
+    real = matchers_mod.chase_dispatch
+    seen = [0]
+
+    def counted(clone, text_, pos):
+        if clone.mode == BUILD_DISPATCH and clone.wide_selectors is not None:
+            seen[0] += 1
+        return real(clone, text_, pos)
+
+    matchers_mod.chase_dispatch = counted
+    kernel_mod.chase_dispatch = counted
+    try:
+        row.compiled.parse(text, cores=1)
+    finally:
+        matchers_mod.chase_dispatch = real
+        kernel_mod.chase_dispatch = real
+    return seen[0]
+
+
+@pytest.mark.parametrize("name", sorted(WIDE_ROWS))
+def test_the_rows_that_convert_a_wide_alternation_convert_the_same_number(name):
+    """The clone pin, with its moment named in `WIDE_ROWS`."""
+    assert wide_dispatch_clones(bench(name).compiled) == WIDE_ROWS[name]
+
+
+def test_no_row_outside_those_three_converts_a_wide_clone():
+    """The other sixteen rows' programs carry no wide dispatch at all.
+
+    Asserted rather than assumed: the rewrite's blast radius IS this set, and
+    a grammar drifting into it would change a program nobody was watching.
+    """
+    strayed = {
+        row.name: wide_dispatch_clones(row.compiled)
+        for row in BENCHES
+        if row.name not in WIDE_ROWS and wide_dispatch_clones(row.compiled)
+    }
+
+    assert not strayed, f"a row outside the three now converts: {strayed}"
+
+
+@pytest.mark.parametrize("name", sorted(WIDE_HOPS))
+def test_each_converting_row_takes_the_hops_it_takes(name):
+    """The firing pin, read at the hop — a different event from an entry."""
+    assert wide_hops(bench(name), bench(name).full) == WIDE_HOPS[name]
+
+
+def test_vyx_takes_no_wide_hop_on_either_of_its_documents():
+    """A fact about vyx's DOCUMENTS, not a property of its grammar.
+
+    vyx converts wide clones at bake that its shipped program does not reach,
+    so nothing it parses takes a wide hop. Said as a document fact because
+    another document under the same grammar need not agree.
+    """
+    row = bench("vyx")
+
+    assert wide_hops(row, row.corpus) == 0
+    assert wide_hops(row, row.full) == 0
