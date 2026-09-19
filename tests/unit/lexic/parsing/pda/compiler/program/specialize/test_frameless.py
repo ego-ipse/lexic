@@ -1,20 +1,22 @@
-"""Tests for the dispatch rewrite in `specialize` — including WIDE selections.
+"""Tests for lexic.parsing.pda.compiler.program.frameless — frame-less entry.
 
-`convert_dispatch` turns a pass-through alternation into a frame-less dispatch.
-Its own file because the WIDE half of that licence — a clone selecting by
-window or post-noise peek — has its own refusals, its own place for the
-targets to live, and its own consumers to keep honest, and `test_specialize`
-is at its line ceiling.
+What qualifies to be entered without a frame, and the licences that read it.
+The WIDE half is what these pin: a clone selecting by window or post-noise
+peek has its own refusals, keeps its targets in its selection rather than in
+`selectors`, and is the case a licence reading `selectors` alone gets wrong.
 """
 
 from __future__ import annotations
 
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, KWindowSelect
-from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_DISPATCH
-from lexic.parsing.pda.compiler.program.specialize import (
-    _vdisp_landing,
+from lexic.parsing.pda.compiler.program.flatten import (
+    FlatClone,
+    KWindowSelect,
     clone_arms,
+)
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_DISPATCH
+from lexic.parsing.pda.compiler.program.specialize.frameless import (
     convert_dispatch,
+    vdisp_landing,
     vdisp_target,
 )
 from tests.clone_walk import walk_program_clones
@@ -110,7 +112,7 @@ def test_the_wide_rewrite_is_refused_where_the_lead_char_one_is():
 def test_a_wide_dispatch_earns_no_inline_licence_from_its_default_alone():
     """The consumer audit, as a test: empty `selectors` must not read as no edges.
 
-    `_vdisp_landing` enumerated `selectors` and appended the default. For a
+    `vdisp_landing` enumerated `selectors` and appended the default. For a
     wide clone `selectors` is EMPTY, so that enumeration saw the default only
     — and a licence granted on it would cover every target it never examined.
     """
@@ -119,7 +121,7 @@ def test_a_wide_dispatch_earns_no_inline_licence_from_its_default_alone():
     assert targets, "the premise: this clone HAS targets outside `selectors`"
 
     licensed = vdisp_target(clone)
-    every_target_lands = all(_vdisp_landing(one) for one in targets)
+    every_target_lands = all(vdisp_landing(one) for one in targets)
 
     assert licensed == (clone.chartable is None and every_target_lands), (
         "the licence must answer for the targets in the selection, not for "

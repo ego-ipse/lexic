@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lexic.ir import IrSpan
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     M_CONST,
@@ -27,7 +27,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_SPAN,
     M_TEXT,
 )
-from lexic.parsing.pda.compiler.program.specialize import clone_arms
 
 
 def plan_means(

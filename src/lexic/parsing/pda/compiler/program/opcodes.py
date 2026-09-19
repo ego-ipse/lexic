@@ -78,7 +78,7 @@ OP_CONSULT = 16
 
 Never an item op-code in a real arm: it appears only as the sole kind of the
 synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
-(:func:`~lexic.parsing.pda.compiler.program.specialize.consult_arm`), whose
+(:func:`~lexic.parsing.pda.compiler.program.specialize.passes.consult_arm`), whose
 payload is the compiled pattern. Numbered past every arm code so a reader that
 ranges over the arm vocabulary cannot mistake it for one."""
 

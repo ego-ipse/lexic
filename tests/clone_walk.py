@@ -15,8 +15,7 @@ either.
 
 from __future__ import annotations
 
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
-from lexic.parsing.pda.compiler.program.specialize import clone_arms
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 
 
 def walk_program_clones(start: FlatClone) -> dict[int, FlatClone]:

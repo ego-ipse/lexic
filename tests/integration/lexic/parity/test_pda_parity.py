@@ -34,7 +34,7 @@ from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
-from lexic.parsing.pda.compiler.program.specialize import all_clones
+from lexic.parsing.pda.compiler.program.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from lexic.parsing.products import earley_model
@@ -48,7 +48,7 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import clone_specs, prod
-from tests.unit.lexic.parsing.pda.compiler.program.test_specialize import (
+from tests.unit.lexic.parsing.pda.compiler.program.specialize.test_passes import (
     ATTEMPT_GATED_VSTR,
 )
 from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
@@ -359,7 +359,7 @@ def test_an_attempt_gated_value_str_builds_the_same_model_pda_and_earley(
     item) held to the equality bar this module owns, not just round-trip.
 
     The unit-level pin beside `ATTEMPT_GATED_VSTR`'s own definition
-    (`tests/unit/.../test_specialize.py::
+    (`tests/unit/.../specialize/test_passes.py::
     test_an_attempt_gated_value_str_ref_routes_pda_and_round_trips`) only
     checks that the PDA route's model round-trips to the input text. That
     is necessary but not sufficient: a regression that made the PDA build a
