@@ -359,29 +359,57 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
 
         At fanout ONE this does exactly what the old recorder did: one `get`,
         one insert of a one-element list. That is deliberate — the baseline
-        already stores a single family in a single hash slot there, so there
-        is nothing to save and a key that never promotes must cost what it
-        always cost, by construction rather than by tuning.
+        already stores a single family in a single hash slot there, so a key
+        that never promotes must cost what it always cost, by construction.
 
-        The SECOND distinct family promotes the key instead of appending, and
-        nothing further is stored for it. Its families are read back from the
-        chart, which is the population that grows.
+        The SECOND distinct family promotes the key, and from then on the
+        COMPLETION is recorded once in its shared ``(rule, end)`` group rather
+        than once per waiter.
         """
+        c = self.tables.codes
         pk = self.tables.packing
         bits = pk.bits
         links = self.st.links
-        child = (it << bits) | i
-        origin = it & pk.mask
+        gkey = (c.arm_rule[c.code_arm[it >> bits]], i)
+        group = self.st.groups.get(gkey)
+        if group is not None:
+            group.append(it)
+        entry: KLink = (0, it & pk.mask, (it << bits) | i)
         for w in wl:
             key = ((w + pk.advance) << bits) | i
             bucket = links.get(key)
+            mine = (w, entry[1], entry[2])
             if bucket is None:
-                links[key] = [(w, origin, child)]
-            elif bucket[0] is not PROMOTED and (w, origin, child) not in bucket:
-                # Mark in place and keep what is already there: the first
-                # ordinary family is recoverable from the column, but a family
-                # another producer filed at this key is not.
-                bucket.insert(0, PROMOTED)
+                links[key] = [mine]
+            elif bucket[0] is not PROMOTED and mine not in bucket:
+                group = self._promote(bucket, group, gkey, it)
+
+    def _promote(
+        self,
+        bucket: list[KLink],
+        group: list[int] | None,
+        gkey: tuple[int, int],
+        it: int,
+    ) -> list[int]:
+        """Hand a key's record over to its shared group.
+
+        The group is SEEDED with the completions already filed at this key —
+        they came first and must still read first — and the bucket is left
+        holding the marker plus anything a different producer put there.
+
+        :returns: the group, created here when this is the first promotion at
+            its ``(rule, end)``.
+        """
+        bits = self.tables.packing.bits
+        if group is None:
+            group = self.st.groups[gkey] = []
+        for one in bucket:
+            if isinstance(one[2], int) and (one[2] >> bits) not in group:
+                group.append(one[2] >> bits)
+        if it not in group:
+            group.append(it)
+        bucket[:] = [PROMOTED, *(one for one in bucket if not isinstance(one[2], int))]
+        return group
 
     def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
         """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).

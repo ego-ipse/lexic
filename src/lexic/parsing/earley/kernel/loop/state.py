@@ -45,6 +45,16 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     :ivar predicted: Per column, the ``rule_id``\\ s already predicted.
     :ivar leo: Per column, ``rule_id`` → memoised Leo top (``-1`` = none).
     :ivar links: handle → its packed SPPF families.
+    :ivar groups: ``(rule_id, end)`` → the completions of that rule ending
+        there that the COMPLETER ACTUALLY PROCESSED, in event order. Started
+        only when a key at that ``(rule, end)`` promotes, so a chart that
+        never promotes never builds one.
+
+        It exists because ``cols[end]`` is NOT a record of what the completer
+        processed: ``_complete`` returns early when ``_try_leo`` takes a
+        completion, leaving that completion in the column with no family
+        filed. A reader that walked the column re-derived those families and
+        served derivations the parse never built.
     :ivar leo_links: deferred Leo provenance — top handle → the bottom
         family of every chain that jumped to it (converging ambiguous
         chains each file theirs), rebuilt into :attr:`links` on demand.
@@ -58,6 +68,15 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     loss. One lookup answers both what is stored and how to read it.
     """
 
+    # pylint: disable=too-many-instance-attributes
+    # An eighth lane: `groups` holds the completions the COMPLETER ACTUALLY
+    # FILED, which `cols` is not a record of — `_complete` returns before
+    # filing when `_try_leo` takes a completion. The alternative that would
+    # satisfy the cap is folding `leo` and `leo_links` into one record, and
+    # they are read SEPARATELY by the forest, the chart, `resume` and the
+    # readout across three dozen sites — coupling two unrelated per-parse
+    # indexes to please a counter would make four call sites worse to make
+    # one number smaller.
     __slots__ = (
         "seen",
         "waiting",
@@ -66,6 +85,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         "leo",
         "links",
         "leo_links",
+        "groups",
     )
 
     seen: list[set[int]]
@@ -75,6 +95,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     leo: list[dict[int, int]]
     links: dict[int, list[KLink]]
     leo_links: dict[int, list[KLink]]
+    groups: dict[tuple[int, int], list[int]]
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
@@ -85,6 +106,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         self.leo = [{} for _ in range(columns)]
         self.links = {}
         self.leo_links = {}
+        self.groups = {}
 
     def file_item(self, i: int, item: int, s: int) -> None:
         """File a just-inserted item under the symbol its dot faces.
