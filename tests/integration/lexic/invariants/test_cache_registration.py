@@ -28,8 +28,8 @@ upstream of it to register it with."""
 NOT_IDENTITY_KEYED = frozenset(
     {
         ("parsing/parallel/pool.py", "_IDLE"),
-        ("parsing/pda/compiler/program/lowering.py", "_READS"),
-        ("parsing/pda/compiler/program/lowering.py", "_TEMPLATES"),
+        ("parsing/pda/compiler/program/bake/lowering.py", "_READS"),
+        ("parsing/pda/compiler/program/bake/lowering.py", "_TEMPLATES"),
     }
 )
 """Module-level dicts whose key type mentions ``int`` but is not an object

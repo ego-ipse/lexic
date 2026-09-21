@@ -20,7 +20,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     WideSelect,
     clone_arms,
 )
-from lexic.parsing.pda.compiler.program.lowering import FoldBuild
+from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -47,7 +47,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.program.product import bake_product_build
+from lexic.parsing.pda.compiler.program.bake.product import bake_product_build
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
     optimize_program,

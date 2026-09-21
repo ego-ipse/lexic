@@ -37,8 +37,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from lexic.parsing.pda.compiler.leftrec.shape import Fold
-from lexic.parsing.pda.compiler.program.lowering import FoldBuild, shape_build
-from lexic.parsing.pda.compiler.program.product import build_plan
+from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild, shape_build
+from lexic.parsing.pda.compiler.program.bake.product import build_plan
 from lexic.parsing.product import CaptureMode, RuleRoutine
 
 _ENDS_MODES = frozenset((int(CaptureMode.TEXT), int(CaptureMode.EXTENT)))

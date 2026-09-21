@@ -24,7 +24,7 @@ from typing import Any, NamedTuple, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
+from lexic.parsing.pda.compiler.program.bake.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -499,10 +499,10 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         a defaults-dict copy, a supplied-key set and a read-back through
         ``map(parts.get, cls._fields)`` per model.
     :ivar build: This shape's whole build, composed from :attr:`plan` at bake
-        (:func:`~lexic.parsing.pda.compiler.program.lowering.shape_build`) — one
+        (:func:`~lexic.parsing.pda.compiler.program.bake.lowering.shape_build`) — one
         operation per field, bound once, and no mode read per record. The two
         travel together: a pass that rewrites one MUST rewrite the other.
-        :data:`~lexic.parsing.pda.compiler.program.lowering.no_shape_build` when the
+        :data:`~lexic.parsing.pda.compiler.program.bake.lowering.no_shape_build` when the
         clone has no positional build, a ``value_str`` clone included
         (:func:`vstr_model` owns that construction).
     :ivar fast: The class's positional constructor when it granted the

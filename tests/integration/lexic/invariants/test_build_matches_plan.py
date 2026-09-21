@@ -100,7 +100,7 @@ def pda_modules() -> tuple[tuple[str, str], ...]:
 
 KNOWN_WRITERS = frozenset(
     {
-        "src/lexic/parsing/pda/compiler/program/product.py",
+        "src/lexic/parsing/pda/compiler/program/bake/product.py",
         "src/lexic/parsing/pda/compiler/program/flatten.py",
         "src/lexic/parsing/pda/compiler/program/lower.py",
     }

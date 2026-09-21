@@ -4,7 +4,7 @@
 the whole ground-truth corpus (`test_both_engines_build_the_same_model_not_
 just_the_same_meaning`) — this module does not widen that bar. It exists as a
 narrow, fast regression directly tied to the record build tail
-(`lexic.parsing.pda.compiler.program.lowering`): every sequence record either engine
+(`lexic.parsing.pda.compiler.program.bake.lowering`): every sequence record either engine
 builds from these three grammars now passes through `shape_build`'s composed
 callable rather than the generic per-field dispatcher it replaced, so a wrong
 bind on any field mode reaches here on the very first mismatching sample.
