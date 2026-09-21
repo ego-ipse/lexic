@@ -37,7 +37,7 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.families import FamilyTable
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import leo_resolve, leo_sole
-from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
+from lexic.parsing.earley.kernel.loop.state import PROMOTED, KernelState, KLink
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
@@ -367,11 +367,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         nothing further is stored for it. Its families are read back from the
         chart, which is the population that grows.
         """
-        st = self.st
         pk = self.tables.packing
         bits = pk.bits
-        links = st.links
-        promoted = st.promoted
+        links = self.st.links
         child = (it << bits) | i
         origin = it & pk.mask
         for w in wl:
@@ -379,8 +377,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             bucket = links.get(key)
             if bucket is None:
                 links[key] = [(w, origin, child)]
-            elif key not in promoted and (w, origin, child) not in bucket:
-                promoted.add(key)
+            elif bucket[0] is not PROMOTED and (w, origin, child) not in bucket:
+                # Mark in place and keep what is already there: the first
+                # ordinary family is recoverable from the column, but a family
+                # another producer filed at this key is not.
+                bucket.insert(0, PROMOTED)
 
     def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
         """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).
