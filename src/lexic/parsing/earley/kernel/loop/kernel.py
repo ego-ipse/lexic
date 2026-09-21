@@ -34,6 +34,7 @@ from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.forest.families import FamilyTable
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import leo_resolve, leo_sole
 from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
@@ -124,6 +125,15 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.delegated = {}
 
     # ── the driver ────────────────────────────────────────────────────
+
+    @property
+    def families(self) -> FamilyTable:
+        """This parse's completion families — derived where derivable.
+
+        Built per access: the table holds two references and derives on
+        demand, so caching it would only pin the kernel it already points at.
+        """
+        return FamilyTable(self)
 
     def run(self) -> Self:
         """Build the chart: close each column to a fixpoint, scan one char.
@@ -338,22 +348,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # wl is the live bucket: a plain ``for`` over the list picks up
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
-        if self.record_links:
-            self._record_families(i, wl, origin, (it << bits) | i)
-
-    def _record_families(self, i: int, wl: list[int], origin: int, child: int) -> None:
-        """Record one packed family per advanced waiter (Scott 2008, deduped)."""
-        links = self.st.links
-        pk = self.tables.packing
-        bits, advance = pk.bits, pk.advance
-        for w in wl:
-            key = ((w + advance) << bits) | i
-            entry: KLink = (w, origin, child)
-            bucket = links.get(key)
-            if bucket is None:
-                links[key] = [entry]
-            elif entry not in bucket:
-                bucket.append(entry)
+        # An ordinary family carries nothing the chart does not already hold —
+        # `waiting[origin][rule]` and the completed item in `cols[i]` ARE the
+        # family — so it is derived on read rather than filed here. See
+        # `forest.families.FamilyTable`. Nothing is recorded on this path.
 
     # ── island-interior delegation ────────────────────────────────────
 

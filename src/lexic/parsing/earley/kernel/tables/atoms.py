@@ -6,6 +6,8 @@ a single atom accepts. Nothing here knows what a table is.
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlphabet,
@@ -31,6 +33,24 @@ KLink = tuple[int, int, int | str | PayloadLeaf]
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
 delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (island-interior
 delegation — a pre-folded child spliced onto the waiter it advances)."""
+
+
+class FamilyReader(Protocol):
+    """What a chain walker needs of the family table: one key's families.
+
+    A Protocol rather than the concrete mapping because the ordinary families
+    are DERIVED and the table that serves them is not a ``dict`` (see
+    :class:`~lexic.parsing.earley.kernel.forest.families.FamilyTable`). The
+    walkers only ever ask a key for its families, which is what this states.
+    """
+
+    def get(self, key: int, /) -> list[KLink] | None:
+        """This key's families, or ``None`` when it names none."""
+        raise NotImplementedError
+
+    def __getitem__(self, key: int, /) -> list[KLink]:
+        """This key's families; raises :class:`KeyError` when it names none."""
+        raise NotImplementedError
 
 
 def tier_for(length: int) -> int:
@@ -70,7 +90,7 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
 
 
 def predecessor_chain(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
     choices: dict[int, int] | None = None,

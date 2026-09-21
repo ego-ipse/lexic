@@ -128,7 +128,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         t = self.kernel.tables
         base = t.codes.arm_base[t.codes.code_arm[(handle >> self._bits) >> self._bits]]
         chain = predecessor_chain(
-            self.kernel.st.links,
+            self.kernel.families,
             handle,
             ChainSpec(base, self._bits, t.code_choice),
             self.choices,
