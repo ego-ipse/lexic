@@ -11,16 +11,19 @@ from collections.abc import Mapping
 from typing import Any, NamedTuple, Sequence, cast
 
 from lexic.parsing.pda.compiler.eligibility import extent_pattern
+from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
+from lexic.parsing.pda.compiler.program.bake.product import bake_product_build
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
-    KWindowSelect,
-    NoiseSkipSelect,
     PdaProgram,
     WideSelect,
     clone_arms,
 )
-from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
+from lexic.parsing.pda.compiler.program.gating import (
+    KWindowSelect,
+    NoiseSkipSelect,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -47,7 +50,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.program.bake.product import bake_product_build
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
     optimize_program,

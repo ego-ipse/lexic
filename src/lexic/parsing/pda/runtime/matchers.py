@@ -19,9 +19,11 @@ from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
+    vstr_model,
+)
+from lexic.parsing.pda.compiler.program.gating import (
     arm_expected,
     gate_take,
-    vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,

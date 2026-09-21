@@ -19,12 +19,14 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
-    KWindowSelect,
-    NoiseSkipSelect,
     clone_arms,
     no_construction,
     no_fast_construction,
     vstr_model,
+)
+from lexic.parsing.pda.compiler.program.gating import (
+    KWindowSelect,
+    NoiseSkipSelect,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,

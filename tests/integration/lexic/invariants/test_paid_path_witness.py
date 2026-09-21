@@ -46,7 +46,7 @@ from collections.abc import Callable
 import pytest
 
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
-from lexic.parsing.pda.compiler.program import flatten
+from lexic.parsing.pda.compiler.program import gating
 from lexic.parsing.pda.core import scanner
 from lexic.parsing.pda.runtime import matchers
 from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
@@ -64,7 +64,7 @@ PAID: dict[str, tuple[object, str]] = {
     "matchers.select_arm": (matchers, "select_arm"),
     "matchers.match_runtable": (matchers, "match_runtable"),
     # The gates the per-character loops consult on every iteration.
-    "flatten.gate_take": (flatten, "gate_take"),
+    "gating.gate_take": (gating, "gate_take"),
     "scanner.scan_gate_take": (scanner, "scan_gate_take"),
     # The attempt loops: a per-character loop each, frame-lessly.
     "AttemptInlineMixin.attempt_inline_loop": (
@@ -111,7 +111,7 @@ WITNESS: dict[str, str] = {
     "PdaKernel._drive": "ba05ca518cf2dc27",
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
     "PdaKernel._quant_step": "1c88d7247121a287",
-    "flatten.gate_take": "76e35db5019cf024",
+    "gating.gate_take": "76e35db5019cf024",
     "matchers.match_arm": "5d1c46d9408b6d2c",
     "matchers.match_cc": "2f81af2235e50891",
     "matchers.match_cc1": "31c3bf99c6dd31a8",
