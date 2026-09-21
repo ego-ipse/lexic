@@ -348,12 +348,39 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # wl is the live bucket: a plain ``for`` over the list picks up
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
-        # An ordinary family carries nothing the chart does not already hold —
-        # `waiting[origin][rule]` and the completed item in `cols[i]` ARE the
-        # family — so it is derived on read rather than filed here. See
-        # `forest.families.FamilyTable`. Nothing is recorded on this path.
+        if self.record_links:
+            self._index_completion(i, it, wl)
 
-    # ── island-interior delegation ────────────────────────────────────
+    def _index_completion(self, i: int, it: int, wl: list[int]) -> None:
+        """File one completion's families — the first directly, the rest not.
+
+        `wl` is the waiter list `_complete` already holds, so this is the same
+        second iteration over one list the engine has always had.
+
+        At fanout ONE this does exactly what the old recorder did: one `get`,
+        one insert of a one-element list. That is deliberate — the baseline
+        already stores a single family in a single hash slot there, so there
+        is nothing to save and a key that never promotes must cost what it
+        always cost, by construction rather than by tuning.
+
+        The SECOND distinct family promotes the key instead of appending, and
+        nothing further is stored for it. Its families are read back from the
+        chart, which is the population that grows.
+        """
+        st = self.st
+        pk = self.tables.packing
+        bits = pk.bits
+        links = st.links
+        promoted = st.promoted
+        child = (it << bits) | i
+        origin = it & pk.mask
+        for w in wl:
+            key = ((w + pk.advance) << bits) | i
+            bucket = links.get(key)
+            if bucket is None:
+                links[key] = [(w, origin, child)]
+            elif key not in promoted and (w, origin, child) not in bucket:
+                promoted.add(key)
 
     def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
         """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).

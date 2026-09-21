@@ -34,6 +34,15 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     :ivar leo_links: deferred Leo provenance — top handle → the bottom
         family of every chain that jumped to it (converging ambiguous
         chains each file theirs), rebuilt into :attr:`links` on demand.
+    :ivar promoted: the keys that have MORE than one ordinary family.
+
+        One store, classified by MULTIPLICITY. A key with a single family
+        keeps it in :attr:`links` exactly as it always did — same dict, same
+        one-element list, same tuple — because at fanout one there is nothing
+        to save and anything spent reconstructing it per read is pure loss.
+        The SECOND distinct family promotes the key instead of appending: from
+        then on nothing more is stored for it and its families are read back
+        from the chart, which is where the cross product actually grows.
     """
 
     __slots__ = (
@@ -44,6 +53,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         "leo",
         "links",
         "leo_links",
+        "promoted",
     )
 
     seen: list[set[int]]
@@ -53,6 +63,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     leo: list[dict[int, int]]
     links: dict[int, list[KLink]]
     leo_links: dict[int, list[KLink]]
+    promoted: set[int]
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
@@ -63,6 +74,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         self.leo = [{} for _ in range(columns)]
         self.links = {}
         self.leo_links = {}
+        self.promoted = set()
 
     def file_item(self, i: int, item: int, s: int) -> None:
         """File a just-inserted item under the symbol its dot faces.
