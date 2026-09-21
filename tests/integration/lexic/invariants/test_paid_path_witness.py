@@ -25,6 +25,12 @@ reached the paid path that should not have.
 prints the current table. Paste it over `WITNESS` and commit that change on its
 own, so the pin's history reads as a list of deliberate decisions.
 
+**What is NOT pinned, and why.** ``matchers.chase_dispatch`` and
+``matchers.select_arm`` loop over a clone's DISPATCH HOPS and its arms — once
+per entry, not once per character — so their instructions are not the paid
+path this file guards and a pin on them would misstate what a red row means.
+They are edited freely; the functions above are not.
+
 **Interpreter sensitivity, stated.** Opnames are a property of the CPython
 version that compiled them, so an interpreter upgrade will move every row at
 once. That signature — all of them, together — is the tell, and the response is
@@ -106,15 +112,15 @@ WITNESS: dict[str, str] = {
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
     "PdaKernel._quant_step": "1c88d7247121a287",
     "flatten.gate_take": "76e35db5019cf024",
-    "matchers.match_arm": "483581add68bea95",
+    "matchers.match_arm": "5d1c46d9408b6d2c",
     "matchers.match_cc": "2f81af2235e50891",
-    "matchers.match_cc1": "93cc598602726811",
-    "matchers.match_chartable": "336772203f653b76",
-    "matchers.match_lit": "16c3da82cab78248",
+    "matchers.match_cc1": "31c3bf99c6dd31a8",
+    "matchers.match_chartable": "111fa11a704c062a",
+    "matchers.match_lit": "7f52bb4e5f7bf5aa",
     "matchers.match_runtable": "11b9846c122f07b0",
     "matchers.run_span_once": "4ad4f40a11fa6667",
     "matchers.select_arm": "ff51ffda2566a8bb",
-    "matchers.vstr_once": "12911c3d94372ea8",
+    "matchers.vstr_once": "6c3f501cad3481bf",
     "scanner.scan_gate_take": "d4d3e62975559ffd",
 }
 """The pinned instruction digests. Regenerate deliberately — see the docstring."""
