@@ -21,7 +21,8 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import all_clones, arm_expected
+from lexic.parsing.pda.compiler.program.flatten import all_clones
+from lexic.parsing.pda.compiler.program.gating import arm_expected
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     OP_CC,

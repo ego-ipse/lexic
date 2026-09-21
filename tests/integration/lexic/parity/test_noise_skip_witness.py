@@ -24,7 +24,7 @@ import pytest
 
 from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.compiler.program.flatten import NoiseSkipSelect
+from lexic.parsing.pda.compiler.program.gating import NoiseSkipSelect
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import _model_product, earley_model, pda_model
 from lexic.parsing.trace import GATE, watch

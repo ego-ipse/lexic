@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.compiler.program.lowering import (
+from lexic.parsing.pda.compiler.program.bake.lowering import (
     UNROLL_LIMIT,
     _general,
     field_read,

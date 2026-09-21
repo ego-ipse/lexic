@@ -15,11 +15,11 @@ from typing import cast
 import pytest
 
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
+from lexic.parsing.pda.compiler.program.bake.lowering import shape_build
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_GTEXT,

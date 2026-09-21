@@ -19,12 +19,14 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
-    KWindowSelect,
-    NoiseSkipSelect,
     clone_arms,
     no_construction,
     no_fast_construction,
     vstr_model,
+)
+from lexic.parsing.pda.compiler.program.gating import (
+    KWindowSelect,
+    NoiseSkipSelect,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -66,6 +68,7 @@ from lexic.parsing.pda.compiler.program.specialize.passes import (
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
+from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
     only_arm,
     pda_for,
@@ -445,27 +448,6 @@ def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
     arm.gate_kinds = (GATE_STOP, *arm.gate_kinds[1:])
     _inline_value_strs(arm)
     assert arm.kinds[0] == OP_VSTR  # un-gated again: inlines
-
-
-ATTEMPT_GATED_VSTR = (
-    "# @lexical unit\n"
-    "root ::= n tail\n"
-    "n ::= unit*\n"
-    "unit ::= p | q\n"
-    'p ::= "a"\n'
-    'q ::= "b"\n'
-    "tail ::= [a-c]\n"
-)
-"""``unit``'s FIRST (``a``/``b``) overlaps ``n``'s own stored continuation
-(``tail``'s FIRST, unioned in from ``n``'s one call site), and no k-window
-separates an unbounded run of ``unit`` from ``tail`` — so ``n``'s loop item is
-genuinely ungatable and carries :data:`GATE_ATTEMPT`. ``# @lexical unit``
-makes ``unit`` ref-free (the noise-alternation shape I12 fixed): a plain,
-untabled ``value_str`` clone the buggy line would have inlined regardless of
-the gate. Confirmed locally (not committed) that reverting I12's guard makes
-every one of these inputs raise :class:`PdaFail` at position 0 — the runtime's
-``gate_take`` sees the stored FIRST and follow overlap and bails immediately,
-where the fixed build's ``attempt_iteration`` speculates and succeeds."""
 
 
 @pytest.mark.parametrize("text", ["ac", "aac", "aaac", "bc", "abac"])

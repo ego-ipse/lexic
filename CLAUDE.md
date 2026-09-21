@@ -350,11 +350,14 @@ src/lexic/
           shape.py                 Which rules the fold can take, and what their pieces are
         program/
           __init__.py              Flat-program package marker
-          flatten.py               Flat int-coded runtime records and readers
+          flatten.py               The flat int-coded records a compiled PDA IS
+          gating.py                What admits the next character — the gates and the selection over them
           lower.py                 Clone-set lowering
-          lowering.py              The per-shape build tail — one callable composed once, at bake
           opcodes.py               Runtime program vocabulary
-          product.py               The product-side build bake — a clone's build state from its rule product
+          bake/
+            __init__.py            The build bake package marker
+            lowering.py            The per-shape build tail — one callable composed once, at bake
+            product.py             The product-side build bake — a clone's build state from its rule product
           specialize/
             __init__.py            Post-flatten specialisation package marker
             frameless.py           Frame-less entry — what qualifies, and the licences that read it

@@ -19,9 +19,11 @@ from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
+    vstr_model,
+)
+from lexic.parsing.pda.compiler.program.gating import (
     arm_expected,
     gate_take,
-    vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -65,7 +67,7 @@ def chase_dispatch[Carry](
         arm — the caller then consumes nothing.
     :raises PdaFail: When no selector matches and there is no default.
     """
-    char = text[pos : pos + 1]
+    char = text[pos] if pos < len(text) else ""
     while clone.mode == BUILD_DISPATCH:
         wide = clone.wide_selectors
         if wide is None:
@@ -149,8 +151,9 @@ def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
     :raises PdaFail: On a mismatch, end of input included.
     """
     chars, negated = payload
-    char = text[pos : pos + 1]
-    if (char == "" or char in chars) if negated else char not in chars:
+    if pos >= len(text) or (
+        (text[pos] in chars) if negated else text[pos] not in chars
+    ):
         raise PdaFail(f"char class miss at {pos}", pos)
     return pos + 1
 
@@ -174,14 +177,19 @@ def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
     gk = arm.gate_kinds[i]
     if gk == GATE_STOP:  # the hot path, membership kept inline
         chars, negated = gate
-        while hi < 0 or count < hi:
-            char = text[pos : pos + 1]
-            if (char == "" or char in chars) if negated else char not in chars:
-                break
-            if not text.startswith(lit, pos):
-                raise PdaFail(f"expected {lit!r} at {pos}", pos)
-            pos += llen
-            count += 1
+        limit = len(text)
+        if negated:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] not in chars:
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}", pos)
+                pos += llen
+                count += 1
+        else:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] in chars:
+                if not text.startswith(lit, pos):
+                    raise PdaFail(f"expected {lit!r} at {pos}", pos)
+                pos += llen
+                count += 1
         return pos
     while (hi < 0 or count < hi) and gate_take(text, pos, gk, gate):
         if not text.startswith(lit, pos):
@@ -197,27 +205,42 @@ def match_cc(text: str, arm: FlatArm, i: int, pos: int) -> int:
     The gate loop needs no atom re-check: a stop-set is a subset of
     the atom's own FIRST, so a gate-admitted char always matches.
 
+    Each loop indexes the character and bounds-checks against the length, and
+    the polarity — fixed for the whole run — chooses the loop once rather than
+    being tested per character. Past the end there is no character at all, and
+    BOTH polarities fail there: a negated class admits every character it does
+    not hold, but it does not admit the absence of one.
+
     :raises PdaFail: On a mismatch in the mandatory run.
     """
     chars, negated = arm.payloads[i]
     lo, hi = arm.los[i], arm.his[i]
+    limit = len(text)
     count = 0
-    while count < lo:
-        char = text[pos : pos + 1]
-        if (char == "" or char in chars) if negated else char not in chars:
-            raise PdaFail(f"char class miss at {pos}", pos)
-        pos += 1
-        count += 1
+    if negated:
+        while count < lo:
+            if pos >= limit or text[pos] in chars:
+                raise PdaFail(f"char class miss at {pos}", pos)
+            pos += 1
+            count += 1
+    else:
+        while count < lo:
+            if pos >= limit or text[pos] not in chars:
+                raise PdaFail(f"char class miss at {pos}", pos)
+            pos += 1
+            count += 1
     gate = arm.gate_data[i]
     gk = arm.gate_kinds[i]
     if gk == GATE_STOP:  # the hot path, membership kept inline
         gchars, gnegated = gate
-        while hi < 0 or count < hi:
-            char = text[pos : pos + 1]
-            if (char == "" or char in gchars) if gnegated else char not in gchars:
-                break
-            pos += 1
-            count += 1
+        if gnegated:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] not in gchars:
+                pos += 1
+                count += 1
+        else:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] in gchars:
+                pos += 1
+                count += 1
         return pos
     while (hi < 0 or count < hi) and gate_take(text, pos, gk, gate):
         pos += 1
@@ -243,8 +266,9 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
             pos += len(lit)
         elif k == OP_CC1:
             chars, negated = arm.payloads[j]
-            char = text[pos : pos + 1]
-            if (char == "" or char in chars) if negated else char not in chars:
+            if pos >= len(text) or (
+                (text[pos] in chars) if negated else text[pos] not in chars
+            ):
                 raise PdaFail(f"char class miss at {pos}", pos)
             pos += 1
         elif k == OP_LIT:
@@ -281,9 +305,10 @@ def match_chartable[Carry](
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
     gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    limit = len(text)  # `table_miss` moves `pos`, never the text
     count = 0
     while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-        model = get(text[pos : pos + 1])
+        model = get(text[pos] if pos < limit else "")
         if model is None:
             pos = table_miss(text, clone, sink, pos)
         else:
@@ -413,7 +438,7 @@ def vstr_once[Carry](
 
     :raises PdaFail: On a terminal mismatch or no viable arm.
     """
-    char = text[pos : pos + 1]
+    char = text[pos] if pos < len(text) else ""
     table = clone.chartable
     if table is not None:
         if clone.runarm is not None:

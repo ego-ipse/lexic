@@ -23,8 +23,10 @@ from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
-    gate_take,
     no_shape_build,
+)
+from lexic.parsing.pda.compiler.program.gating import (
+    gate_take,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,

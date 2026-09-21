@@ -371,14 +371,12 @@ class Attempting[Carry]:
           ONCE (not twice) to see whether it completes at all: completing makes
           the difference real (a fork); dying means neither side completes, and
           a dead stop side is :data:`_TAKE` exactly as before.
-        - **one side dies during the lockstep** — the verdict is forced, and the
-          caller's slow path re-derives it without the bookkeeping.
+        - **the STOP side dies** — :data:`_TAKE`, since the caller tests
+          ``stop is None`` first regardless; a dead TAKE side does not settle
+          it, turning on the stop side reaching end-of-input, unestablished.
 
-        Anything else — no convergence inside the budget, an uncertain
-        (greedily sampled) side, a :class:`ProbeFork` from deeper in — returns
-        ``None``, and the caller runs today's comparison. That escape is what
-        makes the change unable to regress correctness: the worst case is the
-        behaviour and the answer that shipped before it.
+        No convergence in the budget returns ``None``: the caller runs today's
+        comparison. A :class:`ProbeFork` PROPAGATES — undecidable is not death.
 
         :returns: The verdict, or ``None`` when the long way must decide.
         """
@@ -387,7 +385,7 @@ class Attempting[Carry]:
         right = self._side(arm, i, pos, taken)
         for _round in range(_LOCKSTEP_ROUNDS):
             if left is None or right is None:
-                return None  # a dead side — the slow path names which
+                return _TAKE if left is None else None
             target = max(left[1], right[1])
             if left[1] == right[1]:
                 if control_signature(left[0], left[1]) == control_signature(
@@ -471,6 +469,8 @@ class Attempting[Carry]:
         try:
             self._drive(limit=limit)
             return self.stack, self.pos, self._routes
+        except ProbeFork:
+            raise  # undecidable is not death: it is the gated engine's
         except PdaFail, LexicError:
             return None
         finally:

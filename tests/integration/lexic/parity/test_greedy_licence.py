@@ -15,7 +15,7 @@ from typing import SupportsIndex
 import pytest
 
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.program.flatten import gate_take
+from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
 from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.products import (
