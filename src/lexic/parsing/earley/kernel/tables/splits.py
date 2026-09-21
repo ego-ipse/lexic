@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:  # `atoms` imports this module, so the link type flows one way
-    from lexic.parsing.earley.kernel.tables.atoms import KLink
+    from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, KLink
 
 
 class ChainSpec(NamedTuple):
@@ -46,7 +46,7 @@ _Level = dict[int, list[tuple[int, int, "KLink"]]]
 
 
 def leftmost_chain(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
     choices: dict[int, int],
@@ -86,7 +86,7 @@ def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainS
 
 
 def canonical_indices(
-    links: dict[int, list[KLink]], bucket: list[KLink], spec: ChainSpec
+    links: FamilyReader, bucket: list[KLink], spec: ChainSpec
 ) -> list[int]:
     """One family index per ARM — that arm's maximum, in arm-first-seen order.
 
@@ -116,7 +116,7 @@ def canonical_indices(
 
 
 def dominant(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     first: KLink,
     second: KLink,
     spec: ChainSpec,
@@ -166,7 +166,7 @@ def dominant(
 
 
 def _vector(
-    links: dict[int, list[KLink]], key: int, spec: ChainSpec, mask: int
+    links: FamilyReader, key: int, spec: ChainSpec, mask: int
 ) -> tuple[int, ...] | None:
     """``V(key)`` — its chain's boundaries from dot 1 up, deepest first.
 
@@ -183,7 +183,7 @@ def _vector(
 
 
 def _descend(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
     choices: dict[int, int],
@@ -207,7 +207,7 @@ def _descend(
 
 
 def _edges_at(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     key: int,
     spec: ChainSpec,
     choices: dict[int, int],
@@ -241,7 +241,7 @@ def is_arm_choice(bucket: list[KLink], bits: int, code_choice: tuple[int, ...]) 
 
 
 def _candidates(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     bucket: list[KLink],
     pinned: int | None,
     spec: ChainSpec,

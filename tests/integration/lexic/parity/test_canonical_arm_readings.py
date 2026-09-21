@@ -174,7 +174,7 @@ def test_the_primitive_answers_what_the_chain_reader_answers(
 
 def _agreeing_keys(kernel: Kernel, tables) -> int:
     """Assert the two entry points agree at every packed split key; count them."""
-    links = kernel.st.links
+    links = kernel.families
     codes, bits = tables.codes, tables.packing.bits
     checked = 0
     for handle, bucket in links.items():
@@ -188,7 +188,11 @@ def _agreeing_keys(kernel: Kernel, tables) -> int:
         for rival in bucket[1:]:
             best = dominant(links, best, rival, spec)
         checked += 1
-        assert best is chain[-1], (
+        # Compared by VALUE, not identity: a family IS its
+        # ``(waiter, origin, child)`` triple — the same triple names the same
+        # family however it was obtained — and ordinary families are derived
+        # per read rather than being one shared object.
+        assert best == chain[-1], (
             f"at key {handle} the primitive keeps {best[:2]} where the chain "
             f"reader descends into {chain[-1][:2]}"
         )
