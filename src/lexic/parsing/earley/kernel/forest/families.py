@@ -1,36 +1,32 @@
-"""The completion-family relation — ordinary families DERIVED, the rest stored.
+"""One family store, classified by MULTIPLICITY.
 
-An ordinary completion family carries no information the chart does not
-already hold. ``_complete`` files one per waiter per completion:
+A key with a single family keeps it in :attr:`KernelState.links` exactly as it
+always did — same dict, same one-element list, same tuple — and reads return
+THAT OBJECT. At fanout one the baseline already stores one family in one hash
+slot, so there is nothing to save there, and anything spent rebuilding a tuple
+and a list per read is pure loss. The flat charts therefore take the old path
+by construction, not by tuning.
 
-    origin = it & mask
-    wl     = waiting[origin][ arm_rule[code_arm[it >> bits]] ]
-    for w in wl:  links[((w + advance) << bits) | i] += (w, origin, (it << bits) | i)
+The SECOND distinct family at a key PROMOTES it. From then on nothing more is
+stored for that key, and its families are read back from the chart: for a
+promoted key the waiter is the key's own, and the completions of the rule it
+faces that end there sit in ``cols[end]``, in the order ``_close`` completed
+them — which is the order the families were recorded in. That is the
+population that grows faster than the document on a split-ambiguous chart, and
+it is the only one this stops storing.
 
-so the family is fixed by ``(origin, completed code)``: ``w`` is the key's own
-waiter and ``child`` packs the code with the origin and the end column. The
-stored table was therefore the CROSS PRODUCT of two facts the recogniser
-retains anyway — where a waiter waits, and which completions end where — and
-on a split-ambiguous chart that product is what grows.
-
-**What is derived, and what is not.** Only ORDINARY, positive-width completion
-families are derived. Scan, nullable, delegated and Leo provenance stay stored
-in :attr:`KernelState.links`, because each is filed by a different producer
-that this relation does not describe:
+**What is never read back.** Scan, nullable, delegated and Leo families are
+filed by other producers and stay stored whatever their multiplicity:
 
 * a scan family's child is consumed TEXT, and which origins scanned to an end
   is indexed by ``scannable``, not by rule completion;
 * a zero-width family is filed by ``_nullable_advance`` at the waiter's own
   visit — ``_close`` skips ``_complete`` entirely when ``it & mask == i``;
-* a delegated family's child is a built model payload;
+* a delegated family's child is a built model payload, and only ``_complete``
+  writes the promotion set, so a delegated completion cannot enter it;
 * a Leo chain's INTERMEDIATE completions are never filed in ``cols`` —
-  ``_try_leo`` appends only the chain top — so no index over ``cols`` can
-  reach them.
-
-**Order.** Derivation walks ``cols[end]`` in insertion order, which is the
-order ``_close`` completed those items in, which is the order their families
-were appended. Stored families follow, because every producer that survives
-here either owns its key alone or (Leo) runs after recognition closes.
+  ``_try_leo`` appends only the chain top — so no walk of a column reaches
+  them.
 """
 
 from __future__ import annotations
@@ -41,75 +37,81 @@ from lexic.parsing.earley.kernel.loop.state import KLink
 
 
 class FamilyTable:
-    """One parse's families: derived where possible, stored where not.
+    """One parse's families: stored at fanout one, read back when promoted.
 
-    Reads like the mapping it replaces — ``get``, ``[]``, ``in``, ``items`` —
-    but holds only the families it cannot derive.
-
-    :ivar explicit: The stored families (scan / nullable / delegated / Leo).
-    :ivar kern: The finished kernel the ordinary families are derived from.
+    :ivar explicit: The store — :attr:`KernelState.links`, unchanged in shape.
+    :ivar kern: The finished kernel a promoted key's families are read from.
     """
 
     __slots__ = ("explicit", "kern")
 
     def __init__(self, kern) -> None:
-        """:param kern: the kernel whose ``cols`` and ``waiting`` are the factors."""
+        """:param kern: the kernel whose ``cols`` and ``waiting`` hold the rest."""
         self.kern = kern
         self.explicit = kern.st.links
 
-    def _completions(self, end: int) -> Iterator[tuple[int, int, int]]:
-        """Every positive-width completion ending at ``end``, in `cols` order.
+    def get(self, key: int, /) -> list[KLink] | None:
+        """This key's families, or ``None`` when it names none.
 
-        Yields ``(rule_id, origin, item)``. Zero-width completions are skipped:
-        ``_close`` never routes them through ``_complete``, so no ordinary
-        family was ever filed for one.
+        The common case is one dict lookup and one set membership: a key that
+        never promoted returns the stored list ITSELF, the same object the
+        recorder built, with nothing reconstructed.
         """
-        codes = self.kern.tables.codes
-        bits, mask = self.kern.tables.packing.bits, self.kern.tables.packing.mask
-        for it in self.kern.cols[end]:
-            code = it >> bits
-            if codes.next_sym[code] == 0 and (it & mask) != end:
-                yield codes.arm_rule[codes.code_arm[code]], it & mask, it
-
-    def derived(self, key: int) -> list[KLink]:
-        """The ordinary families at ``key``, in ``cols[end]`` order.
-
-        Empty for a key whose waiter faces a terminal: those families are
-        scanned, not completed, and are stored.
-        """
-        codes = self.kern.tables.codes
-        bits = self.kern.tables.packing.bits
-        end = key & self.kern.tables.packing.mask
-        waiter = (key >> bits) - self.kern.tables.packing.advance
-        code = waiter >> bits
-        # A key the chart never produced decodes to nonsense. The mapping this
-        # replaces answered such a key with a miss, so this does too rather
-        # than letting an out-of-range index escape as an IndexError.
-        if end >= len(self.kern.cols) or not 0 <= code < len(codes.next_sym):
-            return []
-        rid = codes.next_sym[code] - 1
-        if rid < 0:
-            return []
-        waiting = self.kern.st.waiting
-        return [
-            (waiter, origin, (it << bits) | end)
-            for rule, origin, it in self._completions(end)
-            if rule == rid and waiter in waiting[origin].get(rid, ())
-        ]
-
-    def get(
-        self, key: int, default: list[KLink] | None = None, /
-    ) -> list[KLink] | None:
-        """This key's families, derived then stored, or ``default`` if none."""
-        out = self.derived(key)
         stored = self.explicit.get(key)
-        if stored:
-            if out:
-                seen = set(out)
-                out = out + [one for one in stored if one not in seen]
-            else:
-                out = list(stored)
-        return out if out else default
+        if key not in self.kern.st.promoted:
+            return stored
+        return self._promoted(key, stored)
+
+    def _promoted(self, key: int, stored: list[KLink] | None) -> list[KLink]:
+        """A promoted key's families: the stored first, then the rest."""
+        out = list(stored) if stored else []
+        seen = set(out)
+        for one in self._from_chart(key):
+            if one not in seen:
+                out.append(one)
+        return out
+
+    def _from_chart(self, key: int) -> Iterator[KLink]:
+        """Every ordinary family at a promoted ``key``, in completion order.
+
+        ``cols[end]`` is walked in insertion order, which is the order
+        ``_close`` completed those items in, which is the order their families
+        were recorded in.
+        """
+        kern = self.kern
+        codes = kern.tables.codes
+        pk = kern.tables.packing
+        bits, mask = pk.bits, pk.mask
+        end = key & mask
+        waiter = (key >> bits) - pk.advance
+        rid = codes.next_sym[waiter >> bits] - 1
+        if rid < 0:
+            return
+        waiting = kern.st.waiting
+        delegated = kern.delegated
+        for it in kern.cols[end]:
+            code = it >> bits
+            if codes.next_sym[code] != 0 or (it & mask) == end:
+                continue
+            if codes.arm_rule[codes.code_arm[code]] != rid:
+                continue
+            if ((it << bits) | end) in delegated:
+                continue
+            origin = it & mask
+            if waiter in waiting[origin].get(rid, ()):
+                yield waiter, origin, (it << bits) | end
+
+    def first(self, key: int) -> KLink | None:
+        """This key's FIRST family — one dict lookup, nothing rebuilt."""
+        stored = self.explicit.get(key)
+        return stored[0] if stored else None
+
+    def at_least_two(self, key: int) -> bool:
+        """Whether this key names more than one family — lookups only."""
+        if key in self.kern.st.promoted:
+            return True
+        stored = self.explicit.get(key)
+        return stored is not None and len(stored) > 1
 
     def __getitem__(self, key: int) -> list[KLink]:
         """This key's families; raises like the mapping it replaces."""
@@ -120,74 +122,33 @@ class FamilyTable:
 
     def __contains__(self, key: int) -> bool:
         """Whether this key names any family at all."""
-        return self.get(key) is not None
+        return key in self.explicit
 
     def keys(self) -> Iterator[int]:
-        """Every key naming a family — derived keys included.
-
-        Enumerating the derived keys re-walks the completer's cross product,
-        so a caller that materialises this pays the population the stored
-        table used to hold. Only the decode path does.
-        """
-        bits = self.kern.tables.packing.bits
-        advance = self.kern.tables.packing.advance
-        waiting = self.kern.st.waiting
-        seen: set[int] = set()
-        for end in range(len(self.kern.cols)):
-            for rid, origin, _it in self._completions(end):
-                for waiter in waiting[origin].get(rid, ()):
-                    key = ((waiter + advance) << bits) | end
-                    if key not in seen:
-                        seen.add(key)
-                        yield key
-        for key in self.explicit:
-            if key not in seen:
-                yield key
+        """Every key naming a family — the store holds one entry for each."""
+        return iter(self.explicit)
 
     __iter__ = keys
-    """Iterating the table yields KEYS, as iterating the mapping it replaces did.
+    """Iterating yields KEYS, as the mapping this replaces did.
 
-    Defined explicitly because it would otherwise not be missing so much as
-    WRONG: with ``__getitem__`` present and keys being plain ints, ``for k in
-    table`` falls back to the legacy index protocol and yields ``table[0]``,
-    ``table[1]`` … before raising ``KeyError`` instead of stopping.
+    Defined explicitly because it would otherwise be WRONG rather than
+    missing: with ``__getitem__`` present and keys being plain ints, ``for k
+    in table`` falls back to the legacy index protocol and yields
+    ``table[0]``, ``table[1]`` … before raising ``KeyError``.
     """
 
     def __len__(self) -> int:
-        """How many keys name a family — pays the full derivation walk.
-
-        Defined rather than left to raise, but it is not cheap: unlike the
-        dict this replaces, the count is not known until the cross product has
-        been walked. ``bool(table)`` goes through it too, so an empty table is
-        falsey as the mapping's was.
-        """
-        return sum(1 for _ in self.keys())
+        """How many keys name a family."""
+        return len(self.explicit)
 
     def items(self) -> Iterator[tuple[int, list[KLink]]]:
-        """Every key with its families — ONE pass, each family built once.
+        """Every key with its families, ONE key at a time.
 
-        Not ``keys()`` then ``get()`` per key: that walks every
-        ``(end, completion, waiter)`` triple to find the keys and then walks
-        each key's column AGAIN to rebuild its list, which is O(keys x column)
-        where iterating the dict this replaces was O(families). A product
-        where it should be a sum, and on a split-ambiguous chart the product
-        is the thing that made the table worth removing.
-
-        So: walk each column once, emit each family into its key's group as it
-        is produced, then merge the stored families in behind the derived ones
-        — the same derived-then-stored order :meth:`get` establishes.
+        Streams: the decode path consumes a key's families and moves on, so
+        nothing here holds the whole population at once. A shape that grouped
+        every family into one dict before returning would put the cross
+        product back in memory on exactly the path this exists to relieve.
         """
-        pk = self.kern.tables.packing
-        waiting = self.kern.st.waiting
-        grouped: dict[int, list[KLink]] = {}
-        for end in range(len(self.kern.cols)):
-            for rid, origin, it in self._completions(end):
-                child = (it << pk.bits) | end
-                for waiter in waiting[origin].get(rid, ()):
-                    key = ((waiter + pk.advance) << pk.bits) | end
-                    grouped.setdefault(key, []).append((waiter, origin, child))
+        promoted = self.kern.st.promoted
         for key, stored in self.explicit.items():
-            bucket = grouped.setdefault(key, [])
-            seen = set(bucket)
-            bucket.extend(one for one in stored if one not in seen)
-        return iter(grouped.items())
+            yield key, (self._promoted(key, stored) if key in promoted else stored)
