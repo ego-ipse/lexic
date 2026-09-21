@@ -40,6 +40,8 @@ from tools.benchmark.cases.corpora import (
     csv_corpus,
     dense_earley_corpus,
     ground_truth,
+    interior_climb_corpus,
+    interior_exact_corpus,
     island_corpus,
     json_corpus,
     lexrun_corpus,
@@ -48,10 +50,16 @@ from tools.benchmark.cases.corpora import (
     mixedends_corpus,
     nested_corpus,
     split_nullable_corpus,
+    start_fallback_corpus,
     vyx_corpus,
     wrapped_unit_corpus,
 )
 from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
+from tools.benchmark.cases.engine_reach import (
+    INTERIOR_CLIMB,
+    INTERIOR_EXACT,
+    START_FALLBACK,
+)
 
 _ROOT = Path(__file__).resolve().parents[3]
 _ONLY_BENCHMARK = os.environ.get("LEXIC_BENCHMARK_GRAMMAR")
@@ -356,17 +364,17 @@ lparen ::= "("
 rparen ::= ")"
 nl ::= "\\n"
 """
-"""A LEFT-RECURSIVE spine over a long deterministic interior.
+"""A LEFT-RECURSIVE spine over a long deterministic interior — a FOLD row.
 
-Predictive descent cannot run a left-recursive rule at all, so ``expr`` is an
-island and the Earley route executes for real — on every other row it does not
-run once. The interior is deliberately substantial: each term is a call whose
-arguments are ordinary character runs, so the row's cost is the gated engine
-doing ordinary work rather than a pathological ambiguity.
+``expr``'s recursive arm captures, so the left-recursion fold takes it: the
+rule is rewritten to ``(γ)(β)*``, the predictive path runs it, and the
+iterations are folded back into the model the original arms build. This is one
+of the roster's two ``BUILD_FOLD`` rows, and what it prices is that fold over a
+long deterministic interior — each term a call whose arguments are ordinary
+character runs, with the left-nested rebuild's depth set by the chain's length.
 
-That is what it exists to price. Earley's cost on the roster is otherwise
-invisible, so a change to the chart, the forest or the completion has no row
-that can regress — and a row nobody can regress is a gap, not a guarantee."""
+It does NOT reach the gated engine. Engine reach is held by `start-fallback`,
+`interior-exact` and `interior-climb`, each of which asserts its own counter."""
 
 
 _DENSE_EARLEY = """root ::= line+
@@ -385,18 +393,24 @@ per-column change therefore reports a saving there whether or not it taxes the
 columns that ARE occupied, and no row on the roster contradicts it.
 
 This row is that contradiction. Every unit is a single character, so essentially
-every column is occupied; the recursion is left, so the predictive path declines
-and the chart is really built; the grammar is unambiguous and the chain is
-bounded per line, so the cost is linear and the row is a control rather than a
+every column is occupied; the grammar is unambiguous and the chain is bounded
+per line, so the cost is linear and the row is a control rather than a
 pathology.
+
+Its recursion is left and its recursive arm captures, so the fold takes it and
+the predictive path runs the row: this is the roster's other ``BUILD_FOLD``
+row. The dense CHART is still measured here by the `lexic-earley` seat, which
+calls the gated engine directly; what the row does not do is choose that engine
+itself. Which engine a shape REACHES is pinned by the three engine-reach rows,
+not by this one.
 
 **A control that does not finish reads nothing.** Both arms of an A/B run this
 row up to the pair ceiling in fresh processes, and a size that makes the base
 arm time out does not produce a cautious verdict — it produces no verdict, on
 the one row the others cannot speak for. So the samples are sized against the
-roster's other Earley row rather than against the largest chart they could
-build: a dense column costs about fifteen times what a run-collapsed one does,
-and these two documents put this row's worker processes at or below what
+roster's other left-recursive row rather than against the largest chart they
+could build: a dense column costs far more than a run-collapsed one, and these
+two documents put this row's worker processes at or below what
 `island-earley`'s already cost. The full sample stays above four workers' worth
 of the split floor, so the mt seats still carve it."""
 
@@ -627,9 +641,31 @@ _DEFINED_BENCHES = (
         ("<<<\n\n\n>>>\n", "<<<\na\n\n>>>\n", "<<<\na\nb\n\n\n\n>>>\n"),
         ("", "<<<\n>>>\n", "\n\n", "<<<\na\n\n", "a\n\n>>>\n"),
     ),
-    # The only row whose ISLAND executes: a left-recursive spine the predictive
-    # path cannot run at all, so the gated engine does the work and a change to
-    # it has somewhere to show.
+    # The three ENGINE-REACH witnesses: the product's whole-parse fallback, an
+    # exact-width island, and a climbing one. Each asserts its own counter in
+    # `tests/integration/lexic/parity/test_engine_reach.py`, so a row that
+    # stops reaching the engine it is named for FAILS instead of going quiet.
+    _bench(
+        "start-fallback",
+        START_FALLBACK,
+        Samples(start_fallback_corpus(2400), start_fallback_corpus(9600)),
+        ("a", "aa", "aaa"),
+        ("", "b", "ab", "a\n"),
+    ),
+    _bench(
+        "interior-exact",
+        INTERIOR_EXACT,
+        Samples(interior_exact_corpus(2400), interior_exact_corpus(9600)),
+        ("a\n", "aa\n", "aaa\n"),
+        ("", "a", "\n", "ab\n", "a\n\n"),
+    ),
+    _bench(
+        "interior-climb",
+        INTERIOR_CLIMB,
+        Samples(interior_climb_corpus(2400), interior_climb_corpus(9600)),
+        ("zzz\n", "zazz\n", "zaazz\n"),
+        ("", "z\n", "zz\n", "zazz", "azz\n"),
+    ),
     # The DENSE counterpart: same engine, every column occupied, so a
     # per-column change cannot report a sparse chart's saving unopposed.
     _bench(

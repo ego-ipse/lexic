@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
@@ -21,7 +22,6 @@ from lexic.parsing.pda.runtime.build import (
 
 __all__ = [
     "NO_ROUTE",
-    "PROBE_DEPTH",
     "RouteLane",
     "Side",
     "control_signature",
@@ -45,12 +45,6 @@ A UNIFORM triple. The lane slot is ``None`` for every program without route
 continuations rather than the tuple changing arity by product, so the
 boundary-decision path stays one shape and one call signature whatever is
 being parsed."""
-
-PROBE_DEPTH = 24
-"""Stop-probe nesting cap. Past it a boundary reads as undecidable
-(:class:`~lexic.parsing.pda.core.errors.ProbeFork` — viable, so the parse
-bails to the gated engine); the cap only ever costs a fallback, never a
-wrong commit."""
 
 
 def admits(char: str, chars: Any, negated: Any) -> bool:
@@ -99,12 +93,10 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar deleg: Island name → its wrapped interior delegate table.
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
-    :ivar probing: The live stop-probe nesting depth. A boundary inside a
-        probe resolves by a NESTED probe — its completion is the outer
-        answer, its failure lets the outer probe drive on — capped at
-        :data:`PROBE_DEPTH`, past which a boundary raises
-        :class:`~lexic.parsing.pda.core.errors.ProbeFork` (undecidable reads
-        as viable).
+    :ivar probing: How many probes are live. Non-zero means a boundary is
+        resolved GREEDILY by class rather than by forking again, which is what
+        makes probes never nest. A counter rather than a flag because
+        :meth:`_advance` counts its own drive too.
     :ivar uncertain: Set when a probe's drive resolved a both-viable
         boundary GREEDILY (probes never nest — the exponential chain of a
         rules-list grammar probing every later line is cut to one linear
@@ -134,21 +126,51 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
 
     Frames alias each other: a frame's ``out`` IS the run holder, a parent's
     per-item sink list, or (through a transparent frame) an ancestor's — so a
-    plain per-frame copy would break the funnels. Every list is duplicated
-    once via an identity map and every reference re-resolved through it;
-    model objects inside sinks are immutable and stay shared.
+    plain per-frame copy would break the funnels. Every container is mapped
+    once via an identity map and every reference re-resolved through it, so a
+    list two frames share is one list on the far side too.
+
+    **The containers fork EMPTY.** A fork needs the values it BUILDS; the
+    prefix it inherited is common to every side by construction, which is the
+    same fact :func:`pending_values` relies on to compare deltas rather than
+    whole states. Copying that prefix made a linear number of forks each copy
+    a linearly-growing sink — and it is a prefix almost nothing goes on to
+    read, so the work was quadratic in the fork count and wasted besides. On a
+    256 KB gbnf-meta document the copies moved 407 M list elements, of which
+    the builds read 14,632 back. That is what the eighth
+    :class:`~lexic.parsing.pda.runtime.build.Frame` slot buys: ``inherited``
+    costs one pointer per frame and removes the copy entirely.
+
+    Each copy keeps a reference to the frame it came from
+    (:attr:`~lexic.parsing.pda.runtime.build.Frame.inherited`) and takes the
+    prefix back — by copying it in front of its own values, never by writing
+    through the original — at the one moment it is read, which is its build.
+    Two live universes therefore still append only to their own lists.
     """
+    # The ROOT frame, because it is never popped before the drive reaches end
+    # of input; the top frame is fresh and would prove nothing. Raised rather
+    # than asserted because `-O` strips asserts and a nested fork builds a
+    # SHORT model silently; the class says why it is outside the LexicError
+    # family. See `invariants.md`.
+    if stack and stack[0].inherited is not None:
+        raise EngineInvariantError(
+            "frames_copy: a fork inside a fork — probes are not allowed to nest"
+        )
     remap: dict[int, list[Any]] = {}
     copies: list[Frame[Carry]] = []
     for frame in stack:
-        new = Frame(frame.arm, _dup(frame.out, remap), frame.clone, 0)
+        new = Frame(frame.arm, _fork(frame.out, remap), frame.clone, 0)
         new.i = frame.i
         new.count = frame.count
+        new.inherited = frame
         if frame.ends is not None:
+            # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed
+            # at ``arm.n + 1``, so it neither grows with the document nor
+            # survives being started empty. Copied whole, for a constant.
             new.ends = _dup(frame.ends, remap)
         sinks = frame.sinks
         if sinks is not None:
-            new.sinks = [slot if slot is None else _dup(slot, remap) for slot in sinks]
+            new.sinks = [slot if slot is None else _fork(slot, remap) for slot in sinks]
         copies.append(new)
     return copies
 
@@ -264,6 +286,20 @@ def _dup(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
     return got
 
 
+def _fork(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
+    """``lst``'s empty fork — one per original, so aliases stay aliased.
+
+    The contents are not copied; see :func:`frames_copy` for why, and
+    :meth:`~lexic.parsing.pda.runtime.build.Frame.adopt_inherited` for where
+    they come back.
+    """
+    got = remap.get(id(lst))
+    if got is None:
+        got = []
+        remap[id(lst)] = got
+    return got
+
+
 def control_signature(stack: list[Frame], pos: int) -> tuple[Any, ...]:
     """What a probe side must SHARE with the other to have a common future.
 
@@ -332,6 +368,12 @@ def value_shape(stack: list[Frame]) -> tuple[Any, ...]:
     lets :func:`pending_values` compare the delta instead of the whole
     accumulated state — the difference between O(built-since) and O(built), and
     the difference between a linear parse and a quadratic one.
+
+    Taken on the LIVE stack, whose containers hold what they hold. A fork's
+    containers start empty (:func:`frames_copy`), so its own values are
+    everything past a watermark of zero — and :func:`pending_values` reads a
+    container shorter than its watermark as "replaced, compare whole", which
+    on a forked side is exactly its own values and nothing else.
     """
     return tuple(
         (

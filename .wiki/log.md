@@ -2082,3 +2082,137 @@ rule, reproducible and expensive: a per-character loop reading the document
 from a module-level name scales at 0.45x on sixteen threads whatever the
 container, because a module global is a shared mortal object and every read is
 an atomic reference count. Pass the text in.
+
+## What a compiled artefact may hold
+
+A full collection walks the whole tracked population, so what an artefact
+RETAINS is a permanent cost whether or not anything reads it.
+
+`PdaTables` no longer carries `.clones`. The authored
+`CloneSpec`/`ArmSpec`/`CharSet` layer is what the clone compiler produces on
+the way to the flat `PdaProgram`; once `flatten_program` has lowered it the
+artefact is the program, and holding it on as well kept 14–39% of the
+artefact's tracked objects alive with nothing on the parse path reading them —
+3,314 on the GBNF self-grammar, 5,629 on ABNF's, 12,608 on the largest roster
+grammar. A full collection over the whole roster's artefacts went from 9.5 ms
+to 8.1 ms, with 166,400 tracked objects down to 131,760. Parse time did not
+move: both engines' seats sit inside their own null arm across five
+interleaved process pairs, in both arm orders. `compile_clones` is where a
+caller that wants the specs asks, and it hands back a compiler of its own.
+
+The instrument that found the retention is worth its own line: a reachability
+census must descend only into objects the compile CREATED. A walk that crosses
+one pre-existing object reaches a type, then a method, then that module's
+globals, and from there the whole interpreter — the first version reported a
+delta of zero on every row because the first owner had swallowed the process.
+
+## Forks never nest, and the reason is a branch rather than a shape
+
+`adopt_inherited` prepends one origin's sinks, which is correct only if
+`inherited` chains are length 1. Two independent reads reached the same line —
+`if self._caches.probing:` in `decisions.py` — and the same conclusion: the only
+entry to either fork site sits in that branch's `elif`, so a fork cannot be
+taken from inside one. An instrumented run over the roster agreed: 294 forks,
+none copying a stack that held an unadopted frame.
+
+It is recorded in `invariants.md` as a POLICY invariant because nothing about
+the shapes prevents nesting — a branch does, and two optimisations anyone might
+reach for would remove it while the model quietly came out short. `frames_copy`
+now raises on the root frame's marker rather than assuming, and raises rather
+than asserts: `-O` strips asserts, and `PdaFail` would be caught by the engine
+seam and fall back to Earley, hiding the breach behind a correct parse.
+
+`PROBE_DEPTH` went with it — dead, exported, and named by a docstring that still
+described the nested-with-a-depth-cap policy three lines above a sentence saying
+probes never nest.
+
+## EngineInvariantError — the engine's own breaches leave the LexicError family
+
+`EngineInvariantError(RuntimeError)` added to `exceptions.py` with its five
+raisers in one commit. The family `LexicError` is what a caller catches to fall
+back — to a sequential parse, or to the gated engine — so a breach wearing it
+would be answered with a correct-looking parse and the wrong model would never
+surface.
+
+Membership is decided by what a breach PRODUCES: an engine invariant's breach
+yields a wrong answer a fallback hides; a precondition's breach crashes at the
+site, and keeps Python's own vocabulary. Ten candidates were read, five taken.
+The five left out are recorded with a reason each in the effort's report —
+four `assert ... is not None` sites that each die on the next line anyway, and
+a dispatch-signature `TypeError` whose migration would make the class mean two
+things.
+
+`error-vocabulary.md`'s "All inherit from `LexicError(Exception)`" was amended
+rather than extended: it became false the moment this landed.
+
+## The identity walk descends a repetition's run
+
+`field_children` treated a model's repeated field as a leaf: a run is a plain
+`tuple`, not an `IrSelf`, so filtering the parts to `IrSelf` stopped at the
+first one and a census of a whole csv document returned four nodes. It now
+splices a run's members in place of the run.
+
+Measured both ways before and after: the grammar-AST censuses do not move (no
+grammar node holds a bare run, and that CONDITION is what the gate asserts —
+not a count, which would rot as the corpus grows), while a model's census now
+equals an independent position walk to the unit. The one model census in the
+suite reads 24 against 67 emission extents, so the sharing gate it feeds keeps
+its margin.
+
+`ir-shapes.md` gains the paragraph, including the scope boundary — `transpile`
+walks models through `children()` and is NOT reached — and the count of places
+the repo spells "is a run", now four, so a fifth is visible rather than
+accidental.
+
+The freeze test names each route's evidence for what it is. Two are exercised
+end to end; the stitch family is cited to the split tests that already cover
+it; and the validated keyword path is pinned against its constructor rather
+than through a document, because no shipped grammar reaches it carrying a run
+— the fast licence is granted on every clone in the roster and the ground-truth
+corpus, so that path is entered only by an empty alternate arm.
+
+## The window-gated pass-through alternation dispatches without a frame
+
+`convert_dispatch` refused any clone selecting by window or post-noise peek,
+so a pass-through alternation that one lookahead character could not decide
+paid a frame to hand its sink to the clone its arm named. The refusal was
+about the SELECTION; the rewrite's soundness is about what the alternation
+builds, and a wide clone whose every arm is a single unit reference builds
+nothing either.
+
+Such a clone now converts and keeps its selection, its arms rebuilt as targets
+through one payload-mapping operation on the selection contract, so there is
+no table beside it and no second lookup. `chase_dispatch` takes the text and
+selects per hop by the clone's own selection when it has one and by lead char
+when it does not — one implementation, because a chain can mix the two in
+either order, and the position does not move across it.
+
+Two consumers had to change for a reason worth recording: a wide dispatch
+leaves `selectors` empty, so anything enumerating a dispatch clone's edges
+from `selectors` alone sees only the default. The `OP_VDISP` landing licence
+now enumerates the selection's targets; the char table refuses a wide clone
+outright, since a table answering one character cannot stand in for a
+selection that one character cannot make.
+
+
+## A folded left recursion becomes a split source
+
+`plan/folded.py` joins `plan/routed.py` as a region source. It reads
+`leftrec/shape.foldable` over the codegen grammar — the same analysis the
+predictive path uses to decide the fold, never its compiled clones — holds the
+start rule's fixed-text shell out of the spine's extent, and enumerates the
+separator offsets inside it. The cut consumes its mark as any separated cut
+does; the stitch folds the pieces' spines left-associatively, grafting the
+accumulated value onto the next piece's innermost base through the removed
+mark's re-parsed model, and the accumulator is never re-walked.
+
+Two things are written down because they were nearly got wrong. The extent is
+its own arithmetic: `_whole_region` ends an interior at the last mark, which on
+a separated spine is the last operator and drops the final term. And the
+boundary proof is asked of EVERY CHARACTER of the mark rather than the first —
+`"+a"` over `[a-z]+` excludes `"+"` and not `"a"`, so a first-character
+criterion would have served a mark whose occurrences are not aligned.
+
+`parallel-parsing.md` gains the plan-kind row and the proof's shape;
+`decisions.md` records why it is a source rather than a fourth plan kind, and
+that the bordered widening is sound and untaken.

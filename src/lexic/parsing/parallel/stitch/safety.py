@@ -80,6 +80,16 @@ def owner_excludes(
     Spelling, not emission: a separator wider than one character can be
     assembled at the join between two adjacent items neither of which emits it,
     so the question is asked of the owner's TEXT rather than of its atoms.
+
+    A caller whose occurrences are not known to be aligned asks this of EVERY
+    CHARACTER of its mark, one call each, rather than of the whole spelling.
+    Exclusion on a substring implies exclusion on every superstring, so a
+    per-character answer is the strongest form available — and it is the one
+    that stays inside ``MARK_ARITY``, above which ``rule_spells`` answers "can
+    spell" by design. Together with a non-empty item between two marks it
+    proves alignment without any border theory: ``" + "`` and ``"aba"`` have
+    the same border structure, and what tells them apart is whether an owner
+    can emit the character a spurious occurrence would need.
     """
     key = (id(grammar), owner, separator, region_scan)
     entry = _OWNER_PROOFS.get(key)

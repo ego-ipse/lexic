@@ -32,6 +32,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT,
     OP_LIT1,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
@@ -92,7 +93,7 @@ def _clone_admits(clone: FlatClone, char: str) -> bool:
     """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
     if clone.attempt is not None:
         return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return True  # windowed selection — MAY
     if clone.default is not None:
         return True  # a nullable default may defer admission further down
@@ -161,8 +162,13 @@ class Attempting[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
-    def _island(self, name: str, sink: list[Carry]) -> None:
-        """Provided by the kernel — the windowed Earley island splice."""
+    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
+        """Provided by the kernel — the windowed Earley island splice.
+
+        ``ref`` is the ``OP_ISLAND`` payload: the island rule's name, what may
+        follow it AT THIS OCCURRENCE, and whether that continuation also bounds
+        its extent.
+        """
         raise NotImplementedError
 
     def attempt_iteration(

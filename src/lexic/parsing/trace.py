@@ -292,19 +292,21 @@ def _gate_of(clone: FlatClone) -> str:
     """Which gate this clone's entry consults, in words, or ``""`` for none.
 
     The plain FIRST-char selector is not one: it is the table read every entry
-    does. A gate is what the analysis had to DECIDE — a bounded-lookahead
-    window, a prefix negation, a structured-noise scan, or an attempt set whose
-    arms are settled by running them.
+    does. A gate is what the analysis had to DECIDE — a wide selection naming
+    itself (``k-window``, ``prefix negation``), a structured-noise scan, or an
+    attempt set whose arms are settled by running them. The wide selection's
+    own :attr:`~lexic.parsing.pda.compiler.program.flatten.WideSelect.label`
+    supplies its words, so a third kind spells itself here without this
+    function learning about it.
 
     :param clone: The clone being entered.
     :returns: The gate's words, or ``""``.
     """
     if clone.attempt is not None:
         return f"attempt over {len(clone.attempt[1])} entries"
-    if clone.kwin_selectors is not None:
-        return f"k-window over {len(clone.kwin_selectors)} arms"
-    if clone.pn_selectors is not None:
-        return f"prefix negation over {len(clone.pn_selectors)} arms"
+    if clone.wide_selectors is not None:
+        wide = clone.wide_selectors
+        return f"{wide.label} over {len(wide.arms)} arms"
     if clone.struct_arm is not None:
         return "structured-noise scan"
     return ""

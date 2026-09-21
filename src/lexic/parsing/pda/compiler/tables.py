@@ -1,7 +1,8 @@
 """``PdaTables`` — what a compiled grammar's predictive half IS.
 
-The artifact `compile_pda` returns and the runtime executes: the flat program,
-its clone index, and the island tables the cold path falls back to.
+The artifact `compile_pda` returns and the runtime executes: the flat program
+and the island tables the cold path falls back to. The authored clone specs it
+was lowered from are a compile-time intermediate and do not survive here.
 """
 
 from __future__ import annotations
@@ -22,10 +23,8 @@ from lexic.parsing.pda.compiler.program.flatten import (
 from lexic.parsing.pda.compiler.program.lower import flatten_program
 from lexic.parsing.pda.compiler.specs import (
     CloneKey,
-    CloneSpec,
     IslandRef,
 )
-from lexic.parsing.pda.core.charsets import CharSet
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
@@ -37,15 +36,24 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     Complete and immutable after :func:`compile_pda`; only the island cache
     fills lazily (in place, the :class:`ParserTables` scanning-cache precedent).
 
-    :ivar clones: Clone key → its :class:`CloneSpec`.
+    The authored :class:`CloneSpec` layer is **not** part of it. Those specs
+    are what the clone compiler produces on the way here; once
+    :func:`~lexic.parsing.pda.compiler.program.lower.flatten_program` has
+    lowered them the artifact is the program, and holding them on as well kept
+    a large share of its GC-tracked population alive for the life of the
+    process with nothing reading it. A caller that wants to
+    READ the specs compiles them itself
+    (:func:`~lexic.parsing.pda.compiler.clones.compile_clones`), where their
+    lifetime is its own.
+
     :ivar start_key: The start clone's key, or an :class:`IslandRef` when the
         start rule is an island (the whole-grammar opt-out signal for Task 6).
-    :ivar island_follow: Island rule name → its soft-FOLLOW
-        :class:`~lexic.parsing.pda.core.charsets.CharSet` — the continuation
-        evidence the island seam's cross-span check reads. Rule-level (union
-        over reference sites), so ⊇ any one site's continuation: an error can
-        only be a spurious bail, never a wrong commit. Its key set IS the
-        island set (:attr:`islands` reads it back).
+    :ivar islands: The island rule names. The seam's continuation evidence
+        used to live here as a per-island FOLLOW map; it does not, because the
+        set a two-ends check needs is what the island's REFERENCES are
+        followed by, not what the island rule's own FOLLOW contains, and that
+        set rides on the reference
+        (:attr:`~lexic.parsing.pda.compiler.specs.IslandRef.cont`).
     :ivar instance_grammar: The Earley-normalised instance grammar island
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
@@ -53,17 +61,15 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     """
 
     __slots__ = (
-        "clones",
         "start_key",
-        "island_follow",
+        "islands",
         "instance_grammar",
         "program",
         "_island_tables",
     )
 
-    clones: dict[CloneKey, CloneSpec]
     start_key: CloneKey | IslandRef
-    island_follow: dict[str, CharSet]
+    islands: frozenset[str]
     instance_grammar: IrAst
     program: PdaProgram
     _island_tables: dict[tuple[str, int], ParserTables]
@@ -76,23 +82,17 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
-        The clones and island set come off ``compiler``.
+        The clones and island set come off ``compiler``, which the caller
+        then drops: nothing below is a view onto it.
         The island-interior delegate source is attached to :attr:`program` by
         the compile entry points (:func:`_attach_delegates`), so the artifact's
         own attribute set stays put.
         """
-        self.clones = compiler.clones
         self.start_key = start_key
-        follow = compiler.analysis.follow
-        self.island_follow = {name: follow[name] for name in compiler.islands}
+        self.islands = compiler.islands
         self.instance_grammar = instance_grammar
-        self.program = flatten_program(compiler.clones, start_key)
+        self.program = flatten_program(compiler.clones, start_key, compiler.folds)
         self._island_tables = {}
-
-    @property
-    def islands(self) -> frozenset[str]:
-        """The island rule names — :attr:`island_follow`'s key set."""
-        return frozenset(self.island_follow)
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
         """The :class:`ParserTables` for island rule ``name``, built once per

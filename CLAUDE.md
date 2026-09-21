@@ -297,6 +297,7 @@ src/lexic/
         __init__.py                Split-plan shape analysis package marker
         cuts.py                    Where the cuts go — one document's offsets under the policy floor
         envelope.py                Envelope container arms, noise-run leads, and the certified cut match
+        folded.py                  A folded left recursion as a split source — locating the spine in the text
         routed.py                  Route-derived interiors — a region the character sweep cannot see
         speculation.py             When a cut may be PROPOSED — the precondition speculation runs under
         split.py                   SplitPlan — one grammar's cut shape, reused across documents
@@ -337,10 +338,16 @@ src/lexic/
       compiler/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
+        continuation.py            What may follow an island REFERENCE, and whether that bounds the island
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
         eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
+        leftrec/
+          __init__.py              The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
+          build.py                 Folding the iterations back into the model the grammar's arms build
+          rewrite.py               `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
+          shape.py                 Which rules the fold can take, and what their pieces are
         program/
           __init__.py              Flat-program package marker
           flatten.py               Flat int-coded runtime records and readers
@@ -348,7 +355,10 @@ src/lexic/
           lowering.py              The per-shape build tail — one callable composed once, at bake
           opcodes.py               Runtime program vocabulary
           product.py               The product-side build bake — a clone's build state from its rule product
-          specialize.py            Post-flatten specialization passes
+          specialize/
+            __init__.py            Post-flatten specialisation package marker
+            frameless.py           Frame-less entry — what qualifies, and the licences that read it
+            passes.py              Post-flatten specialization passes
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail
         charsets.py                CharSet — polarity-aware co-finite character sets

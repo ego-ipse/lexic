@@ -78,7 +78,7 @@ OP_CONSULT = 16
 
 Never an item op-code in a real arm: it appears only as the sole kind of the
 synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
-(:func:`~lexic.parsing.pda.compiler.program.specialize.consult_arm`), whose
+(:func:`~lexic.parsing.pda.compiler.program.specialize.passes.consult_arm`), whose
 payload is the compiled pattern. Numbered past every arm code so a reader that
 ranges over the arm vocabulary cannot mistake it for one."""
 
@@ -114,9 +114,23 @@ BUILD_DISPATCH = 4
 """A frame-less ``alternation`` clone: after hoist_arms every arm is a single
 unit ruleref, and the alternation itself is a pass-through (the matched arm's
 sub-model reports straight to the parent sink) — so the post-flatten pass
-rewrites qualifying clones into dispatch tables whose selectors carry the
-target :class:`FlatClone` directly and the runtime chases them in
-:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
+rewrites qualifying clones into dispatch tables carrying the target
+:class:`FlatClone` directly, and the runtime chases them in
+:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame.
+
+WHERE the targets sit follows how the clone selects. One selecting by lead
+char carries them in ``selectors``; one selecting by window or post-noise peek
+carries them in its own selection and leaves ``selectors`` empty. A consumer
+enumerating a dispatch clone's outgoing edges must read whichever holds them —
+reading ``selectors`` alone sees a wide clone's default and nothing else."""
+
+BUILD_FOLD = 5
+"""A rule the left-recursion rewrite turned into a loop
+(:mod:`~lexic.parsing.pda.compiler.leftrec.rewrite`). Its frame completes by
+folding the iterations back through the recursive arm's own build — the base,
+then each iteration left-nested onto it — so the model is the one the original
+arms build. Numbered past :data:`BUILD_DISPATCH` rather than beside its
+siblings because that constant shares the sequence's fourth value already."""
 
 DISPATCH_EMPTY = object()
 """The ``default`` sentinel of a dispatch clone whose alternation carried an

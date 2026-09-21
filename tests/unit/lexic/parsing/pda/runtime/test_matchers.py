@@ -9,22 +9,26 @@ one is constructed.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from lexic.compile import canonical_grammar, compile_text
+import lexic.parsing.pda.runtime.kernel.kernel as kernel_mod
+import lexic.parsing.pda.runtime.matchers as matchers_mod
+from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import arm_expected
+from lexic.parsing.pda.compiler.program.flatten import all_clones, arm_expected
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
     OP_CC,
     OP_CONSULT,
     OP_LIT,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.program.specialize import all_clones
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
@@ -36,6 +40,8 @@ from lexic.parsing.pda.runtime.matchers import (
     select_arm,
     vstr_once,
 )
+from lexic.parsing.products import _model_product
+from tests.clone_walk import walk_program_clones
 
 
 def pda_for(text: str):
@@ -303,3 +309,109 @@ def test_vstr_multi_item_arm_takes_the_cold_span_path():
     tables, compiled = pda_for(text)
     model = pda_model(tables, "0xffa1", compiled.executor)
     assert model.to_text() == "0xffa1"
+
+
+# ── chase_dispatch over a WIDE selection ────────────────────────────────
+
+
+_WIDE_KWINDOW = 'root ::= alt\nalt ::= a | b\na ::= "ab" x\nb ::= "ac" x\nx ::= "z"\n'
+"""Two arms sharing a lead character, so the clone selects by window."""
+
+_WIDE_NOISE = "resources/ground_truth/commands.gbnf"
+"""The roster's post-noise-peek witness — the other wide selection kind."""
+
+
+def _wide_parse(source: str, document: str):
+    """``(model, wide hops, lead hops)`` for one parse of ``source``."""
+    compiled = compile_text(source, cache_key=f"wide-{hash(source)}")
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    real = matchers_mod.chase_dispatch
+    hops = {"wide": 0, "lead": 0}
+
+    def counted(clone, text, pos):
+        """Count the FIRST hop's kind, then chase as usual."""
+        if clone.mode == BUILD_DISPATCH:
+            hops["wide" if clone.wide_selectors is not None else "lead"] += 1
+        return real(clone, text, pos)
+
+    # Both call-site bindings: the entry path and the inline matcher read the
+    # name in their own module, so patching one counts only some hops.
+    matchers_mod.chase_dispatch = counted
+    kernel_mod.chase_dispatch = counted
+    try:
+        model = pda_model(product.pda, document, compiled.product.executor)
+    finally:
+        matchers_mod.chase_dispatch = real
+        kernel_mod.chase_dispatch = real
+    return model, hops["wide"], hops["lead"]
+
+
+def test_a_window_selected_target_is_entered_with_the_parents_sink():
+    """The model is the one the framed parse built, and a wide hop was taken.
+
+    Compared by dump rather than by `==`: the point is that eliding the frame
+    changes nothing a reader of the model can see.
+    """
+    model, wide, _lead = _wide_parse(_WIDE_KWINDOW, "abz")
+
+    assert wide >= 1, "no wide hop — this parse did not exercise the rewrite"
+    assert model.to_text() == "abz"
+    assert model.dump()
+
+
+def wide_selection_kinds(compiled) -> set[str]:
+    """Every wide-selection kind reachable in one compiled program."""
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    return {
+        type(one.wide_selectors).__name__
+        for one in walk_program_clones(product.pda.program.start).values()
+        if one.wide_selectors is not None
+    }
+
+
+def test_both_wide_selection_kinds_chase_to_their_target():
+    """`KWindowSelect` and `NoiseSkipSelect` both carry targets after the bake.
+
+    One kind passing proves nothing about the other: they are separate
+    implementations of `with_payloads` and of `select`.
+    """
+    _model, wide, _lead = _wide_parse(_WIDE_KWINDOW, "acz")
+    assert wide >= 1, "the k-window kind did not chase"
+
+    peek = compile_from_path(Path(_WIDE_NOISE))
+    assert "NoiseSkipSelect" in wide_selection_kinds(peek), (
+        "the peek witness lost its selection"
+    )
+
+
+def test_a_wide_miss_refuses_with_the_rule_that_holds_the_selection():
+    """A converted clone refuses in `select_gated`'s words, not anonymously.
+
+    The regression this pins: routing the selection through the chase made a
+    wide miss raise a bare refusal naming no rule, so a malformed document was
+    refused by a path a reader could not identify.
+    """
+    compiled = compile_from_path(Path(_WIDE_NOISE))
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+
+    with pytest.raises(PdaFail) as refusal:
+        pda_model(product.pda, "   put alpha = 1\n", compiled.product.executor)
+
+    assert refusal.value.rule == "entry", "a wide miss must name its clone"
+
+
+def test_a_lead_char_miss_keeps_the_words_it_always_had():
+    """The other half: a lead-char chase's refusal is unchanged.
+
+    `fell_through` mirrors this refusal verbatim, so widening it would make
+    that comment false and the two paths would disagree on the same failure.
+    """
+    compiled = compile_text(
+        'root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n', cache_key="lead-miss"
+    )
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+
+    with pytest.raises(PdaFail) as refusal:
+        pda_model(product.pda, "9", compiled.product.executor)
+
+    assert str(refusal.value).startswith("no arm at 0")

@@ -27,6 +27,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_shape_build,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -40,6 +41,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
@@ -49,7 +51,12 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
     leaf_mismatch,
 )
-from lexic.parsing.pda.runtime.islands import IslandPolicy, island_parse, island_value
+from lexic.parsing.pda.runtime.islands import (
+    IslandPolicy,
+    bounded_window,
+    island_parse,
+    island_value,
+)
 from lexic.parsing.pda.runtime.matchers import (
     loop_spec,
     match_cc,
@@ -208,7 +215,7 @@ class KernelExecutionMixin[Carry]:
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, name: str, sink: list[Carry]) -> None:
+    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
@@ -224,32 +231,49 @@ class KernelExecutionMixin[Carry]:
         those apart; the completion result can, which is why the splice reads
         it rather than the value.
 
-        :param name: The island rule name.
+        :param ref: ``(island rule name, this occurrence's continuation, whether
+            that continuation bounds the island's extent)``.
         :param sink: The enclosing sink the value splices into.
         :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
             product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
+        name, cont, exact = ref
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end = self._island_subparse(name)
-        result = island_value(lambda: executor.splice(tree), name, self.pos)
+        tree, end, built = self._island_subparse(name, cont, exact)
+        # The settle step builds the value to answer the ambiguity question
+        # and retains it for exactly this reason; splicing the same tree again
+        # would build the same value twice.
+        result = (
+            built
+            if built is not None
+            else island_value(lambda: executor.splice(tree), name, self.pos)
+        )
         if isinstance(result, Completed):
             sink.append(result.value)
         self.pos += end
 
-    def _island_subparse(self, name: str) -> tuple[Any, int]:
+    def _island_subparse(
+        self, name: str, cont: CharSet, exact: bool
+    ) -> tuple[Any, int, Any]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
         The island tables over the cursor's window, with this cursor's interior
         delegate table threaded in.
 
         :param name: The island rule name.
-        :returns: ``(tree, consumed length)``.
+        :param cont: What may follow the island at THIS occurrence — the seam's
+            two-ends evidence. An empty set carries no evidence and the seam
+            takes plain longest-match.
+        :param exact: That same set bounds the island's extent, so the window
+            is one scan away and one sub-parse settles it.
+        :returns: ``(tree, consumed length, the value the settle step built)``
+            — the value is ``None`` where none was built.
         """
         return island_parse(
             self.tables.island_tables(name, tier_for(len(self.text))),
@@ -257,7 +281,9 @@ class KernelExecutionMixin[Carry]:
             self.pos,
             name,
             self.policy.for_island(
-                self._delegates(name), self.tables.island_follow.get(name)
+                self._delegates(name),
+                None if cont.is_empty() else cont,
+                bounded_window(self.text, self.pos, cont) if exact else None,
             ),
         )
 
@@ -321,8 +347,16 @@ class KernelExecutionMixin[Carry]:
         mode = frame.clone.mode
         if mode == BUILD_TRANSPARENT:
             return  # children already funnelled to the nearest model sink
+        # A forked frame's sinks start empty (`frames_copy`); its build is the
+        # one place the inherited values are read, so they are taken back
+        # here and nowhere else. `None` on every frame of the real parse, so
+        # this costs one test.
+        if frame.inherited is not None:
+            frame.adopt_inherited()
         clone = frame.clone
-        if mode == BUILD_SEQ:
+        if mode == BUILD_FOLD:
+            model = _folded(self.text, frame, clone)
+        elif mode == BUILD_SEQ:
             if clone.build is not no_shape_build and frame.arm.n == clone.n_items:
                 model = clone.build(self.text, frame.ends or (), frame.sinks)
             else:
@@ -335,3 +369,54 @@ class KernelExecutionMixin[Carry]:
             model = frame.alt_model()
         if model is not None:
             frame.out.append(model)
+
+
+def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> Carry:
+    """A left-recursive rule's model, folded out of its rewritten loop.
+
+    The rule was rewritten to ``(γ)(β)*`` so the predictive descent could run
+    it (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). Its VALUE is the
+    one the original arms build: the base, then each iteration folded through
+    the recursive arm's own composed build, left-nested —
+    ``A(A(A(γ, β), β), β)``.
+
+    Each iteration is that build handed a synthetic sinks array: slot 0 the
+    value accumulated so far, the rest that iteration's own captures. So the
+    node is constructed by the arm's own plan with the arm's own values, and
+    is identical to what the arm would have built by construction rather than
+    by comparison.
+
+    :param text: The document (the composed build's first argument).
+    :param frame: The completing frame — ``sinks[0]`` the base, ``sinks[1]``
+        every iteration's captures, flat and in order.
+    :param clone: The folding clone, carrying the per-iteration build.
+    :returns: The folded model.
+    """
+    at = frame.span_start()
+    sinks = frame.sinks
+    if sinks is None or not sinks[0]:
+        raise PdaFail(f"fold {clone.name!r}: no base value to fold from", at)
+    model = sinks[0][0]
+    steps = sinks[1] if len(sinks) > 1 and sinks[1] is not None else ()
+    # A folding clone's `build` IS its per-iteration build and its `n_items`
+    # the synthetic array's width; the mode is what says to read them that way.
+    # See `bake_product_build` for why they are not fields of their own.
+    slots = clone.n_items
+    width = slots - 1
+    if width < 1 or len(steps) % width:
+        # Every iteration contributes exactly `width` values, so a remainder
+        # means the sink does not hold whole iterations. Folding the whole
+        # ones and dropping the rest would build a SHORT model and report
+        # nothing; a refusal falls back to the engine that can answer.
+        raise PdaFail(
+            f"fold {clone.name!r}: {len(steps)} values do not divide into "
+            f"iterations of {width}",
+            at,
+        )
+    scratch: list[Any] = [None] * slots
+    for start in range(0, len(steps), width):
+        scratch[0] = [model]
+        for offset in range(width):
+            scratch[offset + 1] = [steps[start + offset]]
+        model = clone.build(text, (), scratch)
+    return model

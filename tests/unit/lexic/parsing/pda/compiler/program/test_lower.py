@@ -3,7 +3,7 @@ lowering pass.
 
 The specialised op-codes lower's own ``optimize_program`` call produces
 (``OP_VSTR``/``OP_LIT1``/``OP_LEAF1``) are pinned in
-``tests/unit/lexic/parsing/pda/compiler/program/test_specialize.py``; this
+``tests/unit/lexic/parsing/pda/compiler/program/specialize/test_passes.py``; this
 file targets ``flatten_clones``'s own base contributions: build-mode
 assignment and per-item quantifier/gate flattening, through the same
 ``pda_from_text``/``only_arm`` compiler seam.

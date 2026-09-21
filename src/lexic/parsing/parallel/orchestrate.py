@@ -49,7 +49,7 @@ from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
-from lexic.parsing.parallel.stitch.interior import routed_split
+from lexic.parsing.parallel.stitch.interior import source_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
@@ -481,20 +481,27 @@ def _split_regions[M: IrNamedTuple](
 ) -> M | None:
     """Split eligible nested bracket regions; ``None`` means sequential.
 
-    The routed region is tried FIRST, and a successful one never pays for the
-    sweep. The plan cascade is ordered by certainty — terminated, separated,
-    envelope, then regions — and a routed region belongs at the certain end: it
-    is proof-certified against the start rule's own shape, where the sweep's
+    Reached only once every plan has declined, and then routed before the
+    sweep: it is proof-certified against the start rule's own shape, where
     :func:`~...discovery.regions.choose` is a size heuristic over whatever
-    brackets a document happens to contain. A certified source outranks a
-    speculative one wherever both apply.
+    brackets a document happens to contain.
+
+    The cascade's rule is FIRST MATCH AMONG SURVIVORS, and the survivor set is
+    fixed at DERIVATION rather than by trying things: one certified family
+    survives — terminated, else separated, else envelope, a fixed preference
+    and not a choice by fitness, so a family the ``or`` drops never returns —
+    then proposals are appended after it, and a safety proof filters what is
+    left, which can drop a certified plan while keeping a proposal.
+
+    :func:`split_plan` returns the FIRST survivor, so a caller there sees one
+    plan where this loop tries them all; the two agree wherever the first wins.
     """
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    routed = routed_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
-    if routed is not None:
-        return routed
+    sourced = source_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
+    if sourced is not None:
+        return sourced
     # A bracket span may cover the whole source while still sit BELOW a
     # wrapper start model (``root ::= node``). Routing, not byte position,
     # decides whether it has a replaceable owner; a true root-region model

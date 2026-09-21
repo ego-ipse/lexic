@@ -21,15 +21,15 @@ from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
+    all_clones,
+    clone_arms,
     no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_VALUE_STR,
-    DISPATCH_EMPTY,
     GATE_ATTEMPT,
     GATE_STOP,
     OP_AVDISP,
@@ -49,6 +49,12 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
     TERMINAL_OPS,
 )
+from lexic.parsing.pda.compiler.program.specialize.frameless import (
+    convert_dispatch,
+    dispatch_chartable,
+    vdisp_target,
+    vstr_inlinable,
+)
 from lexic.parsing.pda.core.scanner import Pattern
 
 NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
@@ -59,42 +65,6 @@ built but not yet placed — the shells outlive the call, so the identities are
 stable for exactly as long as the mapping is read. A proxy rather than a bare
 ``{}`` because it is a shared default: an empty dict handed to every caller is
 one object away from being filled by one of them."""
-
-
-def clone_arms(clone: FlatClone) -> list[FlatArm]:
-    """A clone's arms (gated + default), skipping dispatch clones' targets.
-
-    Public because multiple post-flatten rewrites walk clones the same way.
-    """
-    if clone.mode == BUILD_DISPATCH:
-        return []
-    if clone.kwin_selectors is not None:
-        arms = [arm for _windows, arm in clone.kwin_selectors]
-    elif clone.pn_selectors is not None:
-        arms = [arm for _chars, _negated, arm in clone.pn_selectors[1]]
-    else:
-        arms = [arm for _chars, _negated, arm in clone.selectors]
-    if clone.default is not None:
-        arms.append(clone.default)
-    return arms
-
-
-def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
-    """Every clone reachable from ``roots``, groups included (worklist walk)."""
-    seen: set[int] = set()
-    out: list[FlatClone] = []
-    work = list(roots)
-    while work:
-        clone = work.pop()
-        if id(clone) in seen:
-            continue
-        seen.add(id(clone))
-        out.append(clone)
-        for arm in clone_arms(clone):
-            for kind, payload in zip(arm.kinds, arm.payloads):
-                if kind == OP_GRP:
-                    work.append(payload)
-    return out
 
 
 def specialize_terminals(arm: FlatArm) -> None:
@@ -111,63 +81,6 @@ def specialize_terminals(arm: FlatArm) -> None:
             elif kind == OP_CC:
                 kinds[i] = OP_CC1
     arm.kinds = tuple(kinds)
-
-
-def _vstr_inlinable(clone: Any) -> bool:
-    """The ``OP_VSTR`` licence: a terminal-only ``value_str`` clone.
-
-    Never an attempt clone — the inline matcher selects one arm by FIRST,
-    which is exactly the decision an attempt clone exists to NOT make that
-    way — and never a windowed / peeked / struct-gated clone: the inline
-    matcher's ``select_arm`` reads ``selectors`` only, and a gated clone's
-    live arms hang off its gate structures (a k-window ``value_str`` inlined
-    here selected from an EMPTY list and failed every mandatory iteration —
-    latent while such rules islanded, exposed when they began to run).
-    """
-    return (
-        clone.mode == BUILD_VALUE_STR
-        and clone.attempt is None
-        and clone.kwin_selectors is None
-        and clone.pn_selectors is None
-        and clone.struct_arm is None
-        and all(
-            all(kind in TERMINAL_OPS for kind in arm.kinds) for arm in clone_arms(clone)
-        )
-    )
-
-
-def _vdisp_landing(target: Any) -> bool:
-    """Whether one chase step ends somewhere the inline matcher can run.
-
-    Recursion terminates because a cycle of dispatch selectors is left
-    recursion, which the analysis refuses before any clone exists — the same
-    argument :func:`bake_chartables`' fixpoint rests on.
-    """
-    if not isinstance(target, FlatClone):
-        return False  # DISPATCH_EMPTY: an empty arm is not a value_str match
-    if target.mode != BUILD_DISPATCH:
-        return _vstr_inlinable(target)
-    steps = [step for _chars, _negated, step in target.selectors]
-    if target.default is not None:
-        steps.append(target.default)
-    return bool(steps) and all(_vdisp_landing(step) for step in steps)
-
-
-def vdisp_target(clone: Any) -> bool:
-    """The :data:`OP_VDISP` licence: a chase that always lands frame-lessly.
-
-    The chase is a lead-char walk and the match is then the landed clone's
-    ordinary ``vstr_once`` — so the pair inlines whenever every clone the chase
-    can reach is :func:`_vstr_inlinable`. Product-neutral by construction: the
-    same ``vstr_once``, on the same clone, at the same position, same sink.
-
-    A TABLED clone is refused because :data:`OP_VSTR` already answers it by
-    lookup; a missing default is not refused, since the chase then raises on a
-    miss exactly as the entry path does.
-    """
-    if not isinstance(clone, FlatClone) or clone.mode != BUILD_DISPATCH:
-        return False
-    return clone.chartable is None and _vdisp_landing(clone)
 
 
 def _inline_value_strs(arm: FlatArm) -> None:
@@ -191,7 +104,7 @@ def _inline_value_strs(arm: FlatArm) -> None:
             continue
         target = arm.payloads[i]
         attempted = arm.gate_kinds[i] == GATE_ATTEMPT
-        if _vstr_inlinable(target) or target.chartable is not None:
+        if vstr_inlinable(target) or target.chartable is not None:
             kinds[i] = OP_AVSTR if attempted else OP_VSTR
         elif vdisp_target(target):
             kinds[i] = OP_AVDISP if attempted else OP_VDISP
@@ -251,7 +164,7 @@ def charcache_for(clone: FlatClone) -> "dict[str, object] | None":
     """
     if clone.default is not None or clone.mode != BUILD_VALUE_STR:
         return None
-    if not _vstr_inlinable(clone):
+    if not vstr_inlinable(clone):
         return None
     if not all(_one_char_arm(arm) for arm in clone_arms(clone)):
         return None
@@ -281,7 +194,7 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
     """
     if clone.mode != BUILD_VALUE_STR or clone.default is None:
         return None
-    if not _vstr_inlinable(clone):
+    if not vstr_inlinable(clone):
         return None
     shapes = {
         (arm.kinds[0], arm.payloads[0], arm.los[0], arm.his[0], arm.gate_kinds[0])
@@ -339,12 +252,12 @@ def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
         return None
     if clone.attempt is not None or clone.struct_arm is not None:
         return None
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return None
     arms = clone_arms(clone)
     if not arms:
         return None
-    if _vstr_inlinable(clone) and all(arm.n == 1 for arm in arms):
+    if vstr_inlinable(clone) and all(arm.n == 1 for arm in arms):
         return None
     return _pattern_arm(pattern)
 
@@ -384,36 +297,11 @@ def _value_str_chartable(clone: FlatClone) -> "dict[str, object] | None":
     return table or None
 
 
-def _dispatch_chartable(clone: FlatClone) -> "dict[str, object] | None":
-    """The table of a dispatch clone whose every target is itself tabled.
-
-    A dispatch alternation is a pass-through: the target's model IS the model the
-    entry reports. So when every selector's target can answer one character from
-    its own table, the whole chase collapses into one composed lookup — the
-    character-wide models of a lexical alternation, without the chase.
-    """
-    table: dict[str, object] = {}
-    for chars, negated, target in clone.selectors:
-        if negated or "" in chars or len(chars) > CHARTABLE_CAP:
-            return None
-        sub = target.chartable
-        if sub is None:
-            return None
-        for char in chars:
-            model = sub.get(char)
-            if model is None:
-                return None  # the selector admits what the target refuses
-            table.setdefault(char, model)
-        if len(table) > CHARTABLE_CAP:
-            return None
-    return table or None
-
-
 def chartable_for(clone: FlatClone) -> "dict[str, object] | None":
     """The char → model table of a clone whose language is one character wide.
 
     The reconstruction licence, derived from the clone alone. A ``value_str``
-    clone earns it on :func:`_vstr_inlinable`'s terms (no descent, no gated or
+    clone earns it on :func:`vstr_inlinable`'s terms (no descent, no gated or
     attempted selection) when every selector is a positive character set whose
     arm matches exactly that one character; a :data:`BUILD_DISPATCH` clone earns
     it when every target is already tabled. Either way the model of every string
@@ -431,8 +319,8 @@ def chartable_for(clone: FlatClone) -> "dict[str, object] | None":
     if clone.default is not None:
         return None
     if clone.mode == BUILD_DISPATCH:
-        return _dispatch_chartable(clone)
-    if clone.mode == BUILD_VALUE_STR and _vstr_inlinable(clone):
+        return dispatch_chartable(clone)
+    if clone.mode == BUILD_VALUE_STR and vstr_inlinable(clone):
         return _value_str_chartable(clone)
     return None
 
@@ -507,61 +395,6 @@ def _specialize_vruns(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
-def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
-    """The arm's sole exactly-once clone reference, or ``None``.
-
-    ``OP_REF1`` and ``OP_LEAF1`` count as well as ``OP_REF``: all three are the
-    same fact — an exactly-once reference whose payload is the target clone —
-    and only how the driver reaches it differs. Omitting one costs the
-    alternation its frame-less dispatch, which is a frame and a model per
-    occurrence, not a missed micro-optimisation. The main pass never sees one (calls
-    specialise after this runs); :func:`~lexic.parsing.pda.compiler.program.lower
-    .flatten_clones` does, when it optimises the attempt sub-clones, which
-    share their parent's already-specialised arm.
-    """
-    if arm.n != 1 or arm.los[0] != 1 or arm.his[0] != 1:
-        return None
-    if arm.kinds[0] not in (OP_REF, OP_REF1, OP_LEAF1):
-        return None
-    return arm.payloads[0]
-
-
-def convert_dispatch(clone: FlatClone) -> None:
-    """Rewrite a qualifying ``alternation`` clone into a dispatch table.
-
-    Qualifies when every gated arm is a single unit clone reference and the
-    default (if any) is empty or itself a unit clone reference — the exact
-    shape hoist_arms guarantees for rule alternations. The alternation is a
-    pass-through, so entering the selected target with the parent's sink is
-    observationally identical to the frame it replaces.
-    """
-    if clone.mode != BUILD_ALT or clone.kwin_selectors is not None:
-        return  # a k-window-gated alternation selects by window, not lead char
-    if clone.pn_selectors is not None:
-        return  # a noise-skip alternation selects by post-noise peek
-    if clone.struct_arm is not None:
-        return  # an empty-arm gate must run before any lead-char dispatch
-    if clone.attempt is not None:
-        return  # an attempt clone tries arms in order, never dispatches one
-    targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
-    if any(target is None for target in targets):
-        return
-    default: Any = None
-    if clone.default is not None:
-        if clone.default.n == 0:
-            default = DISPATCH_EMPTY
-        else:
-            default = _unit_ref_target(clone.default)
-            if default is None:
-                return
-    clone.selectors = tuple(
-        (chars, negated, target)
-        for (chars, negated, _arm), target in zip(clone.selectors, targets)
-    )
-    clone.default = default
-    clone.mode = BUILD_DISPATCH
-
-
 def _mark_leaves(clone: FlatClone) -> None:
     """Grant the frame-less licence to an all-terminal ``sequence``/``value_str``.
 
@@ -569,7 +402,7 @@ def _mark_leaves(clone: FlatClone) -> None:
     so no descent can occur under it and the runtime builds its model inline
     without a frame.
 
-    ``value_str`` earns it on exactly :func:`_vstr_inlinable`'s terms — the same
+    ``value_str`` earns it on exactly :func:`vstr_inlinable`'s terms — the same
     licence that lets a REFERENCE to such a clone become ``OP_VSTR`` — or on a
     proved consult arm, which answers the whole extent in one match and so
     cannot descend either. A clone reached by reference was already running
@@ -579,11 +412,11 @@ def _mark_leaves(clone: FlatClone) -> None:
     if clone.fast is no_fast_construction:  # a CONSTRUCTOR, not a composed build
         return
     if clone.mode == BUILD_VALUE_STR:
-        clone.leaf = _vstr_inlinable(clone) or clone.runarm is not None
+        clone.leaf = vstr_inlinable(clone) or clone.runarm is not None
         return
     if clone.mode != BUILD_SEQ:
         return
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
@@ -615,7 +448,7 @@ def _specialize_leaf_refs(clone: FlatClone) -> None:
     """Rewrite exactly-once references to frame-less leaves to ``OP_LEAF1``.
 
     Every consumer that sees THROUGH a reference must list this code beside
-    ``OP_REF1`` — :func:`_unit_ref_target` (dispatch conversion) and
+    ``OP_REF1`` — :func:`unit_ref_target` (dispatch conversion) and
     ``lower._arm_prefix_steps`` (admission prefixes) both do. An omission
     there does not slow the parse; it changes which tier parses.
     """
@@ -629,8 +462,7 @@ def _runs_frameless(sub: FlatClone) -> bool:
     gated = (
         sub.attempt is not None
         or sub.struct_arm is not None
-        or sub.kwin_selectors is not None
-        or sub.pn_selectors is not None
+        or sub.wide_selectors is not None
     )
     return sub.leaf and sub.mode == BUILD_SEQ and not gated
 
@@ -672,7 +504,7 @@ def optimize_program(
 
     Dispatch runs BEFORE ``value_str`` inlining because the two compete for
     the same arm and dispatch is never the worse of the pair. Inlining rewrites
-    a unit ``OP_REF`` to ``OP_VSTR``, which :func:`_unit_ref_target` does not
+    a unit ``OP_REF`` to ``OP_VSTR``, which :func:`unit_ref_target` does not
     recognise — so one inlinable arm used to disqualify its whole alternation,
     and every OTHER arm then paid a pass-through frame to save nothing. Both
     specialisations remove exactly one frame from the inlined arm; only

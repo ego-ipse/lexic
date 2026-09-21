@@ -40,9 +40,15 @@ PDA_SOURCES = (
     "src/lexic/parsing/pda/compiler/program/product.py",
     "src/lexic/parsing/pda/compiler/program/flatten.py",
     "src/lexic/parsing/pda/compiler/program/lower.py",
-    "src/lexic/parsing/pda/compiler/program/specialize.py",
+    "src/lexic/parsing/pda/compiler/program/specialize/passes.py",
+    "src/lexic/parsing/pda/compiler/program/specialize/frameless.py",
 )
-"""Every module that may write clone build state."""
+"""Every module that may write clone build state.
+
+Both halves of the specialisation package are named: `frameless` rewrites a
+pass-through alternation's mode and targets, which is clone build state as
+surely as anything `passes` writes.
+"""
 
 
 def capture_state(width: int):

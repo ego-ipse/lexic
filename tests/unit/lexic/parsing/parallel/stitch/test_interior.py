@@ -11,11 +11,23 @@ entry point via ``lexic.parsing.parallel.orchestrate``.
 
 from __future__ import annotations
 
+from typing import NamedTuple, cast
+
+import pytest
+
 from lexic.compile import Directives, compile_from_path, compile_text
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
+from lexic.model import GrammarModel
 from lexic.parsing import parse_model
-from lexic.parsing.parallel.plan.routed import routed_plan
-from lexic.parsing.parallel.stitch.interior import interior_route, stitch_interior
+from lexic.parsing.parallel.plan.folded import divide, folded_plan, locate
+from lexic.parsing.parallel.plan.routed import REF, Descent, routed_plan
+from lexic.parsing.parallel.stitch.interior import (
+    _walk_down,
+    fold_spines,
+    interior_route,
+    left_slot,
+    stitch_interior,
+)
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
@@ -35,18 +47,23 @@ def _vyx_document(rows: int) -> str:
 
 
 def test_interior_route_finds_the_shells_slot_and_the_runs_slot():
-    """``at`` (the arm's own item index) and ``run`` (the unit's item index
-    inside the interior rule) resolve to real field slots on both models."""
+    """The descent's chain maps step for step onto real field slots.
+
+    One route step per `Descent`, so the route says exactly as much as the
+    descent did — the two-integer form it replaces derived the interior's
+    depth and its run's index independently and could disagree.
+    """
     compiled = compile_text(ROUTED_GRAMMAR)
     grammar, binding = compiled.codegen_grammar, compiled.product
     plan = routed_plan(grammar)
     assert plan is not None
 
-    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
 
     assert route is not None
-    slot, child = route
-    assert isinstance(slot, int)
+    steps, child = route
+    assert len(steps) == len(plan.chain), "one step per descent, never derived"
+    assert all(isinstance(slot, int) for slot, _index in steps)
     assert isinstance(child, int)
 
 
@@ -56,8 +73,10 @@ def test_interior_route_declines_a_container_or_rule_the_fold_does_not_know():
     compiled = compile_text(ROUTED_GRAMMAR)
     binding = compiled.product
 
-    assert interior_route(binding, "no-such-rule", 0, "block", 1) is None
-    assert interior_route(binding, "start", 0, "no-such-rule", 1) is None
+    unknown = (Descent("no-such-rule", 0, REF),)
+    assert interior_route(binding, unknown, "block", 1, False) is None
+    known = (Descent("start", 0, REF),)
+    assert interior_route(binding, known, "no-such-rule", 1, False) is None
 
 
 def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces():
@@ -78,7 +97,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     )
     shell = parse_model(grammar, stand_in, binding)
     pieces = [parse_model(plan.rooted, part, binding) for part in parts]
-    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
     assert route is not None
 
     stitched = stitch_interior(shell, pieces, route)
@@ -89,7 +108,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     assert stitched.to_text() == text
 
 
-def test_stitch_interior_declines_a_shape_surprise_at_the_slot():
+def test_stitch_interior_refuses_a_chain_the_model_does_not_have():
     """A route slot that does not land on a model at all is a shape
     surprise, not a crash."""
     compiled = compile_text(ROUTED_GRAMMAR)
@@ -97,7 +116,8 @@ def test_stitch_interior_declines_a_shape_surprise_at_the_slot():
     text = routed_document(20)
     shell = parse_model(grammar, text, binding)
 
-    assert stitch_interior(shell, [shell], (999, 0)) is None
+    with pytest.raises(EngineInvariantError, match="names slot 999"):
+        stitch_interior(shell, [shell], (((999, None),), 0))
 
 
 # ── the public seam: exactness, non-vacuity, refusal parity ───────────────
@@ -213,3 +233,178 @@ def test_a_malformed_vyx_document_declines_then_sequential_parse_refuses():
             assert "does not derive" in str(error)
         else:
             raise AssertionError(f"cores={cores} did not refuse a malformed document")
+
+
+WRAPPED_TWO_PARA = (
+    "root ::= open body close\n"
+    "body ::= para+\n"
+    'open ::= "<<<" nl\n'
+    'close ::= ">>>" nl\n'
+    "para ::= line+ blank\n"
+    "line ::= [a-z ]+ nl\n"  # `+`, so a blank line is NOT a line
+    "blank ::= nl\n"
+    'nl ::= "\\n"\n'
+)
+"""wrapped-unit's shape, but a blank line cannot be absorbed as a line.
+
+The shipped grammar writes `line ::= [a-z ]* nl`, so a blank line parses AS a
+line and `line+` swallows the whole body: every document has exactly one
+paragraph, and an intermediate run step can only ever address one element.
+This variant is what makes a second paragraph reachable at all.
+"""
+
+
+def test_an_intermediate_run_of_two_declines_rather_than_taking_the_first():
+    """The arity guard: `splice` bounds a run INDEX but never checks arity.
+
+    `model.py`'s `repeated >= len(child)` lets a step naming element 0 of a
+    run of three succeed and rewrite the first, leaving the other two — a
+    wrong model, not a refusal. The exactly-one check that used to stand in
+    the two-slot caller was written about a PIECE, where one unit is true by
+    construction; an intermediate step walks the WHOLE model, where it is not.
+    """
+    compiled = compile_text(WRAPPED_TWO_PARA, cache_key="wrapped-two-para")
+    para = "".join("line of text here\n" for _ in range(400)) + "\n"
+    document = "<<<\n" + para * 2 + ">>>\n"
+
+    model = compiled.parse(document, cores=1)
+    body = list(list(model.children())[1].children())[0]
+    assert len(body) == 2, "the variant grammar really does build two paragraphs"
+
+    walked = _walk_down(model, ((1, None), (0, 0)))
+
+    assert walked is None, "a run of two is not one run; the plan declines"
+
+
+def test_the_two_paragraph_document_parses_identically_at_every_width():
+    """Declining is not enough — the answer must still be the right one."""
+    compiled = compile_text(WRAPPED_TWO_PARA, cache_key="wrapped-two-para-widths")
+    para = "".join("line of text here\n" for _ in range(400)) + "\n"
+    document = "<<<\n" + para * 2 + ">>>\n"
+    sequential = compiled.parse(document, cores=1)
+
+    for cores in (2, 4, 8, 16):
+        split = compiled.parse(document, cores=cores)
+        assert split.dump() == sequential.dump(), cores
+        assert split.to_text() == document, cores
+
+
+# ── the folded spine's join, and the licence it builds through ────────────
+
+
+FOLDED = (
+    "root ::= expr nl\n"
+    "expr ::= expr op term | term\n"
+    "term ::= [a-z]+\n"
+    'op ::= " + "\n'
+    'nl ::= "\\n"\n'
+)
+"""A spine under a required tail — the folded source's served shape."""
+
+
+class FoldedCase(NamedTuple):
+    """One folded document, parsed into the pieces a join is given.
+
+    Named rather than a bare tuple of four: three of its members are models of
+    a generated class and the fourth is the text they came from, and a caller
+    unpacking them positionally is exactly how the lead models and the spines
+    get swapped.
+
+    :ivar spines: Each piece's folded-rule model, in document order.
+    :ivar leads: The removed separators' models — one per join.
+    :ivar step: The generated class one iteration of the spine is.
+    :ivar text: The document the pieces were cut from.
+    """
+
+    spines: list[GrammarModel]
+    leads: tuple[GrammarModel, ...]
+    step: type[GrammarModel]
+    text: str
+
+
+def folded_pieces(terms: int, workers: int) -> FoldedCase:
+    """One folded document of ``terms``, divided into ``workers`` pieces.
+
+    The term count is chosen against the 2 KiB per worker floor, not for
+    readability: a document too small for ``workers`` pieces divides into
+    fewer, and a case that quietly got two where it asked for four would still
+    pass while testing a narrower join than it names.
+    """
+    compiled = compile_text(FOLDED, cache_key="interior-folded")
+    plan = folded_plan(compiled.codegen_grammar)
+    assert plan is not None
+    text = " + ".join("abcdefgh" for _ in range(terms)) + "\n"
+    region = locate(text, plan)
+    assert region is not None
+    cut = divide(text, region, workers, plan)
+    assert cut is not None
+    assert len(cut.parts) == workers, (
+        f"{terms} terms divided into {len(cut.parts)} pieces, not {workers} — "
+        "the document is under the split floor for this worker count"
+    )
+    roots = [compiled.parse(part, cores=1) for part in cut.parts]
+    leads = [
+        parse_model(plan.lead_grammar, mark, compiled.product, None)
+        for mark in cut.leads
+    ]
+    spines = [root.children()[0] for root in roots]
+    # The narrowing sits here, once, at the boundary where a parse hands back
+    # the protocol's base and this file needs the model. Everything below
+    # reads plain fields.
+    assert all(isinstance(one, GrammarModel) for one in (*spines, *leads))
+    kept = cast(list[GrammarModel], spines)
+    return FoldedCase(kept, tuple(cast(list[GrammarModel], leads)), type(kept[0]), text)
+
+
+def test_left_slot_is_the_recursive_fields_own_index() -> None:
+    """The licence wants a FIELD index, not a rank among bound children.
+
+    They coincide whenever every item captures, which is every shape the
+    roster offers — so a reading that returned the bound rank would pass every
+    end-to-end case here and be wrong on the first class with an unbound
+    field. Both are asserted, and their agreement is asserted as a FACT about
+    this class rather than assumed of every class.
+    """
+    step = folded_pieces(1200, 2).step
+    at = left_slot(step)
+    bound = sorted(step.bound_fields().items())
+    assert at == step._fields.index(bound[0][1][0])
+    assert step._fields[at] == "expr"
+
+
+def test_the_licence_build_is_the_checked_build() -> None:
+    """The fold's fast construction produces what ``rebuild`` produces.
+
+    The join skips the validating constructor because the values it holds are
+    already-parsed models — the same reason the parse itself skips it. This is
+    what says the two agree, since nothing else would notice if they stopped.
+    """
+    case = folded_pieces(1200, 2)
+    spines, step = case.spines, case.step
+    node = spines[0]
+    at = left_slot(step)
+    kids = list(node.children())
+    construct, _defaults, _fields = step.fast_construct()
+    values = list(node)
+    values[at] = kids[0]
+    assert construct(values).dump() == node.rebuild(kids).dump()
+
+
+def test_the_join_rebuilds_the_removed_mark() -> None:
+    """The stitched spine round-trips — so no separator went missing.
+
+    The cut CONSUMES its mark, so the join is the only thing that can put it
+    back. Without that the model is one level short PER CUT, which reads as a
+    plain off-by-one at a single width and is why the widths vary here.
+    """
+    for workers in (2, 3, 4, 5):
+        case = folded_pieces(1200, workers)
+        merged = fold_spines(list(case.spines), case.leads, case.step)
+        assert merged is not None
+        assert merged.to_text() + "\n" == case.text
+
+
+def test_a_lead_count_that_does_not_match_the_pieces_declines() -> None:
+    """One mark per join, or the fold has no idea what joins what."""
+    case = folded_pieces(1200, 4)
+    assert fold_spines(list(case.spines), case.leads[:-1], case.step) is None

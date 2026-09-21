@@ -143,8 +143,14 @@ def spellings(marks: frozenset[str]) -> tuple[str, ...]:
     openings that way: a two-character spelling whose first character is also
     a mark must read as the wider one, or the cut lands mid-spelling.
 
-    Ordering is a property of the SET, so it is settled where the set is
-    rather than at every occurrence a document happens to hold.
+    LENGTH is the whole order, and it is settled here rather than at every
+    occurrence a document happens to hold. Two spellings of the SAME length
+    are therefore left in set order, which varies with the interpreter's
+    string hashing — fine for the question this answers, since neither can be
+    a prefix of the other and no cut lands differently. A caller that needs a
+    plan to be identical BETWEEN PROCESSES needs a total order and must sort
+    for it; :func:`~lexic.parsing.parallel.plan.folded._marks` is the one that
+    does, and says why at its own site.
     """
     return tuple(sorted(marks, key=len, reverse=True))
 

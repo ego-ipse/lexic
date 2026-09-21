@@ -38,11 +38,15 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.predicates import rule_alphabets
+from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
     IslandPolicy,
+    bounded_window,
     island_derivation,
     island_parse,
     island_run,
@@ -91,7 +95,7 @@ def test_island_run_finds_the_longest_origin_zero_completion(sss_grammar: IrAst)
 def test_island_parse_happy_path_returns_tree_and_end(digit_grammar: IrAst):
     """The common case: a matching window decodes to (tree, consumed_len)."""
     tables = compile_tables(digit_grammar)
-    tree, end = island_parse(tables, "5", 0, "digit")
+    tree, end, _value = island_parse(tables, "5", 0, "digit")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "digit"
     assert end == 1
@@ -100,7 +104,7 @@ def test_island_parse_happy_path_returns_tree_and_end(digit_grammar: IrAst):
 def test_island_parse_starts_from_the_given_position(digit_grammar: IrAst):
     """The window opens at pos, not at the start of text."""
     tables = compile_tables(digit_grammar)
-    tree, end = island_parse(tables, "x5", 1, "digit")
+    tree, end, _value = island_parse(tables, "x5", 1, "digit")
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -136,14 +140,14 @@ def test_island_parse_commits_longest_when_the_shorter_cannot_compose():
     """A shorter end whose next char the continuation refuses is no
     alternative — longest-match stays the defined answer."""
     policy = IslandPolicy(follow=CharSet(frozenset("z")))
-    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+    tree, end, _value = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
     assert isinstance(tree, ParseTree)
     assert end == 2
 
 
 def test_island_parse_without_follow_keeps_plain_longest_match():
     """No continuation evidence (the direct-call seam) — legacy longest-match."""
-    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x")
+    tree, end, _value = island_parse(_cross_span_tables(), "abc", 0, "x")
     assert isinstance(tree, ParseTree)
     assert end == 2
 
@@ -170,7 +174,7 @@ def test_island_parse_grows_past_a_window_cut_multi_char_literal():
     )
     tables = compile_tables(IrAst(rules=IrSeq(x, pre), start="x"))
     text = "a" * (ISLAND_WINDOW - 2) + "bcd"
-    tree, end = island_parse(tables, text, 0, "x")
+    tree, end, _value = island_parse(tables, text, 0, "x")
     assert isinstance(tree, ParseTree)
     assert end == len(text)
 
@@ -186,7 +190,7 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     is the behaviour being exercised and the default now refuses it.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(
+    tree, end, _value = island_parse(
         tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
     )
     assert isinstance(tree, ParseTree)
@@ -221,7 +225,7 @@ def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
     )
     ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
     tables = compile_tables(ready)
-    tree, end = island_parse(
+    tree, end, _value = island_parse(
         tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
     )
     assert isinstance(tree, ParseTree)
@@ -237,7 +241,7 @@ def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
     misses must still parse under the default.
     """
     tables = compile_tables(sss_grammar)
-    tree, end = island_parse(tables, "a", 0, "s")
+    tree, end, _value = island_parse(tables, "a", 0, "s")
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -251,7 +255,7 @@ def test_island_derivation_returns_the_first_derivation(sss_grammar: IrAst):
     kern, best = island_run(tables, "aaa")
     assert best is not None
     item, end = best
-    tree = island_derivation(kern, item, end, "s")
+    tree, _value = island_derivation(kern, item, end, "s")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "s"
 
@@ -332,12 +336,12 @@ def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
     """
     compiled, kern, best = _vyx_span(seed)
     item, end = best
-    assert isinstance(
-        island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
-        ),
-        ParseTree,
+    tree, value = island_derivation(
+        kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
     )
+
+    assert isinstance(tree, ParseTree)
+    assert value is not None, "the settle step built a value and must hand it back"
 
 
 def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
@@ -351,12 +355,12 @@ def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
     """
     compiled, kern, best = _vyx_span(146)
     item, end = best
-    assert isinstance(
-        island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
-        ),
-        ParseTree,
+    tree, value = island_derivation(
+        kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
     )
+
+    assert isinstance(tree, ParseTree)
+    assert value is not None, "the settle step built a value and must hand it back"
 
 
 class _CountingExecutor(ProductExecutor):
@@ -416,7 +420,7 @@ def test_two_derivations_both_meaning_none_settle_as_one_meaning(sss_grammar: Ir
     assert best is not None
     item, end = best
     executor = _CountingExecutor([Completed(None), Completed(None)])
-    tree = island_derivation(
+    tree, _value = island_derivation(
         kern, item, end, "s", policy=IslandPolicy(executor=executor)
     )
     assert isinstance(tree, ParseTree)
@@ -430,3 +434,283 @@ def test_authored_arm_past_the_second_derivation_still_refuses():
         island_derivation(
             kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         )
+
+
+# ── the window climb stops at the first window that refuses ─────────────
+
+_CLIMB_HOST = (
+    "root ::= head inner tail\n"
+    'head ::= "<"\n'
+    'tail ::= ">"\n'
+    "inner ::= expr\n"
+    "expr ::= step op term | term\n"
+    "step ::= expr\n"
+    "term ::= [a-z]\n"
+    'op ::= "+"\n'
+)
+"""A left-recursive island inside a delimited host — the shape whose climb
+doubles. `expr`'s own FOLLOW holds the operator, so every completion but the
+first has a shorter one the continuation accepts.
+
+The recursion goes through `step` rather than directly, because DIRECT left
+recursion no longer islands — the fold rewrites it into a loop and builds the
+model back (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). The fold does
+not take indirect recursion, so this still reaches the island seam, which is
+what these tests are about."""
+
+
+def _windows(source: str, text: str, key: str) -> list[int]:
+    """Every island window width the production seam opens for one parse."""
+    compiled = compile_text(source, cache_key=key)
+    widths: list[int] = []
+    real = islands.island_run
+
+    def watched(tables, window_text, delegates):
+        """Record the width, then run the window."""
+        widths.append(len(window_text))
+        return real(tables, window_text, delegates)
+
+    islands.island_run = watched
+    try:
+        compiled.parse(text, cores=1)
+    finally:
+        islands.island_run = real
+    return widths
+
+
+def test_an_island_that_cannot_settle_answers_at_the_first_window():
+    """The answer the climb used to reach last is reached first — once.
+
+    Completion ends only accumulate, so the answer at any width is the answer
+    at every wider one, and the climb was re-deriving it four more times over
+    a document that never had a different one to give.
+
+    That first window is now the EXACT one rather than the 256-character
+    floor: ``expr`` derives ``[a-z+]`` and its reference is followed by
+    ``>``, which it cannot hold, so its extent is bounded by the first ``>``
+    and one sub-parse at that width settles it. The trade is stated rather
+    than hidden — an island that ends up REFUSING now parses to its bound
+    instead of stopping at 256, which is more work than the floor was. It is
+    bounded work, and it precedes a whole-document Earley fallback that
+    dwarfs it; a climbing window would have reached the same width anyway,
+    five parses later.
+    """
+    terms = 3 * ISLAND_WINDOW  # two characters each, so the input doubles twice
+    text = (
+        "<" + "+".join("abcdefghijklmnopqrstuvwxyz"[n % 26] for n in range(terms)) + ">"
+    )
+    assert len(text) > 4 * ISLAND_WINDOW, "the input must be wide enough to double"
+
+    widths = _windows(_CLIMB_HOST, text, "climb-refuses")
+
+    assert len(widths) == 1, f"the climb doubled past its answer: {widths}"
+    assert widths[0] == text.index(">") - 1, "not the exact bound"
+
+
+def test_an_island_that_settles_still_settles():
+    """One completion, no shorter alternative, no refusal — and a parse."""
+    compiled = compile_text(_CLIMB_HOST, cache_key="climb-settles")
+
+    model = compiled.parse("<a>", cores=1)
+
+    assert model.to_text() == "<a>"
+
+
+def test_the_climb_still_grows_when_nothing_refuses():
+    """The doubling is not removed — only the re-derivation of a refusal.
+
+    A window narrower than the island, with a continuation no shorter end
+    composes with, must still widen until the island fits.
+    """
+    tables = compile_tables(
+        IrAst(
+            rules=IrSeq(
+                IrRule(
+                    "x",
+                    IrAlternation(
+                        IrSequence(IrItem(IrRuleRef("x")), IrItem(IrLiteral("a"))),
+                        IrSequence(IrItem(IrLiteral("a"))),
+                    ),
+                )
+            ),
+            start="x",
+        )
+    )
+    text = "a" * (ISLAND_WINDOW * 2)
+    widths: list[int] = []
+    real = islands.island_run
+
+    def watched(inner_tables, window_text, delegates):
+        """Record the width, then run the window."""
+        widths.append(len(window_text))
+        return real(inner_tables, window_text, delegates)
+
+    islands.island_run = watched
+    try:
+        _tree, end, _value = island_parse(tables, text, 0, "x", IslandPolicy())
+    finally:
+        islands.island_run = real
+
+    assert end == len(text)
+    assert widths == [ISLAND_WINDOW, ISLAND_WINDOW * 2], widths
+
+
+# ── the exact window: one sub-parse where the continuation bounds the island ──
+
+
+def test_bounded_window_reaches_the_first_continuation_character():
+    """The scan's whole contract: the distance to the first one, from ``pos``."""
+    assert bounded_window("abc\ndef\n", 0, CharSet.from_chars("\n")) == 3
+    assert bounded_window("abc\ndef\n", 4, CharSet.from_chars("\n")) == 3
+
+
+def test_bounded_window_takes_the_nearest_of_several_continuation_characters():
+    """Several continuation characters, and the nearest is the bound."""
+    assert bounded_window("ab;cd,ef", 0, CharSet.from_chars(",", ";")) == 2
+    assert bounded_window("ab;cd,ef", 3, CharSet.from_chars(",", ";")) == 2
+
+
+def test_bounded_window_is_the_rest_of_the_input_when_none_occurs():
+    """No continuation character left means the island may reach the end.
+
+    This is the single-island document — the window is the whole remainder and
+    one sub-parse settles it, where the climb paid 256+512+1024+… to cover the
+    same characters.
+    """
+    assert bounded_window("abcdef", 0, CharSet.from_chars("\n")) == 6
+    assert bounded_window("abcdef", 4, CharSet.from_chars("\n")) == 2
+
+
+def test_an_island_whose_alphabet_misses_its_continuation_parses_once():
+    """``line ::= expr nl`` over a left-recursive ``expr`` — one window, exact.
+
+    ``expr`` derives ``[a-z+]`` and its reference is followed by ``\\n``, which
+    it cannot hold, so no completion reaches past the first newline. The
+    window is that distance and the climb never runs.
+    """
+    text = "a+b+c\nd+e\n"
+    compiled = compile_text(
+        "root ::= line+\nline ::= expr nl\nexpr ::= step op term | term\n"
+        'step ::= expr\nterm ::= [a-z]\nop ::= "+"\nnl ::= "\\n"\n',
+        cache_key="exact-window",
+    )
+    widths: list[int] = []
+    real = islands.island_run
+
+    def spy(tables, window_text, delegates):
+        widths.append(len(window_text))
+        return real(tables, window_text, delegates)
+
+    islands.island_run = spy
+    try:
+        model = compiled.parse(text, cores=1)
+    finally:
+        islands.island_run = real
+
+    assert model.to_text() == text
+    # two lines, one sub-parse each, each exactly as wide as its own line's
+    # expression — never the 256-character floor, never a doubling
+    assert widths == [5, 3], widths
+
+
+def test_an_island_whose_alphabet_meets_its_continuation_keeps_the_climb():
+    """A string literal that can hold its own terminator must still climb.
+
+    Here the island's alphabet includes the continuation character, so the
+    first occurrence of it says nothing about where the island ends — the
+    bound would be wrong and the compiler must decline to take it.
+    """
+    compiled = compile_text(
+        'root ::= expr "+" term nl | expr nl\n'
+        'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n',
+        cache_key="overlap-climb",
+    )
+    lifted = lift_optional_nullables(compiled.codegen_grammar)
+    specs, _ = compile_clones(lifted, compiled.product)
+    cont = specs.continuations.follow("expr")
+
+    assert cont.has("+"), "the caller can put + after the island"
+    held = rule_alphabets(specs.analysis.rules)["expr"]
+    assert held.has("+"), "and the island holds + too"
+    assert not specs.continuations.bounds("expr", cont)
+
+
+def test_the_exact_window_does_not_weaken_the_two_ends_refusal():
+    """The bound removes ends that could not exist, not ends that could.
+
+    Same grammar as above: ``a+b\\n`` genuinely derives two ways and means two
+    different things, so both engines must refuse it rather than answer.
+    """
+    compiled = compile_text(
+        'root ::= expr "+" term nl | expr nl\n'
+        'expr ::= expr "+" term | term\nterm ::= [a-z]\nnl ::= "\\n"\n',
+        cache_key="overlap-climb",
+    )
+    with pytest.raises((PdaFail, UnsupportedConstructError)):
+        compiled.parse("a+b\n", cores=1)
+
+
+def test_bounded_window_skips_the_end_of_input_sentinel():
+    """A continuation of "end of input" bounds the island at the end, not at 0.
+
+    The sentinel is spelled ``""`` and ``text.find("", pos)`` is ``pos``,
+    because every string contains the empty one everywhere. Scanning for it
+    would bound every island that may run to the end of the document to a
+    width of zero — which is the whole document's worth of parse, silently
+    not done.
+    """
+    assert bounded_window("abcdef", 0, CharSet.from_chars("")) == 6
+    assert bounded_window("abcdef", 2, CharSet.from_chars("")) == 4
+    # and beside a real character, the real one still bounds it
+    assert bounded_window("ab\ncd", 0, CharSet.from_chars("", "\n")) == 2
+
+
+# ── the value the settle step built is the value the seam splices ──────────
+
+
+def test_the_settled_value_is_what_a_fresh_splice_would_build() -> None:
+    """The handed-back value equals re-splicing the same tree, model for model.
+
+    `different_meaning` builds the baseline to answer the ambiguity question
+    and retains it — its own docstring says a resolver "does not construct its
+    chosen result again". The seam used to discard it and splice the same tree
+    a second time, which was 610 µs per island on a 48-character island and a
+    third of that row's parse.
+
+    Identical BY CONSTRUCTION — same builder, same tree — so this compares the
+    two answers directly rather than trusting the argument, and it asks through
+    the public entry rather than reaching into the settle step.
+    """
+    compiled = compile_text(
+        'root ::= number\nnumber ::= ("-"? ([0-9] | [1-9] [0-9]{0,15}))',
+        cache_key="settled-value",
+    )
+    tables = compile_tables(
+        normalize(lift_optional_nullables(compiled.codegen_grammar))
+    )
+
+    _tree, _end, value = island_parse(
+        tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
+    )
+    fresh = compiled.executor.splice(_tree)
+
+    assert value is not None, "the settle step built a value and must hand it back"
+    assert isinstance(value, Completed) and isinstance(fresh, Completed)
+    assert value.value.dump() == fresh.value.dump()
+    assert value.value.to_text() == fresh.value.to_text()
+
+
+def test_an_executor_less_island_hands_back_no_value(digit_grammar: IrAst) -> None:
+    """No product, nothing built — the seam completes the tree itself.
+
+    The ``None`` is the honest answer rather than a failure: it is what tells
+    the caller to splice, and a value invented here would be a value built
+    without a product to build it with.
+    """
+    tables = compile_tables(digit_grammar)
+
+    tree, end, value = island_parse(tables, "5", 0, "digit")
+
+    assert isinstance(tree, ParseTree)
+    assert end == 1
+    assert value is None

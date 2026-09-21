@@ -10,6 +10,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from threading import Barrier, Event, Lock, Thread, active_count
+from threading import enumerate as enumerate_threads
 from time import monotonic, sleep
 
 import pytest
@@ -83,9 +84,11 @@ class _AdmissionExecutor:
 
     instances: list[_AdmissionExecutor] = []
 
-    def __init__(self, max_workers: int) -> None:
+    def __init__(self, max_workers: int, thread_name_prefix: str = "") -> None:
         """Create a real executor and expose admission counters."""
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix=thread_name_prefix
+        )
         self.maximum = 0
         self.submitted = 0
         self.window_reached = Event()
@@ -336,31 +339,44 @@ def test_an_interrupt_in_an_item_reaches_the_caller() -> None:
 
 
 def test_a_refusal_still_drains_the_phase_before_it_is_raised() -> None:
-    """The earliest refusal is raised only after its siblings have finished.
+    """An EARLIER item is waited for, though a later one raised first.
 
     The drain is what makes "earliest INPUT" answerable at all: a phase that
     raised on the first refusal to arrive would report whichever chunk lost
     the race, and the split would then move the wrong cut.
+
+    Pinned on an event, not on a schedule. Item 0 does not begin its work until
+    item 1 has already raised, so the phase demonstrably had a refusal in hand
+    and waited anyway — and it waited for an item whose index is BELOW the
+    raiser's, which is the only class :func:`_drained` promises to wait for.
+
+    Asserting that an item PAST the raiser also finished would be asserting
+    the opposite of what the drain does: it cancels those deliberately, since
+    their answer cannot change which input is earliest. Whether any of them
+    had started first is the scheduler's business, and on a contended
+    four-core runner the answer is sometimes none — which is exactly how this
+    test failed there while passing everywhere else.
     """
+    raised = Event()
     finished: list[int] = []
     lock = Lock()
 
     def work(item: int) -> int:
         if item == 0:
-            sleep(0.05)
+            raised.wait(timeout=5)  # the later refusal is already in hand
+            with lock:
+                finished.append(item)
             raise UnsupportedConstructError("earliest input")
         if item == 1:
+            raised.set()
             raise UnsupportedConstructError("later input, first to raise")
-        sleep(0.02)
-        with lock:
-            finished.append(item)
         return item
 
     with WorkPool(4) as pool:
         with pytest.raises(UnsupportedConstructError, match="earliest input"):
             pool.map(work, [0, 1, 2, 3])
 
-    assert finished, "the phase raised before its siblings could finish"
+    assert finished == [0], "the phase raised before the earlier item finished"
 
 
 def test_explicit_cores_is_the_worker_count():
@@ -404,26 +420,43 @@ def test_lease_bounds_retained_pools_per_worker_count():
         try:
             pool.map(lambda item: item, [1])
             alive += 1
-        except RuntimeError:
+        except RuntimeError as shutdown:
+            # Narrowed to the executor's own words. `except RuntimeError`
+            # whole would also catch an `EngineInvariantError` raised INSIDE
+            # the map and count it as a closed pool — a breach converted into
+            # the expected outcome, with the assertion still passing.
+            assert "after shutdown" in str(shutdown), shutdown
             closed += 1
     assert alive == RETAINED
     assert closed == 1
 
 
+def _own_threads(pool: WorkPool) -> int:
+    """How many live threads belong to THIS pool, by the name it gives them."""
+    mine = f"{pool.name}_"
+    return sum(thread.name.startswith(mine) for thread in enumerate_threads())
+
+
 def test_lease_keeps_thread_count_stable_across_many_sequential_parses():
-    """Sequential borrow/release never grows the retained thread count."""
-    baseline = active_count()
+    """Sequential borrow/release reuses one pool and never outgrows its width.
+
+    Counted per POOL, not per process. ``active_count()`` measures the weather:
+    a pool from an earlier test dying mid-loop moves it, and so does this
+    pool's own lazy spin-up, which reaches the third worker on whichever
+    iteration the executor first finds no idle thread — not on a fixed one. A
+    count of the pool's own threads asks what the lease is actually for.
+    """
     seen: set[int] = set()
     counts = []
     for _ in range(10):
         with PoolLease(3) as pool:
             seen.add(id(pool))
             pool.map(lambda item: item + 1, list(range(6)))
-        counts.append(active_count())
+            counts.append(_own_threads(pool))
 
     assert len(seen) == 1
-    assert counts[-1] >= baseline
-    assert len(set(counts[2:])) == 1
+    assert max(counts) <= 3
+    assert counts == sorted(counts)
 
 
 def test_lease_closes_the_pool_when_the_body_raises():

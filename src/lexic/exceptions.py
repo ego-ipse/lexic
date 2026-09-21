@@ -137,3 +137,27 @@ class FieldValidationError(LexicError):
     non-model, or a missing required field. The trusted parse paths
     (``_from_values``/``fast_construct``) bypass ``__new__`` and are unchecked.
     """
+
+
+class EngineInvariantError(RuntimeError):
+    """The engine reached a state its own construction says cannot happen.
+
+    Outside the :class:`LexicError` family ON PURPOSE. That family is what a
+    caller catches to fall back — to the gated engine, or to a sequential
+    parse — so a breach wearing it would be answered with a correct-looking
+    parse and the wrong model would never surface. This must escape those
+    catches, and it does: neither ``except LexicError`` nor
+    ``except PdaFail`` sees a ``RuntimeError``.
+
+    NOT :class:`BaseException`, and the precedent that suggests otherwise is
+    :class:`~lexic.ir.action.flow.control._Return`, which is CONTROL FLOW and
+    must escape everything including ``except Exception``. This is an error: it
+    must escape the two fallback catches, which ``RuntimeError`` already does,
+    and it must stay visible to a top-level ``except Exception`` so it reaches
+    a bug report rather than killing the process silently.
+
+    The test for membership is what a breach PRODUCES. An engine invariant's
+    breach yields a wrong answer that a fallback would hide. A precondition's
+    breach crashes at the site on the next line, and belongs in Python's own
+    vocabulary — ``TypeError`` for a wrong argument type, and so on.
+    """

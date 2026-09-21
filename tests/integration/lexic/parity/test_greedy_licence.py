@@ -17,8 +17,15 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.flatten import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.products import earley_model, parse_model, pda_model
+from lexic.parsing.pda.runtime.kernel import decisions
+from lexic.parsing.products import (
+    _model_product,
+    earley_model,
+    parse_model,
+    pda_model,
+)
 from tests.parity_helpers import answers, built
+from tools.benchmark.cases.grammars import BENCHES
 
 PARA = (
     "doc ::= para+\n"
@@ -274,3 +281,40 @@ def test_the_shape_no_longer_islands() -> None:
 
     assert analysis.islands == frozenset()
     assert len(analysis.taxonomy.ready_loop_gates) == 1
+
+
+def test_a_forking_parse_builds_the_model_earley_builds() -> None:
+    """Where the kernel actually FORKS, the two engines agree value for value.
+
+    The fork path copies every frame's value containers empty and hands the
+    inherited values back at the build. A fork that lost a prefix would not
+    crash — it would build a model with holes in it — so the assertion is
+    `dump()` equality against Earley, not that the parse succeeds.
+
+    `gbnf-meta` is the witness because it is the roster's only heavy forker:
+    276 forks on its full sample, where every other row forks 18 times or
+    none. A grammar that never forks would pass this test without exercising
+    anything.
+    """
+    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
+    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    seen = [0]
+    real = decisions.frames_copy
+
+    def counted(stack):
+        """Count the forks, so a fixture that stops forking is visible."""
+        seen[0] += 1
+        return real(stack)
+
+    decisions.frames_copy = counted
+    try:
+        folded = pda_model(product.pda, bench.full, bench.compiled.product.executor)
+    finally:
+        decisions.frames_copy = real
+    reference = earley_model(
+        product.instance_grammar, bench.full, bench.compiled.product, product.tables
+    )
+
+    assert seen[0] > 0, "the witness stopped forking — this test proves nothing"
+    assert folded.dump() == reference.dump()
+    assert folded.to_text() == reference.to_text() == bench.full

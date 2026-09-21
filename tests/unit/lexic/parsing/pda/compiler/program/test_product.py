@@ -62,7 +62,6 @@ def test_a_transparent_clone_builds_nothing_and_records_no_range():
     """No routine (an inline group) — every build field says "nothing"."""
     clone = _clone()
     bake_product_build(clone, None)
-    assert clone.completion == -1
     assert clone.mode == BUILD_TRANSPARENT
     assert clone.ctor is no_construction
     assert clone.matched == ""
@@ -83,7 +82,6 @@ def test_a_pass_through_routine_builds_alt_mode_with_no_construction():
     clone = _clone()
     routine = _routine((int(CaptureMode.ONE),), (0,), 0, 3, None)
     bake_product_build(clone, routine)
-    assert clone.completion == 7
     assert clone.mode == BUILD_ALT
     assert clone.ctor is no_construction
     assert clone.fields == ()
@@ -209,11 +207,10 @@ def test_a_skip_mode_capture_refuses_with_words():
 # ── provenance and arm width travel unchanged ────────────────────────────
 
 
-def test_the_baked_completion_and_n_items_are_the_routines_own():
-    """The clone's completion/n_items are read straight off the routine —
-    one reading, not a second derivation that could disagree."""
+def test_the_baked_n_items_is_the_routines_own():
+    """The clone's arm width is read straight off the routine — one reading,
+    not a second derivation that could disagree."""
     clone = _clone()
     routine = _routine((), (), 5, 0, None)
     bake_product_build(clone, routine)
-    assert clone.completion == 7
     assert clone.n_items == 5

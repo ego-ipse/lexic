@@ -48,9 +48,14 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_construction,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import no_shape_build, shape_build
+from lexic.parsing.pda.compiler.program.lowering import (
+    FoldBuild,
+    no_shape_build,
+    shape_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
+    BUILD_FOLD,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -120,7 +125,9 @@ def _build_mode[Carry](routine: RuleRoutine[Carry] | None) -> int:
 
 
 def bake_product_build[Carry](
-    clone: FlatClone[Carry], routine: RuleRoutine[Carry] | None
+    clone: FlatClone[Carry],
+    routine: RuleRoutine[Carry] | None,
+    fold: FoldBuild[Carry] | None = None,
 ) -> None:
     """Fill a clone's build state from its rule's verified routine, in place.
 
@@ -136,18 +143,45 @@ def bake_product_build[Carry](
     :param clone: The clone shell to fill.
     :param routine: Its rule's verified routine, or ``None`` for a transparent
         clone, which names no completion range and records ``-1``.
+    :param fold: The left-recursion fold's per-iteration build, when this rule
+        was rewritten to a loop — the mode then says so, and the completion
+        folds the iterations back through the arm's own build rather than
+        constructing one node from one arm's items.
+
+        It is written into ``build`` and ``n_items`` rather than into a field
+        of its own: :data:`BUILD_FOLD` already says a clone folds, so a field
+        saying it again would be a 23rd slot on
+        :class:`~lexic.parsing.pda.compiler.program.flatten.FlatClone` — a
+        record every clone of every grammar carries — to restate what the mode
+        already says, for a transformation almost no rule takes. A folding
+        clone reaches neither the sequence build nor the item-count guard
+        those two fields exist for, so the mode decides which reading applies
+        and there is only ever one.
     """
-    clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
     clone.runarm = None
-    clone.mode = _build_mode(routine)
+    clone.mode = BUILD_FOLD if fold is not None else _build_mode(routine)
     clone.n_items = 0 if routine is None else routine.n_items
     clone.needs_ends = clone.mode == BUILD_VALUE_STR or (
         routine is not None
         and any(capture.mode in _ENDS_MODES for capture in routine.captures)
     )
+    if fold is not None:
+        # Before the construction check, because a FOLDED rule's own routine
+        # has no construction — it is the alternation whose arms build, and
+        # the fold calls one of those arms' builds per iteration. The bake
+        # would otherwise clear the very fields the fold just wrote.
+        clone.build = fold.step
+        clone.n_items = fold.slots
+        clone.ctor = no_construction
+        clone.matched = ""
+        clone.fields = ()
+        clone.plan = ()
+        clone.fast = no_fast_construction
+        clone.defaults = None
+        return
     construction = None if routine is None else routine.construction
     if routine is None or construction is None:
         clone.ctor = no_construction
@@ -164,7 +198,7 @@ def bake_product_build[Carry](
         clone.build = no_shape_build
         clone.defaults = None
         return
-    clone.plan = _build_plan(routine, construction, licence.order)
+    clone.plan = build_plan(routine, construction, licence.order)
     clone.fast = licence.construct
     # A ``value_str`` clone's construction belongs to ``vstr_model``, which
     # reads the plan's M_VALUE entry against the clone's OWN matched extent.
@@ -202,12 +236,17 @@ def _capture_layout[Carry](
     )
 
 
-def _build_plan[Carry](
+def build_plan[Carry](
     routine: RuleRoutine[Carry],
     construction: Construction[Carry],
     order: tuple[str, ...],
 ) -> tuple[tuple[int, int, int, ProductValue[Carry]], ...]:
     """The positional plan — one ``(mode, item, lo, default)`` per class field.
+
+    Public because the left-recursion fold composes an arm's build from it too
+    (:mod:`lexic.parsing.pda.compiler.leftrec.build`): a fold that re-derived
+    the plan could drift from the one the ordinary bake uses, and then the same
+    arm would build two different models depending on how it was reached.
 
     Three cases, and the third is the rule whose value IS what it matched: the
     record names the field its own extent fills, so nothing here has to infer

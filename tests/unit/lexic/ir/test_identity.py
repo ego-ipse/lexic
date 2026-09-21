@@ -200,3 +200,39 @@ def test_a_census_is_a_sequence_of_records(json_ast: IrAst) -> None:
     assert node is json_ast
     assert reached == 1
     assert refused is False
+
+
+def test_a_runs_members_are_children_and_the_run_itself_is_not() -> None:
+    """A repetition's run is a way THROUGH, not a node.
+
+    A generated model stores a repeated field as a plain `tuple` of models.
+    That container is not an `IrSelf`, so filtering the parts to `IrSelf`
+    alone stopped at the first run — reporting a whole csv document as four
+    nodes. Its members are the children.
+    """
+    first, second = IrLiteral("a"), IrLiteral("b")
+
+    assert field_children(IrTuple((first, second))) == (first, second)
+
+
+def test_a_tuple_subclass_is_a_node_not_a_run() -> None:
+    """The test is on the class, because every record IS a tuple subclass.
+
+    `isinstance(part, tuple)` is true of every `IrTuple` and every record, and
+    none of them is a run. Getting this wrong would splice a node's own fields
+    into its parent's children.
+    """
+    inner = IrTuple((IrLiteral("a"),))
+
+    children = field_children(IrTuple((inner,)))
+
+    assert children == (inner,), "the subclass is ONE child, not its contents"
+
+
+def test_a_mixed_tuple_is_a_leaf_rather_than_a_partial_run() -> None:
+    """A plain tuple holding anything that is not a node is not a run.
+
+    Splicing the node-valued half would invent a child list the value never
+    had, which is worse than declining to look inside.
+    """
+    assert not field_children(IrTuple((("a", IrLiteral("b")),)))

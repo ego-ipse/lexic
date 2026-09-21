@@ -10,7 +10,7 @@ flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks with
 integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
-:mod:`lexic.parsing.pda.compiler.program.specialize` holds the passes that REWRITE
+:mod:`lexic.parsing.pda.compiler.program.specialize.passes` holds the passes that REWRITE
 this artefact once it exists; this module is the artefact itself plus the
 readers the runtime walks it with. It imports nothing from ``pda_tables`` (it
 is a leaf w.r.t. the compiler and the spec types); the ``spec → flat`` bridge
@@ -20,17 +20,20 @@ lives in ``pda_tables`` beside the specs it reads.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, Never
+from typing import Any, NamedTuple, Never, Protocol
 
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
     GATE_PEEK,
     GATE_STOP,
     M_VALUE,
+    OP_GRP,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
@@ -44,12 +47,12 @@ def no_construction(
     *_args: ProductValue[Never], **_kwargs: ProductValue[Never]
 ) -> Never:
     """Refuse an impossible call through a recognition-only clone."""
-    raise RuntimeError("recognition-only clone has no construction")
+    raise EngineInvariantError("recognition-only clone has no construction")
 
 
 def no_fast_construction[Carry](_values: list[ProductValue[Carry]]) -> Carry:
     """Refuse an impossible positional build without a granted licence."""
-    raise RuntimeError("clone has no positional construction licence")
+    raise EngineInvariantError("clone has no positional construction licence")
 
 
 def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:
@@ -57,7 +60,7 @@ def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bo
 
     The runtime test for a ``k``-window gate (Task 6.3 part c) — a loop
     take/skip gate (:data:`GATE_KWIN`) or an arm selector
-    (:attr:`FlatClone.kwin_selectors`). ``windows`` is a set of ``≤k``-length
+    (:class:`KWindowSelect`). ``windows`` is a set of ``≤k``-length
     windows, each a tuple of pre-resolved ``(chars, negated)`` position sets.
     A position at or past end-of-input is the EOF sentinel ``""``, matched by a
     positive set carrying it and — only under ``at_eof`` — by a co-finite set
@@ -223,7 +226,7 @@ def arm_expected(clone: FlatClone) -> tuple[tuple[str, ...], bool]:
     enumerated; a mix of polarities cannot be unioned honestly in one pair, so
     it reports nothing rather than something wrong.
     """
-    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+    if clone.wide_selectors is not None:
         return (), False
     negated = [neg for _chars, neg, _arm in clone.selectors]
     if not negated or any(negated) != all(negated):
@@ -234,41 +237,156 @@ def arm_expected(clone: FlatClone) -> tuple[tuple[str, ...], bool]:
     return tuple(sorted(merged)), negated[0]
 
 
+class WideSelect(Protocol):
+    """A selection one lookahead character cannot make.
+
+    What :attr:`FlatClone.wide_selectors` holds. Typed once here so a third
+    kind of wide selection arrives by implementing this, not by widening a
+    union at every site that names the two that exist today.
+    """
+
+    label: str
+    """What this selection is called where a human reads it."""
+
+    @property
+    def arms(self) -> tuple[Any, ...]:
+        """Every payload this selection can choose, gate stripped.
+
+        Arms before the dispatch rewrite, target clones after it: the
+        selection carries whatever its clone's mode says it carries.
+        """
+        raise NotImplementedError
+
+    def select(self, text: str, pos: int) -> Any:
+        """The payload this selection admits at ``pos``, or ``None`` for none."""
+        raise NotImplementedError
+
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "WideSelect":
+        """This selection with its payloads replaced, gates and order intact.
+
+        The one operation the dispatch rewrite needs, so a wide alternation's
+        targets live in the selection that chooses them rather than in a table
+        beside it. Cold — it runs once at bake and never on a parse — and it
+        RETURNS A NEW selection, because the record it maps is shared.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A selection of the same kind, choosing the same way.
+        """
+        raise NotImplementedError
+
+
+class KWindowSelect(NamedTuple):
+    """Arms chosen by an EOF-exact match over ``≤k``-length position windows.
+
+    :ivar entries: ``(windows, arm)`` pairs, where ``windows`` is a tuple of
+        ``((chars, negated), ...)`` position windows.
+    """
+
+    entries: tuple[tuple[Any, Any], ...]
+
+    label = "k-window"
+
+    @property
+    def arms(self) -> tuple[Any, ...]:
+        """Every arm this selection can choose, gate stripped."""
+        return tuple(arm for _windows, arm in self.entries)
+
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "KWindowSelect":
+        """This selection over new payloads, the window sets unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A fresh :class:`KWindowSelect`.
+        """
+        return KWindowSelect(
+            tuple(
+                (windows, payload)
+                for (windows, _arm), payload in zip(self.entries, payloads, strict=True)
+            )
+        )
+
+    def select(self, text: str, pos: int) -> Any:
+        """The payload whose window set matches at ``pos``, or ``None``."""
+        for windows, candidate in self.entries:
+            if window_admits(text, pos, windows):
+                return candidate
+        # Headed for a fallback: a co-finite window position cannot spell "any
+        # character, OR the end", so an arm that legitimately ends the input is
+        # unselectable. Retry admitting the sentinel — second pass, never
+        # first, so it can only rescue a selection.
+        for windows, candidate in self.entries:
+            if window_admits(text, pos, windows, at_eof=True):
+                return candidate
+        return None
+
+
+class NoiseSkipSelect(NamedTuple):
+    """Arms chosen by the first character past a skipped ``W``-noise run.
+
+    The skip does not consume: the winning arm re-parses its own noise, so the
+    peek is recognition-only and a wrong pick fails the parse rather than
+    silently mis-building.
+
+    :ivar noise: ``(chars, negated)`` — the run skipped before peeking.
+    :ivar entries: ``(chars, negated, arm)`` triples over the post-noise char.
+    """
+
+    noise: tuple[frozenset[str], bool]
+    entries: tuple[tuple[frozenset[str], bool, Any], ...]
+
+    label = "prefix negation"
+
+    @property
+    def arms(self) -> tuple[Any, ...]:
+        """Every arm this selection can choose, gate stripped."""
+        return tuple(arm for _chars, _negated, arm in self.entries)
+
+    def with_payloads(self, payloads: tuple[Any, ...]) -> "NoiseSkipSelect":
+        """This selection over new payloads, the peek gates unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: A fresh :class:`NoiseSkipSelect`.
+        """
+        return NoiseSkipSelect(
+            self.noise,
+            tuple(
+                (chars, negated, payload)
+                for (chars, negated, _arm), payload in zip(
+                    self.entries, payloads, strict=True
+                )
+            ),
+        )
+
+    def select(self, text: str, pos: int) -> Any:
+        """The payload admitting the first post-noise character, or ``None``."""
+        at = _skip_noise(text, pos, self.noise[0], self.noise[1])
+        char = text[at : at + 1]
+        for chars, negated, candidate in self.entries:
+            if (char != "" and char not in chars) if negated else char in chars:
+                return candidate
+        return None
+
+
 def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
     """The gated arm of a k-window or noise-skip alternation at ``pos``.
 
-    A P2 clone matches ``text[pos:pos+k]`` EOF-exactly against each arm's
-    window set; a P3 clone skips the maximal ``W``-noise run *without
-    consuming* and selects the arm containing the first post-noise char (the
-    winner re-parses its own noise — the peek is recognition-only, so a wrong
-    pick fails the parse rather than silently mis-building). The gate sets are
+    Which of the two it is, is the selection's own business: both answer
+    :meth:`~KWindowSelect.select`, so nothing here asks. The gate sets are
     pairwise separable, so at most one arm can match.
 
     :raises PdaFail: When no arm's gate matches and there is no default.
     """
-    got = None
-    if clone.kwin_selectors is not None:
-        for windows, candidate in clone.kwin_selectors:
-            if window_admits(text, pos, windows):
-                got = candidate
-                break
-        if got is None:
-            # Headed for a fallback: a co-finite window position cannot spell
-            # "any character, OR the end", so an arm that legitimately ends the
-            # input is unselectable. Retry admitting the sentinel — second
-            # pass, never first, so it can only rescue a selection.
-            for windows, candidate in clone.kwin_selectors:
-                if window_admits(text, pos, windows, at_eof=True):
-                    got = candidate
-                    break
-    else:
-        (w_chars, w_negated), sels = clone.pn_selectors
-        p = _skip_noise(text, pos, w_chars, w_negated)
-        ch = text[p : p + 1]
-        for chars, negated, candidate in sels:
-            if (ch != "" and ch not in chars) if negated else ch in chars:
-                got = candidate
-                break
+    wide = clone.wide_selectors
+    if wide is None:
+        # Only reached through a `wide_selectors is not None` guard. Raised
+        # rather than falling through to the default, which would turn an
+        # impossible state into a quietly WRONG arm the moment that guard
+        # moves. `RuntimeError` for the reason `frames_copy` uses it: the
+        # engine seam catches `PdaFail` and would hide this behind an Earley
+        # parse that succeeds.
+        raise EngineInvariantError(
+            f"select_gated: {clone.name!r} has no wide selection"
+        )
+    got = wide.select(text, pos)
     if got is None and clone.default is None:
         raise PdaFail(
             f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
@@ -332,19 +450,13 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         without reaching back into the compile-side binding view for a name.
     :ivar selectors: FIRST-gated arms as ``(chars, negated, arm)`` triples;
         ``arm`` is the target :class:`FlatClone` on a dispatch clone.
-    :ivar kwin_selectors: ``None`` on the single-char path; a tuple of
-        ``(windows, arm)`` pairs on a ``k``-window-gated alternation (Task 6.3
-        part c), where ``windows`` is a tuple of ``≤k``-length
-        ``((chars, negated), ...)`` position windows. When set, the runtime
-        selects an arm by EOF-exact window match (:meth:`~lexic.parsing.pda
-        .runtime.PdaKernel._select_arm_kwin`) instead of the lead char, and the
-        dispatch/leaf specialisations are skipped for this clone.
-    :ivar pn_selectors: ``None`` on the single-char path; a
-        ``((w_chars, w_negated), ((chars, negated, arm), ...))`` pair on a P3
-        noise-skip alternation (Task 6.4): the runtime skips the maximal
-        ``W``-noise run without consuming and selects the arm containing the
-        first post-noise char (:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel
-        ._select_arm_peek`); the winner re-parses its own noise. The
+    :ivar wide_selectors: ``None`` on the single-char path; a
+        :class:`KWindowSelect` or :class:`NoiseSkipSelect` when one lookahead
+        character cannot make the choice. One slot, because the lowering sets
+        at most one of the two by construction (:func:`_flatten_selectors`) and
+        because every runtime site asks only WHETHER a wide selection is
+        present, never which — :func:`select_gated` puts the question to the
+        selection itself. When set, ``selectors`` is empty and the
         dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`FlatArm`, or ``None``; on
         a dispatch clone the default target clone or :data:`DISPATCH_EMPTY`.
@@ -356,9 +468,11 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         for such a clone (the gate branch must survive).
     :ivar attempt: ``None`` on an ordinary clone. On an ATTEMPT clone,
         ``(follow, entries)`` — the rule's soft-FOLLOW CharSet and, in attempt
-        order, ``(chars, negated, sub)`` entries: ``chars`` the arm's FIRST
-        pre-filter (``None`` for the always-admitted nullable default entry)
-        and ``sub`` a single-arm :class:`FlatClone` sharing the parent's
+        order, ``(chars, negated, prefix, window, sub)`` entries: ``chars`` the
+        arm's FIRST pre-filter (``None`` for the always-admitted nullable
+        default entry), ``prefix`` a leading-terminal regex and ``window`` the
+        arm's compiled FIRST-k admission (both ``None`` when it has none), and
+        ``sub`` a single-arm :class:`FlatClone` sharing the parent's
         :class:`FlatArm` (so op specialisation reached it once). The runtime
         tries entries in order via the sub-run seam; the follow set is the
         second-success audit's composition evidence. Dispatch and leaf
@@ -418,11 +532,14 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
 
     """
 
+    # Declared in the order the annotations below read, which is the only
+    # order that means anything: CPython SORTS __slots__ before it creates the
+    # member descriptors, so the declaration cannot influence the layout and a
+    # "hot slots first" ordering would be presentation dressed as mechanism.
     __slots__ = (
         "name",
         "selectors",
-        "kwin_selectors",
-        "pn_selectors",
+        "wide_selectors",
         "default",
         "struct_arm",
         "attempt",
@@ -440,13 +557,11 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "chartotal",
         "runarm",
         "needs_ends",
-        "completion",
     )
 
     name: str
     selectors: tuple[tuple[frozenset[str], bool, Any], ...]
-    kwin_selectors: Any
-    pn_selectors: Any
+    wide_selectors: WideSelect | None
     default: Any
     struct_arm: Any  # ScanGate | None — the empty-arm gate, consulted at select
     attempt: Any  # ((chars, negated), entries) | None — the attempt order
@@ -464,7 +579,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
-    completion: int  # provenance: the verified completion range this bake read
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):
@@ -535,3 +649,48 @@ character are alphabets (digits, letters, a token's glyphs), and those fit.
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────
+
+
+def clone_arms(clone: FlatClone) -> list[FlatArm]:
+    """A clone's arms (gated + default), skipping dispatch clones' targets.
+
+    Here beside :class:`FlatClone` and :class:`FlatArm` because it is their
+    walker, not a specialisation policy: a dispatch clone holds TARGETS rather
+    than arms, and a gated one holds its arms on its selection with
+    ``selectors`` empty, so reading either structure directly is the mistake
+    this exists to not make.
+
+    :param clone: Any flat clone.
+    :returns: Its arms, or ``[]`` for a dispatch clone.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        return []
+    if clone.wide_selectors is not None:
+        arms = list(clone.wide_selectors.arms)
+    else:
+        arms = [arm for _chars, _negated, arm in clone.selectors]
+    if clone.default is not None:
+        arms.append(clone.default)
+    return arms
+
+
+def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
+    """Every clone reachable from ``roots``, groups included (worklist walk).
+
+    :param roots: The clones to start from.
+    :returns: Every reachable clone, each once.
+    """
+    seen: set[int] = set()
+    out: list[FlatClone] = []
+    work = list(roots)
+    while work:
+        clone = work.pop()
+        if id(clone) in seen:
+            continue
+        seen.add(id(clone))
+        out.append(clone)
+        for arm in clone_arms(clone):
+            for kind, payload in zip(arm.kinds, arm.payloads):
+                if kind == OP_GRP:
+                    work.append(payload)
+    return out

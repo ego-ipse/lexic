@@ -33,9 +33,10 @@ an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 
 The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
 :func:`flatten_program` lowers them once into the flat int-coded
-:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks. The
-two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
-``.program`` for the hot loop).
+:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
+Once lowered they are *done*: :class:`PdaTables` carries the program alone, and
+the specs go away with the compiler that made them. :func:`compile_clones` is
+where anything that wants to read them asks.
 """
 
 from __future__ import annotations
@@ -52,7 +53,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrRule,
     IrRuleRef,
@@ -62,12 +62,15 @@ from lexic.ir import (
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
+from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
+from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
+from lexic.parsing.pda.compiler.program.lowering import FoldBuild
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -86,10 +89,14 @@ from lexic.parsing.pda.compiler.specs import (
     LoopGate,
     PeekGate,
     StopGate,
+    arm_items,
+    firsts_overlap,
+    resolve_struct_arm,
+    upper_bound,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.pda.core.scanner import ScanGate
 from lexic.parsing.product import RuleRoutine
 
 __all__ = [
@@ -140,52 +147,6 @@ ATTEMPT_WINDOW_K = 5
 failed trial runs die within 1 char in ~38% of cases, 4 in ~83%, and ~13%
 run 7+ chars deep where no bounded window reaches — 5 is where the
 exclusion curve flattens against the derivation's fan-out cost."""
-
-
-# ── helpers ────────────────────────────────────────────────────────────────
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-def _firsts_overlap(arms: Sequence[ArmSpec]) -> bool:
-    """Whether any two gated arms' FIRST sets overlap (the drift tripwire)."""
-    return any(
-        arms[i].first.overlaps(arms[j].first)
-        for i in range(len(arms))
-        for j in range(i + 1, len(arms))
-    )
-
-
-def _resolve_struct_arm(
-    struct_arm: ArmGate | None, default_idx: int | None
-) -> ScanGate | None:
-    """The empty-arm gate's :class:`ScanGate`, validated against the default arm.
-
-    :param struct_arm: The stored :class:`~lexic.parsing.pda.core.scanner.ArmGate`, or
-        ``None``.
-    :param default_idx: The body index of the nullable default arm the compiler
-        picked, or ``None`` when no arm is all-nullable.
-    :returns: The gate's :class:`ScanGate` (its escape aligned to ``default_idx``),
-        or ``None`` when no gate is stored.
-    :raises UnsupportedConstructError: When the gate's escape index does not
-        match ``default_idx`` (analysis/compiler drift).
-    """
-    if struct_arm is None:
-        return None
-    if default_idx != struct_arm.escape:
-        raise UnsupportedConstructError(
-            "pda: structured arm gate escape does not match the nullable default arm"
-        )
-    return struct_arm.gate
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -265,7 +226,14 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
-        return ItemSpec(REF, IslandRef(name, fail), ctx.lo, ctx.hi, ctx.gate)
+        cont = compiler.continuations.follow(name)
+        return ItemSpec(
+            REF,
+            IslandRef(name, fail, cont, compiler.continuations.bounds(name, cont)),
+            ctx.lo,
+            ctx.hi,
+            ctx.gate,
+        )
     if name in compiler.analysis.taxonomy.attempts:
         # ONE canonical clone per attemptable rule (the analysis-level hard
         # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
@@ -347,6 +315,8 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "routines",
         "clones",
         "pending",
+        "continuations",
+        "folds",
         "draining",
     )
 
@@ -355,6 +325,8 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
+    continuations: IslandContinuations
+    folds: dict[str, FoldBuild]
 
     def __init__(
         self,
@@ -367,6 +339,8 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones = {}
         self.pending = []
         self.draining = False
+        self.continuations = IslandContinuations(analysis, self.islands)
+        self.folds = {}
 
     def _attempt_window(
         self, items: Sequence[IrItem]
@@ -537,7 +511,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         for idx, arm in (
             enumerate(node) if order is None else ((i, node[i]) for i in order)
         ):
-            items = _items(arm)
+            items = arm_items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
             if all(self.analysis.item_nullable(i) for i in items):
@@ -553,16 +527,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         self._attempt_window(items) if order is not None else None,
                     )
                 )
-        if (
-            order is None
-            and windows is None
-            and peeks is None
-            and _firsts_overlap(arms)
-        ):
+        if order is None and windows is None and peeks is None and firsts_overlap(arms):
             raise UnsupportedConstructError(
                 "pda: arm FIRST overlap without a gate spec"
             )
-        return tuple(arms), default, _resolve_struct_arm(gates.struct_arm, default_idx)
+        return tuple(arms), default, resolve_struct_arm(gates.struct_arm, default_idx)
 
     def _compile_seq(
         self, items: Sequence[IrItem], tail: CharSet
@@ -588,7 +557,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         item = items[idx]
         atom = item.atom
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = upper_bound(item)
         gate = self._loop_gate(items, idx, cont)
         ctx = _ItemCtx(lo, hi, cont, gate)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
@@ -610,7 +579,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         analysis = self.analysis
         item = items[idx]
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = upper_bound(item)
         first = analysis.atom_first(item.atom)
         if hi is None or hi > lo:
             # A stored gate is the analysis's DECISION for this item node —
@@ -664,6 +633,30 @@ def _attach_delegates(
     )
 
 
+def compile_clones(
+    lifted: IrAst, binding: ModelExecutable
+) -> tuple[PdaCompiler, CloneKey | IslandRef]:
+    """Run the clone compiler and hand back what it built, unlowered.
+
+    The authored :class:`CloneSpec` layer is a compile-time intermediate:
+    :func:`compile_pda` lowers it and lets it go, so an artifact does not carry
+    it and nothing can reach it from one. This is the seam for a caller that
+    genuinely wants the specs — the clone compiler's own tests, an
+    introspection tool — and it gives them a compiler of their own, whose
+    lifetime is theirs to end.
+
+    :param lifted: The lifted codegen grammar the clones are cut against.
+    :param binding: The bound model product, for the verified routines.
+    :returns: The compiler, drained, and where it started.
+    :raises UnsupportedConstructError: On anything the analysis or the clone
+        compiler cannot handle.
+    """
+    grammar, folds = folded_grammar(lifted, binding)
+    compiler = PdaCompiler(GrammarAnalysis(grammar), binding.routines)
+    compiler.folds = folds
+    return compiler, compiler.compile_start()
+
+
 def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
@@ -682,9 +675,7 @@ def compile_pda(
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
-    analysis = GrammarAnalysis(lifted)
-    compiler = PdaCompiler(analysis, binding.routines)
-    start_key = compiler.compile_start()
+    compiler, start_key = compile_clones(lifted, binding)
     tables = PdaTables(compiler, start_key, instance_grammar)
     _attach_delegates(tables, lifted, binding)
-    return tables
+    return tables  # `compiler` dies here, and the authored specs with it

@@ -90,6 +90,11 @@ def is_run(child: Bound) -> TypeIs[tuple[IrSelf, ...]]:
     subclass and none of them is a run, so the test is on the class itself.
     Public because the stitch asks it from three places, and a fourth spelling
     of it would be a fourth chance to get the subclass case wrong.
+
+    :func:`~lexic.ir.identity.field_children` makes the same test a fourth
+    time, and cannot call this one: ``ir`` is the leaf every other layer
+    imports. That one is the exception, it says so, and ``ir-shapes.md``
+    counts them — a fifth would not be.
     """
     return child.__class__ is tuple
 

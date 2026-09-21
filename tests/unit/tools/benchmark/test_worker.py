@@ -208,9 +208,7 @@ def test_a_declined_split_reports_one_worker_and_says_why() -> None:
     assert seen.workers == 1
 
 
-def test_the_engagement_probe_reports_what_the_attempt_did(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_engagement_probe_reports_what_the_attempt_did() -> None:
     """The worker's observation carries the attempt's answer, not its request."""
     compiled = compile_text(_LINES, cache_key="worker-occupancy-probe")
     document = _lines(16 * 1024)
@@ -218,10 +216,10 @@ def test_the_engagement_probe_reports_what_the_attempt_did(
         lambda text: compiled.parse(text, cores=1), document, None, compiled
     )
 
-    seen = worker._engagement("lexic-mt", built, 16)
+    seen = worker.engagement("lexic-mt", built, 16)
 
     assert seen is not None
-    engaged, split, workers = worker._split_fields(seen)
+    engaged, split, workers = worker.split_fields(seen)
     assert engaged is True
     assert split != ""
     assert 1 < workers < 16
@@ -262,21 +260,24 @@ def test_a_different_carving_of_the_same_document_reports_a_different_plan() -> 
     assert wide.plan != narrow.plan
 
 
-def test_the_scheduler_alone_cannot_refuse_a_pair(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_scheduler_alone_cannot_refuse_a_pair() -> None:
     """Two arms differing only in observed occupancy still compare.
 
     This is the same-tree control pair the comparator would have rejected: it
     ran identical code on an identical document and was scheduled differently.
+
+    Its second half now pins the OTHER side of that line. A different carving
+    is strategy and is reported; a head that stops splitting is refused. The
+    two are not symmetric because the risks are not: only one of them makes a
+    regression read as a speedup.
     """
     compiled = compile_text(_LINES, cache_key="worker-scheduling-only")
     document = _lines(16 * 1024)
     built = EngineBuild(
         lambda text: compiled.parse(text, cores=1), document, None, compiled
     )
-    engaged, split, workers = worker._split_fields(
-        worker._engagement("lexic-mt", built, 8)
+    engaged, split, workers = worker.split_fields(
+        worker.engagement("lexic-mt", built, 8)
     )
     observed = Observation(
         1.0, 1.0, "text", "shape", "accepted", engaged, split, workers
@@ -292,11 +293,28 @@ def test_the_scheduler_alone_cannot_refuse_a_pair(
         is None
     )
 
-    with pytest.raises(ValueError, match="split_digest"):
+    # A different CARVING is reported, not refused: both arms built one model,
+    # and how the work was divided is strategy. What is still refused is a head
+    # that stops splitting altogether — doing less work, not the same work
+    # faster — which is the asymmetry `compare._strategy` holds.
+    assert (
         compare.comparable(
             compare.Arm("json/lexic-mt/base", CONTRACT, observed),
             compare.Arm(
                 "json/lexic-mt/head", CONTRACT, observed._replace(split_digest="other")
+            ),
+            "json/lexic-mt",
+        )
+        is None
+    )
+
+    with pytest.raises(ValueError, match="no longer splits"):
+        compare.comparable(
+            compare.Arm(
+                "json/lexic-mt/base", CONTRACT, observed._replace(engaged=True)
+            ),
+            compare.Arm(
+                "json/lexic-mt/head", CONTRACT, observed._replace(engaged=False)
             ),
             "json/lexic-mt",
         )

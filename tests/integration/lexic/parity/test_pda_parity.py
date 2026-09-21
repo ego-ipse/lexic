@@ -34,7 +34,7 @@ from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
-from lexic.parsing.pda.compiler.program.specialize import all_clones
+from lexic.parsing.pda.compiler.program.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from lexic.parsing.products import earley_model
@@ -47,8 +47,8 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
     report,
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
-from tests.unit.lexic.parsing.parsing_helpers import prod
-from tests.unit.lexic.parsing.pda.compiler.program.test_specialize import (
+from tests.unit.lexic.parsing.parsing_helpers import clone_specs, prod
+from tests.unit.lexic.parsing.pda.compiler.program.specialize.test_passes import (
     ATTEMPT_GATED_VSTR,
 )
 from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
@@ -177,9 +177,8 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
     cg = compile_from_path(GROUND_TRUTH / "chess.gbnf")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert sorted(prod(cg).pda.islands) == []
-    nonpawn = [
-        spec for key, spec in prod(cg).pda.clones.items() if key.name == "nonpawn"
-    ]
+    specs = clone_specs(cg)
+    nonpawn = [spec for key, spec in specs.clones.items() if key.name == "nonpawn"]
     assert nonpawn, "nonpawn must be cloned now (demoted, not islanded)"
     assert any(
         isinstance(item.gate, KTupleGate)
@@ -205,7 +204,7 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert not prod(cg).pda.islands
     clones = all_clones([prod(cg).pda.program.start])
-    assert any(clone.kwin_selectors is not None for clone in clones), (
+    assert any(clone.wide_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )
     assert pda_model(prod(cg).pda, "12", cg.executor).to_text() == "12"
@@ -241,12 +240,13 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
     cg = compile_from_path(GROUND_TRUTH / "json.gbnf")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
     assert sorted(prod(cg).pda.islands) == []
-    value_clones = [s for key, s in prod(cg).pda.clones.items() if key.name == "value"]
+    specs = clone_specs(cg)
+    value_clones = [s for key, s in specs.clones.items() if key.name == "value"]
     assert value_clones
     assert all(arm.peek is not None for spec in value_clones for arm in spec.arms), (
         "value must select by post-noise peek"
     )
-    item2 = [s for key, s in prod(cg).pda.clones.items() if key.name == "array-item2"]
+    item2 = [s for key, s in specs.clones.items() if key.name == "array-item2"]
     assert item2
     assert any(
         isinstance(item.gate, PeekGate)
@@ -359,7 +359,7 @@ def test_an_attempt_gated_value_str_builds_the_same_model_pda_and_earley(
     item) held to the equality bar this module owns, not just round-trip.
 
     The unit-level pin beside `ATTEMPT_GATED_VSTR`'s own definition
-    (`tests/unit/.../test_specialize.py::
+    (`tests/unit/.../specialize/test_passes.py::
     test_an_attempt_gated_value_str_ref_routes_pda_and_round_trips`) only
     checks that the PDA route's model round-trips to the input text. That
     is necessary but not sufficient: a regression that made the PDA build a

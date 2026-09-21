@@ -8,6 +8,9 @@
 # Usage:
 #   tools/quick_checks.sh          # diff against HEAD
 #   tools/quick_checks.sh <ref>    # diff against any ref
+#
+# A module imported by more test files than the cap has its fan-out dropped,
+# with a line saying so — the remote's full gate covers it.
 set -e
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 exec uv run python -m tools.quick_checks "$@"

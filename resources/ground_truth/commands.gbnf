@@ -1,0 +1,13 @@
+# A keyed command list, one command per line, each free to be indented.
+#
+# The indentation is what makes this grammar worth keeping: both arms of
+# `entry` begin with the same optional whitespace, so the first character of a
+# line never tells them apart, and the run is unbounded so no fixed lookahead
+# window does either. The decision is the first character AFTER the run.
+# @non-semantic ws
+
+root ::= entry+
+entry ::= ws "set " name " = " value "\n" | ws "get " name "\n"
+name ::= [a-z]+
+value ::= [0-9]+
+ws ::= [ \t]*

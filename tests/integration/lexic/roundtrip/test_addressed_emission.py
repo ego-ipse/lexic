@@ -131,7 +131,10 @@ def test_the_b1_fixture_really_does_share_nodes() -> None:
 
     If this ever stops being true the sharing gates below stop testing
     anything, so the premise is asserted rather than assumed — through the
-    engine's own identity walk, under its stated child definition.
+    engine's own identity walk, under its stated child definition. That
+    definition now descends a repetition's RUN, so this walk reaches strictly
+    more of a model than it used to; the gates below read the census against
+    the emission rather than against a number, and hold either way.
     """
     entries = census(json_model())
     assert max(entry.reached for entry in entries) > 1, (

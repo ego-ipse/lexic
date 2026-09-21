@@ -76,8 +76,9 @@ EXPECTED: dict[str, frozenset[str]] = {
     # proven adequate (lark-earley parses the corpus over the SAME refined
     # grammar), so the grammar is simply not LALR(1). On abnf-meta it refuses
     # at build with a reduce/reduce collision — same verdict, said earlier.
-    # lexic's own PDA declines both self-grammars (island start rule) and the
-    # benchmark reports that rather than hiding it; the Earley rows answer.
+    # lexic's own predictive path takes both self-grammars and parses their
+    # corpora without reaching the gated engine, so neither row is where an
+    # Earley change would show; the engine-reach rows hold that.
     # PEG commits to `document`'s first matching block and cannot back out, so
     # it stops partway; every other tool holds the whole subset. ANTLR escalates
     # to full-context prediction here, which is why the harness's error listener
@@ -144,6 +145,22 @@ EXPECTED: dict[str, frozenset[str]] = {
     # character, so the folded seats are handed the same grammar as the
     # unfolded ones and there is no zero-width terminal to refuse.
     "dense-earley": _ALL - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    # The three engine-reach rows are left-recursive by construction — that is
+    # what makes them reach the engine they are named for — so they lose the
+    # same three seats as the rows above, and for the same reason: PEG cannot
+    # express direct left recursion at all (parsimonious says so by name) and
+    # pyparsing exhausts the interpreter stack descending it.
+    #
+    # lark-lalr SURVIVES all three. LALR takes left recursion natively; it is
+    # the shape the formalism prefers. The lark-lalr casualties recorded
+    # elsewhere in this table are unrelated (a lexer folding, a shift/reduce
+    # resolution), so a reader should not generalise them to this family.
+    "start-fallback": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    "interior-exact": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    "interior-climb": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width

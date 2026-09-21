@@ -253,6 +253,15 @@ def derivations(grammar: IrAst, text: str) -> IrSeq:
 def is_ambiguous(grammar: IrAst, text: str) -> IrInt:
     """Whether ``text`` has more than one derivation under ``grammar`` (``IrInt`` 0/1).
 
+    Counts DERIVATIONS, which is not what a parse refuses on. The engines ask
+    whether a span means two different THINGS
+    (:func:`~lexic.parsing.earley.kernel.forest.support.ambiguity
+    .different_meaning`), and a grammar routinely derives one text several ways
+    without meaning anything by it — a repetition carved at two boundaries
+    builds the same value either way and is answered rather than refused. So a
+    ``1`` here does not predict a refusal, and a caller wanting that question
+    wants the other function.
+
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :returns: ``IrInt(1)`` if ``text`` parses more than one way, else ``IrInt(0)``.

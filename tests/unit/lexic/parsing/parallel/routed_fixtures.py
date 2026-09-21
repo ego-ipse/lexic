@@ -53,8 +53,10 @@ class RoutedPieces(NamedTuple):
 def routed_pieces(grammar: IrAst, text: str, workers: int) -> RoutedPieces | None:
     """The plan, region and pieces for one document, or ``None`` on decline."""
     plan = routed_plan(grammar)
-    region = locate(text, plan) if plan is not None else None
-    parts = divide(text, region, workers) if region is not None else None
-    if plan is None or region is None or parts is None:
+    if plan is None:
+        return None
+    region = locate(text, plan)
+    parts = divide(text, region, workers, plan) if region is not None else None
+    if region is None or parts is None:
         return None
     return RoutedPieces(plan, region, parts)

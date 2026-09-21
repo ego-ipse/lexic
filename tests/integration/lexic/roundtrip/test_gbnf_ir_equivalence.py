@@ -77,6 +77,7 @@ GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
         ),
     ),
     "chess": ("root", ("root", "move", "nonpawn", "pawn", "castle")),
+    "commands": ("root", ("root", "entry", "name", "value", "ws")),
     "japanese": (
         "root",
         ("root", "jp-char", "hiragana", "katakana", "punctuation", "cjk"),
