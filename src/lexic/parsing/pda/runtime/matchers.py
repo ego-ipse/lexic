@@ -197,27 +197,42 @@ def match_cc(text: str, arm: FlatArm, i: int, pos: int) -> int:
     The gate loop needs no atom re-check: a stop-set is a subset of
     the atom's own FIRST, so a gate-admitted char always matches.
 
+    Each loop indexes the character directly and bounds-checks against the
+    length, and each polarity is its own loop: a slice per character built a
+    one-character string the membership test immediately discarded, and the
+    polarity is fixed for the whole run. Past the end, ``pos >= limit`` fails
+    exactly where the empty slice failed the membership test.
+
     :raises PdaFail: On a mismatch in the mandatory run.
     """
     chars, negated = arm.payloads[i]
     lo, hi = arm.los[i], arm.his[i]
+    limit = len(text)
     count = 0
-    while count < lo:
-        char = text[pos : pos + 1]
-        if (char == "" or char in chars) if negated else char not in chars:
-            raise PdaFail(f"char class miss at {pos}", pos)
-        pos += 1
-        count += 1
+    if negated:
+        while count < lo:
+            if pos >= limit or text[pos] in chars:
+                raise PdaFail(f"char class miss at {pos}", pos)
+            pos += 1
+            count += 1
+    else:
+        while count < lo:
+            if pos >= limit or text[pos] not in chars:
+                raise PdaFail(f"char class miss at {pos}", pos)
+            pos += 1
+            count += 1
     gate = arm.gate_data[i]
     gk = arm.gate_kinds[i]
     if gk == GATE_STOP:  # the hot path, membership kept inline
         gchars, gnegated = gate
-        while hi < 0 or count < hi:
-            char = text[pos : pos + 1]
-            if (char == "" or char in gchars) if gnegated else char not in gchars:
-                break
-            pos += 1
-            count += 1
+        if gnegated:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] not in gchars:
+                pos += 1
+                count += 1
+        else:
+            while (hi < 0 or count < hi) and pos < limit and text[pos] in gchars:
+                pos += 1
+                count += 1
         return pos
     while (hi < 0 or count < hi) and gate_take(text, pos, gk, gate):
         pos += 1
