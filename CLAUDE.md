@@ -257,6 +257,7 @@ src/lexic/
         forest/                    What the filled chart MEANS — the SPPF and its readers
           __init__.py              the group's package marker
           chart.py                 The IR-native SPPF link table — the decoded form of a kernel parse
+          families.py              Completion families — ordinary ones DERIVED, the rest stored
           fasttree.py              The fast tree build — the unambiguous parse's short path
           forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
           support/
