@@ -24,6 +24,7 @@ from lexic.parsing.earley.kernel.loop.state import PROMOTED
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
+from tests.earley_families import filed_families
 
 AMBIGUOUS = (
     "root ::= para+\npara ::= line+ blank\n"
@@ -52,21 +53,8 @@ def parsed(source: str, text: str) -> Kernel:
     return Kernel(compile_tables(grammar, tier_for(len(text))), text, True).run()
 
 
-def producer_families(kern: Kernel) -> dict[int, list]:
-    """What `_complete` WOULD have filed, rebuilt from the finished chart."""
-    pk, codes = kern.tables.packing, kern.tables.codes
-    out: dict[int, list] = {}
-    for end, col in enumerate(kern.cols):
-        for it in col:
-            if codes.next_sym[it >> pk.bits] != 0 or (it & pk.mask) == end:
-                continue
-            rid = codes.arm_rule[codes.code_arm[it >> pk.bits]]
-            for w in kern.st.waiting[it & pk.mask].get(rid, ()):
-                bucket = out.setdefault(((w + pk.advance) << pk.bits) | end, [])
-                entry = (w, it & pk.mask, (it << pk.bits) | end)
-                if entry not in bucket:
-                    bucket.append(entry)
-    return out
+producer_families = filed_families
+"""The shared oracle — see :mod:`tests.earley_families`."""
 
 
 def test_a_key_that_never_promotes_is_served_the_stored_object_itself():
@@ -98,11 +86,10 @@ def test_a_promoted_key_stores_one_family_and_serves_them_all():
     oracle = producer_families(kern)
     for key in promoted_keys(kern):
         assert kern.st.links[key][0] is PROMOTED, key
-        # The contract is that the bucket does not GROW with the fanout, not
-        # that it is smaller at every fanout: the marker is prepended rather
-        # than replacing what a producer already filed, so at fanout two it is
-        # a wash and the saving starts at three.
-        assert len(kern.st.links[key]) == 2, key
+        # A promoted key stores the MARKER AND NOTHING ELSE: its completions
+        # moved into the shared group, including the first one, which is what
+        # keeps them in the order the producer filed them.
+        assert len(kern.st.links[key]) == 1, key
         served = table[key]
         assert len(served) > 1, key
         assert served == oracle[key], key
@@ -121,15 +108,18 @@ def test_the_cross_product_is_not_stored():
     # relation counts those on one side only.
     families = sum(len(oracle[key]) for key in promoted)
     stored = sum(len(kern.st.links[key]) - 1 for key in promoted)
-    assert stored == len(promoted), (
-        "a promoted key should retain exactly what was filed before the "
-        f"marker went in, not {stored} entries over {len(promoted)} keys"
+    assert stored == 0, (
+        f"promoted keys still store {stored} families beyond their markers"
     )
     assert families > stored, f"stored {stored} of {families} — nothing was saved"
 
 
 def test_families_come_back_in_completion_order():
-    """A promoted key's order is the order `_close` completed the items in."""
+    """A promoted key's order is COMPLETION-EVENT order.
+
+    Asserted against the group the producer appended to, not against the
+    table's own output, so a reordering that moved both would not pass.
+    """
     kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
     table = FamilyTable(kern)
     pk = kern.tables.packing
@@ -138,7 +128,9 @@ def test_families_come_back_in_completion_order():
         served = table[key]
         if len(served) < 2:
             continue
-        order = {it: n for n, it in enumerate(kern.cols[key & pk.mask])}
+        rid = kern.tables.codes.next_sym[((key >> pk.bits) - pk.advance) >> pk.bits] - 1
+        group = kern.st.groups.get((rid, key & pk.mask), [])
+        order = {it: n for n, it in enumerate(group)}
         children = [one[2] for one in served]
         assert all(isinstance(one, int) for one in children), key
         positions = [order[one >> pk.bits] for one in children if isinstance(one, int)]

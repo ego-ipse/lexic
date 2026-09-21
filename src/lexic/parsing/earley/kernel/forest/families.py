@@ -74,31 +74,28 @@ class FamilyTable:
         return out
 
     def _from_chart(self, key: int) -> Iterator[KLink]:
-        """Every ordinary family at a promoted ``key``, in completion order.
+        """A promoted key's families, from what the COMPLETER processed.
 
-        ``cols[end]`` is walked in insertion order, which is the order
-        ``_close`` completed those items in, which is the order their families
-        were recorded in.
+        Read from the ``(rule, end)`` group, never from ``cols[end]``. The
+        column also holds completions ``_try_leo`` swallowed — ``_complete``
+        returns before filing for those — so a column walk would serve
+        families the parse never built.
+
+        Eligibility is the waiter's presence in ``waiting[origin][rule]``,
+        which is sound here because a waiter bucket is keyed by ORIGIN and is
+        final once that column closes, which strictly precedes any completion
+        ending later. This path only ever sees positive-width completions.
         """
         kern = self.kern
-        codes = kern.tables.codes
         pk = kern.tables.packing
         bits, mask = pk.bits, pk.mask
         end = key & mask
         waiter = (key >> bits) - pk.advance
-        rid = codes.next_sym[waiter >> bits] - 1
+        rid = kern.tables.codes.next_sym[waiter >> bits] - 1
         if rid < 0:
             return
         waiting = kern.st.waiting
-        delegated = kern.delegated
-        for it in kern.cols[end]:
-            code = it >> bits
-            if codes.next_sym[code] != 0 or (it & mask) == end:
-                continue
-            if codes.arm_rule[codes.code_arm[code]] != rid:
-                continue
-            if (it << bits) | end in delegated:
-                continue
+        for it in kern.st.groups.get((rid, end), ()):
             origin = it & mask
             if waiter in waiting[origin].get(rid, ()):
                 yield waiter, origin, (it << bits) | end
