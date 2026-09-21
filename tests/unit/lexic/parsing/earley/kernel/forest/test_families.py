@@ -17,8 +17,10 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.forest.families import FamilyTable
+from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
+from lexic.parsing.earley.kernel.loop.state import PROMOTED
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
@@ -35,6 +37,13 @@ PLAIN = 'root ::= item+\nitem ::= [a-z] nl\nnl ::= "\\n"\n'
 
 RIGHT_REC = 'root ::= a\na ::= "x" a | b\nb ::= "x" | "x" b\n'
 """Right recursion, so Leo engages, with a second route to the same rule."""
+
+
+def promoted_keys(kern: Kernel) -> set[int]:
+    """The keys whose bucket is led by the promotion marker."""
+    return {
+        key for key, bucket in kern.st.links.items() if bucket and bucket[0] is PROMOTED
+    }
 
 
 def parsed(source: str, text: str) -> Kernel:
@@ -69,7 +78,7 @@ def test_a_key_that_never_promotes_is_served_the_stored_object_itself():
     """
     kern = parsed(PLAIN, "a\nb\nc\n")
     table = FamilyTable(kern)
-    assert not kern.st.promoted, "this document promotes — pick a flatter one"
+    assert not promoted_keys(kern), "this document promotes — pick a flatter one"
     assert kern.st.links, "nothing was stored — the test proves nothing"
     for key, stored in kern.st.links.items():
         assert table.get(key) is stored, key
@@ -77,32 +86,45 @@ def test_a_key_that_never_promotes_is_served_the_stored_object_itself():
 
 
 def test_a_promoted_key_stores_one_family_and_serves_them_all():
-    """Promotion stops storing; the rest come back from the chart."""
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
-    assert kern.st.promoted, "nothing promoted — the test proves nothing"
+    """Promotion stops storing; the rest come back from the chart.
+
+    Sized so the fanout actually exceeds two: a three-paragraph document
+    promotes only fanout-two keys, where the marker costs exactly what it
+    saves and the test would pass without witnessing anything.
+    """
+    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\nd\n\ne\n\nf\n\n")
+    assert promoted_keys(kern), "nothing promoted — the test proves nothing"
     table = FamilyTable(kern)
     oracle = producer_families(kern)
-    for key in kern.st.promoted:
-        assert len(kern.st.links[key]) == 1, (
-            f"{key} promoted but still stores {len(kern.st.links[key])} families"
-        )
+    for key in promoted_keys(kern):
+        assert kern.st.links[key][0] is PROMOTED, key
+        # The contract is that the bucket does not GROW with the fanout, not
+        # that it is smaller at every fanout: the marker is prepended rather
+        # than replacing what a producer already filed, so at fanout two it is
+        # a wash and the saving starts at three.
+        assert len(kern.st.links[key]) == 2, key
         served = table[key]
         assert len(served) > 1, key
         assert served == oracle[key], key
+    widest = max(len(oracle[key]) for key in promoted_keys(kern))
+    assert widest > 2, "no key here has a fanout the marker could save on"
 
 
 def test_the_cross_product_is_not_stored():
     """The point of the change, counted rather than asserted about."""
     kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\nd\n\n")
     oracle = producer_families(kern)
-    promoted = kern.st.promoted
+    promoted = promoted_keys(kern)
     assert promoted, "nothing promoted — the test proves nothing"
     # Scoped to the keys the change touches: `links` also holds scan, nullable
     # and Leo families, and comparing the whole store against the ordinary
     # relation counts those on one side only.
     families = sum(len(oracle[key]) for key in promoted)
-    stored = sum(len(kern.st.links[key]) for key in promoted)
-    assert stored == len(promoted), "a promoted key stores more than its first"
+    stored = sum(len(kern.st.links[key]) - 1 for key in promoted)
+    assert stored == len(promoted), (
+        "a promoted key should retain exactly what was filed before the "
+        f"marker went in, not {stored} entries over {len(promoted)} keys"
+    )
     assert families > stored, f"stored {stored} of {families} — nothing was saved"
 
 
@@ -112,7 +134,7 @@ def test_families_come_back_in_completion_order():
     table = FamilyTable(kern)
     pk = kern.tables.packing
     checked = 0
-    for key in kern.st.promoted:
+    for key in promoted_keys(kern):
         served = table[key]
         if len(served) < 2:
             continue
@@ -136,7 +158,7 @@ def test_a_terminal_facing_key_is_served_from_the_store_unchanged():
     ]
     assert scan_keys, "this document scans nothing — the test proves nothing"
     for key in scan_keys:
-        assert key not in kern.st.promoted, key
+        assert key not in promoted_keys(kern), key
         assert table.get(key) is kern.st.links[key], key
 
 
@@ -144,9 +166,12 @@ def test_first_and_at_least_two_do_not_enumerate():
     """The hot reads answer from the store and the promotion set alone."""
     kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
     table = FamilyTable(kern)
-    assert kern.st.promoted, "nothing promoted — the test proves nothing"
+    assert promoted_keys(kern), "nothing promoted — the test proves nothing"
     for key, stored in kern.st.links.items():
-        assert table.first(key) is stored[0], key
+        if stored[0] is not PROMOTED:
+            assert table.first(key) is stored[0], key
+        else:
+            assert table.first(key) == table[key][0], key
         assert table.at_least_two(key) == (len(table[key]) > 1), key
 
 
@@ -183,7 +208,7 @@ def test_items_serves_every_key_and_matches_the_point_reads():
     table = FamilyTable(kern)
     seen = 0
     for key, bucket in table.items():
-        assert bucket == table[key], key
+        assert bucket == table.get(key), key
         seen += 1
     assert seen == len(kern.st.links)
 
@@ -201,8 +226,6 @@ def test_a_delegated_completion_never_promotes_a_key():
     zero with a delegate table, so a test waiting for a natural witness would
     be testing nothing.
     """
-    from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
-
     kern = parsed(PLAIN, "a\nb\n")
     pk, codes = kern.tables.packing, kern.tables.codes
     found = None
@@ -215,11 +238,11 @@ def test_a_delegated_completion_never_promotes_a_key():
             break
     assert found, "no positive-width completion to delegate — nothing tested"
     it, end = found
-    before = set(kern.st.promoted)
+    before = set(promoted_keys(kern))
     leaf = PayloadLeaf(object(), kern.text[it & pk.mask : end])
     kern._complete_delegated(end, it, leaf)  # pylint: disable=protected-access
 
-    assert set(kern.st.promoted) == before, (
+    assert set(promoted_keys(kern)) == before, (
         "a delegated completion promoted a key — its families would then be "
         "read back from the column with a child handle the producer never filed"
     )
@@ -237,11 +260,13 @@ def test_a_mixed_provenance_leo_key_serves_stored_first():
     for key in list(kern.st.leo_links):
         expand_leo(kern.st, kern.tables, key)
     table = FamilyTable(kern)
-    mixed = [key for key in kern.st.promoted if len(kern.st.links.get(key, ())) > 1]
+    mixed = [key for key in promoted_keys(kern) if len(kern.st.links.get(key, ())) > 1]
     if not mixed:
         pytest.skip("no promoted key also gained a Leo family on this witness")
     for key in mixed:
-        assert table[key][: len(kern.st.links[key])] == kern.st.links[key], key
+        served = table[key]
+        for one in kern.st.links[key][1:]:
+            assert one in served, key
 
 
 def test_leo_expansion_is_still_served_in_full():
@@ -252,4 +277,5 @@ def test_leo_expansion_is_still_served_in_full():
         expand_leo(kern.st, kern.tables, key)
     table = FamilyTable(kern)
     for key, stored in kern.st.links.items():
-        assert set(stored) <= set(table[key]), key
+        filed = {one for one in stored if one is not PROMOTED}
+        assert filed <= set(table[key]), key

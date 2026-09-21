@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from lexic.parsing.earley.kernel.loop.state import KLink
+from lexic.parsing.earley.kernel.loop.state import PROMOTED, KLink
 
 
 class FamilyTable:
@@ -58,17 +58,19 @@ class FamilyTable:
         recorder built, with nothing reconstructed.
         """
         stored = self.explicit.get(key)
-        if key not in self.kern.st.promoted:
+        if stored is None or stored[0] is not PROMOTED:
             return stored
         return self._promoted(key, stored)
 
-    def _promoted(self, key: int, stored: list[KLink] | None) -> list[KLink]:
-        """A promoted key's families: the stored first, then the rest."""
-        out = list(stored) if stored else []
+    def _promoted(self, key: int, stored: list) -> list[KLink]:
+        """A promoted key's families: the column's, then anything else filed.
+
+        ``stored[0]`` is the marker; whatever follows it was filed by another
+        producer at the same key and is not recoverable from the column.
+        """
+        out = list(self._from_chart(key))
         seen = set(out)
-        for one in self._from_chart(key):
-            if one not in seen:
-                out.append(one)
+        out.extend(one for one in stored[1:] if one not in seen)
         return out
 
     def _from_chart(self, key: int) -> Iterator[KLink]:
@@ -95,23 +97,27 @@ class FamilyTable:
                 continue
             if codes.arm_rule[codes.code_arm[code]] != rid:
                 continue
-            if ((it << bits) | end) in delegated:
+            if (it << bits) | end in delegated:
                 continue
             origin = it & mask
             if waiter in waiting[origin].get(rid, ()):
                 yield waiter, origin, (it << bits) | end
 
     def first(self, key: int) -> KLink | None:
-        """This key's FIRST family — one dict lookup, nothing rebuilt."""
+        """This key's FIRST family — one dict lookup on the direct path."""
         stored = self.explicit.get(key)
-        return stored[0] if stored else None
+        if not stored:
+            return None
+        if stored[0] is not PROMOTED:
+            return stored[0]
+        return next(iter(self._from_chart(key)), None)
 
     def at_least_two(self, key: int) -> bool:
-        """Whether this key names more than one family — lookups only."""
-        if key in self.kern.st.promoted:
-            return True
+        """Whether this key names more than one family — one lookup."""
         stored = self.explicit.get(key)
-        return stored is not None and len(stored) > 1
+        if not stored:
+            return False
+        return stored[0] is PROMOTED or len(stored) > 1
 
     def __getitem__(self, key: int) -> list[KLink]:
         """This key's families; raises like the mapping it replaces."""
@@ -149,6 +155,8 @@ class FamilyTable:
         every family into one dict before returning would put the cross
         product back in memory on exactly the path this exists to relieve.
         """
-        promoted = self.kern.st.promoted
         for key, stored in self.explicit.items():
-            yield key, (self._promoted(key, stored) if key in promoted else stored)
+            if stored and stored[0] is PROMOTED:
+                yield key, self._promoted(key, stored)
+            else:
+                yield key, stored
