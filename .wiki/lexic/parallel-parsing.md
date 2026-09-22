@@ -42,7 +42,7 @@ document and are never cached across two of them**.
 | terminated, boundary route | unit emits its own mark (continuation lines) | the unit ANNOUNCES itself: a certified prefix, filtered at runtime by `admits` |
 | envelope | optional head/tail wrapping the repetition, separator is a noise run | the envelope's own certified boundary |
 | routed | an interior a character sweep cannot see | route-derived interiors |
-| folded | a left recursion the predictive path folds into `(γ)(β)*` | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
+| folded | a left recursion the predictive path folds into `(γ)(β)*`, its boundaries settled | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.

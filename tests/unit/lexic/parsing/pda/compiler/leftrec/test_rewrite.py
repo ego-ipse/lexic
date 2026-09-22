@@ -34,7 +34,7 @@ def rewritten_grammar(source: str = _SOURCE):
     shapes = {
         name: got
         for name, rule in rules.items()
-        if (got := foldable(name, rule, rules, analysis.item_nullable)) is not None
+        if (got := foldable(name, rule, rules, analysis)) is not None
     }
     return grammar, fold_grammar(grammar, shapes)
 

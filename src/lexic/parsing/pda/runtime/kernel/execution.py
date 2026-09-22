@@ -405,7 +405,9 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     # See `bake_product_build` for why they are not fields of their own.
     slots = clone.n_items
     width = slots - 1
-    if width < 1 or len(steps) % width:
+    if width == 0:
+        return _folded_count(text, model, frame.count, clone)
+    if len(steps) % width:
         # Every iteration contributes exactly `width` values, so a remainder
         # means the sink does not hold whole iterations. Folding the whole
         # ones and dropping the rest would build a SHORT model and report
@@ -421,4 +423,21 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
         for offset in range(width):
             scratch[offset + 1] = [steps[start + offset]]
         model = clone.build(text, (), scratch)
+    return model
+
+
+def _folded_count[Carry](
+    text: str, model: Carry, depth: int, clone: FlatClone[Carry]
+) -> Carry:
+    """A capture-free fold: the loop's own iteration count is the whole depth.
+
+    ``A ::= A "a" | "a"`` leaves no value per iteration — the nesting depth is
+    the whole information — so the fold frame keeps its ``(β)*`` loop's count
+    past the close (:meth:`Frame.close_loop`), and the arm's own build runs that
+    many times, slot 0 the value so far.
+    """
+    scratch: list[Any] = [[model]]
+    for _ in range(depth):
+        model = clone.build(text, (), scratch)
+        scratch[0] = [model]
     return model

@@ -59,6 +59,7 @@ from lexic.parsing.pda.compiler.program.gating import (
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    BUILD_FOLD,
     BUILD_TRANSPARENT,
     GATE_ATTEMPT,
     GATE_STOP,
@@ -357,7 +358,10 @@ class PdaKernel[M](
                 else:
                     need = gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
-            frame.count = 0
+            # A fold's LAST loop keeps its count — a capture-free fold's depth.
+            frame.count = (
+                0 if i + 1 < arm.n or frame.clone.mode != BUILD_FOLD else count
+            )
             frame.i = i + 1
             if frame.ends is not None:
                 frame.ends[i + 1] = pos

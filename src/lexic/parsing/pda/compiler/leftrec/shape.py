@@ -7,6 +7,12 @@ left alone and still islands: indirect recursion through another rule, a `β`
 that can vanish (the loop would spin), a bare `A` arm (a cycle), a quantified
 leading reference.
 
+**The shape is not enough on its own.** Each boundary between pieces is one
+application of an arm, but the descent settles it greedily, as it settles a
+split. So a rule folds only when no piece can be lengthened into where a `β`
+begins (:func:`settled`). Otherwise two different models could come out of one
+text, and the rule is left to island, where Earley refuses it.
+
 **The shape is read through the hoisted arm rules.** `hoist_arms` lifts every
 alternation arm into a rule of its own before the PDA sees the grammar, so a
 grammar whose source says `expr ::= expr op term | term` arrives as
@@ -25,7 +31,10 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.ir import IrItem, IrRule, IrRuleRef
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.predicates import arms_extension, rule_extensions
 from lexic.parsing.pda.compiler.specs import arm_items
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 class Recursive(NamedTuple):
@@ -109,14 +118,17 @@ def any_candidate(rules: dict[str, IrRule]) -> bool:
 
 
 def foldable(
-    name: str, rule: IrRule, rules: dict[str, IrRule], nullable
+    name: str, rule: IrRule, rules: dict[str, IrRule], analysis: GrammarAnalysis
 ) -> Fold | None:
     """The rule's decomposition, or ``None`` when the fold cannot take it.
+
+    The shape is necessary, not sufficient: the boundaries must be settled too
+    (:func:`settled`).
 
     :param name: The rule's own name.
     :param rule: The rule.
     :param rules: Every rule by name, for reading through hoisted arms.
-    :param nullable: ``item -> bool`` — whether an item can consume nothing.
+    :param analysis: The grammar's analysis — nullability, FIRST, EXTEND.
     :returns: The decomposition, or ``None``.
     """
     base: list[int] = []
@@ -134,11 +146,43 @@ def foldable(
             base.append(at)
             continue
         rest = items[1:]
-        if not rest or all(nullable(one) for one in rest):
+        if not rest or all(analysis.item_nullable(one) for one in rest):
             return None  # a vanishing β — the loop would spin
         if not hoisted:
             return None  # an un-hoisted recursive arm has no routine to fold
         steps.append(Recursive(at, hoisted, tuple(rest)))
     if not steps or not base:
         return None
-    return Fold(tuple(base), tuple(steps))
+    fold = Fold(tuple(base), tuple(steps))
+    return fold if settled(rule, fold, analysis) else None
+
+
+def settled(rule: IrRule, fold: Fold, analysis: GrammarAnalysis) -> bool:
+    """Whether every boundary between the fold's pieces is fixed by the text.
+
+    `(γ)(β)*` carves a match into pieces, and each boundary is one application
+    of an ARM of the original rule. The descent settles where a piece ends the
+    way it settles a split, greedily. That is only the grammar's answer if no
+    piece can be lengthened past a point where a β could start. Where
+    `item ::= item "a" | x` has `x ::= "b" "a"*`, the text `ba` is `x("ba")`
+    or `item(x("b")) "a"`: two models, refused as ambiguous. The fold would
+    return one of them.
+
+    Take two carvings of one text and their first differing boundary. Both
+    pieces there start at one place and one is a prefix of the other, so the
+    character after the shorter one lengthens a complete piece (EXTEND) and
+    starts a β. So γ's and β's EXTEND disjoint from β's FIRST leaves one
+    carving, whatever the fold's width. Declared by analysis: a rule that fails
+    it is left unfolded and islands, where Earley refuses what is ambiguous.
+    """
+    arms = tuple(rule.body)
+    bases = [arm_items(arms[at]) for at in fold.base]
+    steps = [list(step.rest) for step in fold.steps]
+    starts = CharSet.EMPTY
+    for rest in steps:
+        starts = starts.union(analysis.seq_first(rest))
+    maps = rule_extensions(analysis)
+    return not (
+        arms_extension(analysis, bases, maps).overlaps(starts)
+        or arms_extension(analysis, steps, maps).overlaps(starts)
+    )

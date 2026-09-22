@@ -1,6 +1,8 @@
 """The engine-reach grammars — three shapes, three routes to the gated engine.
 
-Each of these is left-recursive in a way the left-recursion fold REFUSES, so
+Each of these is left-recursive in a way the left-recursion fold REFUSES — TWO
+recursive arms, whose iterations land flat in one sink so which arm each one
+matched is not recoverable (a count says how many, not which) — so
 the predictive path cannot run the rule and something else must. Which
 something else is the point, and it differs by where the refused rule sits and
 by what follows it:
@@ -21,15 +23,15 @@ one exists to hold.
 
 from __future__ import annotations
 
-START_FALLBACK = """root ::= root "a" | "a"
+START_FALLBACK = """root ::= root "a" | root "b" | "a"
 """
 """The WHOLE-PARSE fallback witness: the product's own route to Earley.
 
-The recursive arm captures nothing, so the left-recursion fold refuses the rule
-— a bare-literal arm leaves no values in the sink, so the iteration depth
-cannot be recovered — and the predictive path raises. The refused rule is the
-START rule, so there is no enclosing clone to splice into and no island is
-built: the product catches the failure and parses the document whole on Earley.
+Two recursive arms, so the left-recursion fold refuses the rule — it can count
+iterations but not tell which arm each took — and the predictive path raises.
+The refused rule is the START rule, so there is no enclosing clone to splice
+into and no island is built: the product catches the failure and parses the
+document whole on Earley.
 
 Pinned: ``island_parse`` 0, ``earley_model`` 1. Reaching the gated engine by
 the PRODUCT's own decision is a different event from an island splice, and this
@@ -42,12 +44,12 @@ read against each other."""
 
 
 INTERIOR_EXACT = """root ::= item nl
-item ::= item "a" | "a"
+item ::= item "a" | item "b" | "a"
 nl ::= "\\n"
 """
 """The EXACT-width island: the same refused recursion, one sub-parse.
 
-The island's alphabet is ``a`` and its continuation begins with a newline, so
+The island's alphabet is ``a`` and ``b``, its continuation a newline, so
 `IslandContinuations.bounds` proves the island cannot derive a character of its
 own continuation and hands the sub-parse an exact width. One
 ``island_run``, no doubling, and the whole-parse fallback never runs.
@@ -62,7 +64,7 @@ other and a difference in length would be a second variable."""
 
 
 INTERIOR_CLIMB = """root ::= item tail
-item ::= item "a" | "z"
+item ::= item "a" | item "b" | "z"
 tail ::= "zz\\n"
 """
 """The CLIMBING island: `island_parse`'s doubling loop, covered.
@@ -100,21 +102,21 @@ row turning into that one, which is the shape to look for."""
 
 
 INTERIOR_DELEGATE = """root ::= item nl
-item ::= item "a" | word
-word ::= [b-z]+
+item ::= item "a" | item "b" | word
+word ::= [c-z]+
 nl ::= "\\n"
 """
 """The DELEGATING island: a sub-parse that hands an interior rule to a clone.
 
-The recursive arm is still bare, so the fold still refuses and ``item`` is an
-island. What changes is the BASE arm: it names ``word``, a conflict-free rule
-whose ``+`` loop clears the delegation floor, so the island's sub-parse carries
-a delegates table and completes ``word`` through the delegated path — the
-payload injected and filed as a :class:`PayloadLeaf` family — instead of
-walking it on the chart. The witnesses above build their islands over a lone
-``"a"``, below that floor, so no roster kernel ever holds a delegate.
+Two recursive arms, so the fold still refuses and ``item`` is an island. What
+changes is the BASE arm: it names ``word``, a conflict-free rule whose ``+``
+loop clears the delegation floor, so the island's sub-parse carries a delegates
+table and completes ``word`` through the delegated path — the payload injected
+and filed as a :class:`PayloadLeaf` family — instead of walking it on the
+chart. The witnesses above build their islands over a lone ``"a"``, below that
+floor, so no roster kernel ever holds a delegate.
 
-``word``'s alphabet stops short of ``a`` and of the newline, so nothing that
+``word``'s alphabet stops short of ``a``, ``b`` and the newline, so nothing that
 follows a word can be read as more of it and no ambiguity is manufactured.
 
 Pinned: ``island_parse`` 1, ``island_run`` 1 carrying a delegates table of ONE

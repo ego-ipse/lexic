@@ -222,11 +222,11 @@ def _derive(grammar: IrAst) -> FoldedPlan | None:
     rules = {str(rule.name): rule for rule in grammar.rules}
     if not any_candidate(rules):
         return None
-    nullable = GrammarAnalysis(grammar).item_nullable
+    analysis = GrammarAnalysis(grammar)
     folds = {
         name: shape
         for name, rule in rules.items()
-        if (shape := foldable(name, rule, rules, nullable)) is not None
+        if (shape := foldable(name, rule, rules, analysis)) is not None
     }
     found = _descend(grammar, rules, folds) if folds else None
     if found is None:

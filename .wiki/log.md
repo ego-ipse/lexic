@@ -1,5 +1,13 @@
 # Log
 
+## The fold proves its boundaries before it folds (2026-09-23)
+
+`(γ)(β)*` settles each piece's end greedily, which was the grammar's answer
+only by luck. A base ending in `"a"*` under a step `"a"`, or a word that can
+hold its own operator, gave one model where Earley refuses or answers another.
+`decisions.md` records the proof (EXTEND disjoint from FIRST(β)), why it holds
+at every width, and why no runtime probe is used.
+
 ## `generate` gains `size=`: a document OF the grammar at a stated scale (2026-09-22)
 
 Large-document benchmarks needed a valid document of about N characters, not a

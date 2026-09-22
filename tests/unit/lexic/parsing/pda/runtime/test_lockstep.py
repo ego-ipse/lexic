@@ -19,7 +19,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from lexic.compile import compile_text
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_FOLD
 from lexic.parsing.pda.runtime.admission import (
     control_signature,
     pending_values,
@@ -31,13 +35,17 @@ from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clo
 
 
 def frames(
-    los: tuple[int, ...], his: tuple[int, ...], i: int, counts: tuple[int, int]
+    los: tuple[int, ...],
+    his: tuple[int, ...],
+    i: int,
+    counts: tuple[int, int],
+    clone: FlatClone[Any] | None = None,
 ) -> tuple[Frame[Any], Frame[Any]]:
     """Two frame stubs over ONE shared arm and clone — the signature keys both
     by identity, so a fresh one per frame would separate them for the wrong
     reason."""
     arm = flat_arm(len(los), los=los, his=his)
-    clone = flat_clone()
+    clone = flat_clone() if clone is None else clone
     made: list[Frame[Any]] = []
     for count in counts:
         frame: Frame[Any] = Frame(arm, [], clone, 0)
@@ -67,6 +75,31 @@ def test_a_count_below_the_mandatory_floor_is_kept():
     """Below ``lo`` the count decides whether the loop may close at all."""
     stop, take = frames((3,), (-1,), 0, (1, 2))
     assert control_signature([stop], 7) != control_signature([take], 7)
+
+
+@pytest.mark.parametrize("i", [1, 2], ids=["in-its-loop", "past-its-loop"])
+def test_a_capture_free_folds_depth_separates_two_sides(i):
+    """A width-0 fold's depth is its VALUE and lives in no sink, so two sides
+    differing only there built different models and must not merge.
+
+    Tested on the key because no admitted grammar was found to converge two
+    such sides: across the fork-reaching fold grammars probed, the old key
+    never merged a pair this one separates.
+    """
+    stop, take = frames((1, 0), (1, -1), i, (3, 4), flat_clone(BUILD_FOLD, n_items=1))
+    assert control_signature([stop], 7) != control_signature([take], 7)
+
+
+@pytest.mark.parametrize(
+    ("mode", "n_items", "i"),
+    [(BUILD_FOLD, 2, 1), (BUILD_FOLD, 2, 2), (BUILD_FOLD, 1, 0)],
+    ids=["width-1-in-loop", "width-1-past", "width-0-base-item"],
+)
+def test_every_other_fold_count_is_still_free(mode, n_items, i):
+    """A fold that captures leaves its iterations in the sink, which the values
+    compare; and a width-0 fold's count is not yet its depth before the loop."""
+    stop, take = frames((1, 0), (-1, -1), i, (3, 4), flat_clone(mode, n_items=n_items))
+    assert control_signature([stop], 7) == control_signature([take], 7)
 
 
 def test_the_signature_ignores_the_values_built_so_far():

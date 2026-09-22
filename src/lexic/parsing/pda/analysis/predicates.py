@@ -14,7 +14,7 @@ that routes to it.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Sequence, cast
+from typing import TYPE_CHECKING, NamedTuple, Sequence, cast
 
 from lexic.ir import (
     IrAction,
@@ -201,12 +201,12 @@ def _alpha_alternation(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
     out = CharSet.EMPTY
     for arm in n:
         for item in _items(arm):
-            out = out.union(_atom_alphabet(item.atom, nc))
+            out = out.union(atom_alphabet(item.atom, nc))
     return out
 
 
-def _atom_alphabet(atom: IrSelf, nc: Sequence[object]) -> CharSet:
-    """Dispatch one atom against :data:`ALPHABET`, carrying the working map."""
+def atom_alphabet(atom: IrSelf, nc: Sequence[object]) -> CharSet:
+    """Dispatch one atom against :data:`ALPHABET`; ``nc[0]`` is the rule map."""
     return cast(CharSet, ALPHABET.resolve(atom).eval(None, atom, nc))
 
 
@@ -243,11 +243,148 @@ def rule_alphabets(rules: Mapping[str, IrRule]) -> dict[str, CharSet]:
             acc = CharSet.EMPTY
             for arm in rule.body:
                 for item in _items(arm):
-                    acc = acc.union(_atom_alphabet(item.atom, nc))
+                    acc = acc.union(atom_alphabet(item.atom, nc))
             if acc != found[name]:
                 found[name] = acc
                 changed = True
     return found
+
+
+# ── EXTEND — what can lengthen a complete match ───────────────────────
+#
+# EXTEND(L) holds every ``w[0]`` for which some ``u`` and ``uw`` are both in L:
+# the characters at which a complete match can go on and still be a match.
+# Every rule below over-approximates it, and ALPHABET bounds it outright
+# (``w[0]`` is a character of ``uw``), which is the fallback wherever a
+# boundary inside the construct is not settled.
+
+
+class Extensions(NamedTuple):
+    """The EXTEND fixpoint's working maps, riding the ``nc`` channel.
+
+    :ivar found: Rule name → its EXTEND so far.
+    :ivar alphabets: Rule name → its ALPHABET, the bound EXTEND falls back to.
+    """
+
+    found: dict[str, CharSet]
+    alphabets: dict[str, CharSet]
+
+
+def _ext_single(_d: object, _n: IrSelf, _nc: object) -> CharSet:
+    """A literal is one string and a class one character: nothing extends."""
+    return CharSet.EMPTY
+
+
+def _ext_any(_d: object, _n: IrSelf, _nc: object) -> CharSet:
+    """A token atom's extensions are not enumerable: conservatively all."""
+    return CharSet.ANY
+
+
+def _ext_ruleref(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
+    """A rule ref extends as its target does, read at its CURRENT value."""
+    got = cast(Extensions, nc).found.get(str(n))
+    return CharSet.ANY if got is None else got
+
+
+def _ext_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[object]) -> CharSet:
+    """A group extends as the alternation of its arms."""
+    assert isinstance(n, IrAlternation)
+    return arms_extension(d, [_items(arm) for arm in n], cast(Extensions, nc))
+
+
+def _seq_alphabet(items: Sequence[IrItem], maps: Extensions) -> CharSet:
+    """Every character a sequence can derive."""
+    out = CharSet.EMPTY
+    for item in items:
+        out = out.union(atom_alphabet(item.atom, (maps.alphabets,)))
+    return out
+
+
+def item_extension(d: GrammarAnalysis, item: IrItem, maps: Extensions) -> CharSet:
+    """EXTEND of one quantified item.
+
+    Up to one occurrence, an optional one also extends its own absence. A
+    repetition extends its last iteration, or starts another if its count may
+    grow, PROVIDED no iteration can itself be extended by an iteration's first
+    character; otherwise its boundaries shift and ALPHABET is the bound.
+    """
+    atom = item.atom
+    ext = cast(CharSet, EXTEND.resolve(atom).eval(d, atom, maps))
+    lo, hi = int(item.quantifier.lo), _hi(item)
+    first = d.atom_first(atom)
+    if hi == 0:
+        return CharSet.EMPTY
+    if hi == 1:
+        return ext if lo == 1 else ext.union(first)
+    if d.atom_nullable(atom) or ext.overlaps(first):
+        return atom_alphabet(atom, (maps.alphabets,))
+    return ext if hi == lo else ext.union(first)
+
+
+def seq_extension(
+    d: GrammarAnalysis, items: Sequence[IrItem], maps: Extensions
+) -> CharSet:
+    """EXTEND of a sequence.
+
+    Two readings of ``u`` and ``uw`` first differ at some item, where one is a
+    prefix of the other, so the character after the shorter extends that item
+    and also begins what follows it — unless everything after it is empty and
+    that character is ``w[0]``. So where no item's EXTEND meets the FIRST of
+    what follows it, the sequence extends exactly as its items with nullable
+    suffixes do.
+    """
+    out = CharSet.EMPTY
+    after, empty_after = CharSet.EMPTY, True
+    for item in reversed(items):
+        ext = item_extension(d, item, maps)
+        if ext.overlaps(after):
+            return _seq_alphabet(items, maps)
+        if empty_after:
+            out = out.union(ext)
+        first = d.atom_first(item.atom)
+        after = first.union(after) if item_nullable(d, item) else first
+        empty_after = empty_after and item_nullable(d, item)
+    return out
+
+
+def arms_extension(
+    d: GrammarAnalysis, arms: Sequence[Sequence[IrItem]], maps: Extensions
+) -> CharSet:
+    """EXTEND of an alternation: each arm's own, plus one arm lengthened into
+    another — from nothing (a nullable arm), or from a shared first character,
+    where the other arm's ALPHABET bounds what comes next."""
+    firsts = [d.seq_first(arm) for arm in arms]
+    empties = [seq_nullable(d, arm) for arm in arms]
+    out = CharSet.EMPTY
+    for j, arm in enumerate(arms):
+        out = out.union(seq_extension(d, arm, maps))
+        others = [i for i in range(len(arms)) if i != j]
+        if any(empties[i] for i in others):
+            out = out.union(firsts[j])
+        if any(firsts[i].overlaps(firsts[j]) for i in others):
+            out = out.union(_seq_alphabet(arm, maps))
+    return out
+
+
+def rule_extensions(d: GrammarAnalysis) -> Extensions:
+    """Every rule's EXTEND — the least fixpoint, grown from empty.
+
+    Every rule above is monotone and stays within ALPHABET, so the iteration
+    terminates, and the least fixpoint is sound by induction on derivation
+    height. Built on demand: its one consumer is the left-recursion fold.
+    """
+    maps = Extensions(
+        {name: CharSet.EMPTY for name in d.rules}, rule_alphabets(d.rules)
+    )
+    changed = True
+    while changed:
+        changed = False
+        for name, rule in d.rules.items():
+            got = arms_extension(d, [_items(arm) for arm in rule.body], maps)
+            if got != maps.found[name]:
+                maps.found[name] = got
+                changed = True
+    return maps
 
 
 def _hard_terminal(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
@@ -411,6 +548,14 @@ FOLLOW_FEED: IrTypeMap = IrTypeMap(
     IrAction(IrAlphabet, IrLambda(_feed_terminal)),
     IrAction(IrRuleRef, IrLambda(_feed_ruleref)),
     IrAction(IrAlternation, IrLambda(_feed_alternation)),
+)
+EXTEND: IrTypeMap = IrTypeMap(
+    IrAction(IrLiteral, IrLambda(_ext_single)),
+    IrAction(IrCharClass, IrLambda(_ext_single)),
+    IrAction(IrNot, IrLambda(_ext_single)),
+    IrAction(IrAlphabet, IrLambda(_ext_any)),
+    IrAction(IrRuleRef, IrLambda(_ext_ruleref)),
+    IrAction(IrAlternation, IrLambda(_ext_alternation)),
 )
 SEQ_ATOM: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_seq_noop)),

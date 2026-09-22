@@ -880,6 +880,21 @@ marks it proves each occurrence is aligned. No border theory is involved:
 `" + "` and `"aba"` have the same border structure, and what separates them is
 whether an owner can emit the character a spurious occurrence would need.
 
+**A fold's boundaries are proved, not assumed.** `(γ)(β)*` turns the choice
+between `A`'s arms into where a piece ends, and the descent settles that
+greedily, as it settles a split. That matches the grammar only when the text
+fixes every boundary. `leftrec/shape.settled` asks for that by analysis: the
+EXTEND of γ, and of the steps, must be disjoint from FIRST(β). EXTEND is the
+set of characters at which a complete match can be lengthened and still match
+(`analysis/predicates.rule_extensions`, a least fixpoint bounded by ALPHABET).
+Take the first boundary where two carvings differ. The shorter piece there is
+lengthened by the character that starts a β, so disjointness leaves one
+carving at every width. A rule that fails it is not folded and islands, where
+Earley answers, or refuses. The parallel layer reads the same `foldable`, so a
+spine it would split is one whose carving is certain. The alternative, a
+runtime probe at the loop, is not taken: the greedy choice happens INSIDE the
+piece (a `"a"*` in γ, or a lexical run), where the loop's entry cannot see it.
+
 The bordered widening — exclude `mark[0]`, then for each border offset exclude
 the character at `len - k` — is sound and NOT taken. It is what a grammar whose
 owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
