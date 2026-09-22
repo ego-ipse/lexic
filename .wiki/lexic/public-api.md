@@ -159,6 +159,15 @@ Directive/start resolution precedence (highest first):
 2. `@start` / `@non-semantic` / `@lexical` directives in source comments
 3. Positional fallback (first rule = start; no non-semantic rules)
 
+### `generate(rule_name, rules, *, rng=None, max_depth=5, size=None)` — `generate.py` (re-exported from `lexic`)
+
+A random string in a rule's language, walking the canonical rules-by-name view `canonical_grammar` returns. ONE generator: the property suites, the parallel planner's envelope and merge probes, and large-document benches all call this.
+
+`size=` steers toward a document of about that many characters — keyword-only, and **absent it changes nothing**: same code, same draws (pinned by digest and next draw over five grammars × four seeds × two depths in `tests/unit/lexic/test_generate.py`). The steering is `lexic.sizing`, handed the free walk and its arm filter by `generate` so both choose from one set of arms; its module docstring states the mechanism. In short, every expansion carries a character budget: one at or below the rule's natural size is spent by the free walk; a larger one takes an arm with ROOM for it — the most a steered expansion can yield within its remaining depth, zero once spent — preferring one that can NEST, and shares the budget over the items that can grow. A repetition spends its share measuring as it goes. The sizer is as lazy as the walk it predicts, so a self-reference inside an optional group (`value ::= "[" (value ("," value)*)? "]" | "x"`) sizes at any depth.
+
+`max_depth` bounds how deep a budget may nest. Measured at 100 k characters, `max_depth=48` meets the target to within 0.02% on the 17 bench grammars that can grow and on ground-truth `json.gbnf`, and at 1.8 M on the five region-bearing documents — a measurement on those grammars, not a guarantee over all. A grammar that grows ONLY by nesting (`item ::= item "a" | "a"`) grows one character per level, so its depth IS its size and it comes out short, by length.
+
+**The stack limit.** A steered level costs more Python frames than a free one, and HOW many depends on the grammar — every inline group between a rule and its own reference adds some — so no constant bounds it. A target needing deeper nesting than the stack carries is refused: `UnsupportedConstructError("generate: size=N needs deeper nesting than the stack carries at max_depth=D — lower max_depth or size")`, never a `RecursionError` and never a silently clamped depth. Linear recursion through four nested optional groups hits it at `max_depth=48`. An ITERATIVE fill with an explicit stack would remove the limit; it is not built.
 ---
 
 ### `build_codegen_grammar(ast)` — `compile/__init__.py`

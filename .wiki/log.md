@@ -1,5 +1,21 @@
 # Log
 
+## `generate` gains `size=`: a document OF the grammar at a stated scale (2026-09-22)
+
+Large-document benchmarks needed a valid document of about N characters, not a
+repeated sample. That is a library capability, so it is a keyword on the ONE
+generator rather than a second generator under `tools/`. The default path is
+untouched and pinned by digest AND next draw. The steering is derived from the
+grammar — natural size, room within depth, whether an item reaches a cycle —
+so it holds over any formulation; `public-api.md` states the mechanism and the
+one shape it cannot reach (growth by linear recursion only).
+The steering lives in its own module, `lexic.sizing`, handed the free walk and
+its arm filter by `generate`, so the dependency runs one way. A target deeper
+than the stack carries is REFUSED with words — frames per steered level depend
+on the grammar, so a clamp calibrated on one shape could not bound another.
+`tools/benchmark/diagnostics/ladder.py` is the wiring: grammars with derived
+bracket pairs plus the second json formulation, one pinned process per rung.
+
 ## Region discovery reads one spelling, and can be windowed (2026-09-12)
 
 The region walk classified each structural character with three shared dict

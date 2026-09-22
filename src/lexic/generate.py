@@ -30,11 +30,15 @@ height measure and generation terminates. A rule whose EVERY arm loops
 refuses with words — the budget was once decremented and never read, so
 ``root ::= root "a"`` recursed to the interpreter's limit instead of
 refusing at the caller's.
+
+**Size-targeting** (``size=``) is :mod:`lexic.sizing`: this module hands it
+its own free walk and arm filter, and the path without ``size`` is untouched.
 """
 
 from __future__ import annotations
 
 import random as _random
+from functools import partial
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
@@ -55,10 +59,21 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.sizing import FreeWalk, steer
 
 Rules = dict[str, IrRule]
 
 _UNIT = IrQuantifier(1, 1)
+
+
+_LOWER_BOUND_ODDS = 0.7
+"""How often a variable count rolls its lower bound — the free walk's one knob,
+read by :func:`_pick_count` and by :func:`_pick_mean`, its expectation."""
+
+
+def _top(q: IrQuantifier) -> int:
+    """The largest count a variable quantifier is rolled to: ``lo + 2`` at most."""
+    return q.lo + 2 if isinstance(q.hi, IrNoneType) else min(q.hi, q.lo + 2)
 
 
 def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
@@ -72,10 +87,20 @@ def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
     """
     if q.hi == q.lo:
         return q.lo
-    hi = q.lo + 2 if isinstance(q.hi, IrNoneType) else min(q.hi, q.lo + 2)
-    if rng.random() < 0.7:
+    hi = _top(q)
+    if rng.random() < _LOWER_BOUND_ODDS:
         return q.lo
     return rng.randint(q.lo + 1, hi)
+
+
+def _pick_mean(q: IrQuantifier) -> float:
+    """The expected value of :func:`_pick_count` — what size-steering predicts by."""
+    if q.hi == q.lo:
+        return float(q.lo)
+    tail = (q.lo + 1 + _top(q)) / 2
+    # The complement, rounded to the constant's own precision: `1 - 0.7` is
+    # 0.30000000000000004 in binary, and that last bit moves sized documents.
+    return _LOWER_BOUND_ODDS * q.lo + round(1 - _LOWER_BOUND_ODDS, 9) * tail
 
 
 # ── per-atom generation bodies (dispatch on the atom; the owning IrItem
@@ -216,6 +241,29 @@ def _rule_heights(rules: Rules) -> dict[str, float]:
     return heights
 
 
+def _open_arms(
+    heights: dict[str, float], body: IrAlternation, depth: int, where: str
+) -> list[Sequence[IrItem]]:
+    """The arms a walk at ``depth`` may choose: terminating, and minimal once spent.
+
+    :raises UnsupportedConstructError: When ``body`` has no arms, or every arm
+        loops forever.
+    """
+    if not body:
+        raise UnsupportedConstructError(
+            f"generate: {where} has no arms to expand — an alternation "
+            "with no arms derives nothing, not the empty string"
+        )
+    costs = [_arm_cost(arm, heights) for arm in body]
+    floor = min(costs)
+    if floor == _INF:
+        raise UnsupportedConstructError(
+            f"generate: {where} cannot terminate — every arm loops forever"
+        )
+    cap = _INF if depth > 0 else floor
+    return [a for a, cost in zip(body, costs) if cost <= cap and cost < _INF]
+
+
 class _Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
     """Random-string generator state over a rules-by-name view.
 
@@ -262,19 +310,7 @@ class _Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
             arm is never chosen at ANY depth, so an all-looping alternation
             has nothing to offer.
         """
-        if not body:
-            raise UnsupportedConstructError(
-                f"generate: {where} has no arms to expand — an alternation "
-                "with no arms derives nothing, not the empty string"
-            )
-        costs = [_arm_cost(arm, self.heights) for arm in body]
-        floor = min(costs)
-        if floor == _INF:
-            raise UnsupportedConstructError(
-                f"generate: {where} cannot terminate — every arm loops forever"
-            )
-        cap = _INF if self.max_depth > 0 else floor
-        arms = [a for a, cost in zip(body, costs) if cost <= cap and cost < _INF]
+        arms = _open_arms(self.heights, body, self.max_depth, where)
         return "".join(self.atom(it) for it in self.rng.choice(arms))
 
     def atom(self, item: IrItem) -> str:
@@ -288,6 +324,7 @@ def generate(
     *,
     rng: _random.Random | None = None,
     max_depth: int = 5,
+    size: int | None = None,
 ) -> str:
     """Generate a random string matching the named rule.
 
@@ -298,14 +335,34 @@ def generate(
         While it lasts, arm choice is free among terminating arms; exhausted,
         it restricts to minimal-height arms and quantified refs collapse to
         their lower bound, so generation terminates by strict height descent.
+        Under ``size`` it bounds how deep a budget may nest; a target the depth
+        leaves no room for comes out short.
+    :param size: Steer toward a document of about this many characters
+        (:mod:`lexic.sizing`). Absent, generation is exactly as without it.
     :returns: A random string in the rule's language.
     :raises UnsupportedConstructError: When ``rule_name`` names no rule, when
-        a reference reaches one, when an alternation has no arms, or when a
-        rule's every arm loops forever (it derives no finite string).
+        a reference reaches one, when an alternation has no arms, when a
+        rule's every arm loops forever (it derives no finite string), or when
+        a ``size`` target needs deeper nesting than the stack carries.
     """
     if rng is None:
         rng = _random.Random()
     heights = _rule_heights(rules)
-    return _Generator(rng=rng, rules=rules, heights=heights, max_depth=max_depth).run(
-        rule_name
+    if size is None:
+        return _Generator(
+            rng=rng, rules=rules, heights=heights, max_depth=max_depth
+        ).run(rule_name)
+    free = FreeWalk(
+        rng,
+        partial(_open_arms, heights),
+        partial(_walker, rng, rules, heights),
+        _pick_mean,
     )
+    return steer(rule_name, rules, free, max_depth, size)
+
+
+def _walker(
+    rng: _random.Random, rules: Rules, heights: dict[str, float], depth: int
+) -> _Generator:
+    """The free walk at ``depth`` — what :mod:`lexic.sizing` spends a small budget by."""
+    return _Generator(rng=rng, rules=rules, heights=heights, max_depth=depth)

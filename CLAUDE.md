@@ -133,6 +133,7 @@ src/lexic/
   __init__.py                      Lexic — Grammar engine
   exceptions.py                    LexicError hierarchy — UnsupportedConstructError, TargetRefusalError, FieldValidationError
   generate.py                      random string generator — walks a canonical grammar's rules directly
+  sizing.py                        size-targeted generation — steers generate's free walk toward about N characters
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
   model_fields.py                  Per-field construction checks a field's own grammar ITEM decides
