@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple, Sequence
 
-from tools.benchmark.compare import Verdict
+from tools.benchmark.judging.arithmetic import Verdict
 
 
 class Gathered(NamedTuple):

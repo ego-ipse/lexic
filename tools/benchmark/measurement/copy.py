@@ -39,6 +39,8 @@ PROTOCOL_MODULES = (
     "execution/isolation.py",
     "execution/roster.py",
     "execution/worker.py",
+    "judging/__init__.py",
+    "judging/arithmetic.py",
     "measurement/__init__.py",
     "measurement/contract.py",
     "measurement/copy.py",
