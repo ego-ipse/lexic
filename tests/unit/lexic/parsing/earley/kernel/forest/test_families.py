@@ -1,14 +1,13 @@
 """Tests for lexic.parsing.earley.kernel.forest.families — one store, by multiplicity.
 
-What has to hold: a key that never promotes costs what it always cost and is
-served the SAME OBJECT the recorder built; a promoted key stores one family
-and serves them all, in the order they were recorded; and the producer kinds
-that are not ordinary completions stay stored whatever their multiplicity.
+The oracle is the recorder as it stood before factoring
+(:func:`tests.earley_families.paired`): the same recognition, recorded one family
+per waiter per completion. Every comparison below is of COMPLETE ORDERED
+buckets against it — not prefixes, not sets, and never against the group the
+factored store keeps, which would check the store against itself.
 
-The oracle is the producer itself — `_complete` filed
-``(w, origin, (it << bits) | i)`` for every ``w`` in ``waiting[origin][rule]``
-— so these rebuild the expectation from the chart rather than from a
-remembered list of triples.
+Each witness is named for the provenance it reaches, and asserts that it
+reaches it: a witness that silently stopped exercising its path would pass.
 """
 
 from __future__ import annotations
@@ -19,255 +18,173 @@ from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.forest.families import FamilyTable
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
-from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.loop.state import PROMOTED
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from tests.earley_families import filed_families
+from tests.earley_families import before_group, bucket_differences, paired
 
-AMBIGUOUS = (
+LATE = ('root ::= e\ne ::= e "+" e | e "*" e | "n"\n', "n+n*n+n*n+n*n*n+n")
+"""Keys at one ``(rule, end)`` promote at different times, so a key's first
+family is often filed BEFORE its group exists, and the group never holds it."""
+
+SPLIT = (
     "root ::= para+\npara ::= line+ blank\n"
-    'line ::= [a-z ]* nl\nblank ::= nl\nnl ::= "\\n"\n'
+    'line ::= [a-z ]* nl\nblank ::= nl\nnl ::= "\\n"\n',
+    "a\n\nb\n\nc\n\nd\n\n",
 )
-"""The split-ambiguous shape: `line`'s CONTENT is nullable, so a bare newline
-is both a possible line and a possible paragraph terminator."""
+"""The split-ambiguous shape; one promoted key also receives a Leo family."""
 
-PLAIN = 'root ::= item+\nitem ::= [a-z] nl\nnl ::= "\\n"\n'
-"""One derivation per document — no key ever promotes."""
+NULLABLE = ('root ::= s\ns ::= p q r\np ::= "a"*\nq ::= "a"*\nr ::= "a"*\n', "aaaa")
+"""One waiter sits at several origins facing a nullable rule, so its key gets a
+zero-width family from `_nullable_advance` AND ordinary ones, interleaved."""
 
-RIGHT_REC = 'root ::= a\na ::= "x" a | b\nb ::= "x" | "x" b\n'
-"""Right recursion, so Leo engages, with a second route to the same rule."""
+FLAT = ('root ::= item+\nitem ::= [a-z] nl\nnl ::= "\\n"\n', "a\nb\nc\n")
+"""One derivation per document: no key ever reaches a second family."""
 
-
-def promoted_keys(kern: Kernel) -> set[int]:
-    """The keys whose bucket is led by the promotion marker."""
-    return {
-        key for key, bucket in kern.st.links.items() if bucket and bucket[0] is PROMOTED
-    }
+DELEGATED = ('root ::= p item\np ::= "0"*\nitem ::= [a-z0]+ ";"\n', "000ab;")
+"""`p` lets one waiter face `item` from several origins, all ending at the `;`."""
 
 
-def parsed(source: str, text: str) -> Kernel:
-    """A finished kernel over ``source``, links recorded."""
+def tables(source: str, text: str):
+    """Compiled Earley tables for ``source``, sized for ``text``."""
     grammar = normalize(compile_text(source).codegen_grammar)
-    return Kernel(compile_tables(grammar, tier_for(len(text))), text, True).run()
+    return compile_tables(grammar, tier_for(len(text)))
 
 
-producer_families = filed_families
-"""The shared oracle — see :mod:`tests.earley_families`."""
+def delegating(tabs) -> dict:
+    """A delegate for `item` that answers at even origins and declines at odd.
 
-
-def test_a_key_that_never_promotes_is_served_the_stored_object_itself():
-    """The by-construction claim: fanout one costs what it always cost.
-
-    Not "an equal list" — the SAME OBJECT the recorder built. Anything else
-    means a tuple and a list are rebuilt per read on exactly the charts that
-    had nothing to save in the first place.
+    Declining falls through to ordinary prediction, so one key receives both
+    delegated and ordinary families.
     """
-    kern = parsed(PLAIN, "a\nb\nc\n")
-    table = FamilyTable(kern)
-    assert not promoted_keys(kern), "this document promotes — pick a flatter one"
-    assert kern.st.links, "nothing was stored — the test proves nothing"
-    for key, stored in kern.st.links.items():
-        assert table.get(key) is stored, key
-        assert table[key] is stored, key
+
+    def delegate(window: str, pos: int):
+        """Answer the next `;`-terminated span, or decline."""
+        if pos % 2:
+            return None
+        end = window.find(";", pos)
+        return None if end < 0 else (end + 1, ("payload", pos))
+
+    return {tabs.decode.rule_ids["item"]: delegate}
 
 
-def test_a_promoted_key_stores_one_family_and_serves_them_all():
-    """Promotion stops storing; the rest come back from the chart.
+def promoted(kern: Kernel) -> list[int]:
+    """The keys whose bucket is led by the promotion marker."""
+    return [key for key, bucket in kern.st.links.items() if bucket[0] is PROMOTED]
 
-    Sized so the fanout actually exceeds two: a three-paragraph document
-    promotes only fanout-two keys, where the marker costs exactly what it
-    saves and the test would pass without witnessing anything.
+
+def test_a_chart_that_never_promotes_is_read_through_the_dict_itself():
+    """No promotion, no wrapper: the reader IS the link table."""
+    kern = Kernel(tables(*FLAT), FLAT[1], True).run()
+    assert kern.st.links, "nothing was filed — the test proves nothing"
+    assert not kern.st.groups
+    assert kern.family_reader() is kern.st.links
+
+
+def test_a_factored_chart_serves_an_unpromoted_key_the_stored_object():
+    """Fanout one keeps the recorder's own list — identity, not equality."""
+    base, kern = paired(tables(*SPLIT), SPLIT[1])
+    reader = kern.family_reader()
+    assert isinstance(reader, FamilyTable), "nothing promoted — pick another witness"
+    direct = [key for key, bucket in kern.st.links.items() if bucket[0] is not PROMOTED]
+    assert direct
+    for key in direct:
+        assert reader.get(key) is kern.st.links[key], key
+    assert not bucket_differences(base, kern)
+
+
+def test_a_promoted_key_stores_its_marker_and_first_family_only():
+    """The cross product leaves the store: a promoted bucket is
+    ``[PROMOTED, first]``, plus only what Leo expansion appends after
+    recognition."""
+    tabs = tables(*LATE)
+    base, kern = paired(tabs, LATE[1])
+    unexpanded = Kernel(tabs, LATE[1], True).run()
+    keys = promoted(unexpanded)
+    assert keys, "nothing promoted — the test proves nothing"
+    for key in keys:
+        assert unexpanded.st.links[key] == [PROMOTED, base.st.links[key][0]], key
+    widest = max(len(base.st.links[key]) for key in promoted(kern))
+    assert widest > 2, "no promoted key had a fanout the marker could save on"
+
+
+@pytest.mark.parametrize(
+    ("label", "witness"),
+    [("late", LATE), ("split", SPLIT), ("nullable", NULLABLE), ("flat", FLAT)],
+)
+def test_every_bucket_matches_the_pre_factoring_recorder(label, witness):
+    """Complete ordered buckets, every key, after every Leo chain is expanded."""
+    base, kern = paired(tables(*witness), witness[1])
+    assert base.st.links, f"{label}: nothing filed — the test proves nothing"
+    differences = bucket_differences(base, kern)
+    assert not differences, f"{label}: {differences[:2]}"
+
+
+def test_a_late_promotion_reads_its_first_family_first():
+    """The case that mis-ordered: a key's first family filed before its group.
+
+    That family was filed before every entry the group gained, so a key
+    promoting LATE must still read it first — and it must be read at all,
+    since the group never saw it.
     """
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\nd\n\ne\n\nf\n\n")
-    assert promoted_keys(kern), "nothing promoted — the test proves nothing"
-    table = FamilyTable(kern)
-    oracle = producer_families(kern)
-    for key in promoted_keys(kern):
-        assert kern.st.links[key][0] is PROMOTED, key
-        # A promoted key stores the MARKER AND NOTHING ELSE: its completions
-        # moved into the shared group, including the first one, which is what
-        # keeps them in the order the producer filed them.
-        assert len(kern.st.links[key]) == 1, key
-        served = table[key]
-        assert len(served) > 1, key
-        assert served == oracle[key], key
-    widest = max(len(oracle[key]) for key in promoted_keys(kern))
-    assert widest > 2, "no key here has a fanout the marker could save on"
+    base, kern = paired(tables(*LATE), LATE[1])
+    assert before_group(kern), "no first family predates its group — nothing tested"
+    assert not bucket_differences(base, kern)
 
 
-def test_the_cross_product_is_not_stored():
-    """The point of the change, counted rather than asserted about."""
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\nd\n\n")
-    oracle = producer_families(kern)
-    promoted = promoted_keys(kern)
-    assert promoted, "nothing promoted — the test proves nothing"
-    # Scoped to the keys the change touches: `links` also holds scan, nullable
-    # and Leo families, and comparing the whole store against the ordinary
-    # relation counts those on one side only.
-    families = sum(len(oracle[key]) for key in promoted)
-    stored = sum(len(kern.st.links[key]) - 1 for key in promoted)
-    assert stored == 0, (
-        f"promoted keys still store {stored} families beyond their markers"
-    )
-    assert families > stored, f"stored {stored} of {families} — nothing was saved"
-
-
-def test_families_come_back_in_completion_order():
-    """A promoted key's order is COMPLETION-EVENT order.
-
-    Asserted against the group the producer appended to, not against the
-    table's own output, so a reordering that moved both would not pass.
-    """
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
-    table = FamilyTable(kern)
-    pk = kern.tables.packing
-    checked = 0
-    for key in promoted_keys(kern):
-        served = table[key]
-        if len(served) < 2:
-            continue
-        rid = kern.tables.codes.next_sym[((key >> pk.bits) - pk.advance) >> pk.bits] - 1
-        group = kern.st.groups.get((rid, key & pk.mask), [])
-        order = {it: n for n, it in enumerate(group)}
-        children = [one[2] for one in served]
-        assert all(isinstance(one, int) for one in children), key
-        positions = [order[one >> pk.bits] for one in children if isinstance(one, int)]
-        assert positions == sorted(positions), (key, positions)
-        checked += 1
-    assert checked, "no multi-family key was compared — the test proves nothing"
-
-
-def test_a_terminal_facing_key_is_served_from_the_store_unchanged():
-    """Scan provenance is never read back: its child is consumed TEXT."""
-    kern = parsed(PLAIN, "a\nb\n")
-    table = FamilyTable(kern)
-    scan_keys = [
-        key
-        for key, bucket in kern.st.links.items()
-        if any(isinstance(one[2], str) for one in bucket)
-    ]
-    assert scan_keys, "this document scans nothing — the test proves nothing"
-    for key in scan_keys:
-        assert key not in promoted_keys(kern), key
-        assert table.get(key) is kern.st.links[key], key
-
-
-def test_first_and_at_least_two_do_not_enumerate():
-    """The hot reads answer from the store and the promotion set alone."""
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
-    table = FamilyTable(kern)
-    assert promoted_keys(kern), "nothing promoted — the test proves nothing"
-    for key, stored in kern.st.links.items():
-        if stored[0] is not PROMOTED:
-            assert table.first(key) is stored[0], key
-        else:
-            assert table.first(key) == table[key][0], key
-        assert table.at_least_two(key) == (len(table[key]) > 1), key
-
-
-def test_a_missing_key_raises_and_get_returns_none():
-    """The read surface behaves like the mapping it replaces."""
-    kern = parsed(PLAIN, "a\n")
-    table = FamilyTable(kern)
-    absent = 1 << 60
-    assert table.get(absent) is None
-    assert absent not in table
-    with pytest.raises(KeyError):
-        _ = table[absent]
-
-
-def test_iterating_the_table_yields_keys_not_an_index_walk():
-    """``for k in table`` must iterate KEYS, as the mapping it replaces did.
-
-    Without an explicit ``__iter__`` this does not merely fail — with
-    ``__getitem__`` defined and keys being plain ints, Python falls back to
-    the legacy index protocol and yields ``table[0]``, ``table[1]`` … before
-    raising ``KeyError``. A silently wrong walk, not a clean error.
-    """
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\n")
-    table = FamilyTable(kern)
-    walked = list(table)
-    assert walked == list(kern.st.links)
-    assert len(table) == len(kern.st.links)
-    assert all(isinstance(one, int) for one in walked)
-
-
-def test_items_serves_every_key_and_matches_the_point_reads():
-    """The decode path sees the same families a point read would."""
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\n")
-    table = FamilyTable(kern)
-    seen = 0
-    for key, bucket in table.items():
-        assert bucket == table.get(key), key
-        seen += 1
-    assert seen == len(kern.st.links)
-
-
-def test_a_delegated_completion_never_promotes_a_key():
-    """`_inject` puts the delegated completion in `cols[end]` too.
-
-    Its family is filed by `_complete_delegated` with the `PayloadLeaf` as the
-    child — NOT a child handle. Only `_complete` writes the promotion set, so
-    a delegated completion cannot promote a key and cannot be read back as an
-    ordinary child-handle family.
-
-    Driven at the seam because NOTHING in the roster populates `delegates`:
-    instrumenting every kernel the bench corpora build gives seven kernels and
-    zero with a delegate table, so a test waiting for a natural witness would
-    be testing nothing.
-    """
-    kern = parsed(PLAIN, "a\nb\n")
-    pk, codes = kern.tables.packing, kern.tables.codes
-    found = None
-    for end, col in enumerate(kern.cols):
-        for it in col:
-            if codes.next_sym[it >> pk.bits] == 0 and (it & pk.mask) != end:
-                found = (it, end)
-                break
-        if found:
-            break
-    assert found, "no positive-width completion to delegate — nothing tested"
-    it, end = found
-    before = set(promoted_keys(kern))
-    leaf = PayloadLeaf(object(), kern.text[it & pk.mask : end])
-    kern._complete_delegated(end, it, leaf)  # pylint: disable=protected-access
-
-    assert set(promoted_keys(kern)) == before, (
-        "a delegated completion promoted a key — its families would then be "
-        "read back from the column with a child handle the producer never filed"
-    )
-
-
-def test_a_mixed_provenance_leo_key_serves_stored_first():
-    """The L4 shape: a Leo top reached BOTH by the completer and by deferral.
-
-    `leo.py` names it and calls its miss the embedded-ambiguity undercount.
-    Expansion appends to the store after recognition closes, so the stored
-    families lead and anything read back from the chart follows.
-    """
-    kern = parsed(AMBIGUOUS, "a\n\nb\n\nc\n\nd\n\n")
-    assert kern.st.leo_links, "Leo never engaged — the test proves nothing"
-    for key in list(kern.st.leo_links):
-        expand_leo(kern.st, kern.tables, key)
-    table = FamilyTable(kern)
-    mixed = [key for key in promoted_keys(kern) if len(kern.st.links.get(key, ())) > 1]
-    if not mixed:
-        pytest.skip("no promoted key also gained a Leo family on this witness")
+def test_a_promoted_key_that_also_gets_a_leo_family_reads_ordinary_first():
+    """Mixed provenance: expansion appends after recognition, behind the marker."""
+    base, kern = paired(tables(*SPLIT), SPLIT[1])
+    mixed = [key for key in promoted(kern) if len(kern.st.links[key]) > 2]
+    assert mixed, "no promoted key received a Leo family — nothing tested"
+    reader = kern.family_reader()
     for key in mixed:
-        served = table[key]
-        for one in kern.st.links[key][1:]:
-            assert one in served, key
+        served = reader.get(key)
+        assert served is not None
+        assert served[-(len(kern.st.links[key]) - 2) :] == kern.st.links[key][2:]
+    assert not bucket_differences(base, kern)
 
 
-def test_leo_expansion_is_still_served_in_full():
-    """Every family expansion files is served, promoted key or not."""
-    kern = parsed(RIGHT_REC, "xxxxx")
-    assert kern.st.leo_links, "Leo never engaged — the test proves nothing"
-    for key in list(kern.st.leo_links):
-        expand_leo(kern.st, kern.tables, key)
-    table = FamilyTable(kern)
-    for key, stored in kern.st.links.items():
-        filed = {one for one in stored if one is not PROMOTED}
-        assert filed <= set(table[key]), key
+def test_a_key_facing_a_nullable_rule_keeps_every_family():
+    """Zero-width and ordinary families interleave in filing order at such a key,
+    and only the bucket records that — so it is never factored."""
+    base, kern = paired(tables(*NULLABLE), NULLABLE[1])
+    end_mask = kern.tables.packing.mask
+    mixed = [
+        key
+        for key, bucket in base.st.links.items()
+        if {one[1] == (key & end_mask) for one in bucket} == {True, False}
+    ]
+    assert mixed, "no key mixes zero-width and ordinary families — nothing tested"
+    for key in mixed:
+        assert kern.st.links[key][0] is not PROMOTED, key
+    assert not bucket_differences(base, kern)
+
+
+def test_a_key_facing_a_delegated_rule_keeps_every_family():
+    """Delegated and ordinary families interleave at such a key; never factored."""
+    tabs = tables(*DELEGATED)
+    base, kern = paired(tabs, DELEGATED[1], delegating(tabs))
+    mixed = [
+        key
+        for key, bucket in base.st.links.items()
+        if len(bucket) > 1 and any(isinstance(one[2], PayloadLeaf) for one in bucket)
+    ]
+    assert mixed, "no key mixes delegated and ordinary families — nothing tested"
+    for key in mixed:
+        assert kern.st.links[key][0] is not PROMOTED, key
+    assert not bucket_differences(base, kern)
+
+
+def test_the_table_is_not_iterable_and_misses_like_a_mapping():
+    """No legacy index walk, and a missing key is ``None`` / ``KeyError``."""
+    _base, kern = paired(tables(*SPLIT), SPLIT[1])
+    reader = kern.family_reader()
+    assert isinstance(reader, FamilyTable)
+    with pytest.raises(TypeError):
+        iter(reader)
+    absent = 1 << 60
+    assert reader.get(absent) is None
+    with pytest.raises(KeyError):
+        _ = reader[absent]

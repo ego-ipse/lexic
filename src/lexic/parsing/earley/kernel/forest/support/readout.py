@@ -149,7 +149,7 @@ def to_chart(kern: Kernel) -> Chart:
     chart = Chart()
     links = chart.links
     bits, mask = tables.packing.bits, tables.packing.mask
-    for key, bucket in kern.families.items():
+    for key, bucket in kern.family_reader().items():
         dkey = (decode_item(tables, key >> bits), key & mask)
         for pred, pend, child in bucket:
             links += (

@@ -71,7 +71,7 @@ def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
         exactly one way — proven, not sampled.
     """
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    codes, links = kernel.tables.codes, kernel.families
+    codes, links = kernel.tables.codes, kernel.family_reader()
     found: set[int] = set()
     seen: set[int] = set()
     stack = [root]
@@ -255,7 +255,7 @@ def replayed[Value, NodeValue](
 def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
     """Reverse reachability under ``root`` — handle → the handles containing it."""
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    codes, links = kernel.tables.codes, kernel.families
+    codes, links = kernel.tables.codes, kernel.family_reader()
     parents: dict[int, list[int]] = {}
     seen: set[int] = set()
     stack = [root]
@@ -387,10 +387,11 @@ def _flipped_witness[Value, NodeValue](
     kernel = run.kernel
     codes = kernel.tables.codes
     bits = kernel.tables.packing.bits
+    links = kernel.family_reader()
     for point in choices:
-        bucket = kernel.families[point]
+        bucket = links[point]
         spec = spec_for(codes, bits, kernel.tables.code_choice, point)
-        for family in canonical_indices(kernel.families, bucket, spec)[1:]:
+        for family in canonical_indices(links, bucket, spec)[1:]:
             built = replayed(run, point, family, memo)
             if built is not None and not same_value(base.value, built.value):
                 return built
@@ -404,10 +405,11 @@ def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
     never a candidate; only a choice between arms can mean two things.
     """
     bits = kernel.tables.packing.bits
+    links = kernel.family_reader()
     return [
         key
         for key in ambiguity_points(kernel, handle)
-        if is_arm_choice(kernel.families[key], bits, kernel.tables.code_choice)
+        if is_arm_choice(links[key], bits, kernel.tables.code_choice)
     ]
 
 

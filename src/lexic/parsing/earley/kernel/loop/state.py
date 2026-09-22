@@ -19,7 +19,7 @@ delegation)."""
 
 
 PROMOTED: KLink = (-1, -1, -1)
-"""Leads a bucket whose ordinary families are read from the column instead.
+"""Leads a bucket whose later families are read from its completion group.
 
 A distinguished VALUE rather than a second container: one ``links`` lookup
 then tells a reader both that the key exists and how to read it, where a
@@ -45,10 +45,11 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     :ivar predicted: Per column, the ``rule_id``\\ s already predicted.
     :ivar leo: Per column, ``rule_id`` → memoised Leo top (``-1`` = none).
     :ivar links: handle → its packed SPPF families.
-    :ivar groups: ``(rule_id, end)`` → the completions of that rule ending
-        there that the COMPLETER ACTUALLY PROCESSED, in event order. Started
-        only when a key at that ``(rule, end)`` promotes, so a chart that
-        never promotes never builds one.
+    :ivar groups: ``(rule_id, end)`` → the completed items of that rule
+        ending there that the COMPLETER ACTUALLY PROCESSED, in event order,
+        from the first promotion at that ``(rule, end)`` on. Created only then,
+        so a chart that never promotes never builds one — and an empty
+        ``groups`` is how a reader knows no key promoted at all.
 
         It exists because ``cols[end]`` is NOT a record of what the completer
         processed: ``_complete`` returns early when ``_try_leo`` takes a
@@ -61,11 +62,12 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
 
     One store, classified by MULTIPLICITY, and the classification is a value
     IN :attr:`links` rather than a lane beside it: a bucket led by
-    :data:`PROMOTED` means "more than one ordinary family, read them from the
-    column". A key with a single family keeps it exactly as it always did —
-    same dict, same one-element list, same tuple — because at fanout one there
-    is nothing to save and anything spent reconstructing it per read is pure
-    loss. One lookup answers both what is stored and how to read it.
+    :data:`PROMOTED` means "more than one ordinary family: the first follows
+    the marker, the rest are read from the group". A key with a single family
+    keeps it exactly as it always did — same dict, same one-element list, same
+    tuple — because at fanout one there is nothing to save and anything spent
+    reconstructing it per read is pure loss. One lookup answers both what is
+    stored and how to read it.
     """
 
     # pylint: disable=too-many-instance-attributes

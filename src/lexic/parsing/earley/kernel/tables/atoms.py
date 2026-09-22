@@ -6,6 +6,7 @@ a single atom accepts. Nothing here knows what a table is.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Protocol
 
 from lexic.exceptions import UnsupportedConstructError
@@ -38,10 +39,9 @@ delegation — a pre-folded child spliced onto the waiter it advances)."""
 class FamilyReader(Protocol):
     """What a chain walker needs of the family table: one key's families.
 
-    A Protocol rather than the concrete mapping because the ordinary families
-    are DERIVED and the table that serves them is not a ``dict`` (see
-    :class:`~lexic.parsing.earley.kernel.forest.families.FamilyTable`). The
-    walkers only ever ask a key for its families, which is what this states.
+    A Protocol rather than the concrete mapping because a chart that factored
+    reads through :class:`~lexic.parsing.earley.kernel.forest.families.FamilyTable`,
+    while one that did not reads the link ``dict`` itself.
     """
 
     def get(self, key: int, /) -> list[KLink] | None:
@@ -50,6 +50,10 @@ class FamilyReader(Protocol):
 
     def __getitem__(self, key: int, /) -> list[KLink]:
         """This key's families; raises :class:`KeyError` when it names none."""
+        raise NotImplementedError
+
+    def items(self) -> Iterable[tuple[int, list[KLink]]]:
+        """Every key with its families — the decode path's whole-table read."""
         raise NotImplementedError
 
 
