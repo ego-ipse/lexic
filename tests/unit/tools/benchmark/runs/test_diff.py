@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.benchmark.compare import Verdict
+from tools.benchmark.judging.arithmetic import Verdict
 from tools.benchmark.runs.diff import Job, Run, compare_runs, render
 
 

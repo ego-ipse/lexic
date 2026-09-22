@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from tools.benchmark import bench
-from tools.benchmark.compare import MT_ROWS
+from tools.benchmark.judging.arithmetic import MT_ROWS
 from tools.benchmark.scope import diff, paths
 
 # --------------------------------------------- the rows a change can reach

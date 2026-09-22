@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from tools.benchmark.aggregate import gather
-from tools.benchmark.compare import Verdict
+from tools.benchmark.judging.arithmetic import Verdict
 
 WORKFLOW = "performance regression"
 """The workflow whose runs carry the `ab-*` artefacts."""
