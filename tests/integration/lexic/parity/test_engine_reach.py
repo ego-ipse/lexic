@@ -9,6 +9,9 @@ and this file is what makes them witnesses rather than labels:
 * ``interior-climb`` — an island whose width it cannot prove, so the window
   doubles from :data:`ISLAND_WINDOW` until the chart stops extending.
 
+A fourth witness, ``INTERIOR_DELEGATE``, is not a row: it holds the one route
+no roster kernel takes — an island whose sub-parse delegates an interior rule.
+
 A row named for an engine it no longer reaches is worse than no row: it reports
 green while covering nothing. Every assertion here is therefore on a COUNTER
 read at the call site, and every counter is proved non-zero somewhere in the
@@ -32,10 +35,12 @@ import lexic.parsing.pda.runtime.kernel.kernel as kernel_mod
 import lexic.parsing.pda.runtime.matchers as matchers_mod
 import lexic.parsing.products as products_mod
 from lexic.compile import compile_text
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
 from lexic.parsing.products import _model_product
 from tests.clone_walk import walk_program_clones
+from tools.benchmark.cases.engine_reach import INTERIOR_DELEGATE
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -43,32 +48,39 @@ from tools.benchmark.cases.grammars import BENCHES
 def reach_counts(monkeypatch) -> Counter[str]:
     """Count the engine-reach events of whatever parses inside the test.
 
-    A ``Counter`` rather than a record: the four lanes are all ints with the
-    same meaning (how many times this happened), and naming the fixture
-    function apart from the fixture keeps the test signatures free of a
-    shadowed name.
+    A ``Counter`` rather than a record: the lanes are all ints with the same
+    meaning (how many times this happened, or for ``delegates`` the widest
+    table seen), and naming the fixture function apart from the fixture keeps
+    the test signatures free of a shadowed name.
     """
     counts: Counter[str] = Counter()
     real_parse = execution_mod.island_parse
     real_run = islands_mod.island_run
     real_earley = products_mod.earley_model
+    real_delegated = vars(Kernel)["_complete_delegated"]
 
     def island_parse(tables, text, pos, name, policy):
         counts["islands"] += 1
         counts["exact"] += policy.window is not None
         return real_parse(tables, text, pos, name, policy)
 
-    def island_run(*args, **kwargs):
+    def island_run(tables, window, delegates=None):
         counts["runs"] += 1
-        return real_run(*args, **kwargs)
+        counts["delegates"] = max(counts["delegates"], len(delegates or {}))
+        return real_run(tables, window, delegates)
 
     def earley_model(*args, **kwargs):
         counts["earley"] += 1
         return real_earley(*args, **kwargs)
 
+    def complete_delegated(self, end, it, payload):
+        counts["delegated"] += 1
+        return real_delegated(self, end, it, payload)
+
     monkeypatch.setattr(execution_mod, "island_parse", island_parse)
     monkeypatch.setattr(islands_mod, "island_run", island_run)
     monkeypatch.setattr(products_mod, "earley_model", earley_model)
+    monkeypatch.setattr(Kernel, "_complete_delegated", complete_delegated)
     return counts
 
 
@@ -192,6 +204,43 @@ def test_every_engine_reach_row_asserts_a_live_counter():
     """
     names = {b.name for b in BENCHES}
     assert {"start-fallback", "interior-exact", "interior-climb"} <= names
+
+
+# ── the delegating island, not a row ───────────────────────────────────
+
+
+def test_interior_delegate_completes_its_interior_rule_through_a_delegate(reach):
+    """The island's sub-parse carries a delegates table and USES it.
+
+    Three counters, because each can go quiet on its own: the table can shrink
+    to nothing when the interior rule stops clearing the delegation floor, a
+    table can reach the kernel and never be consulted, and a delegated span
+    can be consulted and still leave the model wrong.
+
+    The word is ONE character on purpose. Whether ``word`` delegates is decided
+    by its SHAPE — the ``+`` loop clears the floor — not by the span it matches,
+    and a one-character word stays inside the language of the loop-free
+    ``word ::= [b-z]`` too. So removing the loop leaves this document parsing
+    and fails the test on the delegates table, which is the failure it exists
+    to report, rather than on a document that no longer derives.
+    """
+    text = "w" + "a" * 32 + "\n"
+    compiled = compile_text(INTERIOR_DELEGATE, cache_key="engine-reach-delegate")
+    model = compiled.parse(text, cores=1)
+
+    assert reach["delegates"] == 1, (
+        f"the island's sub-parse carried a delegates table of {reach['delegates']} "
+        "rules — `word` no longer delegates, and no document then reaches the "
+        "delegated completion path"
+    )
+    assert reach["delegated"] == 1, (
+        f"{reach['delegated']} delegated completions — the table reached "
+        "island_run but the kernel never completed through it"
+    )
+    assert reach["islands"] == 1
+    assert reach["runs"] == 1
+    assert reach["earley"] == 0, "a delegating island that answers must not fall back"
+    assert model.to_text() == text
 
 
 # ── D: the counter-test, not a row ─────────────────────────────────────

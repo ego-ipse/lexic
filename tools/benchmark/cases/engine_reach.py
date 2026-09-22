@@ -97,3 +97,29 @@ island's alphabet contains its continuation's first character.** That is what
 decides exact against climbing, both carry the same number of units, so the
 pair PRICES the climb. A widening of the continuation analysis shows up as this
 row turning into that one, which is the shape to look for."""
+
+
+INTERIOR_DELEGATE = """root ::= item nl
+item ::= item "a" | word
+word ::= [b-z]+
+nl ::= "\\n"
+"""
+"""The DELEGATING island: a sub-parse that hands an interior rule to a clone.
+
+The recursive arm is still bare, so the fold still refuses and ``item`` is an
+island. What changes is the BASE arm: it names ``word``, a conflict-free rule
+whose ``+`` loop clears the delegation floor, so the island's sub-parse carries
+a delegates table and completes ``word`` through the delegated path — the
+payload injected and filed as a :class:`PayloadLeaf` family — instead of
+walking it on the chart. The witnesses above build their islands over a lone
+``"a"``, below that floor, so no roster kernel ever holds a delegate.
+
+``word``'s alphabet stops short of ``a`` and of the newline, so nothing that
+follows a word can be read as more of it and no ambiguity is manufactured.
+
+Pinned: ``island_parse`` 1, ``island_run`` 1 carrying a delegates table of ONE
+rule, ``_complete_delegated`` 1, ``earley_model`` 0, and the model round-trips.
+
+Not a benchmark row: whether delegation belongs in the performance matrix is a
+separate decision, and a roster row trips every count pin and per-name table
+keyed on the roster."""
