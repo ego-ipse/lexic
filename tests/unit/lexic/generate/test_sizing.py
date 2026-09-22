@@ -1,4 +1,4 @@
-"""Tests for lexic.sizing — size-targeted generation, through ``generate(size=)``.
+"""Tests for lexic.generate.sizing — size-targeted generation, through ``generate(size=)``.
 
 Every target is checked against the measured length of what comes back, every
 document against a grammar compiled from the same source, and each steering

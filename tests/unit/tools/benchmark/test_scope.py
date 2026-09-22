@@ -56,7 +56,7 @@ def test_a_source_path_the_table_does_not_name_reaches_every_seat() -> None:
     costs a regression nobody saw, so the unplaced case takes the whole roster.
     """
     for path in (
-        "src/lexic/generate.py",
+        "src/lexic/generate/__init__.py",
         "src/lexic/parsing/products.py",
         "src/lexic/somewhere/nobody/has/mapped.py",
     ):

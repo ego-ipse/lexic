@@ -132,8 +132,6 @@ anyone noticed). Annotations are one line; module docstrings carry the detail.
 src/lexic/
   __init__.py                      Lexic — Grammar engine
   exceptions.py                    LexicError hierarchy — UnsupportedConstructError, TargetRefusalError, FieldValidationError
-  generate.py                      random string generator — walks a canonical grammar's rules directly
-  sizing.py                        size-targeted generation — steers generate's free walk toward about N characters
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
   model_fields.py                  Per-field construction checks a field's own grammar ITEM decides
@@ -185,6 +183,9 @@ src/lexic/
       naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
+  generate/
+    __init__.py                    random string generator — walks a canonical grammar's rules directly
+    sizing.py                      size-targeted generation — steers the free walk toward about N characters
   grammars/
     __init__.py                    Grammar-flavour layer — public endpoint
     abnf/

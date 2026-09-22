@@ -1,4 +1,4 @@
-"""Unit tests for src/lexic/generate.py"""
+"""Unit tests for lexic.generate — the free walk and the public entry."""
 
 from __future__ import annotations
 
