@@ -12,12 +12,15 @@ values.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, Recursive, foldable
 from lexic.parsing.products import _model_product
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import pda_and_earley
 
 
 def parts(source: str, rule: str):
@@ -26,7 +29,7 @@ def parts(source: str, rule: str):
     grammar = lift_optional_nullables(compiled.codegen_grammar)
     analysis = GrammarAnalysis(grammar)
     rules = {str(one.name): one for one in grammar.rules}
-    shape = foldable(rule, rules[rule], rules, analysis.item_nullable)
+    shape = foldable(rule, rules[rule], rules, analysis)
     return shape, _model_product(compiled.codegen_grammar, compiled.product)
 
 
@@ -102,33 +105,28 @@ def test_the_plan_is_the_arms_own_plan() -> None:
     assert got.slots == len(routine.captures)
 
 
-def test_a_step_that_captures_nothing_is_refused() -> None:
-    """``A ::= A "a" | "a"`` folds in SHAPE and cannot fold in VALUE.
+def test_a_step_that_captures_nothing_folds_with_width_zero() -> None:
+    """``A ::= A "a" | "a"`` folds in SHAPE and now in VALUE too.
 
-    The β is a bare literal, so the arm's routine captures only the recursive
-    slot and an iteration leaves nothing in the sink. The nesting depth is then
-    the whole information and the sink carries none of it — one iteration is
-    indistinguishable from ten.
-
-    This shipped as a crash rather than a wrong model (`range()` with a step of
-    zero, on a grammar the repo has an adversarial test for), which is the
-    better of the two failures but not by design. The refusal is what makes it
-    neither.
+    The β is a bare literal, so an iteration leaves nothing in the sink and the
+    nesting depth is the whole information. The frame's ``count`` keeps that
+    depth past the loop's close, so the build folds with a width of ZERO: one synthetic
+    slot, the value so far, handed to the arm's own build once per iteration.
     """
     shape, product = parts('root ::= root "a" | "a"\n', "root")
 
     assert shape is not None, "the SHAPE reader takes it"
-    assert fold_build(shape, product.binding.routines) is None, "the VALUE cannot"
+    got = fold_build(shape, product.binding.routines)
+    assert got is not None, "the VALUE is the count"
+    assert (got.width, got.slots) == (0, 1)
 
 
-def test_the_shape_it_refuses_still_parses() -> None:
-    """Refusing the fold puts the rule back on the island path, not off a cliff.
+@pytest.mark.parametrize("text", ["a", "aa", "aaa", "a" * 200])
+def test_a_capture_free_fold_is_the_models_earley_builds(text: str) -> None:
+    """Answered on the PDA — not an island, not a fallback — with Earley's model.
 
-    A refusal that lost the parse would be a worse bug than the crash it
-    replaces, so the acceptance is a parse and a round trip, not the absence of
-    an exception.
+    The PDA is asked directly, so a missing or wrong count cannot hide behind
+    the product's fallback: it raises, or it builds a different nesting.
     """
-    compiled = compile_text('root ::= root "a" | "a"\n', cache_key="fold-refused-parse")
-
-    assert compiled.parse("aaa").to_text() == "aaa"
-    assert compiled.parse("a").to_text() == "a"
+    pda, earley = pda_and_earley('root ::= root "a" | "a"\n', text, "fold-count-parse")
+    assert pda == earley

@@ -21,6 +21,8 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_fast_construction,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
+    BUILD_SEQ,
     M_CONST,
     M_GTEXT,
     M_MODEL,
@@ -39,6 +41,7 @@ from lexic.parsing.pda.runtime.build import (
     leaf_mismatch,
 )
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import pda_and_earley
 
 
 class Built(tuple):
@@ -452,3 +455,50 @@ def test_intern_miss_sentinel_is_distinct():
     assert INTERN_MISS is not None
     memo: dict = {}
     assert memo.get(("k",), INTERN_MISS) is INTERN_MISS
+
+
+# ── the capture-free fold's loop count ─────────────────────────────────
+
+
+def _closing(mode: int, count: int) -> Frame:
+    """A frame of a two-item arm about to close an item after ``count`` rounds."""
+    frame = make_frame({"arm": flat_arm(2), "clone": flat_clone(mode)})
+    frame.count = count
+    return frame
+
+
+@pytest.mark.parametrize("count", [0, 1, 7])
+def test_a_fold_frame_keeps_its_last_loops_count_past_the_close(count):
+    """The rewrite's ``(β)*`` is the fold arm's last item, and a β that captures
+    nothing leaves its depth nowhere else — so the close keeps it, zero included."""
+    frame = _closing(BUILD_FOLD, count)
+    assert frame.close_loop(1, 5) == 2
+    assert frame.count == count
+    assert frame.sinks is None, "nothing is put in any sink"
+
+
+@pytest.mark.parametrize(
+    ("mode", "item"),
+    [(BUILD_SEQ, 1), (BUILD_SEQ, 0), (BUILD_FOLD, 0)],
+)
+def test_every_other_close_resets_the_count(mode, item):
+    """An ordinary clone's loops, and the fold's own base item, reset as before:
+    a count carried into the next item would resume a loop that never ran."""
+    frame = _closing(mode, 3)
+    frame.close_loop(item, 5)
+    assert frame.count == 0
+
+
+@pytest.mark.parametrize(
+    ("source", "text"),
+    [
+        ('root ::= row+\nrow ::= [a-z]+ "\\n"\n', "ab\ncd\nef\n"),
+        ('root ::= e "!"\ne ::= e op t | t\nt ::= [a-z]\nop ::= "+"\n', "a+b+c!"),
+        ('root ::= root "a" | "a"\n', "aaaa"),
+    ],
+)
+def test_loops_build_earleys_model(source, text):
+    """End to end: an ordinary loop, a fold whose iterations capture values,
+    and a capture-free fold — each answered on the PDA with Earley's model."""
+    pda, earley = pda_and_earley(source, text, f"loop-count-{hash(source)}")
+    assert pda == earley

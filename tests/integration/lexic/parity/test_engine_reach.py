@@ -220,7 +220,7 @@ def test_interior_delegate_completes_its_interior_rule_through_a_delegate(reach)
     The word is ONE character on purpose. Whether ``word`` delegates is decided
     by its SHAPE — the ``+`` loop clears the floor — not by the span it matches,
     and a one-character word stays inside the language of the loop-free
-    ``word ::= [b-z]`` too. So removing the loop leaves this document parsing
+    ``word ::= [c-z]`` too. So removing the loop leaves this document parsing
     and fails the test on the delegates table, which is the failure it exists
     to report, rather than on a document that no longer derives.
     """

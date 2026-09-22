@@ -17,6 +17,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -435,12 +436,20 @@ def _count_key(frame: Frame) -> int:
     Past ``lo`` on an unbounded item every further iteration is permitted, so
     the exact number is not part of the state — and collapsing it is what lets
     a side that took one more iteration converge with one that did not.
+
+    Except where the count IS a value: a capture-free fold (one synthetic slot,
+    no per-iteration values in any sink) keeps its depth in the count through
+    its last loop and past it, so two sides differing there built different
+    models and must not merge as one state.
     """
     arm = frame.arm
     i = frame.i
+    count = frame.count
+    clone = frame.clone
+    if i + 1 >= arm.n and clone.mode == BUILD_FOLD and clone.n_items == 1:
+        return count
     if i >= arm.n:
         return _COUNT_FREE
-    count = frame.count
     if arm.his[i] >= 0 or count < arm.los[i]:
         return count
     return _COUNT_FREE

@@ -14,11 +14,14 @@ test for the direct shape finds zero rules across the whole corpus.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_from_path, compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAst, IrRule, IrRuleRef
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.compiler.leftrec import shape as shape_module
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
 from lexic.parsing.pda.compiler.specs import arm_items
 from tests.paths import GROUND_TRUTH
@@ -34,7 +37,7 @@ def shapes(source: str) -> dict[str, Fold]:
     return {
         name: got
         for name, rule in rules.items()
-        if (got := foldable(name, rule, rules, analysis.item_nullable)) is not None
+        if (got := foldable(name, rule, rules, analysis)) is not None
     }
 
 
@@ -121,7 +124,7 @@ def test_the_pre_test_agrees_with_the_full_test_wherever_it_matters() -> None:
         analysis = GrammarAnalysis(grammar)
         rules = {str(one.name): one for one in grammar.rules}
         folds = any(
-            foldable(name, rule, rules, analysis.item_nullable) is not None
+            foldable(name, rule, rules, analysis) is not None
             for name, rule in rules.items()
         )
         if folds:
@@ -185,13 +188,58 @@ def test_nothing_in_the_corpus_is_directly_left_recursive() -> None:
     for label, codegen in _corpus():
         grammar = lift_optional_nullables(codegen)
         rules = {str(one.name): one for one in grammar.rules}
-        nullable = GrammarAnalysis(grammar).item_nullable
+        analysis = GrammarAnalysis(grammar)
         direct += [f"{label}:{name}" for name in _direct_left_recursive(rules)]
         folding += [
             f"{label}:{name}"
             for name, rule in rules.items()
-            if foldable(name, rule, rules, nullable) is not None
+            if foldable(name, rule, rules, analysis) is not None
         ]
 
     assert not direct, f"the direct shape the reader does NOT match: {direct}"
     assert folding, "nothing folds anywhere — the zero above proves nothing"
+
+
+# ── the boundary proof — every carving of a fold's pieces is the text's ─────
+
+UNSETTLED = {
+    "width-0 base run": 'root ::= item\nitem ::= item "a" | x\nx ::= "b" "a"*\n',
+    "width-1 base run": 'root ::= item\nitem ::= item y | x\ny ::= "a"\nx ::= "b" "a"*\n',
+    "base arm prefix": 'root ::= item\nitem ::= item "a" | x\nx ::= "b" | "ba"\n',
+    "step into step": 'root ::= item\nitem ::= item x | "c"\nx ::= "a"+\n',
+    "word holds the operator": (
+        'root ::= expr\nexpr ::= expr op term | term\nterm ::= [a-z]+\nop ::= "and"\n'
+    ),
+}
+"""Shapes the fold would take whose pieces can be carved two ways. Each is
+genuinely ambiguous — ``ba`` is ``x("ba")`` or ``x("b")`` then ``"a"``,
+``caa`` is one ``x`` or two, ``aandb`` one word or ``a and b``."""
+
+SETTLED = {
+    "base closes on the step's character": 'root ::= item\nitem ::= item "a" | "b" "a"\n',
+    "run then an operator it cannot hold": (
+        'root ::= expr\nexpr ::= expr op term | term\nterm ::= [a-z]+\nop ::= "+"\n'
+    ),
+    "step whose run cannot start a step": 'root ::= item\nitem ::= item x | "c"\nx ::= "a" "b"*\n',
+}
+"""The near misses: the same characters in play, and no piece can be lengthened
+into where a β begins."""
+
+
+@pytest.mark.parametrize("case", sorted(UNSETTLED))
+def test_a_fold_whose_pieces_can_be_carved_two_ways_is_refused(
+    case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shape qualifies and the boundary proof refuses it, whatever the width."""
+    source = UNSETTLED[case]
+    assert not shapes(source), f"{case}: folded, so the descent would pick one"
+    monkeypatch.setattr(shape_module, "settled", lambda *_args: True)
+    assert shapes(source), (
+        f"{case}: the SHAPE stopped qualifying, so this proves nothing"
+    )
+
+
+@pytest.mark.parametrize("case", sorted(SETTLED))
+def test_a_fold_whose_boundaries_the_text_fixes_still_folds(case: str) -> None:
+    """The near misses keep the fold."""
+    assert shapes(SETTLED[case]), f"{case}: refused, and would island for nothing"

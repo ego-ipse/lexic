@@ -110,7 +110,7 @@ WITNESS: dict[str, str] = {
     "Kernel.run": "9a328778d4035968",
     "PdaKernel._drive": "ba05ca518cf2dc27",
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
-    "PdaKernel._quant_step": "1c88d7247121a287",
+    "PdaKernel._quant_step": "14696d35b5d6f3cc",
     "gating.gate_take": "76e35db5019cf024",
     "matchers.match_arm": "5d1c46d9408b6d2c",
     "matchers.match_cc": "2f81af2235e50891",
