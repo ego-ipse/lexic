@@ -56,6 +56,17 @@ class Region(NamedTuple):
         return self.closer - self.opener
 
 
+class Division(NamedTuple):
+    """A region :func:`choose` divided: its bracketed pieces, and the separator
+    offsets between them — read back from the very bounds the pieces were cut
+    at, so the two cannot disagree, where deriving cuts again at another count
+    aims elsewhere (:func:`piece_marks` drops a repeated nearest mark)."""
+
+    region: Region
+    parts: list[str]
+    cuts: list[int]
+
+
 def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
     """opener → ``(closer, rule)`` for every derived bracketing rule.
 
@@ -646,52 +657,42 @@ def shell(text: str, regions: list[Region], keep: list[str]) -> str:
     return "".join(out)
 
 
-def choose(
-    text: str, found: list[Region], workers: int
-) -> list[tuple[Region, list[str]]]:
-    """The biggest runs that actually divide, and their pieces.
+def choose(text: str, found: list[Region], workers: int) -> list[Division]:
+    """The biggest runs that actually divide, with their pieces and cuts.
 
-    A document's outermost bracket contains every other, so size alone would
-    divide the same text twice — and worse, a big run that CANNOT divide
-    (a tokenizer file's top level is eight members, two of them enormous)
-    would claim the territory and block the runs inside it that can. So a
-    region takes its span only if its pieces come out balanced; otherwise it
-    steps aside and its children are considered on their own.
-
-    ``workers`` is a ceiling, not an exact demand. Each selected run uses the
-    largest count it can feed at least :data:`MIN_CHUNK`, while the shared pool
-    still caps aggregate concurrency. This keeps useful four-way work when a
-    caller happens to have eight cores.
+    The outermost bracket contains every other, so size alone would divide the
+    same text twice, and a big run that CANNOT divide (a tokenizer file's top
+    level: eight members, two enormous) would block the runs inside it that
+    can. So a region takes its span only if its pieces come out balanced.
+    ``workers`` is a ceiling: each run takes the largest count it can feed
+    :data:`MIN_CHUNK`, and the shared pool caps aggregate concurrency.
     """
-    candidates: list[tuple[Region, list[str]]] = []
+    candidates: list[Division] = []
     for region in sorted(found, key=lambda r: -r.span):
         capacity = min(workers, region.span // MIN_CHUNK)
         if capacity < 2:
             continue
         for count in range(capacity, 1, -1):
             bounds = _piece_bounds(region, count)
-            # Span capacity is only an upper bound. Sparse outer containers
-            # can leave one nearly empty piece and one piece holding the whole
-            # nested payload; accepting that blocks the balanced child region
-            # and repeats its work in joints and the shell. Every ACTUAL owner
-            # must clear the already measured per-worker floor.
+            # Capacity is an upper bound: a sparse outer container can leave one
+            # piece nearly empty and one holding the nested payload, blocking
+            # the balanced child. Every ACTUAL owner must clear the floor.
             if (
                 bounds is not None
                 and min(bounds[i + 1] - bounds[i] + 1 for i in range(len(bounds) - 1))
                 >= MIN_CHUNK
             ):
-                candidates.append((region, _piece_texts(text, region, bounds)))
+                parts = _piece_texts(text, region, bounds)
+                cuts = [bound - 1 for bound in bounds[1:-1]]
+                candidates.append(Division(region, parts, cuts))
                 break
     # Prefer the ownership plan that fills more runners. Span breaks ties, but
     # cannot let a three-way outer container suppress an eight-way child.
-    picked: list[tuple[Region, list[str]]] = []
-    for region, parts in sorted(
-        candidates, key=lambda entry: (-len(entry[1]), -entry[0].span)
-    ):
-        if any(
-            region.opener < other.closer and other.opener < region.closer
-            for other, _parts in picked
+    picked: list[Division] = []
+    for division in sorted(candidates, key=lambda d: (-len(d.parts), -d.region.span)):
+        r = division.region
+        if not any(
+            r.opener < o.region.closer and o.region.opener < r.closer for o in picked
         ):
-            continue
-        picked.append((region, parts))
-    return sorted(picked, key=lambda entry: entry[0].opener)
+            picked.append(division)
+    return sorted(picked, key=lambda entry: entry.region.opener)

@@ -514,11 +514,11 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = region_works(grammar, ask.binding, ask.text, divided, analysis or grammar)
+    merge = MergeRequest(parse, ask.text, ask.binding, ask.resolve)
+    works = region_works(merge, grammar, divided, analysis or grammar)
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, pool)
-    merge = MergeRequest(parse, ask.text, ask.binding, ask.resolve)
     stands = standins(merge, works, parsed) if parsed is not None else None
     return stitch_shell(merge, grammar, works, stands) if stands else None
 
