@@ -6,8 +6,20 @@ import pytest
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
-from lexic.parsing.pda.runtime.admission import KernelCaches, admits, frames_copy
+from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.pda.runtime.admission import (
+    REST_ADMITS_HARD,
+    REST_ASCEND,
+    REST_DEAD,
+    KernelCaches,
+    admits,
+    arm_rest_scan,
+    composes,
+    frames_copy,
+    item_admits,
+)
 from lexic.parsing.pda.runtime.build import Frame
+from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 # ── admits — the FIRST pre-filter ─────────────────────────────────────
@@ -242,3 +254,74 @@ def test_the_prefix_is_whole_because_one_origin_holds_it_all() -> None:
 
     assert forked.sinks[0] == [IrStr("was-there"), IrStr("added-by-the-fork")]
     assert original == [IrStr("was-there")], "and the original is untouched"
+
+
+# ── item / clone admission, the arm-rest walk, FOLLOW composability ──
+
+MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
+
+
+def test_item_admits_a_literal_only_its_own_character():
+    """A literal item admits only its exact character."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "a") is True
+    assert item_admits(arm, 0, "z") is False
+
+
+def test_item_admits_never_admits_the_empty_string():
+    """An empty lookahead character never admits, regardless of item kind."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "") is False
+
+
+def test_item_admits_a_charclass_by_membership():
+    """A char class item admits by set membership."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 2, "5") is True
+    assert item_admits(arm, 2, "x") is False
+
+
+def test_item_admits_delegates_a_clone_reference_to_clone_admits():
+    """A clone-reference item defers to the target clone's own admission."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 1, "m") is True
+    assert item_admits(arm, 1, "z") is False
+
+
+def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
+    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
+    settling the walk before item 2 is even reached."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "m") == (REST_ADMITS_HARD, False)
+
+
+def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
+    """A mandatory item refusing the char kills the stop side."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "5") == (REST_DEAD, False)
+
+
+def test_arm_rest_scan_ascends_past_the_arms_final_item():
+    """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, arm.n - 1, "q") == (REST_ASCEND, False)
+
+
+def test_composes_is_true_at_end_of_input():
+    """End of input always composes — nothing follows to contradict it."""
+    follow = CharSet.from_chars("x")
+    assert composes(follow, "abc", 3) is True
+
+
+def test_composes_checks_the_next_character_against_follow():
+    """A next character inside FOLLOW composes; one outside it does not."""
+    follow = CharSet.from_chars("x")
+    assert composes(follow, "axb", 1) is True
+    assert composes(follow, "ayb", 1) is False
