@@ -82,11 +82,20 @@ class Pairing(NamedTuple):
         two processes are byte-identical, so this is the first slot's own cost
         and nothing else; it is reported rather than left to widen the envelope
         silently.
+    :ivar head_wall: The head arm's wall clock per byte of its document, in
+        nanoseconds, one per candidate pair. Never judged: it is what lets two
+        SEATS be compared, which a ratio against the same seat's base cannot.
+    :ivar head_cpu: The same pairs on the process clock.
+    :ivar document_bytes: The document both arms read — the per-byte
+        denominator, taken from the contract the two arms agreed on.
     """
 
     candidate: tuple[float, ...]
     control: tuple[float, ...]
     slots: tuple[float, ...]
+    head_wall: tuple[float, ...] = ()
+    head_cpu: tuple[float, ...] = ()
+    document_bytes: int = 0
 
 
 class Verdict(NamedTuple):
@@ -352,18 +361,16 @@ def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:
     )
 
 
-def _pair(first: Job, second: Job, row: str) -> tuple[float, float]:
-    """Run one ordered pair to completion and return both primary readings."""
+def _pair(first: Job, second: Job, row: str) -> tuple[Arm, Arm]:
+    """Run one ordered pair to completion and return both arms, checked."""
     results = (run_job(first), run_job(second))
-    arms = tuple(
+    one, other = (
         require(result, job.label)
         for result, job in zip(results, (first, second), strict=True)
     )
-    agree(arms[0].contract, arms[1].contract, row)
-    comparable(arms[0], arms[1], row)
-    return primary_reading(arms[0].observation, row), primary_reading(
-        arms[1].observation, row
-    )
+    agree(one.contract, other.contract, row)
+    comparable(one, other, row)
+    return one, other
 
 
 class Arms(NamedTuple):
@@ -374,16 +381,20 @@ class Arms(NamedTuple):
     cores: int
 
 
-def _ratio(numerator: Job, denominator: Job, numerator_first: bool, row: str) -> float:
-    """Log ratio of ``numerator`` over ``denominator``.
+def _ratio(
+    numerator: Job, denominator: Job, numerator_first: bool, row: str
+) -> tuple[float, Arm]:
+    """Log ratio of ``numerator`` over ``denominator``, and the numerator's arm.
 
     ``numerator_first`` says which of the two processes RUNS first. Flipping it
     between pairs is what stops the first slot's cache and thermal state from
     becoming a fixed advantage for whichever arm always occupies it.
     """
     pair = (numerator, denominator) if numerator_first else (denominator, numerator)
-    readings = dict(zip((job.label for job in pair), _pair(*pair, row), strict=True))
-    return math.log(readings[numerator.label] / readings[denominator.label])
+    arms = dict(zip((job.label for job in pair), _pair(*pair, row), strict=True))
+    top, bottom = arms[numerator.label], arms[denominator.label]
+    reading = primary_reading(top.observation, row)
+    return math.log(reading / primary_reading(bottom.observation, row)), top
 
 
 def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairing:
@@ -430,7 +441,7 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     :param pairs: How many pairs this call collects.
     :param first: The absolute index of the first of them.
     """
-    candidate: list[float] = []
+    candidate: list[tuple[float, Arm]] = []
     control: list[float] = []
     slots: list[float] = []
     for index in range(first, first + pairs):
@@ -440,12 +451,28 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
         left = _job(arms.head, grammar, row, arms.cores, "control-a")
         right = _job(arms.head, grammar, row, arms.cores, "control-b")
         a_first = index % 2 == 1
-        reading = _ratio(left, right, a_first, row)
+        reading = _ratio(left, right, a_first, row)[0]
         control.append(reading)
         # `_ratio` always divides control-a by control-b; flipping the sign when
         # control-b ran first turns the same reading into first-over-second.
         slots.append(reading if a_first else -reading)
-    return Pairing(tuple(candidate), tuple(control), tuple(slots))
+    return _with_heads(candidate, control, slots)
+
+
+def _with_heads(
+    candidate: list[tuple[float, Arm]], control: list[float], slots: list[float]
+) -> Pairing:
+    """The pairing, carrying each candidate pair's head arm as nanoseconds per byte."""
+    size = candidate[-1][1].contract.document_bytes if candidate else 0
+    heads = [head.observation for _log, head in candidate]
+    return Pairing(
+        tuple(ratio for ratio, _head in candidate),
+        tuple(control),
+        tuple(slots),
+        tuple(one.wall / size * 1e9 for one in heads),
+        tuple(one.cpu / size * 1e9 for one in heads),
+        size,
+    )
 
 
 def rosters(base: Path, head: Path) -> tuple[tuple[str, str], ...]:
@@ -508,6 +535,9 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
             pairing.candidate + extra.candidate,
             pairing.control + extra.control,
             pairing.slots + extra.slots,
+            pairing.head_wall + extra.head_wall,
+            pairing.head_cpu + extra.head_cpu,
+            pairing.document_bytes,
         )
         verdict = decide(label, pairing, clock)
     return verdict, pairing
@@ -529,6 +559,70 @@ def report_table(verdicts: Sequence[Verdict]) -> None:
             f"{verdict.row:{width}}  {verdict.clock:>5}  {verdict.ratio:7.4f}  "
             f"{verdict.low:7.4f}  {verdict.high:7.4f}  {verdict.envelope:7.4f}  "
             f"{verdict.pairs:5}  {verdict.status}"
+        )
+
+
+class Absolute(NamedTuple):
+    """One row's head cost per byte on both clocks — beside the verdict.
+
+    A verdict compares a seat with the SAME seat at the base, so it cannot say
+    how two seats compare with each other. These figures can, because every
+    row of one grammar is timed on the same runner in the same run. Each clock
+    is summarised with the verdicts' own arithmetic — the mean of the logs and
+    its interval, as ``(mean, low, high)`` — and nothing judges them: no status,
+    envelope or exit code reads this record.
+
+    :ivar document_bytes: The row's document, the per-byte denominator.
+    :ivar pairs: How many head readings each summary is over.
+    :ivar wall_ns_per_byte: Wall clock, nanoseconds per byte.
+    :ivar cpu_ns_per_byte: Process clock, nanoseconds per byte.
+    """
+
+    document_bytes: int
+    pairs: int
+    wall_ns_per_byte: tuple[float, float, float]
+    cpu_ns_per_byte: tuple[float, float, float]
+
+
+def _per_byte(values: Sequence[float]) -> tuple[float, float, float]:
+    """Mean and interval of positive readings, taken in log space."""
+    mean, low, high = log_interval([math.log(value) for value in values])
+    return math.exp(mean), math.exp(low), math.exp(high)
+
+
+def absolute(pairing: Pairing) -> Absolute | None:
+    """The head arm's cost per byte, or ``None`` for a pairing with no readings."""
+    if not pairing.head_wall:
+        return None
+    return Absolute(
+        pairing.document_bytes,
+        len(pairing.head_wall),
+        _per_byte(pairing.head_wall),
+        _per_byte(pairing.head_cpu),
+    )
+
+
+def report_absolute(samples: dict[str, Pairing]) -> None:
+    """Print each row's head cost per byte, headed as never judged."""
+    known = {row: one for row, p in samples.items() if (one := absolute(p))}
+    if not known:
+        return
+    width = max(len(row) for row in known)
+    print(
+        "\nhead, absolute — per byte of the row's document; "
+        "beside the verdicts, never judged"
+    )
+    print(
+        f"{'row':{width}}  {'bytes':>8}  {'wall ns/B':>10}  {'ci':>17}  "
+        f"{'cpu ns/B':>10}  {'ci':>17}  pairs"
+    )
+    for row in sorted(known):
+        one = known[row]
+        wall, cpu = one.wall_ns_per_byte, one.cpu_ns_per_byte
+        print(
+            f"{row:{width}}  {one.document_bytes:>8}  {wall[0]:10.2f}  "
+            f"{wall[1]:8.2f}..{wall[2]:<7.2f}  {cpu[0]:10.2f}  "
+            f"{cpu[1]:8.2f}..{cpu[2]:<7.2f}  {one.pairs}"
         )
 
 
@@ -631,6 +725,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  {verdict.row}: {verdict.status} ({verdict.ratio:.4f}x)", flush=True)
     print()
     report_table(verdicts)
+    report_absolute(samples)
     if args.json:
         args.json.write_text(
             json.dumps(
@@ -643,6 +738,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "slots": list(p.slots),
                         }
                         for row, p in samples.items()
+                    },
+                    "absolute": {
+                        row: one._asdict()
+                        for row, p in samples.items()
+                        if (one := absolute(p)) is not None
                     },
                 },
                 indent=1,
