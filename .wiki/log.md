@@ -9,7 +9,7 @@ untouched and pinned by digest AND next draw. The steering is derived from the
 grammar — natural size, room within depth, whether an item reaches a cycle —
 so it holds over any formulation; `public-api.md` states the mechanism and the
 one shape it cannot reach (growth by linear recursion only).
-The steering lives in its own module, `lexic.sizing`, handed the free walk and
+The steering lives in its own module, `lexic.generate.sizing`, handed the free walk and
 its arm filter by `generate`, so the dependency runs one way. A target deeper
 than the stack carries is REFUSED with words — frames per steered level depend
 on the grammar, so a clamp calibrated on one shape could not bound another.

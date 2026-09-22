@@ -31,7 +31,7 @@ refuses with words — the budget was once decremented and never read, so
 ``root ::= root "a"`` recursed to the interpreter's limit instead of
 refusing at the caller's.
 
-**Size-targeting** (``size=``) is :mod:`lexic.sizing`: this module hands it
+**Size-targeting** (``size=``) is :mod:`lexic.generate.sizing`: this module hands it
 its own free walk and arm filter, and the path without ``size`` is untouched.
 """
 
@@ -42,6 +42,7 @@ from functools import partial
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.generate.sizing import FreeWalk, steer
 from lexic.ir import (
     IrAction,
     IrAlternation,
@@ -59,7 +60,6 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.sizing import FreeWalk, steer
 
 Rules = dict[str, IrRule]
 
@@ -336,7 +336,7 @@ def generate(
         Under ``size`` it bounds how deep a budget may nest; a target the depth
         leaves no room for comes out short.
     :param size: Steer toward a document of about this many characters
-        (:mod:`lexic.sizing`). Absent, generation is exactly as without it.
+        (:mod:`lexic.generate.sizing`). Absent, generation is exactly as without it.
     :returns: A random string in the rule's language.
     :raises UnsupportedConstructError: When ``rule_name`` names no rule, when
         a reference reaches one, when an alternation has no arms, when a
@@ -362,5 +362,5 @@ def generate(
 def _walker(
     rng: _random.Random, rules: Rules, heights: dict[str, float], depth: int
 ) -> _Generator:
-    """The free walk at ``depth`` — what :mod:`lexic.sizing` spends a small budget by."""
+    """The free walk at ``depth`` — what :mod:`lexic.generate.sizing` spends a small budget by."""
     return _Generator(rng=rng, rules=rules, heights=heights, max_depth=depth)
