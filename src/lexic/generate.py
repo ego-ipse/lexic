@@ -98,9 +98,7 @@ def _pick_mean(q: IrQuantifier) -> float:
     if q.hi == q.lo:
         return float(q.lo)
     tail = (q.lo + 1 + _top(q)) / 2
-    # The complement, rounded to the constant's own precision: `1 - 0.7` is
-    # 0.30000000000000004 in binary, and that last bit moves sized documents.
-    return _LOWER_BOUND_ODDS * q.lo + round(1 - _LOWER_BOUND_ODDS, 9) * tail
+    return _LOWER_BOUND_ODDS * q.lo + (1 - _LOWER_BOUND_ODDS) * tail
 
 
 # ── per-atom generation bodies (dispatch on the atom; the owning IrItem
