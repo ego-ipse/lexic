@@ -167,6 +167,8 @@ A random string in a rule's language, walking the canonical rules-by-name view `
 
 `max_depth` bounds how deep a budget may nest. Measured at 100 k characters, `max_depth=48` meets the target to within 0.02% on the 17 bench grammars that can grow and on ground-truth `json.gbnf`, and at 1.8 M on the five region-bearing documents — a measurement on those grammars, not a guarantee over all. A grammar that grows ONLY by nesting (`item ::= item "a" | "a"`) grows one character per level, so its depth IS its size and it comes out short, by length.
 
+**Reproducible per seed for a given revision — not across revisions.** Steered output sits on floating-point ties (a budget at or below natural size, a room at or above a budget), so any change to that arithmetic can move a sized document, even by the last bit of a mean. Never pin size-mode output by digest: pin its length within a tolerance, that it parses, and that it round-trips. A document a measurement depends on is generated ONCE, stored, and read back with `newline=""`.
+
 **The stack limit.** A steered level costs more Python frames than a free one, and HOW many depends on the grammar — every inline group between a rule and its own reference adds some — so no constant bounds it. A target needing deeper nesting than the stack carries is refused: `UnsupportedConstructError("generate: size=N needs deeper nesting than the stack carries at max_depth=D — lower max_depth or size")`, never a `RecursionError` and never a silently clamped depth. Linear recursion through four nested optional groups hits it at `max_depth=48`. An ITERATIVE fill with an explicit stack would remove the limit; it is not built.
 ---
 
