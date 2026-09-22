@@ -207,14 +207,14 @@ def test_each_requested_worker_must_receive_one_full_chunk():
     assert choose(doc, find(JSON_GRAMMAR, doc), 4)
     picked = choose(doc, find(JSON_GRAMMAR, doc), 8)
     assert len(picked) == 1
-    assert len(picked[0][1]) == 4
+    assert len(picked[0].parts) == 4
 
 
 def test_a_big_run_that_cannot_divide_steps_aside_for_the_runs_inside_it():
     """An outer run that cannot divide steps aside for its balanced child."""
     doc = '{"a": [' + _run(BIG) + '], "b": 1}'
     picked = choose(doc, find(JSON_GRAMMAR, doc), 4)
-    assert [region.rule for region, _parts in picked] == ["array"]
+    assert [division.region.rule for division in picked] == ["array"]
 
 
 def test_runner_count_prefers_an_eight_way_child_over_a_three_way_outer():
@@ -237,14 +237,14 @@ def test_runner_count_prefers_an_eight_way_child_over_a_three_way_outer():
     assert len(pieces(doc, outer, 3) or ()) == 3
     assert len(pieces(doc, nested, 8) or ()) == 8
     picked = choose(doc, found, 8)
-    assert [(region.rule, len(parts)) for region, parts in picked] == [("array", 8)]
+    assert [(d.region.rule, len(d.parts)) for d in picked] == [("array", 8)]
 
 
 def test_picked_runs_never_overlap_and_come_in_document_order():
     """Otherwise the same text would be divided twice — and the ordered route
     search downstream depends on this order being the document's."""
     doc = '{"a": [' + _run(BIG) + '], "b": 1, "c": [' + _run(BIG) + "]}"
-    picked = [region for region, _parts in choose(doc, find(JSON_GRAMMAR, doc), 4)]
+    picked = [d.region for d in choose(doc, find(JSON_GRAMMAR, doc), 4)]
     assert picked
     assert all(a.closer < b.opener for a, b in zip(picked, picked[1:], strict=False))
 
@@ -524,3 +524,18 @@ def test_the_pool_receives_every_span_exactly_once_and_matches_serial() -> None:
     assert serial, (
         "the fixture must produce a region for the comparison to mean anything"
     )
+
+
+def test_a_division_carries_the_cuts_its_pieces_were_cut_at():
+    """The cuts ARE the pieces' boundaries: removing each piece's own brackets
+    and rejoining with the separator at each cut gives the region back."""
+    doc = "[" + _run(BIG) + "]"
+    (division,) = choose(doc, find(JSON_GRAMMAR, doc), 4)
+    region = division.region
+    assert len(division.parts) == len(division.cuts) + 1
+    rebuilt = ",".join(part[1:-1] for part in division.parts)
+    assert rebuilt == doc[region.opener + 1 : region.closer]
+    assert all(doc[cut] == "," for cut in division.cuts)
+    inner = [len(part) - 2 for part in division.parts]
+    starts = [region.opener + 1 + sum(inner[:k]) + k for k in range(1, len(inner))]
+    assert [start - 1 for start in starts] == division.cuts

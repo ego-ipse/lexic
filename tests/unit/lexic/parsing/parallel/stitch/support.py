@@ -9,7 +9,7 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.parallel import split_model
+from lexic.parsing.parallel import orchestrate, split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.stitch.plan import RegionPlan, derive_plan
 
@@ -78,3 +78,22 @@ def assert_outer_split(
     plan = assert_exact_split(result, text)
     assert plan is not None
     assert plan.outer_begin is not None and plan.outer_end is not None
+
+
+def record_stitches(monkeypatch) -> list[bool]:
+    """Every shell stitch the orchestrator attempts, and whether it built a model.
+
+    A split that silently falls back to a sequential parse yields the same model
+    as a stitched one, so a test that means "the split was taken" checks this.
+    """
+    stitched: list[bool] = []
+    real = orchestrate.stitch_shell
+
+    def recording(*args, **kwargs):
+        """The real stitch, recorded."""
+        out = real(*args, **kwargs)
+        stitched.append(out is not None)
+        return out
+
+    monkeypatch.setattr(orchestrate, "stitch_shell", recording)
+    return stitched

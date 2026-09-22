@@ -55,6 +55,9 @@ class RegionWork(NamedTuple):
     parts: list[str]
     cuts: list[int]
     plan: RegionPlan
+    witness: str = ""
+    """The head text standing in for the region in the shell — assigned, with
+    its uniqueness checked, before any piece is parsed."""
 
 
 def model_type(routine: RuleRoutine | None) -> type[GrammarModel] | None:
