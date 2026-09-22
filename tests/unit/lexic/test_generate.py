@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import random
 
 import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.generate import _Generator, _pick_count, generate
+from lexic.generate import _Generator, _pick_count, _pick_mean, generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
     IrAlternation,
@@ -319,3 +320,80 @@ def test_generate_atom_dispatches_alternation_group():
     group = IrAlternation(IrSequence(IrItem(IrLiteral("only"))))
     gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     assert gen.atom(IrItem(group)) == "only"
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        IrQuantifier(0, 1),
+        IrQuantifier(0),
+        IrQuantifier(1),
+        IrQuantifier(2, 5),
+        IrQuantifier(3, 3),
+    ],
+)
+def test_the_expected_count_is_the_mean_of_the_drawn_one(q):
+    """`_pick_mean` is what `_pick_count` averages to, drawn 40,000 times."""
+    rng = random.Random(0)
+    drawn = sum(_pick_count(q, rng) for _ in range(40_000)) / 40_000
+    assert abs(drawn - _pick_mean(q)) < 0.02
+
+
+HEAD_DEFAULT_PATH = {
+    ("json.gbnf", 0, None): ("6a3d2318618dabd0", 0.814466863291336),
+    ("json.gbnf", 0, 12): ("6a3d2318618dabd0", 0.814466863291336),
+    ("json.gbnf", 1, None): ("681337ef1fa28496", 0.3220017663873259),
+    ("json.gbnf", 1, 12): ("05b66b228456b791", 0.6637578048439807),
+    ("json.gbnf", 7, None): ("fcbcf165908dd18a", 0.057998924774706806),
+    ("json.gbnf", 7, 12): ("fcbcf165908dd18a", 0.057998924774706806),
+    ("json.gbnf", 42, None): ("61e26e040e497ec5", 0.7160196129224035),
+    ("json.gbnf", 42, 12): ("61e26e040e497ec5", 0.7160196129224035),
+    ("arithmetic.gbnf", 0, None): ("93935bc7b9a2d80b", 0.7271552294548347),
+    ("arithmetic.gbnf", 0, 12): ("801f985aa1766288", 0.44231403369907896),
+    ("arithmetic.gbnf", 1, None): ("a17b9a6895a3238b", 0.9391491627785106),
+    ("arithmetic.gbnf", 1, 12): ("a17b9a6895a3238b", 0.9391491627785106),
+    ("arithmetic.gbnf", 7, None): ("ea6aea976eb86054", 0.9846676007566093),
+    ("arithmetic.gbnf", 7, 12): ("55db79dbb12c519f", 0.6927310025482292),
+    ("arithmetic.gbnf", 42, None): ("69206e7d1c7b3a56", 0.07880019807845817),
+    ("arithmetic.gbnf", 42, 12): ("69206e7d1c7b3a56", 0.07880019807845817),
+    ("c.gbnf", 0, None): ("3cb549437749d8ba", 0.4449890262755162),
+    ("c.gbnf", 0, 12): ("3ff844e47638f42f", 0.4579542036471842),
+    ("c.gbnf", 1, None): ("e3b0c44298fc1c14", 0.8022650611681835),
+    ("c.gbnf", 1, 12): ("e3b0c44298fc1c14", 0.8022650611681835),
+    ("c.gbnf", 7, None): ("0c7fbc28fc43ff83", 0.30848182410193437),
+    ("c.gbnf", 7, 12): ("0c7fbc28fc43ff83", 0.30848182410193437),
+    ("c.gbnf", 42, None): ("e3b0c44298fc1c14", 0.27502931836911926),
+    ("c.gbnf", 42, 12): ("e3b0c44298fc1c14", 0.27502931836911926),
+    ("vyx.gbnf", 0, None): ("6898cd40bae1558a", 0.18386872253858533),
+    ("vyx.gbnf", 0, 12): ("6898cd40bae1558a", 0.18386872253858533),
+    ("vyx.gbnf", 1, None): ("ba33afb224488ea6", 0.9014274576114836),
+    ("vyx.gbnf", 1, 12): ("ba33afb224488ea6", 0.9014274576114836),
+    ("vyx.gbnf", 7, None): ("4eba96762bae58cf", 0.5855618635076387),
+    ("vyx.gbnf", 7, 12): ("65e6d1f3337b9186", 0.45318437637077535),
+    ("vyx.gbnf", 42, None): ("a55c8fab56a691a3", 0.561245062938613),
+    ("vyx.gbnf", 42, 12): ("a55c8fab56a691a3", 0.561245062938613),
+    ("list.gbnf", 0, None): ("92c0ed9d81ca2b91", 0.47214271545271336),
+    ("list.gbnf", 0, 12): ("92c0ed9d81ca2b91", 0.47214271545271336),
+    ("list.gbnf", 1, None): ("34a82d59da14f470", 0.47224524357611664),
+    ("list.gbnf", 1, 12): ("34a82d59da14f470", 0.47224524357611664),
+    ("list.gbnf", 7, None): ("55d4bf295f8e5b09", 0.9474497007074875),
+    ("list.gbnf", 7, 12): ("55d4bf295f8e5b09", 0.9474497007074875),
+    ("list.gbnf", 42, None): ("df27ecff5fa6716d", 0.6766994874229113),
+    ("list.gbnf", 42, 12): ("df27ecff5fa6716d", 0.6766994874229113),
+}
+"""``(grammar, seed, max_depth)`` → (sha256[:16] of the output, the rng's NEXT
+draw), recorded from the generator BEFORE size-targeting existed. The draw is
+the part a byte comparison cannot see: two walks can emit the same text and
+leave the source in different states, and every caller after them would move."""
+
+
+@pytest.mark.parametrize(("name", "seed", "depth"), sorted(HEAD_DEFAULT_PATH, key=str))
+def test_the_default_path_is_the_one_before_size_targeting(name, seed, depth):
+    """Without ``size``, the same output AND the same draws, grammar by grammar."""
+    ast = canonical_grammar((GRAMMAR_DIR / name).read_text(), GBNF_FLAVOUR)
+    rules = {rule.name: rule for rule in ast.rules}
+    rng = random.Random(seed)
+    extra = {} if depth is None else {"max_depth": depth}
+    text = generate(str(ast.start), rules, rng=rng, **extra)
+    digest = hashlib.sha256(text.encode()).hexdigest()[:16]
+    assert (digest, rng.random()) == HEAD_DEFAULT_PATH[(name, seed, depth)]
