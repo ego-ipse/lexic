@@ -43,7 +43,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         that re-applied would name no finite derivation at all.
     """
 
-    __slots__ = ("kernel", "memo", "stack", "choices", "_bits", "_mask")
+    __slots__ = ("kernel", "memo", "stack", "choices", "_bits", "_mask", "_links")
 
     kernel: Kernel
     memo: dict[int, ParseTree]
@@ -62,6 +62,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         self.stack = []
         self._bits = kernel.tables.packing.bits
         self._mask = kernel.tables.packing.mask
+        self._links = kernel.family_reader()
 
     def build(self, handle: int) -> IrSelf:
         """The single :class:`ParseTree` under ``handle``, or :data:`IrNone`.
@@ -128,7 +129,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         t = self.kernel.tables
         base = t.codes.arm_base[t.codes.code_arm[(handle >> self._bits) >> self._bits]]
         chain = predecessor_chain(
-            self.kernel.families,
+            self._links,
             handle,
             ChainSpec(base, self._bits, t.code_choice),
             self.choices,
