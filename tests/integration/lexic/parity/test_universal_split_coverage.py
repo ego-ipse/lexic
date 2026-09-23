@@ -30,7 +30,7 @@ import pytest
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
-from lexic.parsing.parallel import orchestrate, split_model
+from lexic.parsing.parallel import orchestrate, planner, split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from tests.split_helpers import assert_parallel_matches_sequential
@@ -459,9 +459,9 @@ def test_sub_floor_document_declines_before_any_plan_analysis(
     def unexpected(*_args, **_kwargs):
         raise AssertionError(f"{family}: parallel analysis ran behind the floor gate")
 
-    monkeypatch.setattr(orchestrate, "_split_plans", unexpected)
-    monkeypatch.setattr(orchestrate, "owner_excludes", unexpected)
-    monkeypatch.setattr(orchestrate, "terminates_once", unexpected)
+    monkeypatch.setattr(orchestrate, "split_plans", unexpected)
+    monkeypatch.setattr(planner, "owner_excludes", unexpected)
+    monkeypatch.setattr(planner, "terminates_once", unexpected)
     monkeypatch.setattr(orchestrate, "par_find", unexpected)
 
     declined = orchestrate.split_model(

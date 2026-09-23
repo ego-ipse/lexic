@@ -407,7 +407,7 @@ split asks for it once per DOCUMENT rather than once per grammar — on a meta
 grammar that re-walk was several percent of the whole split parse. `_ROLES` is a
 registered `memo({})` keyed on `id(grammar)`, and its value carries the grammar
 itself: the strong reference pins the id, so a recycled address can never alias
-a live entry. The split-plan memos in `orchestrate.py` and `plan/routed.py` are
+a live entry. The split-plan memos in `planner.py` and `plan/routed.py` are
 the same shape.
 
 Every registered memo is a **pure memo**: dropping an entry costs a

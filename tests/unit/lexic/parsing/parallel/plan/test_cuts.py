@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from lexic.compile import compile_text
 from lexic.parsing.parallel.discovery.scan import clustered
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
     _widths,
     after_mark,
@@ -22,6 +21,7 @@ from lexic.parsing.parallel.plan.cuts import (
     sole_mark,
 )
 from lexic.parsing.parallel.plan.split import matched, spellings
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
 from lexic.parsing.parallel.pool import WorkPool
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
@@ -45,9 +45,7 @@ def _lines(size: int) -> str:
 def _plan(source: str, key: str):
     compiled = compile_text(source, cache_key=key)
     grammar = compiled.codegen_grammar
-    safe = _safe_plans(
-        _split_plans(grammar), compiled.split_analysis or compiled.grammar
-    )
+    safe = safe_plans(split_plans(grammar), compiled.split_analysis or compiled.grammar)
     assert safe, "the fixture must certify a plan"
     return safe[0]
 
