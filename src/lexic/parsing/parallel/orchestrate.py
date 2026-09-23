@@ -220,6 +220,20 @@ def _speculate[M: IrNamedTuple](
     return None
 
 
+SPARE_FROM = 8
+"""The CPU count from which a pool that claims every CPU spares one for the
+calling thread, which parses the shell beside the pieces. Sparing costs one
+piece in ``workers``: on 16 CPUs, 15 pieces measured about 12 percent faster
+than 16; on 4, 3 pieces for 4 workers measured 25 to 30 percent slower."""
+
+
+def piece_count(workers: int) -> int:
+    """How many pieces a split plans for ``workers``: one fewer only when the
+    pool claims every CPU and there are enough that one piece is a small share."""
+    spare = workers >= available_workers() >= SPARE_FROM
+    return workers - 1 if spare else workers
+
+
 def _parse_units[M: IrNamedTuple](
     parse: ModelParse[M],
     tasks: list[tuple[IrAst, str]],
@@ -293,11 +307,7 @@ def _split_regions[M: IrNamedTuple](
         )
         if region.rule != str(grammar.start)
     ]
-    # The calling thread parses the shell beside the pieces, so a pool that
-    # would claim every CPU plans one piece fewer: sixteen pieces on sixteen
-    # CPUs plus that thread measured about 12 percent slower than fifteen.
-    pieces = min(workers, max(1, available_workers() - 1))
-    divided = partition(ask.text, found, pieces)
+    divided = partition(ask.text, found, piece_count(workers))
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     works = region_works(merge, grammar, divided, analysis or grammar)
     if not works:
