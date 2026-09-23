@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.ir import IrAst
+from lexic.ir import Bound, IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
     is_run,
+    model_at,
+    overlaid,
+    sole_routes,
     stitch_envelope,
 )
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
@@ -170,3 +173,77 @@ def test_the_separated_stitch_builds_the_run_as_a_plain_tuple() -> None:
     assert is_run(run)
     assert run.__class__ is tuple(sequential)[1].__class__
     assert parallel.to_text() == sequential.to_text() == text
+
+
+# ── sole_routes, model_at, overlaid ───────────────────────────────────────
+
+LISTS = (
+    "root ::= list\n"
+    'list ::= "[" items "]"\n'
+    "items ::= item more*\n"
+    'more ::= "," item\n'
+    "item ::= list | word\n"
+    "word ::= [a-z]+\n"
+)
+
+
+def _lists(text: str) -> GrammarModel:
+    """``text`` parsed under :data:`LISTS`."""
+    model = compile_text(LISTS, cache_key="sole-routes").parse(text, cores=1)
+    assert isinstance(model, GrammarModel)
+    return model
+
+
+def _inner(text: str) -> GrammarModel:
+    """The first nested list's model in ``text``, found by walking."""
+    stack: list[Bound] = [_lists(text)]
+    root_list = None
+    while stack:
+        node = stack.pop()
+        if isinstance(node, GrammarModel):
+            if type(node).__name__ == "List":
+                if root_list is not None:
+                    return node
+                root_list = node
+            stack.extend(reversed(node.children()))
+        elif is_run(node):
+            stack.extend(reversed(node))
+    raise AssertionError("no nested list")
+
+
+def test_every_needle_gets_its_own_route_from_one_walk():
+    """Two different needles, each once: both routed, and each route reaches
+    a node equal to its needle."""
+    root = _lists("[a,[b],c,[d]]")
+    needles = [_inner("[x,[b]]"), _inner("[x,[d]]")]
+    routes = sole_routes(root, needles)
+    assert all(route is not None for route in routes)
+    reached = [model_at(root, route) for route in routes if route is not None]
+    assert reached == needles
+
+
+def test_a_needle_found_twice_or_never_has_no_route():
+    """A collision is refused, and so is an absence — each needle for itself."""
+    root = _lists("[a,[b],c,[b],[e]]")
+    twice, never, once = _inner("[x,[b]]"), _inner("[x,[q]]"), _inner("[x,[e]]")
+    routes = sole_routes(root, [twice, never, once])
+    assert routes[0] is None
+    assert routes[1] is None
+    assert routes[2] is not None and model_at(root, routes[2]) == once
+
+
+def test_the_root_itself_is_never_a_route():
+    """A needle equal to the whole model has no non-root route."""
+    root = _lists("[a]")
+    assert sole_routes(root, [root]) == [None]
+
+
+def test_overlaid_replaces_only_the_named_slots_and_keeps_the_class():
+    """The node's other slots stay as they were; its class is its own."""
+    node = _inner("[x,[b,c]]")
+    other = _inner("[x,[d,e]]")
+    slots = dict(enumerate(other.children()))
+    rebuilt = overlaid(node, slots)
+    assert rebuilt == other
+    assert type(rebuilt) is type(node)
+    assert overlaid(node, {len(node.children()): None}) is None

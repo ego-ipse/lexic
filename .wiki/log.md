@@ -2295,3 +2295,13 @@ split decider as one record. Every internal parse signature that carried
 `watch`, the island policy and the parallel request. `CompiledGrammar.parse`
 gains `decide=` beside `resolve=` and builds the record itself. The resolver
 paragraph and `watch`'s signature say so.
+
+## The region route divides top-down
+
+`parallel-parsing.md` gains the top-down partition section. `partition.py` replaces
+`discovery/regions.choose`: spans pack into runs of about one worker's share, an
+oversized item is descended into, and every span on its path is divided, so a
+nested span is found by item. The stitch lays each span's items and its true edges
+over the stand-in's node, all units parse in one map, and needle uniqueness is per
+holding unit.
+

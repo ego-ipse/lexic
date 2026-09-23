@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, TypeIs, cast
 
 from lexic.exceptions import LexicError
@@ -44,23 +45,29 @@ type ModelStep = tuple[int, int | None]
 """One model-child slot and, for a repeated field, its tuple index."""
 
 
-def sole_route(
-    root: GrammarModel, needle: GrammarModel
-) -> tuple[ModelStep, ...] | None:
-    """Find the unique exact-class/equal-value route below ``root``.
+def sole_routes(
+    root: GrammarModel, needles: list[GrammarModel]
+) -> list[tuple[ModelStep, ...] | None]:
+    """Each needle's unique exact-class/equal-value route below ``root``.
+
+    ONE walk for every needle: a walk per needle would cost regions times
+    shell size, which outgrows the sequential parse at a few dozen regions.
 
     :param root: The shell model to search.
-    :param needle: A region's distinct items-node stand-in.
-    :returns: Its non-root route, or ``None`` on absence or collision.
+    :param needles: The regions' distinct items-node stand-ins.
+    :returns: Per needle, its non-root route, or ``None`` on absence or
+        collision.
     """
-    found: tuple[ModelStep, ...] | None = None
+    by_class: dict[type, list[int]] = {}
+    for at, needle in enumerate(needles):
+        by_class.setdefault(needle.__class__, []).append(at)
+    hits: list[list[tuple[ModelStep, ...]]] = [[] for _needle in needles]
     stack: list[tuple[GrammarModel, tuple[ModelStep, ...]]] = [(root, ())]
     while stack:
         node, route = stack.pop()
-        if node.__class__ is needle.__class__ and node == needle:
-            if found is not None:
-                return None
-            found = route
+        for at in by_class.get(node.__class__, ()):
+            if node == needles[at]:
+                hits[at].append(route)
         for slot, child in enumerate(node.children()):
             if isinstance(child, GrammarModel):
                 stack.append((child, (*route, (slot, None))))
@@ -71,7 +78,75 @@ def sole_route(
                     for at, part in enumerate(parts)
                     if isinstance(part, GrammarModel)
                 )
-    return found if found else None
+    return [found[0] if len(found) == 1 and found[0] else None for found in hits]
+
+
+def held_route(
+    model: GrammarModel, plan: RegionPlan, item: int, needle: GrammarModel
+) -> tuple[ModelStep, ...] | None:
+    """The route to ``needle`` inside a piece's ``item``-th item.
+
+    The piece's items are reached by the plan's slots, so only that one item
+    is searched — a piece is about a worker's share of the document, and
+    walking all of it per held region would cost the document again.
+
+    :returns: The route from the piece's root, or ``None`` on a shape surprise,
+        absence or collision.
+    """
+    found = _item_at(model, plan, item)
+    if found is None:
+        return None
+    base, inner = found
+    if inner.__class__ is needle.__class__ and inner == needle:
+        return base
+    below = sole_routes(inner, [needle])[0]
+    return None if below is None else (*base, *below)
+
+
+def _item_at(
+    model: GrammarModel, plan: RegionPlan, item: int
+) -> tuple[tuple[ModelStep, ...], GrammarModel] | None:
+    """A piece's ``item``-th item model, and the route to it."""
+    items = region_items(model, plan)
+    shaped = head_rest(items, plan) if items is not None else None
+    if shaped is None or not 0 <= item <= len(shaped[1]):
+        return None
+    base: tuple[ModelStep, ...] = (
+        () if plan.outer_items < 0 else ((plan.outer_items, None),)
+    )
+    head, tails = shaped
+    if item == 0:
+        return (*base, (plan.items_head, None)), head
+    children = tails[item - 1].children()
+    inner = children[plan.tail_head] if plan.tail_head < len(children) else None
+    if not isinstance(inner, GrammarModel):
+        return None
+    return (*base, (plan.items_rest, item - 1), (plan.tail_head, None)), inner
+
+
+def model_at(root: GrammarModel, route: tuple[ModelStep, ...]) -> GrammarModel | None:
+    """The model at ``route`` below ``root``, or ``None`` on a shape surprise."""
+    node: object = root
+    for slot, repeated in route:
+        children = node.children() if isinstance(node, GrammarModel) else ()
+        node = children[slot] if slot < len(children) else None
+        if repeated is not None:
+            node = node[repeated] if is_run(node) and repeated < len(node) else None
+    return node if isinstance(node, GrammarModel) else None
+
+
+def overlaid(node: GrammarModel, overlay: Mapping[int, Bound]) -> GrammarModel | None:
+    """``node`` rebuilt with the given slots replaced — same class, or ``None``."""
+    children: list[Bound] = list(node.children())
+    if any(slot >= len(children) for slot in overlay):
+        return None
+    for slot, value in overlay.items():
+        children[slot] = value
+    try:
+        out = node.rebuild(children)
+    except TypeError, ValueError, LexicError:
+        return None
+    return out if out.__class__ is node.__class__ else None
 
 
 def _nested(
@@ -109,7 +184,7 @@ def splice[M: GrammarModel](
     back rather than the protocol's base.
 
     :param root: The current shell model.
-    :param route: A route returned by :func:`sole_route`.
+    :param route: A route returned by :func:`sole_routes`.
     :param value: The replacement items node.
     :returns: The rebuilt model, or ``None`` on a shape surprise.
     """

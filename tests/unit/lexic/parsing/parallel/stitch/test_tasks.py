@@ -7,7 +7,8 @@ from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.discovery.interiors import interior_rules
-from lexic.parsing.parallel.discovery.regions import choose, find, piece_marks
+from lexic.parsing.parallel.discovery.regions import find
+from lexic.parsing.parallel.partition import partition
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.stitch.merge import MergeRequest
 from lexic.parsing.parallel.stitch.safety import owner_excludes
@@ -54,8 +55,8 @@ def test_quote_like_rule_not_classified_as_interior_does_not_protect_owner() -> 
 
 
 UNEVEN = [9000, 2500, 2500, 9000, 5000, 2500, 300, 900, 40, 40]
-"""Item sizes whose 8-way target positions share a nearest separator: the
-region divides into 5 pieces, and asked again for 5 it would cut only 3."""
+"""Item sizes that pack unevenly at eight workers: two items alone over the
+target, and a tail of small ones that ride together."""
 
 
 def _uneven() -> str:
@@ -64,14 +65,16 @@ def _uneven() -> str:
 
 
 def test_a_work_binds_the_cuts_its_pieces_were_cut_at() -> None:
-    """Not a re-derivation: at the pieces' own count it would come out shorter."""
+    """The partition's cuts, not a re-derivation — and at the separators that
+    close each run, so the oversized items stand alone."""
     compiled = compile_ast(JSON_GRAMMAR)
     grammar, text = compiled.codegen_grammar, _uneven()
-    divided = choose(text, find(grammar, text), 8)
+    divided = partition(text, find(grammar, text), 8)
     (division,) = divided
-    assert len(piece_marks(division.region, len(division.parts))) != len(division.cuts)
+    commas = [at for at, char in enumerate(text) if char == ","]
+    assert division.cuts == tuple(commas[k] for k in (0, 1, 2, 3, 4))
     request = MergeRequest(parse_model, text, compiled.product, DEFAULT_CONFIG)
-    works = region_works(request, grammar, divided, grammar) or []
+    works = region_works(request, grammar, divided, grammar)
     assert [work.cuts for work in works] == [division.cuts]
 
 

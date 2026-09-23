@@ -80,13 +80,13 @@ def assert_outer_split(
 
 
 def record_stitches(monkeypatch) -> list[bool]:
-    """Every shell stitch the orchestrator attempts, and whether it built a model.
+    """Every region stitch the orchestrator attempts, and whether it built a model.
 
     A split that silently falls back to a sequential parse yields the same model
     as a stitched one, so a test that means "the split was taken" checks this.
     """
     stitched: list[bool] = []
-    real = orchestrate.stitch_shell
+    real = orchestrate.stitch_units
 
     def recording(*args, **kwargs):
         """The real stitch, recorded."""
@@ -94,5 +94,5 @@ def record_stitches(monkeypatch) -> list[bool]:
         stitched.append(out is not None)
         return out
 
-    monkeypatch.setattr(orchestrate, "stitch_shell", recording)
+    monkeypatch.setattr(orchestrate, "stitch_units", recording)
     return stitched
