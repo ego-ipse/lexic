@@ -11,8 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.exceptions import LexicError
-from lexic.parsing.products import _model_product, earley_model
+from tests.integration.lexic.parity.pda_parity_helpers import public_and_earley
 
 AUDIT_INSIDE_AN_ITERATION = (
     'doc ::= part+ tail\npart ::= "aa" ";"? | "a" "a"\ntail ::= [a]*\n'
@@ -22,22 +21,9 @@ AUDIT_INSIDE_AN_ITERATION = (
 take ``aa``."""
 
 
-def answer(run) -> str:
-    """A parse's model dump, or the refusal it raised."""
-    try:
-        return str(run().dump())
-    except LexicError as refused:  # the refusal IS the answer being compared
-        return f"refused: {type(refused).__name__}"
-
-
 @pytest.mark.parametrize("text", ["aa;aa", "aa;aaa"])
 def test_an_audit_inside_an_iteration_reaches_the_gated_engine(text: str) -> None:
     """The public parse builds Earley's model: two ``part``s, not one."""
     compiled = compile_text(AUDIT_INSIDE_AN_ITERATION, cache_key="attempt-bail")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
-    want = answer(
-        lambda: earley_model(
-            product.instance_grammar, text, compiled.product, product.tables
-        )
-    )
-    assert answer(lambda: compiled.parse(text)) == want
+    public, earley = public_and_earley(compiled, text)
+    assert public == earley

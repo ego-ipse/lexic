@@ -13,9 +13,9 @@ import random
 import pytest
 
 from lexic.compile import compile_from_path, compile_text
-from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.parsing.products import _model_product, earley_model, pda_model
+from tests.integration.lexic.parity.pda_parity_helpers import public_and_earley
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -35,14 +35,6 @@ CASES = {
 }
 
 
-def answer(run) -> str:
-    """A parse's model dump, or the refusal it raised."""
-    try:
-        return str(run().dump())
-    except LexicError as refused:  # the refusal IS the answer being compared
-        return f"refused: {type(refused).__name__}"
-
-
 @pytest.mark.parametrize(
     ("case", "text"),
     [(case, text) for case, (_s, texts) in CASES.items() for text in texts],
@@ -51,13 +43,8 @@ def test_an_island_inside_a_repetition_answers_as_earley(case: str, text: str) -
     """The shortest texts the island got wrong: the public parse is Earley's."""
     source, _texts = CASES[case]
     compiled = compile_text(source, cache_key=f"island-follow-{case}")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
-    want = answer(
-        lambda: earley_model(
-            product.instance_grammar, text, compiled.product, product.tables
-        )
-    )
-    assert answer(lambda: compiled.parse(text)) == want
+    public, earley = public_and_earley(compiled, text)
+    assert public == earley
 
 
 def test_the_bench_with_a_repeating_island_keeps_its_answers() -> None:

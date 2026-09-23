@@ -16,12 +16,14 @@ from lexic.compile import (
     compile_from_path,
     compile_text,
 )
+from lexic.exceptions import LexicError
 from lexic.grammars import flavour_for_extension
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
+from lexic.parsing.products import _model_product, earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
@@ -194,3 +196,22 @@ def report(stem: str, cg: CompiledGrammar, tally: dict) -> None:
         f"dump_exact_rate={exact} "
         f"islands({len(islands)})={islands}"
     )
+
+
+def answer(run) -> str:
+    """A parse's model dump, or the refusal it raised."""
+    try:
+        return str(run().dump())
+    except LexicError as refused:  # the refusal IS the answer being compared
+        return f"refused: {type(refused).__name__}"
+
+
+def public_and_earley(compiled: CompiledGrammar, text: str) -> tuple[str, str]:
+    """The public parse's answer and whole-document Earley's, as :func:`answer`."""
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    earley = answer(
+        lambda: earley_model(
+            product.instance_grammar, text, compiled.product, product.tables
+        )
+    )
+    return answer(lambda: compiled.parse(text)), earley
