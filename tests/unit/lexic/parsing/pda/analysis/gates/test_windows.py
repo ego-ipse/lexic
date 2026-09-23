@@ -75,3 +75,24 @@ def test_follow_windows_propagates_the_continuation_past_a_referenced_rule():
     fw = FollowWindows(rules, "root", 2)
     windows = windows_of(fw.follow["mid"])
     assert any(win and str(win[0]) == str(CharSet.from_chars("y")) for win in windows)
+
+
+def test_site_windows_keeps_each_reference_apart_and_unions_to_follow():
+    """``root ::= "(" mid ")" | mid ";"``: one window set per reference, and
+    their union is ``mid``'s FOLLOW."""
+    paren = IrSequence(
+        IrItem(IrLiteral("(")), IrItem(IrRuleRef("mid")), IrItem(IrLiteral(")"))
+    )
+    semi = IrSequence(IrItem(IrRuleRef("mid")), IrItem(IrLiteral(";")))
+    rules = {
+        "root": IrRule("root", IrAlternation(paren, semi)),
+        "mid": IrRule("mid", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+    }
+    fw = FollowWindows(rules, "root", 2)
+    sites = fw.site_windows("mid")
+    assert [windows_of(site) for site in sites] == [
+        ((CharSet.from_chars(")"),),),
+        ((CharSet.from_chars(";"),),),
+    ]
+    assert set().union(*sites) == fw.follow["mid"]
+    assert fw.site_windows("root") == [{((), END)}]

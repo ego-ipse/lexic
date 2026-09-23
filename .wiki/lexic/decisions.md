@@ -971,3 +971,39 @@ The bordered widening — exclude `mark[0]`, then for each border offset exclude
 the character at `len - k` — is sound and NOT taken. It is what a grammar whose
 owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
 would need, and nothing on the roster does.
+
+## A stop-set is granted only where its first exit is the split answer
+
+A stop-set loop leaves at the first character its continuation can start with:
+the SHORTEST take. The split answer is the longest take that completes. The
+analysis (`analysis/analysis.py`, `_stop_set` then `_settle`) grants a stop-set
+under one of three conditions and files every other one hard, so its rule
+islands and Earley answers:
+
+1. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
+   so no clone subtracts anything and the loop takes every character it can.
+   An overlap reached only through a soft follower, such as the loopback of
+   `item+`, is this case.
+2. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
+   continues both ways: with `c` an exit character, no window `(c, d)` of the
+   continuation also fits a take of `c`. Then at most one of the two completes,
+   and the PDA's exit is the answer or a failure that bails. Each reference site
+   of the rule is judged alone, through `FollowWindows.site_windows`: the other
+   carving differs only in where this loop ends, so it keeps the enclosing arm
+   and continues through the same site. Unioning the sites loses arithmetic's
+   `ws`, whose take at the end of `e` would be continued by the letter after
+   `= ws` at another site. A take window that ends the input right after `c` is
+   never realised, since `c` is a hard continuation character of the clone that
+   exits. The FOLLOW_k fixpoint does hold such spurious end windows, because it
+   passes an END prefix through while a tail is still empty. A delegate's
+   analysis withholds this grant, because its end is not the document's.
+3. **The carving is invisible** (`_settle`). The rule's model is its text (no
+   reference anywhere in its body, groups included), and its end is fixed:
+   EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
+   same model.
+
+`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the three conditions
+refuse costs Earley time where a real grammar's run can hold its closer.
+Vyx's `nl-escape` and `nl-force` are the case: the third character separates
+the exit from the take there, and `FOLLOW_LOOP_K` is 2 by measurement, not by
+budget. So those runs island rather than widen the window.

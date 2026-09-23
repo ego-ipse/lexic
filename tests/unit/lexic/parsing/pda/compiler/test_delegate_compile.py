@@ -83,11 +83,12 @@ def test_for_island_is_cached_until_reset() -> None:
 # ── one end: a rule that picks its extent by policy never delegates ─────────
 
 STOP_SET = (
-    'root ::= expr\nexpr ::= expr op term | expr "or" term | term\n'
-    'term ::= [a-z]+\nop ::= "and"\n'
+    'root ::= expr\nexpr ::= expr op term | expr "|" term | term\n'
+    'term ::= ("x" [a-z]+)+\nop ::= "+"\n'
 )
-"""``term``'s run can stop at the first ``a`` or run on through ``and``: a
-stop-set exit, one of several ends a continuation accepts."""
+"""``term``'s inner run can stop before any ``x`` or run on through it: where
+an iteration ends is the greedy take's pick, one of several ends a
+continuation accepts."""
 
 LOOKAHEAD = (
     'root ::= expr\nexpr ::= expr op term | expr "or" term | term\n'

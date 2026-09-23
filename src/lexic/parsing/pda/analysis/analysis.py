@@ -15,6 +15,7 @@ __all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 from typing import Sequence, cast
 
 from lexic.ir import (
+    IrAlternation,
     IrAst,
     IrAtom,
     IrItem,
@@ -39,20 +40,29 @@ from lexic.parsing.pda.analysis.cursors import (
     Scope,
     Site,
 )
+from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K, stop_exit_settles
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
     noise_greedy_licensed,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, KWindowFirst
+from lexic.parsing.pda.analysis.gates.windows import (
+    END,
+    MORE,
+    UNK,
+    FollowWindows,
+    KWindowFirst,
+)
 from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
     HARD,
     NULLABLE,
     STOPSET_ATOM,
+    Extensions,
     item_nullable,
     nullable_names,
+    rule_extensions,
     seq_nullable,
 )
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec, Taxonomy
@@ -66,6 +76,19 @@ sentinel in a positive :class:`CharSet`."""
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
+
+
+def _text_only(rule: IrRule) -> bool:
+    """Whether no rule reference appears anywhere in ``rule``'s body, inline
+    groups included — its model is then its matched text."""
+    pending = [_items(arm) for arm in rule.body]
+    while pending:
+        for item in pending.pop():
+            if isinstance(item.atom, IrRuleRef):
+                return False
+            if isinstance(item.atom, IrAlternation):
+                pending.extend(_items(arm) for arm in item.atom)
+    return True
 
 
 def _hi(item: IrItem) -> int | None:
@@ -387,6 +410,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         position), so its decision points are never analysed for gates.
         """
         left = left_recursive_names(self)
+        extents: list[Extensions] = []  # built once, and only if a stop-set asks
         for name, rule in self.rules.items():
             if name in left:
                 self.taxonomy.conflicts[name] = [
@@ -408,6 +432,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
+            self._settle(name, notes, extents)
             fail = notes.f1 and self.rules[name].semantic
             if notes.hard:
                 self.taxonomy.conflicts[name] = notes.hard
@@ -419,6 +444,31 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 self.taxonomy.fail.add(name)
             if notes.policy:
                 self.taxonomy.policy_ends.add(name)
+
+    def _settle(self, name: str, notes: Notes, extents: list[Extensions]) -> None:
+        """Grant each stop-set :meth:`_stop_set` deferred only where its first
+        exit is invisible; file the rest hard, so the rule islands.
+
+        A stop-set leaves at the FIRST character the continuation can start
+        with, the shortest take; the split answer is the longest take that
+        completes. Every carving builds the same model exactly when the rule's
+        model is its TEXT (no rule reference anywhere in its body, so moving a
+        boundary inside it changes nothing) and its END is fixed (EXTEND of the
+        rule disjoint from its FOLLOW, so no carving moves text across it).
+        """
+        if not notes.stop_sets:
+            return
+        if not extents:
+            extents.append(rule_extensions(self))
+        extends = extents[0].found[name]
+        invisible = _text_only(self.rules[name]) and not extends.overlaps(
+            self.follow[name]
+        )
+        for note in notes.stop_sets:
+            if invisible:
+                notes.picks_extent(note)
+            else:
+                notes.hard.append(f"{note[: -len(' applied')]} reaches FOLLOW")
 
     def arm_conflicts(
         self,
@@ -544,7 +594,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.covered += 1
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
-                    notes.picks_extent(f"{scope.rule}[{k}]: loop stop-set applied")
+                    self._stop_set(items, k, scope, notes)
                 elif noise_greedy_licensed(self, items, k, scope):
                     notes.picks_extent(
                         f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
@@ -556,6 +606,39 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.f1 = True
             return
         soft_gap_conflict(self, items, k, scope, notes)
+
+    def _stop_set(
+        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
+    ) -> None:
+        """Grant item ``k``'s stop-set where its first exit is the split answer;
+        defer the rest to :meth:`_settle`.
+
+        With no exit character in reach, no clone subtracts anything: the loop
+        runs to the longest take. Otherwise the exit must be the only way on,
+        two characters deep (:func:`~.gates.kwindow.stop_exit_settles`). That
+        proof reads the end of the input, so a delegate's analysis, whose end
+        is not the document's, withholds it.
+        """
+        note = f"{scope.rule}[{k}]: loop stop-set applied"
+        first = self.atom_first(items[k].atom)
+        hard = self.hard_cont_at(items, k, scope.hard_tail)
+        exits = first.subtract(first.subtract(hard))
+        if exits.is_empty():
+            notes.picks_extent(f"{note} (runs longest)")
+        elif (
+            scope.body
+            and not self.taxonomy.delegated
+            and stop_exit_settles(
+                FollowWindows(self.rules, self.start, FOLLOW_LOOP_K),
+                items,
+                k,
+                scope.rule,
+                exits,
+            )
+        ):
+            notes.picks_extent(f"{note} (exit decided two deep)")
+        else:
+            notes.stop_sets.append(note)
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The continuation visible only BEYOND the arm after item ``k``.
