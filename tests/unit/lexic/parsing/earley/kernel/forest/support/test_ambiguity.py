@@ -16,17 +16,20 @@ import math
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrStr
+from lexic.ir import IrNone, IrStr
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
     MeaningBuilder,
     MeaningPair,
+    ParseConfig,
     ambiguity_points,
     chosen_meaning,
     different_meaning,
     same_value,
 )
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
 )
@@ -83,9 +86,9 @@ def _builder(build) -> MeaningBuilder:
 def _settled(text: str, build, name: str) -> MeaningPair:
     """What the span means, under one interpretation of its derivations."""
     kernel, handle = kernel_and_handle(text, AMBIGUOUS_EXPR, name)
-    tree = FastTree(kernel, {}).build(handle)
+    tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
     assert isinstance(tree, ParseTree)
-    return different_meaning(kernel, handle, _builder(build), tree)
+    return different_meaning(kernel, handle, _builder(build), tree, LEFTMOST_LONGEST)
 
 
 def test_no_witness_when_every_grouping_builds_the_same_value():
@@ -101,7 +104,7 @@ def test_no_witness_when_every_grouping_builds_the_same_value():
     pair = _settled("n+n+n", build_span_length, "meaning-none")
 
     assert pair.witness is None
-    assert chosen_meaning(pair, _builder(build_span_length), None) == 5
+    assert chosen_meaning(pair, _builder(build_span_length), DEFAULT_CONFIG) == 5
 
 
 def test_a_differing_derivation_is_found_when_the_build_sees_shape():
@@ -119,7 +122,7 @@ def test_two_meanings_refuse_without_a_resolver():
     pair = _settled("n+n+n", repr, "meaning-refused")
 
     with pytest.raises(UnsupportedConstructError, match="ambiguous input"):
-        chosen_meaning(pair, _builder(repr), None)
+        chosen_meaning(pair, _builder(repr), DEFAULT_CONFIG)
 
 
 def test_a_resolver_settles_which_meaning_is_kept():
@@ -127,9 +130,20 @@ def test_a_resolver_settles_which_meaning_is_kept():
     pair = _settled("n+n+n", repr, "meaning-resolved")
     assert pair.witness is not None
 
-    first = chosen_meaning(pair, _builder(repr), lambda one, _other: one)
-    other = chosen_meaning(pair, _builder(repr), lambda _one, other: other)
+    keep_first = ParseConfig(resolve=lambda one, _other: one)
+    keep_other = ParseConfig(resolve=lambda _one, other: other)
+    first = chosen_meaning(pair, _builder(repr), keep_first)
+    other = chosen_meaning(pair, _builder(repr), keep_other)
 
     assert first == pair.first.value
     assert other == pair.witness.value
     assert first != other
+
+
+def test_the_default_config_refuses_and_keeps_the_leftmost_longest_carving():
+    """No resolver means refusal, spelled ``IrNone``; the decider defaults to
+    the one configuration, and a config naming only a resolver keeps it."""
+    assert DEFAULT_CONFIG.resolve is IrNone
+    assert DEFAULT_CONFIG.decide is LEFTMOST_LONGEST
+    assert ParseConfig(resolve=lambda one, _other: one).decide is LEFTMOST_LONGEST
+    assert DEFAULT_CONFIG == ParseConfig()

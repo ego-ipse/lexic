@@ -17,9 +17,8 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.ir import IrAst, IrNamedTuple
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel import (
     Replica,
@@ -62,7 +61,7 @@ class _Recorder:
 
     def __init__(self) -> None:
         """Start with no calls recorded."""
-        self.calls: list[tuple[IrAst, str, ModelExecutable, Resolver | None]] = []
+        self.calls: list[tuple[IrAst, str, ModelExecutable, ParseConfig]] = []
         self.returned: list[IrNamedTuple] = []
         self.lock = threading.Lock()
 
@@ -71,12 +70,12 @@ class _Recorder:
         grammar: IrAst,
         text: str,
         binding: ModelExecutable[M],
-        resolve: Resolver | None = None,
+        config: ParseConfig = DEFAULT_CONFIG,
     ) -> M:
         """Parse as the product does, recording the request and the result."""
-        model = parse_model(grammar, text, binding, resolve)
+        model = parse_model(grammar, text, binding, config)
         with self.lock:
-            self.calls.append((grammar, text, binding, resolve))
+            self.calls.append((grammar, text, binding, config))
             self.returned.append(model)
         return model
 
@@ -205,7 +204,9 @@ def _pool_views(
 
     def work(index: int) -> IrNamedTuple:
         arrived.wait(timeout=30)
-        return worker_parse(parse, grammar, f"- item{'ab'[index]}\n", binding, None)
+        return worker_parse(
+            parse, grammar, f"- item{'ab'[index]}\n", binding, DEFAULT_CONFIG
+        )
 
     pool.map(work, list(range(pool.workers)))
 
@@ -250,15 +251,16 @@ def test_worker_parse_hands_the_product_this_threads_view() -> None:
         """The degenerate take-the-first resolver, here only to be forwarded."""
         return first
 
-    returned = worker_parse(parse, grammar, "- one\n", binding, resolve)
+    config = ParseConfig(resolve=resolve)
+    returned = worker_parse(parse, grammar, "- one\n", binding, config)
 
     view_grammar, view_binding = worker_replica(grammar, binding)
-    seen_grammar, seen_text, seen_binding, seen_resolve = parse.calls[0]
+    seen_grammar, seen_text, seen_binding, seen_config = parse.calls[0]
     assert len(parse.calls) == 1
     assert seen_grammar is view_grammar and seen_grammar is not grammar
     assert seen_binding is view_binding and seen_binding is not binding
     assert seen_text == "- one\n"
-    assert seen_resolve is resolve
+    assert seen_config is config
     assert returned is parse.returned[0]
 
 
@@ -266,7 +268,7 @@ def test_worker_parse_builds_the_model_the_sequential_parse_would() -> None:
     """The replica is invisible through the product the engine ships."""
     grammar, binding = _pair("worker-parse-model")
 
-    model = worker_parse(parse_model, grammar, TEXT, binding, None)
+    model = worker_parse(parse_model, grammar, TEXT, binding, DEFAULT_CONFIG)
 
     assert model == parse_model(grammar, TEXT, binding)
     assert model.to_text() == TEXT

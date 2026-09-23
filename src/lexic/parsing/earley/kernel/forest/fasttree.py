@@ -14,6 +14,7 @@ from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
@@ -41,27 +42,43 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         applies to the OUTERMOST visit of its key and is consumed there: on a
         cyclic chart the pinned family leads back to its own key, and a pin
         that re-applied would name no finite derivation at all.
+    :ivar decide: The split decider whose carving the build keeps.
     """
 
-    __slots__ = ("kernel", "memo", "stack", "choices", "_bits", "_mask", "_links")
+    __slots__ = (
+        "kernel",
+        "memo",
+        "stack",
+        "choices",
+        "decide",
+        "_packing",
+        "_links",
+    )
 
     kernel: Kernel
     memo: dict[int, ParseTree]
     stack: list[tuple[int, list, int, list | None]]
     choices: dict[int, int] | None
+    decide: Decider
 
-    def __init__(self, kernel: Kernel, choices: dict[int, int] | None = None) -> None:
+    def __init__(
+        self,
+        kernel: Kernel,
+        choices: dict[int, int] | None,
+        decide: Decider,
+    ) -> None:
         """:param kernel: the finished kernel to read.
         :param choices: the family to take at each ambiguity point, if any.
+        :param decide: the split decider whose carving to keep.
         """
         self.kernel = kernel
+        self.decide = decide
         # A copy, because the build CONSUMES pinned entries (see
         # `splits._descend`) — the caller's map must not be eaten.
         self.choices = choices if choices is None else dict(choices)
         self.memo = {}
         self.stack = []
-        self._bits = kernel.tables.packing.bits
-        self._mask = kernel.tables.packing.mask
+        self._packing = kernel.tables.packing
         self._links = kernel.family_reader()
 
     def build(self, handle: int) -> IrSelf:
@@ -89,10 +106,13 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             dest[slot] = cached
             self.stack.pop()
             return True
-        item = handle >> self._bits
-        if item & self._mask == handle & self._mask:  # zero-width
+        packing = self._packing
+        bits = packing.bits
+        mask = packing.mask
+        item = handle >> bits
+        if item & mask == handle & mask:  # zero-width
             t = kernel.tables
-            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> self._bits]])
+            tree = t.empty_tree(t.codes.arm_rule[t.codes.code_arm[item >> bits]])
             if tree is not None:  # the shared input-independent derivation
                 dest[slot] = tree
                 self.stack.pop()
@@ -114,7 +134,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
     def _build(self, handle: int, dest: list, slot: int, resolved: list) -> None:
         """Assemble and memoise the node's tree; pop its frame."""
         t = self.kernel.tables
-        rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * self._bits)]]
+        rid = t.codes.arm_rule[t.codes.code_arm[handle >> (2 * self._packing.bits)]]
         tree = ParseTree(t.decode.rule_refs[rid], IrSeq(*resolved))
         self.memo[handle] = tree
         dest[slot] = tree
@@ -127,11 +147,12 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         caller falls back to the trampolined enumeration.
         """
         t = self.kernel.tables
-        base = t.codes.arm_base[t.codes.code_arm[(handle >> self._bits) >> self._bits]]
+        bits = self._packing.bits
+        base = t.codes.arm_base[t.codes.code_arm[(handle >> bits) >> bits]]
         chain = predecessor_chain(
             self._links,
             handle,
-            ChainSpec(base, self._bits, t.code_choice),
+            ChainSpec(base, bits, t.code_choice),
             self.choices,
         )
         if chain is None:
@@ -146,6 +167,9 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         memo = self.memo
         tables = self.kernel.tables
         codes = tables.codes
+        packing = self._packing
+        bits = packing.bits
+        mask = packing.mask
         out: list[tuple[int, list, int, None]] = []
         for idx, child in enumerate(resolved):
             if isinstance(child, int):  # a packed handle, not yet built
@@ -153,9 +177,9 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
                 if cached is not None:
                     resolved[idx] = cached
                     continue
-                if (child >> self._bits) & self._mask == child & self._mask:
+                if (child >> bits) & mask == child & mask:
                     tree = tables.empty_tree(
-                        codes.arm_rule[codes.code_arm[child >> (2 * self._bits)]]
+                        codes.arm_rule[codes.code_arm[child >> (2 * bits)]]
                     )
                     if tree is not None:  # zero-width — the shared derivation
                         resolved[idx] = tree

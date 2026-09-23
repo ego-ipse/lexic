@@ -37,6 +37,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.records import ADVANCE, ORIGIN_BITS
 from lexic.parsing.earley.normalize import normalize
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
@@ -239,12 +240,12 @@ def test_scan_rejects_too_short_input():
 
 
 def test_fast_tree_builds_correct_shape_for_two_char_word():
-    """FastTree(kernel).build(handle) mirrors old tree-shape assertions."""
+    """FastTree(kernel, None, LEFTMOST_LONGEST).build(handle) mirrors old tree-shape assertions."""
     tables = compile_tables(_word_grammar())
     kernel = Kernel(tables, "hi", record_links=True).run()
     assert accept_item(kernel) >= 0
     handle = (accept_item(kernel) << ORIGIN_BITS) | len("hi")
-    tree = FastTree(kernel).build(handle)
+    tree = FastTree(kernel, None, LEFTMOST_LONGEST).build(handle)
     assert isinstance(tree, ParseTree)
     assert tree.symbol == IrRuleRef("word")
     assert len(tree.kids) == 2
@@ -259,7 +260,7 @@ def test_fast_tree_builds_correct_shape_for_digit():
     tables = compile_tables(_digit_grammar())
     kernel = Kernel(tables, "9", record_links=True).run()
     handle = (accept_item(kernel) << ORIGIN_BITS) | 1
-    tree = FastTree(kernel).build(handle)
+    tree = FastTree(kernel, None, LEFTMOST_LONGEST).build(handle)
     assert isinstance(tree, ParseTree)
     assert tree.symbol == IrRuleRef("digit")
     assert tree.kids[0] == IrLiteral("9")
@@ -275,7 +276,7 @@ def test_fast_tree_returns_ir_none_on_ambiguous_grammar(sss_grammar: IrAst):
     kernel = Kernel(tables, "aaa", record_links=True).run()
     assert accept_item(kernel) >= 0
     handle = (accept_item(kernel) << ORIGIN_BITS) | len("aaa")
-    result = FastTree(kernel).build(handle)
+    result = FastTree(kernel, None, LEFTMOST_LONGEST).build(handle)
     assert isinstance(result, IrNoneType)
     assert result is IrNone
 

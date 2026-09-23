@@ -48,7 +48,10 @@ user-facing diagnostics. It never surfaces to the caller.
 from __future__ import annotations
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+)
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -157,7 +160,7 @@ class PdaKernel[M](
         text: str,
         executor: ProductExecutor[M] | None = None,
         *,
-        resolve: Resolver | None = None,
+        config: ParseConfig = DEFAULT_CONFIG,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -167,13 +170,13 @@ class PdaKernel[M](
             :class:`~lexic.parsing.product.ProductExecutor` for splicing island
             values; ``None`` disables island resolution (any island reference
             raises :class:`PdaFail`).
-        :param resolve: The caller's deterministic answer to an island that
-            derives its text two ways that mean different things; ``None``
-            refuses one. Per-parse state, so it rides on the cursor.
+        :param config: The caller's resolver, answering an island that
+            derives its text two ways that mean different things, and split
+            decider. Per-parse state, so it rides on the cursor.
         """
         self.tables = tables
         self.text = text
-        self.policy = IslandPolicy(resolve=resolve, executor=executor)
+        self.policy = IslandPolicy(config=config, executor=executor)
         self.pos = 0
         self.stack = []
         self._caches = KernelCaches[M]()
@@ -609,7 +612,7 @@ def pda_model[M](
     text: str,
     executor: ProductExecutor[M] | None = None,
     *,
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> M:
     """Parse ``text`` with the predictive runtime and build its model.
 
@@ -617,8 +620,8 @@ def pda_model[M](
     :param text: The input to parse.
     :param executor: The full-grammar product completion used by island
         sub-parses; ``None`` makes any island reference raise :class:`PdaFail`.
-    :param resolve: A deterministic ambiguity resolver for island parses.
+    :param config: The resolver and split decider for island parses.
     :returns: The start rule's model instance.
     :raises PdaFail: When the deterministic path cannot complete.
     """
-    return PdaKernel(tables, text, executor, resolve=resolve).run()
+    return PdaKernel(tables, text, executor, config=config).run()

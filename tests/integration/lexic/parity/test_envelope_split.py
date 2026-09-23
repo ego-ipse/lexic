@@ -16,7 +16,7 @@ import pytest
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
@@ -61,9 +61,9 @@ def test_the_split_actually_engages_and_reaches_the_lead_grammar(abnf_meta) -> N
     what produced the answer."""
     calls: list[tuple[str, int]] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append((str(grammar.start), len(source)))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     split = split_model(
         recording_parse,

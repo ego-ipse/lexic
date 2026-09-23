@@ -22,6 +22,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig
 from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.splits import (
@@ -48,7 +49,9 @@ def _built(source: str, key: str):
     return compiled, _model_product(compiled.codegen_grammar, compiled.product)
 
 
-def _answer(source: str, key: str, text: str, resolve=None) -> str:
+def _answer(
+    source: str, key: str, text: str, config: ParseConfig = DEFAULT_CONFIG
+) -> str:
     """``text``'s model through the Earley model route, or ``"REFUSED"``."""
     compiled, product = _built(source, key)
     try:
@@ -58,7 +61,7 @@ def _answer(source: str, key: str, text: str, resolve=None) -> str:
                 text,
                 compiled.product,
                 product.tables,
-                resolve,
+                config,
             )
         )
     except UnsupportedConstructError:
@@ -100,7 +103,7 @@ def test_the_resolver_is_offered_exactly_one_pair_on_that_span() -> None:
         seen.append((first, other))
         return first
 
-    got = _answer(MIXED, "canonical-mixed", "aaa", spy)
+    got = _answer(MIXED, "canonical-mixed", "aaa", ParseConfig(resolve=spy))
 
     assert len(seen) == 1, f"expected one pair, got {len(seen)}"
     first, other = seen[0]

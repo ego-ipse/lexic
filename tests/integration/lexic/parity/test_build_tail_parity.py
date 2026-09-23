@@ -18,7 +18,7 @@ import pytest
 
 from lexic.compile import compile_from_path
 from lexic.generate import generate
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
@@ -85,9 +85,9 @@ def test_split_records_equal_the_sequential_parse_on_a_ground_truth_grammar(
     grammar, binding = compiled.codegen_grammar, compiled.product
     calls: list[str] = []
 
-    def recording_parse(g, source, fold, resolve=None):
+    def recording_parse(g, source, fold, config=DEFAULT_CONFIG):
         calls.append(source)
-        return parse_model(g, source, fold, resolve)
+        return parse_model(g, source, fold, config)
 
     split = split_model(recording_parse, grammar, Request(text, binding), workers)
     assert split is not None, "the split must actually have run, not declined"

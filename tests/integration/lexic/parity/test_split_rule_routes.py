@@ -31,7 +31,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing import parse
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse
 from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing.products import _model_product, earley_model
 from tests.unit.lexic.parsing.parsing_helpers import engines_agree_or_both_refuse
@@ -57,11 +57,11 @@ def _product(source: str, key: str):
     return compiled, _model_product(compiled.codegen_grammar, compiled.product)
 
 
-def _model(source: str, key: str, text: str, resolve=None):
+def _model(source: str, key: str, text: str, config: ParseConfig = DEFAULT_CONFIG):
     """``text``'s model through the Earley model route."""
     compiled, product = _product(source, key)
     return earley_model(
-        product.instance_grammar, text, compiled.product, product.tables, resolve
+        product.instance_grammar, text, compiled.product, product.tables, config
     )
 
 
@@ -95,7 +95,9 @@ def test_a_resolver_settles_the_arm_and_the_rule_settles_the_split() -> None:
     is ``R('xxxxxx')``: the caller's resolver never sees the carved production
     at all.
     """
-    model = _model(ROOT_AMBIGUOUS, "routes-root", "xxxxxx", _take_the_other)
+    model = _model(
+        ROOT_AMBIGUOUS, "routes-root", "xxxxxx", ParseConfig(resolve=_take_the_other)
+    )
 
     assert repr(model) == "DocArm1(A('xxx'), B('x'), C('xx'))"
     assert _widths(model) == (3, 1, 2)
@@ -110,7 +112,9 @@ def test_the_other_resolver_gets_the_other_production_and_not_a_carving() -> Non
     is ``(2, 3, 1)`` — the right-to-left reading the module docstring names as
     the wrong one. So the pair of rows pins the fix from both ends.
     """
-    model = _model(ROOT_AMBIGUOUS, "routes-root", "xxxxxx", _take_the_first)
+    model = _model(
+        ROOT_AMBIGUOUS, "routes-root", "xxxxxx", ParseConfig(resolve=_take_the_first)
+    )
 
     assert repr(model) == "R('xxxxxx')"
 
@@ -139,7 +143,9 @@ def test_the_neighbouring_lengths_answer_without_any_resolver(
     constant: ``a`` takes as much as it can, then ``b``, and ``c`` keeps the
     remainder. Each of these is derived by hand from that sentence.
     """
-    model = _model(ROOT_AMBIGUOUS, "routes-root", text, _take_the_other)
+    model = _model(
+        ROOT_AMBIGUOUS, "routes-root", text, ParseConfig(resolve=_take_the_other)
+    )
 
     assert _widths(model) == widths
     assert model.to_text() == text
@@ -182,7 +188,9 @@ def test_the_engines_answer_these_spans_the_same_way(text: str) -> None:
     nothing would pass for the wrong reason.
     """
     compiled, _unused = _product(ROOT_AMBIGUOUS, "routes-root")
-    verdict = engines_agree_or_both_refuse(compiled, text, _take_the_other)
+    verdict = engines_agree_or_both_refuse(
+        compiled, text, ParseConfig(resolve=_take_the_other)
+    )
 
     assert verdict == "declined", (
         f"{text!r}: the predictive path answered ({verdict}) — this row now "

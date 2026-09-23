@@ -9,7 +9,7 @@ import pytest
 import lexic.parsing.parallel.stitch.merge as merge_module
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel.discovery.regions import choose, find, shell
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.stitch.merge import MergeRequest, witnesses
@@ -178,7 +178,7 @@ def _trailing_works() -> list[RegionWork] | None:
     """json.gbnf's object region over :data:`TRAILING_NL`, witnesses assigned."""
     compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
     grammar = compiled.codegen_grammar
-    request = MergeRequest(parse_model, TRAILING_NL, compiled.product, None)
+    request = MergeRequest(parse_model, TRAILING_NL, compiled.product, DEFAULT_CONFIG)
     found = [r for r in find(grammar, TRAILING_NL) if r.rule != str(grammar.start)]
     return region_works(request, grammar, choose(TRAILING_NL, found, 4), grammar)
 
@@ -211,7 +211,7 @@ def _json_gbnf_works(text: str, workers: int) -> tuple[MergeRequest, list[Region
     """json.gbnf's regions over ``text``, bound — witnesses assigned."""
     compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
     grammar = compiled.codegen_grammar
-    request = MergeRequest(parse_model, text, compiled.product, None)
+    request = MergeRequest(parse_model, text, compiled.product, DEFAULT_CONFIG)
     found = [r for r in find(grammar, text) if r.rule != str(grammar.start)]
     works = region_works(request, grammar, choose(text, found, workers), grammar)
     assert works is not None

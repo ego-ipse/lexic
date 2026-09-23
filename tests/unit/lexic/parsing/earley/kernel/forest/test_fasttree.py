@@ -14,6 +14,7 @@ from lexic.ir import IrNone
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
 )
@@ -25,7 +26,7 @@ AMBIGUOUS_EXPR = 'e ::= e "+" e | "n"\n'
 def test_build_returns_a_parse_tree_for_an_unambiguous_handle():
     """A plain unambiguous handle builds a real tree, not a fast-path miss."""
     kernel, handle = kernel_and_handle("axb", UNAMBIGUOUS, "fasttree-unambig")
-    tree = FastTree(kernel, {}).build(handle)
+    tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
     assert isinstance(tree, ParseTree)
 
 
@@ -34,7 +35,7 @@ def test_build_returns_irnone_at_an_ambiguity_point_with_choices_none():
     is a miss, and the caller falls back to the trampolined enumeration."""
     kernel, handle = kernel_and_handle("n+n+n", AMBIGUOUS_EXPR, "fasttree-miss")
     point = ambiguity_points(kernel, handle)[0]
-    assert FastTree(kernel, None).build(point) is IrNone
+    assert FastTree(kernel, None, LEFTMOST_LONGEST).build(point) is IrNone
 
 
 def test_build_resolves_a_pinned_ambiguity_point_to_the_named_derivation():
@@ -42,8 +43,8 @@ def test_build_resolves_a_pinned_ambiguity_point_to_the_named_derivation():
     DIFFERENT trees — left- vs right-associative grouping of the same span."""
     kernel, handle = kernel_and_handle("n+n+n", AMBIGUOUS_EXPR, "fasttree-pin")
     point = ambiguity_points(kernel, handle)[0]
-    left = FastTree(kernel, {point: 0}).build(point)
-    right = FastTree(kernel, {point: 1}).build(point)
+    left = FastTree(kernel, {point: 0}, LEFTMOST_LONGEST).build(point)
+    right = FastTree(kernel, {point: 1}, LEFTMOST_LONGEST).build(point)
     assert isinstance(left, ParseTree) and isinstance(right, ParseTree)
     assert left != right
 
@@ -51,14 +52,14 @@ def test_build_resolves_a_pinned_ambiguity_point_to_the_named_derivation():
 def test_build_is_deterministic_for_the_same_handle_and_choices():
     """Two builds of the same handle under the same (empty) choices agree."""
     kernel, handle = kernel_and_handle("axb", UNAMBIGUOUS, "fasttree-deterministic")
-    first = FastTree(kernel, {}).build(handle)
-    second = FastTree(kernel, {}).build(handle)
+    first = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
+    second = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
     assert first == second
 
 
 def test_a_fresh_fasttree_instance_starts_with_an_empty_memo():
     """A freshly constructed FastTree carries no built subtrees yet."""
     kernel, _handle = kernel_and_handle("axb", UNAMBIGUOUS, "fasttree-empty-memo")
-    tree = FastTree(kernel)
+    tree = FastTree(kernel, None, LEFTMOST_LONGEST)
     assert not tree.memo
     assert tree.choices is None

@@ -19,7 +19,7 @@ from lexic.generate import generate
 from lexic.ir import Bound, IrAst, IrRule
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
@@ -37,11 +37,11 @@ class MergeRequest[M](NamedTuple):
     parse: ModelParse[M]
     text: str
     binding: ModelExecutable[M]
-    resolve: Resolver | None
+    config: ParseConfig
 
     def run(self, grammar: IrAst, text: str) -> M:
         """Parse one full, piece, boundary, or shell document."""
-        return self.parse(grammar, text, self.binding, self.resolve)
+        return self.parse(grammar, text, self.binding, self.config)
 
 
 def _replace_tail_head(

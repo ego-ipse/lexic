@@ -24,7 +24,7 @@ from lexic.compile import (
 from lexic.compile.artifact import _reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
@@ -175,9 +175,9 @@ def test_nested_region_shell_does_not_reparse_delegated_interior() -> None:
     root = compiled.codegen_grammar
     calls: list[tuple[str, str]] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append((str(grammar.start), source))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     split = split_model(
         recording_parse,
@@ -206,9 +206,9 @@ def test_outer_region_owns_nested_child_territory() -> None:
     root = compiled.codegen_grammar
     calls: list[tuple[str, str]] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append((str(grammar.start), source))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     split = split_model(recording_parse, root, Request(text, compiled.product), 4)
     assert split is not None
@@ -223,9 +223,9 @@ def test_public_cores_ceiling_keeps_a_fourish_way_nested_region() -> None:
     compiled = compile_ast(JSON_GRAMMAR)
     calls: list[tuple[str, str]] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append((str(grammar.start), source))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     split = split_model(
         recording_parse,
@@ -411,9 +411,9 @@ def test_boundary_ambiguity_declines_or_matches_sequential_refusal() -> None:
 
     calls: list[str] = []
 
-    def recording_parse(g, source, f, resolve=None):
+    def recording_parse(g, source, f, config=DEFAULT_CONFIG):
         calls.append(source)
-        return parse_model(g, source, f, resolve)
+        return parse_model(g, source, f, config)
 
     declined = split_model(recording_parse, grammar, Request(text, binding), 2)
     assert declined is None, "the ambiguous chunk must not silently resolve"
@@ -492,9 +492,9 @@ def test_a_lex_ns_variant_with_a_merged_tail_literal_engages_the_split() -> None
 
     calls: list[int] = []
 
-    def recording_parse(g, source_piece, f, resolve=None):
+    def recording_parse(g, source_piece, f, config=DEFAULT_CONFIG):
         calls.append(len(source_piece))
-        return parse_model(g, source_piece, f, resolve)
+        return parse_model(g, source_piece, f, config)
 
     split = split_model(recording_parse, grammar, Request(text, variant.product), 8)
     assert split is not None

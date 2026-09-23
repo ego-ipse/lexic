@@ -22,10 +22,11 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing import derivations
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig, derivations
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items, to_chart
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.splits import canonical_indices, spec_for
 from lexic.parsing.products import _model_product, earley_model
 from tests.earley_families import (
@@ -82,7 +83,7 @@ def consumers(kern) -> dict[str, object]:
     codes, bits = kern.tables.codes, kern.tables.packing.bits
     out: dict[str, object] = {}
     for handle in handles(kern):
-        out[f"tree {handle}"] = FastTree(kern, {}).build(handle)
+        out[f"tree {handle}"] = FastTree(kern, {}, LEFTMOST_LONGEST).build(handle)
         points = ambiguity_points(kern, handle)
         out[f"points {handle}"] = points
         for point in points:
@@ -90,9 +91,9 @@ def consumers(kern) -> dict[str, object]:
             spec = spec_for(codes, bits, kern.tables.code_choice, point)
             out[f"canonical {point}"] = canonical_indices(reader, bucket, spec)
             for index in range(min(len(bucket), 3)):
-                out[f"pin {point}={index}"] = FastTree(kern, {point: index}).build(
-                    handle
-                )
+                out[f"pin {point}={index}"] = FastTree(
+                    kern, {point: index}, LEFTMOST_LONGEST
+                ).build(handle)
     out["chart"] = [(key, list(fams)) for key, fams in to_chart(kern).links.items()]
     return out
 
@@ -152,7 +153,7 @@ def _earley(
             text,
             compiled.product,
             product.tables,
-            recording if resolve else None,
+            ParseConfig(resolve=recording) if resolve else DEFAULT_CONFIG,
         )
     except UnsupportedConstructError as refusal:
         return ("refused", str(refusal)), calls

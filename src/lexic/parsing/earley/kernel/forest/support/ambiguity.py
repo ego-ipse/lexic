@@ -23,9 +23,11 @@ from operator import ne
 from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrNamedTuple, IrNone, IrNoneType
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     canonical_indices,
     is_arm_choice,
@@ -36,11 +38,13 @@ if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 __all__ = [
+    "DEFAULT_CONFIG",
     "BuiltMeaning",
     "MeaningBuilder",
     "MeaningMemo",
     "MeaningPair",
     "MeaningRun",
+    "ParseConfig",
     "Resolver",
     "ambiguity_points",
     "chosen_meaning",
@@ -60,6 +64,25 @@ requirement is that it is deterministic, so both engines given the same pair
 answer the same way. ``lambda first, other: first`` is the degenerate
 take-the-first resolver.
 """
+
+
+class ParseConfig(IrNamedTuple[Resolver | IrNoneType, Decider]):
+    """How a parse chooses between derivations, as the caller configured it.
+
+    The two travel together through every route, so both engines answer the
+    same question the same way.
+
+    :ivar resolve: The caller's answer to an arm choice that means two
+        things; :data:`~lexic.ir.IrNone` refuses one.
+    :ivar decide: The split decider: which carving of a span is kept.
+    """
+
+    resolve: Resolver | IrNoneType = IrNone
+    decide: Decider = LEFTMOST_LONGEST
+
+
+DEFAULT_CONFIG = ParseConfig()
+"""Refuse an ambiguity, and keep the leftmost-longest carving."""
 
 
 def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
@@ -163,20 +186,23 @@ class MeaningPair[Value](NamedTuple):
 
 
 class MeaningRun[Value, NodeValue](NamedTuple):
-    """One span's interpretation attempt — the parse, the handle, the builder.
+    """One span's interpretation attempt — the parse, the handle, the builder
+    and the decider.
 
-    The three that are fixed for every alternate of one span. Built ONCE, and
+    The four that are fixed for every alternate of one span. Built ONCE, and
     only after an arm choice has been found, so a span that derives one way
     allocates nothing for a search it never runs.
 
     :ivar kernel: The finished kernel.
     :ivar root: The packed accepting handle.
     :ivar builder: The interpretation's fresh and seeded entry points.
+    :ivar decide: The split decider every derivation's carving answers to.
     """
 
     kernel: Kernel
     root: int
     builder: MeaningBuilder[Value, NodeValue]
+    decide: Decider
 
 
 class MeaningMemo[NodeValue](NamedTuple):
@@ -206,7 +232,7 @@ def remembered[Value, NodeValue](
     :param first: The derivation already in hand, used on a fast-tree miss.
     :returns: The already-built baseline and its reusable node memo.
     """
-    tree = FastTree(run.kernel, {})
+    tree = FastTree(run.kernel, {}, run.decide)
     built = tree.build(run.root)
     if not isinstance(built, ParseTree):
         return BuiltMeaning(first, run.builder.build(first)), MeaningMemo({}, {})
@@ -239,7 +265,7 @@ def replayed[Value, NodeValue](
     """
     cone = dirty_cone(run.kernel, run.root, point)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
-    tree = FastTree(run.kernel, {point: family})
+    tree = FastTree(run.kernel, {point: family}, run.decide)
     tree.memo.update(keep)
     built = tree.build(run.root)
     if not isinstance(built, ParseTree):
@@ -329,6 +355,7 @@ def different_meaning[Value, NodeValue](
     handle: int,
     builder: MeaningBuilder[Value, NodeValue],
     first: ParseTree,
+    decide: Decider,
 ) -> MeaningPair[Value]:
     """Build the baseline once and find the first differently valued derivation.
 
@@ -347,18 +374,20 @@ def different_meaning[Value, NodeValue](
     :param handle: The packed accepting handle.
     :param builder: Fresh and memo-seeded product execution.
     :param first: The derivation already in hand, to compare the rest against.
+    :param decide: The split decider every derivation's carving answers to.
     :returns: The already-built baseline and optional differing witness.
     """
     siblings = _sibling_roots(kernel, handle)
     choices = _arm_choices(kernel, handle)
     if not choices:
         base = BuiltMeaning(first, builder.build(first))
-        return MeaningPair(base, _sibling_witness(kernel, siblings, base, builder))
+        witness = _sibling_witness(kernel, siblings, base, builder, decide)
+        return MeaningPair(base, witness)
     # Only here, where an alternate can exist at all, does the span's fixed
     # trio become worth naming; a one-derivation parse never reaches it.
-    run = MeaningRun(kernel, handle, builder)
+    run = MeaningRun(kernel, handle, builder, decide)
     base, memo = remembered(run, first)
-    witness = _sibling_witness(kernel, siblings, base, builder)
+    witness = _sibling_witness(kernel, siblings, base, builder, decide)
     if witness is not None:
         return MeaningPair(base, witness)
     return MeaningPair(base, _flipped_witness(run, choices, base, memo))
@@ -418,10 +447,11 @@ def _sibling_witness[Value, NodeValue](
     siblings: list[int],
     base: BuiltMeaning[Value],
     builder: MeaningBuilder[Value, NodeValue],
+    decide: Decider,
 ) -> BuiltMeaning[Value] | None:
     """The first sibling root that means something other than ``base``."""
     for alternate in siblings:
-        other = FastTree(kernel, {}).build(alternate)
+        other = FastTree(kernel, {}, decide).build(alternate)
         if not isinstance(other, ParseTree):
             continue
         built = BuiltMeaning(other, builder.build(other))
@@ -433,7 +463,7 @@ def _sibling_witness[Value, NodeValue](
 def chosen_meaning[Value, NodeValue](
     pair: MeaningPair[Value],
     builder: MeaningBuilder[Value, NodeValue],
-    resolve: Resolver | None,
+    config: ParseConfig,
 ) -> Value:
     """The value a possibly-ambiguous pair settles to, built at most once.
 
@@ -444,7 +474,8 @@ def chosen_meaning[Value, NodeValue](
 
     :param pair: What :func:`different_meaning` found for the span.
     :param builder: The same interpretation the pair was built through.
-    :param resolve: The caller's resolver, or ``None`` to refuse.
+    :param config: The caller's configuration; its resolver answers, or its
+        absence refuses.
     :returns: The chosen meaning's value.
     :raises UnsupportedConstructError: When the span means two things and no
         resolver was supplied.
@@ -452,7 +483,8 @@ def chosen_meaning[Value, NodeValue](
     witness = pair.witness
     if witness is None:
         return pair.first.value
-    if resolve is None:
+    resolve = config.resolve
+    if isinstance(resolve, IrNoneType):
         raise UnsupportedConstructError(
             "parsing: ambiguous input — two derivations that mean different "
             "things; supply a resolver to choose between them"
