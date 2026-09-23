@@ -33,8 +33,11 @@ from lexic.parsing.pda.analysis.predicates import (
     rule_spans,
     seq_span,
 )
-from lexic.parsing.pda.compiler.specs import arm_items
+from lexic.parsing.pda.compiler.specs import LongestTake, arm_items, upper_bound
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.pda.core.scanner import class_source, compile_source
+
+_EOF = CharSet.from_chars("")
 
 
 def _repeats(item: IrItem) -> bool:
@@ -233,6 +236,41 @@ class IslandContinuations:
         if self._where is None:
             self._where = site_positions(self.analysis.rules, self.analysis.start)
         return self._where
+
+    def longest_take(self, name: str, cont: CharSet) -> LongestTake | None:
+        """Rule ``name``'s :class:`~lexic.parsing.pda.compiler.specs.LongestTake`
+        for a reference ``cont`` follows, when the rule takes its longest match.
+
+        The island it may ask is the one that reference would have been: this
+        continuation, its bound, and the rule's windows over every site.
+        """
+        extend = self.analysis.taxonomy.longest.get(name)
+        if extend is None:
+            return None
+        exits = extend.subtract(extend.subtract(cont)).subtract(_EOF)
+        island = (name, cont, self.bounds(name, cont), self.windows(name))
+        return LongestTake(
+            exits,
+            extend,
+            island,
+            0 if name in self.analysis.nullable else 1,
+            compile_source(class_source(exits.chars, exits.negated)),
+            None
+            if self._runs_hold(name, extend)
+            else compile_source(class_source(extend.chars, extend.negated)),
+        )
+
+    def _runs_hold(self, name: str, extend: CharSet) -> bool:
+        """Whether every arm of ``name`` ends in an unbounded run whose class
+        holds all of ``extend``: a greedy match then stops only at a character
+        nothing could lengthen it by."""
+        for arm in self.analysis.rules[name].body:
+            last = arm_items(arm)[-1]
+            if upper_bound(last) is not None:
+                return False
+            if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
+                return False
+        return True
 
     def bounds(self, name: str, cont: CharSet) -> bool:
         """Can island ``name``'s extent be read off one linear scan for ``cont``?

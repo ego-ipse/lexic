@@ -49,8 +49,12 @@ EDGES = (
     "attempt",
     "runarm",
     "chartable",
+    "longest",
 )
 """Slots that hold, or nest, an arm or a clone.
+
+``longest`` nests the island reference a longest-take clone asks when its span
+holds a follower: the island's name, which reaches the interiors it compiled.
 
 ``struct_arm`` is deliberately absent: a ``ScanGate`` reaches no clone. The
 oracle does not consult this list, which is the point of having it.
