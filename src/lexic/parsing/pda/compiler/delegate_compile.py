@@ -246,6 +246,15 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
             self._cache[name] = cached
         return cached
 
+    def held(self, name: str) -> dict[int, object]:
+        """The delegate clones already compiled for island ``name``, compiling
+        nothing: what the artefact holds, for a reader that must not grow it.
+
+        :param name: The island rule name.
+        :returns: rule_id → its delegate flat clone; empty when none is held.
+        """
+        return self._cache.get(name, {})
+
     def _compile(self, island_name: str) -> dict[int, object]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
         analysis = GrammarAnalysis(
