@@ -15,7 +15,7 @@ import pytest
 
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import OP_ISLAND
-from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
@@ -391,7 +391,7 @@ class _IslandUndecidable(Attempting[str]):
     def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
         return []
 
-    def _island(self, ref: tuple[str, CharSet, bool], sink: list[str]) -> None:
+    def _island(self, ref: IslandPayload, sink: list[str]) -> None:
         raise ProbeFork("island spans two ends and the shorter could compose", 0)
 
 
