@@ -44,7 +44,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.product import ProductExecutor
 from lexic.parsing.product.tree import CompletionResult
 
@@ -234,8 +234,10 @@ def island_parse(
     Longest-match is only a DEFINED answer while no shorter completion could
     also compose: with ``policy.follow`` set, a second completion end whose
     next character the continuation accepts is a cross-span arm choice this
-    seam cannot settle — it raises :class:`PdaFail`, and the engine's gated
-    completion over the whole input refuses or answers with the full picture.
+    seam cannot settle — it raises :class:`ProbeFork`, undecidable rather than a
+    miss, so no enclosing attempt reads it as this island failing; the engine's
+    gated completion over the whole input refuses or answers with the full
+    picture.
 
     :param tables: The island rule's :class:`~lexic.parsing.earley.kernel.tables.ParserTables`.
     :param text: The full input.
@@ -256,6 +258,7 @@ def island_parse(
         and the completed value when the settle step already built one
         (``None`` when it did not, and the caller completes the tree itself).
     :raises PdaFail: When the island completes over no window.
+    :raises ProbeFork: When a shorter completion could compose with the caller.
     :raises UnsupportedConstructError: On an ambiguous island with no resolver.
         The round-trip invariant cannot catch a wrong choice here:
         ``to_text()`` reproduces the input for whichever derivation was taken.
@@ -268,7 +271,7 @@ def island_parse(
         if best is not None and policy.follow is not None:
             alt = _unsettled_end(kern, best[1], text, pos, policy.follow)
             if alt >= 0:
-                raise PdaFail(
+                raise ProbeFork(
                     f"island {name!r} at {pos}: arm choice spans two ends "
                     f"({alt}, {best[1]}) and the shorter could compose",
                     pos,

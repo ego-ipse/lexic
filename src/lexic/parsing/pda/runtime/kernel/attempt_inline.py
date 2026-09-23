@@ -12,7 +12,7 @@ from __future__ import annotations
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
@@ -113,6 +113,8 @@ class AttemptInlineMixin[Carry]:
                         sink,
                         pos,
                     )
+                except ProbeFork:
+                    raise  # undecidable is the gated engine's, not a miss
                 except PdaFail, LexicError:
                     break
                 count += 1
@@ -192,9 +194,12 @@ class AttemptInlineMixin[Carry]:
     def attempt_inline(
         self, arm: FlatArm, i: int, pos: int
     ) -> tuple[int, list[Carry]] | None:
-        """Try one frame-less value-string iteration, fail-soft."""
+        """Try one frame-less value-string iteration, fail-soft — except where
+        the iteration is undecidable, which is the gated engine's question."""
         try:
             return self._inline_once(arm, i, pos)
+        except ProbeFork:
+            raise
         except PdaFail, LexicError:
             return None
 

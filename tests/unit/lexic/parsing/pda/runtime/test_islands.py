@@ -41,7 +41,7 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
@@ -130,9 +130,11 @@ def _cross_span_tables():
 
 def test_island_parse_bails_when_a_shorter_end_could_compose():
     """A second completion end whose next char the continuation accepts is a
-    cross-span arm choice the seam cannot settle — PdaFail names both ends."""
+    cross-span arm choice the seam cannot settle. It is UNDECIDABLE, not a
+    miss (``ProbeFork``), so no enclosing attempt reads it as the island
+    failing; the message names both ends."""
     policy = IslandPolicy(follow=CharSet(frozenset("b")))
-    with pytest.raises(PdaFail, match=r"arm choice spans two ends \(1, 2\)"):
+    with pytest.raises(ProbeFork, match=r"arm choice spans two ends \(1, 2\)"):
         island_parse(_cross_span_tables(), "abc", 0, "x", policy)
 
 

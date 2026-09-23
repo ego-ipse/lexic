@@ -224,11 +224,14 @@ class Attempting[Carry]:
     def _attempt_island(
         self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
-        """An attempted ISLAND / fail-island iteration — failure closes the loop."""
+        """An attempted ISLAND / fail-island iteration — failure closes the loop;
+        an island that cannot settle its own extent bails instead."""
         if arm.kinds[i] == OP_ISLAND:
             sink = self._sink_for(frame, arm, i)
             try:
                 self._island(arm.payloads[i], sink)
+            except ProbeFork:
+                raise
             except PdaFail:
                 pass
             else:
@@ -467,10 +470,12 @@ class Attempting[Carry]:
         :param pos: The attempt position.
         :param end: The winner's end.
         :param follow: The rule's soft-FOLLOW CharSet.
-        :raises PdaFail: A later entry succeeding on the SAME span (a value
+        :raises ProbeFork: A later entry succeeding on the SAME span (a value
             question this seam does not settle) or on a DIFFERENT span whose
             next character ``follow`` accepts (a cross-span arm choice) —
-            either way the gated engine decides.
+            either way the gated engine decides. Undecidable, not a miss: an
+            enclosing attempted iteration re-raises it rather than reading it
+            as its own arm failing, which would close the loop and commit.
         """
         char = self.text[pos : pos + 1]
         for chars, negated, prefix, window, sub in rest:
@@ -487,7 +492,7 @@ class Attempting[Carry]:
                 continue
             alt = other[0]
             if alt == end or (alt > end and self._spans_exactly(sub, pos, end)):
-                raise PdaFail(
+                raise ProbeFork(
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
                     "a value question for the gated engine",
                     pos,
@@ -500,7 +505,7 @@ class Attempting[Carry]:
             # as composable: the bail direction, where the gated engine's
             # whole-input view settles it.
             if alt >= len(self.text) or follow.has(self.text[alt : alt + 1]):
-                raise PdaFail(
+                raise ProbeFork(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
                     "and the alternative could compose",
                     pos,

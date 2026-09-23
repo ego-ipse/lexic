@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.opcodes import OP_ISLAND
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
@@ -20,6 +23,7 @@ from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.pda.runtime.kernel.decisions import (
     _FORKED,
     _TAKE,
+    Attempting,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from tests.paths import GROUND_TRUTH
@@ -359,3 +363,49 @@ def test_a_converged_boundary_forks_when_the_common_remainder_completes(
     )
     assert (tally["agree"], tally["dead"]) == (0, 0), tally
     assert (tally["other"], tally["nested"]) == (0, 0), tally
+
+
+# ── an attempted island that cannot settle its extent bails ─────────────────
+
+
+class _IslandUndecidable(Attempting[str]):
+    """An attempted island iteration whose sub-parse finds two ends, either
+    of which could compose: the island raises ``ProbeFork``."""
+
+    __slots__ = ("text", "pos", "stack")
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.pos = 0
+        self.stack = []
+
+    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+        return False  # the one-character stop test says nothing here
+
+    def _enter(self, clone: FlatClone[str], out: list[str]) -> bool:
+        raise AssertionError("an island iteration pushes no frame")
+
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
+        raise AssertionError("an island iteration drives nothing")
+
+    def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
+        return []
+
+    def _island(self, ref: tuple[str, CharSet, bool], sink: list[str]) -> None:
+        raise ProbeFork("island spans two ends and the shorter could compose", 0)
+
+
+def test_an_attempted_island_that_cannot_settle_bails_instead_of_closing() -> None:
+    """Read as a failed iteration, the refusal closed the loop at the current
+    count and committed a carving the gated engine had been asked to decide."""
+    arm = flat_arm(
+        1,
+        kinds=(OP_ISLAND,),
+        los=(0,),
+        his=(-1,),
+        gate_data=(((frozenset("a"), False), (frozenset(), False)),),
+        payloads=(None,),
+    )
+    frame: Frame[str] = Frame(arm, [], flat_clone(), 0)
+    with pytest.raises(ProbeFork):
+        _IslandUndecidable("a").attempt_iteration(frame, arm, 0, 0)
