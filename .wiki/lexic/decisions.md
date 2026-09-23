@@ -256,6 +256,27 @@ try the alternative composition instead of guessing from one character.
 With the bail, vyx holds raw parity (0/194 divergent; row added for real —
 its old "exclusion" subtracted a stem that was never in the list).
 
+## 2026-09-23 — What follows an island is what follows ONE occurrence of it
+
+**Decision:** `IslandContinuations.follow` adds the island's own FIRST at every
+reference site where the reference can repeat (`sec+`, `sec{2,3}`).
+
+**Why:** the set is what `_unsettled_end` asks when deciding whether a shorter
+completion could compose with the caller. `cont_at` gives what follows the
+reference ITEM as a whole, so for `doc ::= sec+` it said only end-of-input. A
+shorter `sec` that another `sec` would continue is a second carving of `doc`,
+and longest-match settled it unchecked: `;!;;;!` came back as two sections
+where Earley builds three. The next occurrence is a different node, so it is
+not the island continuing itself, which is what the rule's own arms are
+excluded for. A reference inside a repeated GROUP needs nothing: the group
+arrives hoisted, and its rule's FOLLOW already carries the loopback.
+
+**Cost:** an island that can spell its own first character no longer has an
+exact window at a repeating site. The first continuation character no longer
+bounds it, so the window climbs. Of the benches and ground truth, only
+backtrack's `stmt` goes from exact to climbing; c.gbnf's four sites were
+already climbing. Answers are unchanged on both.
+
 ## 2026-09-23 — A delegate stands for its rule only if the rule has one end
 
 **Decision:** an island-interior rule is delegated only if no rule in its

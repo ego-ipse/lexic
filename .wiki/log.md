@@ -1,5 +1,12 @@
 # Log
 
+## What follows an island is what follows one occurrence of it (2026-09-23)
+
+A repeating island reference left its next occurrence out of the follow set,
+so a shorter end another occurrence would continue went unrefused.
+`decisions.md` records the fix and the one window it turns from exact to
+climbing.
+
 ## A delegate stands for its rule only if the rule has one end (2026-09-23)
 
 A delegated rule whose exit a policy picks injected one end and hid an arm
