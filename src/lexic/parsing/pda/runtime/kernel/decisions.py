@@ -25,7 +25,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND
-from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     REST_ADMITS,
@@ -92,7 +92,7 @@ class Attempting[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
-    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
+    def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
         """Provided by the kernel — the windowed Earley island splice.
 
         ``ref`` is the ``OP_ISLAND`` payload: the island rule's name, what may

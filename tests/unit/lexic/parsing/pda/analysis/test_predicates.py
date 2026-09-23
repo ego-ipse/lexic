@@ -12,6 +12,7 @@ checked against the language itself, enumerated.
 
 from __future__ import annotations
 
+import math
 from itertools import product
 
 import pytest
@@ -35,6 +36,7 @@ from lexic.parsing.pda.analysis.predicates import (
     STOPSET_ATOM,
     nullable_names,
     rule_extensions,
+    rule_spans,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -186,3 +188,51 @@ def test_extend_covers_every_extension_the_language_has(
     }
     got = extension(source)
     assert all(got.has(char) for char in seen), f"{seen} not all in EXTEND"
+
+
+# ── SPAN — how short and how long a match can be ──────────────────────────
+
+
+def span_of(source: str, rule: str = "x") -> tuple[float, float]:
+    """``rule``'s span in ``source``, over the grammar the PDA analyses."""
+    compiled = compile_text(source, cache_key=f"span-{hash(source)}")
+    grammar = lift_optional_nullables(compiled.codegen_grammar)
+    return rule_spans({str(one.name): one for one in grammar.rules})[rule]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ('x ::= "abc"\n', (3.0, 3.0)),
+        ("x ::= [a-z]\n", (1.0, 1.0)),
+        ('x ::= "ab" "c"?\n', (2.0, 3.0)),
+        ("x ::= [a-z]{2,4}\n", (2.0, 4.0)),
+        ('x ::= "a" | "bcd"\n', (1.0, 3.0)),
+        ("x ::= [a-z]*\n", (0.0, math.inf)),
+        ('x ::= "(" x ")" | "y"\n', (1.0, math.inf)),
+    ],
+    ids=["literal", "class", "optional", "bounded", "arms", "unbounded", "recursion"],
+)
+def test_span_is_the_shortest_and_longest_match(
+    source: str, expected: tuple[float, float]
+) -> None:
+    """Fewest and most characters a match of ``x`` can take."""
+    assert span_of(source) == expected
+
+
+def test_a_cycle_of_rules_is_unbounded_in_every_rule_it_reaches() -> None:
+    """``a → b → c → a``: each round one rule rises, so widening must reach
+    all three, not stop at whichever rose last — and must not undo itself."""
+    source = 'a ::= "x" b | "y"\nb ::= "x" c | "y"\nc ::= "x" a | "y"\n'
+    for rule in ("a", "b", "c"):
+        assert span_of(source, rule) == (1.0, math.inf), rule
+
+
+def test_an_unmeasured_rule_under_a_zero_count_does_not_poison_the_low_end() -> None:
+    """``a*`` before ``a`` is measured: ``inf`` times a count of zero is NaN,
+    which ``min`` never lowers. A zero count contributes nothing instead."""
+    source = 'root ::= a* "x"\na ::= "y" a?\n'
+    for rule in ("root", "a"):
+        low, high = span_of(source, rule)
+        assert not (math.isnan(low) or math.isnan(high)), rule
+        assert (low, high) == (1.0, math.inf), rule

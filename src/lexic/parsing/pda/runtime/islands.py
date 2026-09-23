@@ -43,6 +43,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.pda.analysis.gates.windows import END, Pref
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.product import ProductExecutor
@@ -143,21 +144,27 @@ class IslandPolicy[M](NamedTuple):
     executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
     window: int | None = None
+    windows: tuple[Pref, ...] = ()
 
     def for_island(
         self,
         delegates: dict[int, Delegate] | None,
         follow: CharSet | None,
         window: int | None = None,
+        windows: tuple[Pref, ...] = (),
     ) -> IslandPolicy[M]:
         """This policy with the per-reference parts filled in — what one island
         reference hands to its sub-parse. The delegates, the continuation and
         the window belong to the reference; the executor and the resolver
         belong to the whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.executor, follow, window)
+        return IslandPolicy(
+            delegates, self.resolve, self.executor, follow, window, windows
+        )
 
 
-def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet) -> int:
+def _unsettled_end[M](
+    kern: Kernel, end: int, text: str, pos: int, policy: IslandPolicy[M]
+) -> int:
     """A shorter completion end this window cannot settle against, or ``-1``.
 
     Asked after every window rather than only after the climb, and that is
@@ -177,14 +184,44 @@ def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet)
     :param end: The longest completion's end over this window.
     :param text: The full input.
     :param pos: Where the island opened.
-    :param follow: The island rule's continuation charset.
+    :param policy: Carries the occurrence continuation, one character deep
+        (``follow``) and a few deep (``windows``); the deeper one is asked only
+        where the first admits the next character.
     :returns: The shorter end, or ``-1`` when every one of them is refused by
         the continuation and longest-match is still a defined answer.
     """
+    follow = policy.follow
+    if follow is None:
+        return -1  # no continuation evidence: plain longest-match
     for alt in start_completion_ends(kern):
-        if alt < end and follow.has(text[pos + alt]):
+        at = pos + alt
+        if alt < end and follow.has(text[at]) and continues(policy.windows, text, at):
             return alt
     return -1
+
+
+def continues(windows: tuple[Pref, ...], text: str, at: int) -> bool:
+    """Whether some continuation window matches ``text`` from ``at``.
+
+    A window that runs past the end of ``text`` cannot match. One marked
+    complete (END) is a whole continuation through to the end of the input
+    (the compiler marks a full-width one MORE, since it may go on), so it
+    matches only where the input ends. MORE and UNK say nothing past
+    their characters, so matching those is enough. No windows is no
+    evidence, and admits.
+    """
+    if not windows:
+        return True
+    for chars, state in windows:
+        piece = text[at : at + len(chars)]
+        if len(piece) < len(chars):
+            continue
+        if not all(one.has(char) for one, char in zip(chars, piece)):
+            continue
+        if state == END and at + len(chars) != len(text):
+            continue
+        return True
+    return False
 
 
 def bounded_window(text: str, pos: int, cont: CharSet) -> int:
@@ -269,7 +306,7 @@ def island_parse(
     while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
         if best is not None and policy.follow is not None:
-            alt = _unsettled_end(kern, best[1], text, pos, policy.follow)
+            alt = _unsettled_end(kern, best[1], text, pos, policy)
             if alt >= 0:
                 raise ProbeFork(
                     f"island {name!r} at {pos}: arm choice spans two ends "

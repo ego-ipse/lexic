@@ -155,31 +155,32 @@ exclusion curve flattens against the derivation's fan-out cost."""
 class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     """The per-item compile context the :data:`_ATOM_SPEC` bodies read off ``nc``.
 
-    :ivar lo: The item's quantifier lower bound.
-    :ivar hi: The item's quantifier upper bound, or ``None``.
+    :ivar site: The item itself: its bounds, and which reference it is.
     :ivar cont: The item's hard continuation (the loop-gate / ref-tail base).
     :ivar gate: The precomputed loop-continuation gate.
     """
 
-    __slots__ = ("lo", "hi", "cont", "gate")
+    __slots__ = ("site", "cont", "gate")
 
-    lo: int
-    hi: int | None
+    site: IrItem
     cont: CharSet
     gate: LoopGate
 
-    def __init__(
-        self,
-        lo: int,
-        hi: int | None,
-        cont: CharSet,
-        gate: LoopGate,
-    ) -> None:
-        """Bind one item's bounds, continuation and gate."""
-        self.lo = lo
-        self.hi = hi
+    def __init__(self, site: IrItem, cont: CharSet, gate: LoopGate) -> None:
+        """Bind one item, its continuation and its gate."""
+        self.site = site
         self.cont = cont
         self.gate = gate
+
+    @property
+    def lo(self) -> int:
+        """The item's quantifier lower bound."""
+        return int(self.site.quantifier.lo)
+
+    @property
+    def hi(self) -> int | None:
+        """The item's quantifier upper bound, or ``None``."""
+        return upper_bound(self.site)
 
 
 # ── atom-type dispatch bodies ──────────────────────────────────────────────
@@ -226,10 +227,16 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
-        cont = compiler.continuations.follow(name)
+        cont = compiler.continuations.follow(name, ctx.site)
         return ItemSpec(
             REF,
-            IslandRef(name, fail, cont, compiler.continuations.bounds(name, cont)),
+            IslandRef(
+                name,
+                fail,
+                cont,
+                compiler.continuations.bounds(name, cont),
+                compiler.continuations.windows(name, ctx.site),
+            ),
             ctx.lo,
             ctx.hi,
             ctx.gate,
@@ -556,10 +563,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """
         item = items[idx]
         atom = item.atom
-        lo = int(item.quantifier.lo)
-        hi = upper_bound(item)
-        gate = self._loop_gate(items, idx, cont)
-        ctx = _ItemCtx(lo, hi, cont, gate)
+        ctx = _ItemCtx(item, cont, self._loop_gate(items, idx, cont))
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
     def _loop_gate(self, items: Sequence[IrItem], idx: int, cont: CharSet) -> LoopGate:

@@ -256,6 +256,35 @@ try the alternative composition instead of guessing from one character.
 With the bail, vyx holds raw parity (0/194 divergent; row added for real —
 its old "exclusion" subtracted a stem that was never in the list).
 
+## 2026-09-23 — An island's end is judged two characters deep, and only against sites that can meet it
+
+**Decision:** the two-ends check (`islands._unsettled_end`) refuses a shorter
+completion only if the continuation admits it TWO characters deep, and only
+counts continuations from reference sites that can stand at the same document
+position. `IslandContinuations` computes both on the document grammar.
+`windows(name, site)` is FIRST-2 of each site's arm rest, END-extended by its
+rule's FOLLOW-2, with the next occurrence's windows grown to a fixpoint where
+the reference repeats. `follow(name, site)` and `windows(name, site)` union
+only sites whose position intervals meet (`site_positions`: the start rule at
+0, a reference at its rule's start plus its prefix's span, the hull over every
+path). A delegate's analysis never narrows: its window rebases positions.
+
+**Why:** the one-character, all-sites test refused ends no continuation could
+take, sending whole documents to Earley. abnf-meta's ` ` was followed by `/`,
+which begins no continuation. gbnf-meta's `#` came only from a site that
+follows a whole rule, never the document's first position. Both remain over-
+approximations, so a refusal still happens whenever some continuation could
+compose. The windows had one bug on the way: extending the next occurrence by
+the RULE's FOLLOW instead of the arm's rest dropped `;a` in
+`sec ::= stmt+ end`, and the random differential caught a wrong model from it.
+Both fixpoints (`rule_spans`, `site_positions`) run until nothing moves and
+update monotonically: a fixed round count left a widened `inf` unpropagated,
+and a high end recomputed from not-yet-widened arms oscillated. A reference
+inside an inline group is a site too, followed by what follows its groups.
+
+**Scope:** vyx's `envelope` refusal survives to four characters. It is genuine,
+and item 36's route owns it.
+
 ## 2026-09-23 — What follows an island is what follows ONE occurrence of it
 
 **Decision:** `IslandContinuations.follow` adds the island's own FIRST at every
