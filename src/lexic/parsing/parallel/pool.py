@@ -103,7 +103,12 @@ class WorkPool:
             self._slots.at = mine
         return mine
 
-    def map[T, M](self, work: Callable[[T], M], items: Sequence[T]) -> list[M]:
+    def map[T, M](
+        self,
+        work: Callable[[T], M],
+        items: Sequence[T],
+        beside: Callable[[], None] | None = None,
+    ) -> list[M]:
         """Keep a bounded ready queue, return in order, and isolate failure.
 
         A phase DRAINS on the engine's own verdicts and on nothing else. A
@@ -119,10 +124,17 @@ class WorkPool:
         waiting — and a caller whose blocked item needs the error to release it
         deadlocks against a phase that waits first.
 
+        ``beside`` is the CALLING thread's own share, run once the first items
+        are submitted and before it waits on them — work that belongs on this
+        thread (its grammar view is already built here) and would otherwise
+        idle it. Its refusal drains the phase like an item's.
+
         :param work: The per-item callable.
         :param items: The work items, in the order results are wanted.
+        :param beside: The calling thread's own work, or ``None``.
         :returns: One result per item, in input order.
-        :raises LexicError: The earliest failing item's own refusal.
+        :raises LexicError: The earliest failing item's own refusal, or
+            ``beside``'s.
         :raises RuntimeError: If the pool already failed and is unusable.
         """
         if self._failed:
@@ -136,11 +148,16 @@ class WorkPool:
         failures: dict[int, LexicError] = {}
         next_item = 0
         try:
-            while next_item < len(items) or futures:
+            while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
                     future = self._pool.submit(work, items[next_item])
                     futures[future] = next_item
                     next_item += 1
+                own, beside = beside, None
+                if own is not None:
+                    own()
+                if not futures:
+                    continue
                 completed = wait(futures, return_when=FIRST_COMPLETED)[0]
                 for future in sorted(completed, key=futures.__getitem__):
                     index = futures.pop(future)
@@ -151,11 +168,12 @@ class WorkPool:
                 if failures:
                     raise _drained(futures, results, failures)
         except LexicError:
-            # A refusal has already drained its phase, so nothing is running
-            # and the pool is still whole: cancel what never started and let
-            # the verdict go up.
+            # A refusal drains its phase: cancel what never started, wait out
+            # what is running — nothing is, unless the refusal was the calling
+            # thread's own — and let the verdict go up with the pool whole.
             for future in futures:
                 future.cancel()
+            wait(futures)
             raise
         except BaseException:
             # Cleanup, not a catch. The queued work is cancelled and the pool

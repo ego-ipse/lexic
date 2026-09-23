@@ -125,10 +125,10 @@ def test_an_empty_sweep_is_not_dispatched(workers: int) -> None:
     class Counting(WorkPool):
         """A pool that records every hand-out it is asked to make."""
 
-        def map(self, work, items):
+        def map(self, work, items, beside=None):
             """Record the request, then behave exactly like the real pool."""
             handed.append(len(items))
-            return super().map(work, items)
+            return super().map(work, items, beside)
 
     with Counting(workers) as pool:
         windows = scan_windows(scanner, text, workers, pool)

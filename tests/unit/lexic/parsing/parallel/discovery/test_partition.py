@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.partition`` — which spans to divide.
+"""Tests for ``lexic.parsing.parallel.discovery.partition`` — which spans to divide.
 
 The partition packs a span's adjacent items into runs of about one worker's
 share, descends into an item too big for one, and renders every piece and the
@@ -11,7 +11,12 @@ from __future__ import annotations
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
 from lexic.parsing.parallel.discovery.regions import Region, find
-from lexic.parsing.parallel.partition import Division, partition, render, units
+from lexic.parsing.parallel.discovery.partition import (
+    Division,
+    partition,
+    render,
+    units,
+)
 
 FLOOR = 2 * MIN_CHUNK
 BIG = FLOOR // 2  # items of 2-5 chars, so a run of this many clears the floor
@@ -102,15 +107,25 @@ def test_one_long_run_packs_into_a_piece_per_worker():
 
 
 def test_an_oversized_item_is_descended_and_its_path_divided():
-    """The object's one big member holds the array: the array is divided four
-    ways, and the object — on the path — is divided too, whole, so the piece
-    holding the array's stand-in is found by item."""
-    doc = '{"a": [' + _run(20000) + '], "b": 1}'
+    """The object's big member holds the array: the array is divided four
+    ways, and the object — on the path, with a floor's worth of text of its
+    own — is divided too, whole, so the piece holding the array's stand-in
+    is found by item."""
+    doc = '{"pad": "' + "p" * 3000 + '", "a": [' + _run(20000) + "]}"
     picked = partition(doc, find(JSON_GRAMMAR, doc), 4)
     assert [(d.region.rule, len(d.cuts)) for d in picked] == [
         ("object", 0),
         ("array", 3),
     ]
+
+
+def test_a_path_region_with_little_text_of_its_own_is_left_to_its_holder():
+    """Without the padding the object keeps a few bytes once the array is
+    descended: a unit of its own would cost more than finding the stand-in
+    in the shell, so only the array is divided."""
+    doc = '{"a": [' + _run(20000) + '], "b": 1}'
+    picked = partition(doc, find(JSON_GRAMMAR, doc), 4)
+    assert [(d.region.rule, len(d.cuts)) for d in picked] == [("array", 3)]
 
 
 def test_adjacent_regions_ship_together_rather_than_divided():

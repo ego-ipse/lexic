@@ -23,7 +23,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import par_find
-from lexic.parsing.parallel.partition import Division, partition, units
+from lexic.parsing.parallel.discovery.partition import Division, partition, units
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
     cut_offsets,
@@ -221,22 +221,30 @@ def _parse_units[M: IrNamedTuple](
     ask: Request[M],
     pool: WorkPool,
 ) -> tuple[list[GrammarModel], M] | None:
-    """Parse every unit concurrently against per-worker replicas — the pieces
-    of every level AND the shell in one map, so the shell is not left for
-    after them."""
+    """Parse every piece against per-worker replicas while the calling thread
+    parses the shell, the last task, beside them.
+
+    The shell stays on this thread because it is parsed under the whole
+    grammar, whose view this thread already holds: in the pool, whichever
+    worker drew it would build a replica of the whole grammar for one small
+    parse.
+    """
+    shell: list[M] = []
+    grammar, text = tasks[-1]
     try:
         parsed = pool.map(
             lambda k: worker_parse(
                 parse, tasks[k][0], tasks[k][1], ask.binding, ask.config
             ),
-            list(range(len(tasks))),
+            list(range(len(tasks) - 1)),
+            lambda: shell.append(parse(grammar, text, ask.binding, ask.config)),
         )
     except LexicError:
         return None
-    pieces = [model for model in parsed[:-1] if isinstance(model, GrammarModel)]
-    if len(pieces) != len(parsed) - 1:
+    pieces = [model for model in parsed if isinstance(model, GrammarModel)]
+    if len(pieces) != len(parsed):
         return None
-    return pieces, parsed[-1]
+    return pieces, shell[0]
 
 
 def _split_regions[M: IrNamedTuple](

@@ -21,7 +21,7 @@ from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
-from lexic.parsing.parallel.partition import Division, Unit, units
+from lexic.parsing.parallel.discovery.partition import Division, Unit, units
 from lexic.parsing.parallel.stitch.model import (
     ModelStep,
     head_rest,
