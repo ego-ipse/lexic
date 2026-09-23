@@ -61,7 +61,6 @@ from lexic.parsing.earley.engine import (
     PARSE_FIRST,
     ParseFirst,
 )
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     DerivationStream,
     IrStream,
@@ -69,10 +68,10 @@ from lexic.parsing.earley.kernel.forest.forest import (
 )
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm
 from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
-from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
+from tests.unit.lexic.conftest import DeciderSpy
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
 # ── Grammar builders ──────────────────────────────────────────────────
@@ -661,24 +660,13 @@ def test_parse_first_returns_one_tree_where_parse_raises_expr_plus(
 
 
 def test_parse_first_keeps_the_carving_of_the_callers_decider(
-    expr_plus_grammar: IrAst, monkeypatch: pytest.MonkeyPatch
+    expr_plus_grammar: IrAst, decider_spy: DeciderSpy
 ):
     """The resolving build behind ``parse_first`` asks the decider the caller
-    passed, as ``parse`` does: every fast tree it builds holds that decider.
-    One equal in rank but granting nothing is a value no default stands for."""
-    decider = LeftmostLongest(frozenset())
-    seen: list[object] = []
-    build = FastTree.build
-
-    def spy(tree: FastTree, handle: int):
-        seen.append(tree.decide)
-        return build(tree, handle)
-
-    monkeypatch.setattr(FastTree, "build", spy)
-    tree = parse_first(expr_plus_grammar, "a+a+a", decide=decider)
+    passed, as ``parse`` does: every fast tree it builds holds that decider."""
+    tree = parse_first(expr_plus_grammar, "a+a+a", decide=decider_spy.decider)
     assert isinstance(tree, ParseTree)
-    assert seen, "no fast tree was built: the resolving route did not run"
-    assert all(one is decider for one in seen)
+    assert decider_spy.reached_every_tree(), decider_spy.seen
 
 
 def test_parse_first_refuses_a_call_without_a_decider(expr_plus_grammar: IrAst):
