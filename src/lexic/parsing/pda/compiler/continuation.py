@@ -15,11 +15,17 @@ doubling climb.
 
 from __future__ import annotations
 
-from lexic.ir import IrRuleRef
+from lexic.ir import IrItem, IrNoneType, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.specs import arm_items
 from lexic.parsing.pda.core.charsets import CharSet
+
+
+def _repeats(item: IrItem) -> bool:
+    """Whether ``item`` can occur more than once in a row."""
+    hi = item.quantifier.hi
+    return isinstance(hi, IrNoneType) or int(hi) > 1
 
 
 class IslandContinuations:
@@ -68,6 +74,15 @@ class IslandContinuations:
         never cloned — its internal recursion is resolved inside the Earley
         sub-parse and never reaches a reference site here.
 
+        *What follows ONE occurrence*, not the item as a whole. A reference
+        that can repeat (``sec+``) is followed by its next occurrence too, and
+        a shorter end that another ``sec`` would continue is two carvings of
+        the caller's repetition, which longest-match must not settle. So such
+        a site adds the island's own FIRST. That is a different node, unlike
+        the island's own arms above. A reference inside a repeated GROUP
+        needs nothing here: the group arrives hoisted, and its rule's FOLLOW
+        already carries the loopback.
+
         :param name: The island rule name.
         :returns: The union over external reference sites; empty when the
             island is referenced from nowhere (the start rule itself), which
@@ -89,6 +104,8 @@ class IslandContinuations:
                         found = found.union(
                             analysis.cont_at(items, at, analysis.follow[rule])
                         )
+                        if _repeats(item):  # the next occurrence follows this one
+                            found = found.union(analysis.atom_first(atom))
         self._follows[name] = found
         return found
 

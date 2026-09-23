@@ -125,3 +125,50 @@ def test_a_negated_continuation_bounds_nothing() -> None:
     derivation = continuations(_LEFT_RECURSIVE)
 
     assert not derivation.bounds("item", CharSet.ANY)
+
+
+# ── a repeating reference is followed by its next occurrence ────────────────
+
+_SEC = 'sec ::= sec "~" | sec "^" | "a" "b"*\n'
+"""An island by left recursion (two recursive arms, so nothing folds it) that
+begins with ``a``."""
+
+
+def follow_of_sec(doc: str) -> CharSet:
+    """What follows island ``sec`` where ``doc`` references it."""
+    return continuations(f"doc ::= {doc}\n{_SEC}").follow("sec")
+
+
+def test_a_repeating_reference_counts_its_next_occurrence() -> None:
+    """After one ``sec`` of ``sec+`` comes ``.`` or another ``sec``: a shorter
+    end that another occurrence continues is a second carving of the caller."""
+    got = follow_of_sec('sec+ "."')
+    assert got.has(".") and got.has("a")
+
+
+def test_a_bounded_repeat_is_followed_by_its_next_occurrence_too() -> None:
+    """``{2,3}`` can take another occurrence; at its ceiling the extra FIRST
+    only over-approximates, which can refuse more but never admit less."""
+    assert follow_of_sec('sec{2,3} "."').has("a")
+
+
+def test_a_reference_that_cannot_repeat_gains_nothing() -> None:
+    """``sec?`` occurs at most once, so only ``.`` follows it."""
+    got = follow_of_sec('sec? "."')
+    assert got.has(".") and not got.has("a")
+
+
+def test_a_reference_in_a_repeated_group_is_unchanged() -> None:
+    """In ``(sec ";")+`` the next occurrence comes after ``;``, which is what
+    follows ``sec``, so ``a`` does not."""
+    got = follow_of_sec('(sec ";")+')
+    assert got.has(";") and not got.has("a")
+
+
+def test_the_next_occurrence_unbounds_the_window() -> None:
+    """``sec`` spells ``a``, so once ``a`` can follow it, the first ``a``
+    no longer marks its end and the window must climb."""
+    alone = continuations(f'doc ::= sec "."\n{_SEC}')
+    repeated = continuations(f'doc ::= sec+ "."\n{_SEC}')
+    assert alone.bounds("sec", alone.follow("sec"))
+    assert not repeated.bounds("sec", repeated.follow("sec"))
