@@ -90,6 +90,21 @@ def test_a_sized_document_nests_where_the_grammar_can():
     assert sum(text.count(c) for c in "[]{}") > 200
 
 
+@pytest.mark.parametrize("seed", [0, 3])
+def test_a_budget_past_the_depth_repeats_structure_not_a_terminal_run(seed):
+    """At the default depth json cannot nest far enough for 20,000 characters.
+    The budget must become more members and elements, walked freely, not one
+    unbounded whitespace run: a repeating reference's room counts its free
+    units once its steered room is spent."""
+    source = (GRAMMAR_DIR / "json.gbnf").read_text()
+    ast = canonical_grammar(source, GBNF_FLAVOUR)
+    rules = {rule.name: rule for rule in ast.rules}
+    text = generate(str(ast.start), rules, rng=random.Random(seed), size=20_000)
+    assert abs(len(text) - 20_000) <= 200, len(text)
+    assert sum(char in " \t\r\n" for char in text) < len(text) // 2
+    assert "      " not in text
+
+
 def test_size_targeting_is_deterministic_per_seed():
     """One seed, one document."""
     assert _sized("json.gbnf", 5_000, 7) == _sized("json.gbnf", 5_000, 7)
