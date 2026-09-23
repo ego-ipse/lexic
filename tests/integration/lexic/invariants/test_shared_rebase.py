@@ -28,7 +28,6 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
     reads_a_sweep,
@@ -37,6 +36,7 @@ from lexic.parsing.parallel.plan.cuts import (
     scan_windows,
     shared_scanner,
 )
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
@@ -70,7 +70,7 @@ def hand_rebase(windows: list[Window]) -> list[int]:
 
 def sweeping_plans(grammar):
     """This grammar's certified plans, and the ones that read a sweep."""
-    plans = _safe_plans(_split_plans(grammar), grammar)
+    plans = safe_plans(split_plans(grammar), grammar)
     return plans, tuple(plan for plan in plans if reads_a_sweep(plan))
 
 

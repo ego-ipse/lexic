@@ -30,8 +30,8 @@ import pytest
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.model import GrammarModel
-from lexic.parsing.parallel.orchestrate import split_plan
 from lexic.parsing.parallel.plan.folded import folded_plan
+from lexic.parsing.parallel.planner import split_plan
 from tests.split_helpers import engages
 from tools.benchmark.cases.corpora import island_corpus
 from tools.benchmark.cases.grammars import BENCHES

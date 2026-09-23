@@ -20,6 +20,9 @@ reattached afterward. The larger parse must not repeat delegated work merely
 because it contains it. Separator joints parse shallow grammatical witnesses
 carrying the exact boundary noise, then attach the already parsed forward head.
 
+`planner.py` decides, once per grammar, which split plans exist and which a
+safety proof licenses; `orchestrate.py` runs a document through them.
+
 One `WorkPool` owns all parallel phases of a split attempt, so a start-rule
 scan and its piece parse reuse the same executor. The public `ParsePool` binds
 one callable for repeated document maps. Both admit a bounded sliding window

@@ -1,6 +1,6 @@
 """The plan loop's fallback, exercised: plan one declines, plan two wins.
 
-`_split_plans` returns a TUPLE and the orchestrator iterates all of it — a plan
+`split_plans` returns a TUPLE and the orchestrator iterates all of it — a plan
 yielding no offsets is skipped and the next is tried. Nothing on the benchmark
 roster reaches that: every grammar that tries a plan tries exactly one and it
 wins, so the `+` that joins the certified family to the proposals, and the loop
@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.parsing.parallel import orchestrate
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from tools.benchmark.cases.grammars import BENCHES
 
 WORKERS = 4
@@ -42,7 +42,7 @@ def test_the_two_plans_are_ordered_row_then_field() -> None:
     """
     grammar = csv_bench().compiled.codegen_grammar
 
-    plans = _safe_plans(_split_plans(grammar), grammar)
+    plans = safe_plans(split_plans(grammar), grammar)
 
     assert [one.owner for one in plans] == ["row", "field"]
     assert plans[0].mark == frozenset({"\n"})

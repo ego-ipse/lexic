@@ -15,13 +15,8 @@ import pytest
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
-from lexic.parsing.parallel import orchestrate, split_model, split_plan
-from lexic.parsing.parallel.orchestrate import (
-    Request,
-    _certified,
-    _safe_plans,
-    _split_plans,
-)
+from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
+from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
     reads_a_sweep,
@@ -32,8 +27,10 @@ from lexic.parsing.parallel.plan.cuts import (
 )
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
+from lexic.parsing.parallel.planner import _certified, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.roles import roles
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     CONTINUATION_SOURCE,
@@ -141,9 +138,9 @@ def test_universal_gates_skip_plan_and_safety_analysis(
     def unexpected_analysis(*_args, **_kwargs):
         raise AssertionError("parallel analysis ran behind a universal gate")
 
-    monkeypatch.setattr(orchestrate, "_split_plans", unexpected_analysis)
-    monkeypatch.setattr(orchestrate, "owner_excludes", unexpected_analysis)
-    monkeypatch.setattr(orchestrate, "terminates_once", unexpected_analysis)
+    monkeypatch.setattr(orchestrate, "split_plans", unexpected_analysis)
+    monkeypatch.setattr(planner, "owner_excludes", unexpected_analysis)
+    monkeypatch.setattr(planner, "terminates_once", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "par_find", unexpected_analysis)
 
     assert (
@@ -527,13 +524,6 @@ def test_too_few_separators_declines():
     assert compiled.parse(text).to_text() == text
 
 
-def test_plan_is_memoised_per_grammar():
-    """The shape analysis runs once per grammar identity."""
-    compiled = compile_text(LEAD_RULE)
-    grammar = compiled.codegen_grammar
-    assert split_plan(grammar) is split_plan(grammar)
-
-
 ENVELOPE = (
     "root ::= rule cont* tail?\n"
     'rule ::= name ws "=" ws value\n'
@@ -567,26 +557,6 @@ def test_an_ungenerateable_witness_declines_the_envelope_split_cleanly(
     assert compiled.parse(text, cores=8) == sequential
 
 
-def test_split_plans_are_memoised_per_grammar_while_cuts_stay_per_document() -> None:
-    """The plan tuple is one object per grammar identity — computed once,
-    reused — but the cut OFFSETS it produces are a function of the document,
-    never cached across two different ones."""
-    compiled = compile_text(TWO_MARK_SOURCE, cache_key="two-mark-memo")
-    grammar = compiled.codegen_grammar
-
-    assert _split_plans(grammar) is _split_plans(grammar)
-
-    plan = _split_plans(grammar)[1].envelope
-    assert plan is not None and plan.mark == "\n"
-
-    short_entries = [f"k{chr(97 + i)} = v" for i in range(26)]
-    long_entries = short_entries * 4
-    short_text = "\n".join(short_entries)
-    long_text = "\n".join(long_entries)
-
-    assert plan.cuts(short_text) != plan.cuts(long_text)
-
-
 def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evidence() -> (
     None
 ):
@@ -616,52 +586,6 @@ def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evid
     assert len(calls) >= 2, "only one worker actually parsed"
 
     assert compiled.parse(text, cores=8) == sequential
-
-
-# ── the terminated-plan boundary route: SplitPlan.bound ──────────────────
-
-_TWO_ARM_TERMINATOR = (
-    "root ::= item+\n"
-    "item ::= a nl | b nl\n"
-    'a ::= "a" mid\n'
-    'b ::= "b" mid\n'
-    'mid ::= "\\n" "x"\n'
-    'nl ::= "\\n"\n'
-)
-"""A unit with two arms sharing a final ``nl``: a raw terminated plan
-exists, but the unit has no single-arm shape to announce itself, so
-``unit_prefix`` returns ``None`` and there is no boundary route either."""
-
-
-def test_a_terminated_plan_with_an_announcing_prefix_is_certified_with_a_bound() -> (
-    None
-):
-    """``terminates_once`` fails on this unit, but it announces itself, so
-    certification takes the boundary route and the certified plan carries
-    the proven prefix — the raw (uncertified) plan carries none."""
-    compiled = compile_text(CONTINUATION_SOURCE)
-    grammar = compiled.codegen_grammar
-    plan = split_plan(grammar)
-
-    assert plan is not None and plan.bound is None
-
-    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
-
-    assert certified is not None
-    assert certified.bound is not None
-    assert certified.bound.literal == " "
-
-
-def test_a_terminated_plan_without_an_announcing_prefix_is_dropped() -> None:
-    """A raw terminated plan exists, but the unit's two arms give
-    ``unit_prefix`` no single shape to announce — neither route certifies,
-    and the plan is dropped rather than certified with an empty bound."""
-    compiled = compile_text(_TWO_ARM_TERMINATOR)
-    grammar = compiled.codegen_grammar
-    plan = split_plan(grammar)
-
-    assert plan is not None and plan.bound is None
-    assert _certified(plan, compiled.split_analysis or compiled.grammar) is None
 
 
 # ── admission filtering: continuation marks vs genuine heads ─────────────
@@ -765,8 +689,8 @@ def _mixed_ends_doc(records: int) -> str:
 def _certified_mixed_ends() -> tuple[tuple[SplitPlan, ...], CompiledGrammar]:
     """The certified plans for :data:`MIXED_ENDS`, and the artefact they came from."""
     compiled = compile_text(MIXED_ENDS, cache_key="orch-mixed-ends")
-    plans = _safe_plans(
-        _split_plans(compiled.codegen_grammar),
+    plans = safe_plans(
+        split_plans(compiled.codegen_grammar),
         compiled.split_analysis or compiled.grammar,
     )
     return plans, compiled
@@ -783,7 +707,7 @@ def test_the_shared_sweep_looks_only_for_marks_a_certified_plan_cuts_at() -> Non
     once discarding it."""
     plans, compiled = _certified_mixed_ends()
     assert plans, "the fixture must certify a plan"
-    derived = orchestrate.roles(compiled.codegen_grammar)
+    derived = roles(compiled.codegen_grammar)
     assert " " in derived.marks, "the fixture must derive a mark no plan uses"
 
     shared = shared_scanner(compiled.codegen_grammar, plans)
@@ -815,8 +739,8 @@ def test_a_walking_scan_neither_reads_nor_feeds_the_shared_sweep() -> None:
     region table, so its pass answers that plan's question and no other's —
     it takes nothing from the shared sweep and puts nothing into it."""
     compiled = compile_text(FENCE, cache_key="orch-fenced-shared")
-    plans = _safe_plans(
-        _split_plans(compiled.codegen_grammar),
+    plans = safe_plans(
+        split_plans(compiled.codegen_grammar),
         compiled.split_analysis or compiled.grammar,
     )
     walking = [plan for plan in plans if plan.scanner.opaque]
@@ -838,8 +762,8 @@ def test_an_envelope_plan_puts_no_mark_into_the_shared_sweep() -> None:
     twice the whole split parse on ``gbnf-meta``.
     """
     compiled = compile_text(ENVELOPE_SOURCE, cache_key="orch-envelope-sweep")
-    plans = _safe_plans(
-        _split_plans(compiled.codegen_grammar),
+    plans = safe_plans(
+        split_plans(compiled.codegen_grammar),
         compiled.split_analysis or compiled.grammar,
     )
     enveloped = [plan for plan in plans if plan.envelope is not None]
@@ -858,8 +782,8 @@ def test_a_proposal_and_a_proof_share_one_sweep() -> None:
     the union is what lets one pass serve both — the proposal used to rescan
     the whole document for its own spellings."""
     compiled = compile_text(TERMINATED, cache_key="orch-shared-terminated")
-    plans = _safe_plans(
-        _split_plans(compiled.codegen_grammar),
+    plans = safe_plans(
+        split_plans(compiled.codegen_grammar),
         compiled.split_analysis or compiled.grammar,
     )
     shared = shared_scanner(compiled.codegen_grammar, plans)

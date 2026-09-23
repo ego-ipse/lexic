@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-import lexic.parsing.parallel.orchestrate as orchestrate_module
+import lexic.parsing.parallel.planner as planner_module
 from lexic.compile import (
     CompiledGrammar,
     Directives,
@@ -446,14 +446,14 @@ def test_scan_agrees_guard_is_reachable_and_declines_without_mis_scanning(
     assert len(text) >= 32 * 1024
 
     calls: list[bool] = []
-    real_scan_agrees = orchestrate_module.scan_agrees
+    real_scan_agrees = planner_module.scan_agrees
 
     def recording_scan_agrees(v, s, o, m):
         result = real_scan_agrees(v, s, o, m)
         calls.append(result)
         return result
 
-    monkeypatch.setattr(orchestrate_module, "scan_agrees", recording_scan_agrees)
+    monkeypatch.setattr(planner_module, "scan_agrees", recording_scan_agrees)
 
     # A direct sequential fold (not compiled.parse: that would re-derive its
     # OWN matching analysis view and mix a true agreement into `calls`).
