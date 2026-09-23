@@ -33,10 +33,10 @@ def soft_gap_conflict(
         items, k, scope.structural_tail
     ).subtract(analysis.hard_cont_at(items, k, scope.hard_tail))
     if not first.overlaps(structural_gap):
-        notes.soft.append(f"{scope.rule}[{k}]: loop greedy split")
+        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split")
         return
     if noise_greedy_licensed(analysis, items, k, scope):
-        notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)")
+        notes.picks_extent(f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)")
         return
     if not demote_loop(analysis, items, k, scope, notes):
         notes.hard.append(f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable")

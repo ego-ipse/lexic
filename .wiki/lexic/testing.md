@@ -194,3 +194,20 @@ whatever state its owning thread left it, and only the forking thread exists on
 the other side — so a lock held by a pool worker at fork time is held forever in
 the child. Releasing the pools first makes the parent single-threaded at that
 moment.
+
+## Tracing allocations under free threading
+
+Run any `tracemalloc` measurement with `PYTHON_TLBC=0` (or `-X tlbc=0`). With
+thread-local bytecode on, free-threaded CPython 3.14.3 deadlocks: the tracer
+holds its mutex while reading a code object's line table, and a thread running
+that code object for the first time holds the code object's lock while
+allocating its bytecode copy through the tracer. Any thread running a code
+object for the first time while tracing is on can trigger it — new threads
+always do, and warm pool workers do on their exit path — so a parse at
+`cores=1` hangs as well, at thread join, after the parse has finished. The hang
+looks like a thousandfold slowdown when the run is killed at a timeout. The
+trigger needs no lexic: start tracing, then map over a fresh
+`ThreadPoolExecutor`. CPython 3.14.5 removes the lock the tracer waits on
+(gh-148037); until the interpreter is at least that, the flag is the
+workaround. Tracing still costs several times the untraced time (about 3x to 5x
+on small parses), so a traced run reports peak memory, never timing.

@@ -417,6 +417,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 self.taxonomy.demoted[name] = notes.soft
             if fail:
                 self.taxonomy.fail.add(name)
+            if notes.policy:
+                self.taxonomy.policy_ends.add(name)
 
     def arm_conflicts(
         self,
@@ -470,7 +472,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             )
             if not gated:
                 for i in greedy:
-                    notes.soft.append(
+                    notes.picks_extent(
                         f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)"
                     )
 
@@ -542,9 +544,9 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.covered += 1
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
-                    notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied")
+                    notes.picks_extent(f"{scope.rule}[{k}]: loop stop-set applied")
                 elif noise_greedy_licensed(self, items, k, scope):
-                    notes.soft.append(
+                    notes.picks_extent(
                         f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
                     )
                 else:

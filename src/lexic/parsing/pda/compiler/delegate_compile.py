@@ -13,17 +13,25 @@ way.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrItem, IrLeaf, IrNoneType, IrRuleRef, IrSelf
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLeaf,
+    IrNoneType,
+    IrRuleRef,
+    IrSelf,
+)
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 _DELEGATE_MIN_ATOMS = 4
 """Triviality floor for delegation: a delegable rule must be able to match a run
-*worth* the sub-run setup — an unbounded loop anywhere in its reachable
-interior, or at least this many terminal atoms. Rules below it (1–3-char
+*worth* the sub-run setup. ONE match must be able to span this many terminal
+atoms (:func:`_longest`), which an unbounded loop always can. Rules below it (1–3-char
 literals / char classes) stay pure-Earley; the win is proportional to
 delegated-span length, so short interiors sit near break-even. Benchmark-tuned
 against the synthetic long-interior grammar + the four bench grammars (Task 6.2
@@ -31,50 +39,118 @@ perf gate); raise it if short-interior delegation regresses perf."""
 
 
 def _delegable(analysis: GrammarAnalysis, name: str) -> bool:
-    """Whether rule ``name`` is worth delegating: island-free AND above the floor.
+    """Whether rule ``name`` may be delegated: one end, island-free, above the floor.
 
-    Two conditions over the rule's reachable interior (following non-island rule
-    refs):
+    Three conditions over the rule's reachable interior (:func:`_interior`,
+    following non-island rule refs and inline groups):
 
-    1. **Island-free.** A reachable *island* reference disqualifies the rule —
+    1. **One end.** A delegate files ONE completion, at the end its run
+       reaches; the island's chart never sees another. That stands for every
+       derivation only if no other end can be followed, which holds where every
+       decision is settled by lookahead. A reachable rule that picks an extent
+       by policy (:attr:`Taxonomy.policy_ends
+       <lexic.parsing.pda.analysis.taxonomy.Taxonomy.policy_ends>`, a stop-set
+       or greedy exit) can end at several places a continuation accepts, and
+       injecting one would hide the rest: an arm choice the island must refuse
+       would arrive with one arm already gone.
+    2. **Island-free.** A reachable *island* reference disqualifies the rule —
        delegating it would still re-enter the Earley island sub-parse for that
        reference (nested ``island_parse``), so the PDA-clone wrapper adds cost
        without removing the Earley work. Only self-contained deterministic
        interiors (json ``number`` / ``string``, not the value-recursive
        ``object`` / ``array``) are a real win — measured: including
        island-referencing rules regressed json ~1.4×.
-    2. **Above the floor.** The interior must match a run *worth* the sub-run
-       setup — an unbounded (``*`` / ``+`` / ``{n,}``) loop, or at least
-       :data:`_DELEGATE_MIN_ATOMS` terminal atoms.
+    3. **Above the floor.** ONE match must be able to span a run *worth* the
+       sub-run setup: :data:`_DELEGATE_MIN_ATOMS` terminal atoms along a single
+       derivation (:func:`_longest`), which any unbounded (``*`` / ``+`` /
+       ``{n,}``) loop reaches. Counting across alternatives would let a rule
+       of many short arms through, and that tiny-span shape is what regressed
+       json.
 
     :param analysis: The island sub-grammar analysis.
     :param name: The candidate rule name.
-    :returns: ``True`` when the rule is island-free and clears the floor.
+    :returns: ``True`` when the rule has one end, is island-free and clears
+        the floor.
+    """
+    if name in analysis.taxonomy.policy_ends:
+        return False  # its run picks one of several followable ends
+    for item in _interior(analysis, name):
+        atom = item.atom
+        if isinstance(atom, IrRuleRef):
+            if str(atom) in analysis.islands:
+                return False  # island ref — nested Earley, no delegation win
+            if str(atom) in analysis.taxonomy.policy_ends:
+                return False  # its run picks one of several followable ends
+    return _longest(analysis, name, {}) >= _DELEGATE_MIN_ATOMS
+
+
+def _longest(analysis: GrammarAnalysis, name: str, memo: dict[str, int]) -> int:
+    """How many terminal atoms ONE match of rule ``name`` can span, capped at
+    the floor.
+
+    The largest arm, not the sum of them: alternatives are never matched
+    together, and twelve one-letter arms still match one letter. An unbounded
+    loop, or a recursion back into a rule being measured, reaches the cap.
+    """
+    got = memo.get(name)
+    if got is not None:
+        return got
+    rule = analysis.rules.get(name)
+    if rule is None:
+        return _DELEGATE_MIN_ATOMS
+    memo[name] = _DELEGATE_MIN_ATOMS  # a recursion back here can grow without bound
+    memo[name] = max(_seq_longest(analysis, list(arm), memo) for arm in rule.body)
+    return memo[name]
+
+
+def _seq_longest(
+    analysis: GrammarAnalysis, items: list[IrSelf], memo: dict[str, int]
+) -> int:
+    """The longest single match of a sequence, capped at the floor: the sum of
+    its items, each its atom's span times how often it can repeat."""
+    total = 0
+    for item in items:
+        if not isinstance(item, IrItem):
+            continue
+        atom = item.atom
+        if isinstance(atom, IrRuleRef):
+            one = _longest(analysis, str(atom), memo)
+        elif isinstance(atom, IrAlternation):
+            one = max(
+                (_seq_longest(analysis, list(arm), memo) for arm in atom), default=0
+            )
+        else:
+            one = 1
+        if one == 0:
+            continue
+        hi = item.quantifier.hi
+        total += _DELEGATE_MIN_ATOMS if isinstance(hi, IrNoneType) else one * int(hi)
+    return min(total, _DELEGATE_MIN_ATOMS)
+
+
+def _interior(analysis: GrammarAnalysis, name: str) -> Iterator[IrItem]:
+    """Every item of rule ``name``'s reachable interior, each rule once.
+
+    Descends rule references AND inline groups: a group is part of the rule
+    that holds it, so what a group reaches is what the rule reaches.
     """
     seen: set[str] = set()
-    stack = [name]
-    atoms = 0
-    worth = False
-    while stack:
-        rname = stack.pop()
+    rules = [name]
+    while rules:
+        rname = rules.pop()
         if rname in seen or rname not in analysis.rules:
             continue
         seen.add(rname)
-        for arm in analysis.rules[rname].body:
-            for item in arm:
+        pending = [list(arm) for arm in analysis.rules[rname].body]
+        while pending:
+            for item in pending.pop():
                 if not isinstance(item, IrItem):
                     continue
-                hi = item.quantifier.hi
-                if isinstance(hi, IrNoneType) or int(hi) > 1:
-                    worth = True  # an unbounded / repeated loop — long span potential
-                atom = item.atom
-                if isinstance(atom, IrRuleRef):
-                    if str(atom) in analysis.islands:
-                        return False  # island ref — nested Earley, no delegation win
-                    stack.append(str(atom))
-                else:
-                    atoms += 1
-    return worth or atoms >= _DELEGATE_MIN_ATOMS
+                yield item
+                if isinstance(item.atom, IrAlternation):
+                    pending.extend(list(arm) for arm in item.atom)
+                elif isinstance(item.atom, IrRuleRef):
+                    rules.append(str(item.atom))
 
 
 def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:

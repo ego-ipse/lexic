@@ -1,5 +1,11 @@
 # Log
 
+## A delegate stands for its rule only if the rule has one end (2026-09-23)
+
+A delegated rule whose exit a policy picks injected one end and hid an arm
+choice from the island, which then accepted what Earley refuses.
+`decisions.md` records the one-end condition and what it costs vyx.
+
 ## The fold proves its boundaries before it folds (2026-09-23)
 
 `(γ)(β)*` settles each piece's end greedily, which was the grammar's answer
@@ -7,6 +13,14 @@ only by luck. A base ending in `"a"*` under a step `"a"`, or a word that can
 hold its own operator, gave one model where Earley refuses or answers another.
 `decisions.md` records the proof (EXTEND disjoint from FIRST(β)), why it holds
 at every width, and why no runtime probe is used.
+
+## `tracemalloc` needs `PYTHON_TLBC=0` under free threading (2026-09-22)
+
+Traced parses hung, and at first they looked like a thousandfold slowdown. The
+cause is CPython's, not lexic's: a lock-order deadlock between the allocation
+tracer and thread-local bytecode, triggered by any thread that runs a code
+object for the first time while tracing is on. CPython 3.14.5 fixes it
+(gh-148037). `testing.md` records the rule, the trigger and the fix.
 
 ## `generate` gains `size=`: a document OF the grammar at a stated scale (2026-09-22)
 
