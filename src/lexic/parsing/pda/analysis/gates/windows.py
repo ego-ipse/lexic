@@ -455,7 +455,14 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         self, items: Sequence[IrItem], i: int, tail: set[Pref]
     ) -> set[Pref]:
         """Windows following item ``i``: the remainder's prefixes (item ``i``'s
-        loop-back folded in) END-extended by ``tail``."""
+        loop-back folded in) END-extended by ``tail``.
+
+        An empty ``tail`` is the fixpoint's bottom, not "no evidence": nothing
+        is known to follow yet, so a short END prefix contributes nothing until
+        the tail grows. Passing it through would claim the input may end there,
+        and a union never takes that back. The start rule's real end of input
+        is its own seed.
+        """
         item = items[i]
         hi = item.quantifier.hi
         if isinstance(hi, IrNoneType) or int(hi) > 1:
@@ -464,6 +471,8 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         else:
             rest_items = list(items[i + 1 :])
         prefs = self.solver.arm_prefixes(rest_items, self.k)
+        if not tail:
+            return {pref for pref in prefs if pref[1] != END or len(pref[0]) >= self.k}
         return extend_follow(prefs, tail, self.k)
 
     def _grow(self, name: str, windows: set[Pref]) -> bool:
