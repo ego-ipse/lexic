@@ -40,13 +40,13 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
-from lexic.parsing import DEFAULT_CONFIG, FastTree, PdaTables, parse_model
+from lexic.parsing import DEFAULT_CONFIG, PdaTables, parse_model
 from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
-from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE, lead_rule_document
 from tests.unit.lexic.compile.compile_helpers import roundtrip
+from tests.unit.lexic.conftest import DeciderSpy
 
 
 def test_the_package_root_reexports_the_artifact_class():
@@ -717,23 +717,12 @@ INNER_ISLAND = 'root ::= "<" run ">"\nrun ::= item item+\nitem ::= [a-z]+\n'
     ("source", "text"), [(ISLAND_START, "abc"), (INNER_ISLAND, "<abc>")]
 )
 def test_the_decider_reaches_every_tree_the_parse_builds(
-    source: str, text: str, monkeypatch: pytest.MonkeyPatch
+    source: str, text: str, decider_spy: DeciderSpy
 ) -> None:
     """``parse(decide=…)`` is handed down, not re-defaulted on the way: every
     fast tree the parse builds, on the Earley route and in an island, holds the
-    caller's decider. A decider equal in rank but with no licences is a value
-    no default could stand in for."""
-    decider = LeftmostLongest(frozenset())
-    seen: list[object] = []
-    build = FastTree.build
-
-    def spy(tree: FastTree, handle: int):
-        seen.append(tree.decide)
-        return build(tree, handle)
-
-    monkeypatch.setattr(FastTree, "build", spy)
+    caller's decider."""
     compiled = compile_text(source, cache_key=f"config-reach-{text}")
-    model = compiled.parse(text, cores=1, decide=decider)
+    model = compiled.parse(text, cores=1, decide=decider_spy.decider)
     assert model.to_text() == text
-    assert seen, "no fast tree was built: the route under test did not run"
-    assert all(one is decider for one in seen)
+    assert decider_spy.reached_every_tree(), decider_spy.seen
