@@ -86,7 +86,6 @@ from lexic.parsing.pda.compiler.specs import (
     IslandRef,
     ItemSpec,
     KTupleGate,
-    LongestTake,
     LoopGate,
     PeekGate,
     StopGate,
@@ -97,7 +96,7 @@ from lexic.parsing.pda.compiler.specs import (
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ScanGate, class_source, compile_source
+from lexic.parsing.pda.core.scanner import ScanGate
 from lexic.parsing.product import RuleRoutine
 
 __all__ = [
@@ -473,7 +472,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """
         name = key.name
         rule = self.analysis.rules[name]
-        longest = self._longest_take(key)
+        longest = self.continuations.longest_take(key.name, key.tail)
         tail = key.tail if longest is None else _EOF
         arms, default, struct, follow = self._clone_shape(name, rule, tail)
         routine = self.routines.get(name)
@@ -492,41 +491,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             consult if longest is None else None,
             longest,
         )
-
-    def _longest_take(self, key: CloneKey) -> LongestTake | None:
-        """The key's :class:`LongestTake`, when its rule takes its longest match."""
-        extend = self.analysis.taxonomy.longest.get(key.name)
-        if extend is None:
-            return None
-        exits = extend.subtract(extend.subtract(key.tail)).subtract(_EOF)
-        island = (
-            key.name,
-            key.tail,
-            self.continuations.bounds(key.name, key.tail),
-            self.continuations.windows(key.name),
-        )
-        return LongestTake(
-            exits,
-            extend,
-            island,
-            0 if key.name in self.analysis.nullable else 1,
-            compile_source(class_source(exits.chars, exits.negated)),
-            None
-            if self._runs_hold(key.name, extend)
-            else compile_source(class_source(extend.chars, extend.negated)),
-        )
-
-    def _runs_hold(self, name: str, extend: CharSet) -> bool:
-        """Whether every arm of ``name`` ends in an unbounded run whose class
-        holds all of ``extend``: a greedy match then stops only at a character
-        nothing could lengthen it by."""
-        for arm in self.analysis.rules[name].body:
-            last = arm_items(arm)[-1]
-            if upper_bound(last) is not None:
-                return False
-            if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
-                return False
-        return True
 
     def compile_arms(
         self,
