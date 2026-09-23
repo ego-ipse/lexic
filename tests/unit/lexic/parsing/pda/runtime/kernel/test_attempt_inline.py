@@ -7,7 +7,8 @@ import pytest
 from lexic.compile import Directives, compile_text
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
-from lexic.parsing.pda.core.errors import ProbeFork
+from lexic.parsing.pda.compiler.specs import IslandPayload
+from lexic.parsing.pda.core.errors import IslandEscape, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import attempt_inline as attempt_inline_module
@@ -68,6 +69,9 @@ class _UndecidableBelow(AttemptInlineMixin[str]):
 
     def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
         return []
+
+    def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[str]) -> int:
+        raise AssertionError("no longest take here to ask its island")
 
     def _attempt_choice(
         self, arm: FlatArm, i: int, pos: int, got: tuple[int, list[str]]

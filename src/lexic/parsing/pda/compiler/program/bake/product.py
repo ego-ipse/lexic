@@ -162,6 +162,7 @@ def bake_product_build[Carry](
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
     clone.runarm = None
+    clone.longest = None  # a longest-take clone's record is the lowering's to set
     clone.mode = BUILD_FOLD if fold is not None else _build_mode(routine)
     clone.n_items = 0 if routine is None else routine.n_items
     clone.needs_ends = clone.mode == BUILD_VALUE_STR or (

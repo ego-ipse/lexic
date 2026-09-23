@@ -173,6 +173,7 @@ _BARE_CLONE_DEFAULTS = {
     "wide_selectors": None,
     "selectors": (),
     "default": None,
+    "longest": None,
 }
 """What ``_bare_clone`` sets on every field ``consult_arm``'s licence reads,
 before a caller's own overrides are applied."""

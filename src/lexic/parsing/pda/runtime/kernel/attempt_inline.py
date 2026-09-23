@@ -12,7 +12,8 @@ from __future__ import annotations
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.compiler.specs import IslandPayload
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
@@ -31,6 +32,10 @@ class AttemptInlineMixin[Carry]:
 
     def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily allocated sink."""
+        raise NotImplementedError
+
+    def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[Carry]) -> int:
+        """Provided by the kernel — a longest-take match's island, spliced."""
         raise NotImplementedError
 
     def _attempt_choice(
@@ -206,21 +211,9 @@ class AttemptInlineMixin[Carry]:
     def _inline_once(self, arm: FlatArm, i: int, pos: int) -> tuple[int, list[Carry]]:
         """One attempt-aware match, raising on a mandatory mismatch."""
         holder: list[Carry] = []
-        end = (
-            vstr_once(
-                self.text,
-                self._caches.intern,
-                arm.payloads[i],
-                holder,
-                pos,
-            )
-            if arm.kinds[i] == OP_AVSTR
-            else vdisp_once(
-                self.text,
-                self._caches.intern,
-                arm.payloads[i],
-                holder,
-                pos,
-            )
-        )
+        once = vstr_once if arm.kinds[i] == OP_AVSTR else vdisp_once
+        try:
+            end = once(self.text, self._caches.intern, arm.payloads[i], holder, pos)
+        except IslandEscape as escape:
+            end = self._islanded(escape, holder)
         return end, holder

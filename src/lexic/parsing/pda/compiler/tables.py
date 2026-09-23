@@ -7,7 +7,7 @@ was lowered from are a compile-time intermediate and do not survive here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from lexic.ir import (
     IrAst,
@@ -113,7 +113,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         nothing delegates. The runtime wraps each into a fail-soft callable and
         threads it through the island Earley sub-parse (the keys are island
         tables rule ids, the predictor's ``rid``)."""
-        return cast("dict[int, FlatClone]", self.program.delegates.for_island(name))
+        return self.program.delegates.for_island(name)
 
     def reset_delegate_cache(self) -> None:
         """Drop the per-island delegate cache — a test seam for the A/B parity

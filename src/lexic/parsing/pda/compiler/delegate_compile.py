@@ -27,6 +27,8 @@ from lexic.ir import (
 )
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.specs import CloneKey
 
 _DELEGATE_MIN_ATOMS = 4
 """Triviality floor for delegation: a delegable rule must be able to match a run
@@ -207,7 +209,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     name_to_rid: Mapping[str, int]
     binding: ModelExecutable
     seams: tuple[Callable[..., Any], Callable[..., Any]]
-    _cache: dict[str, dict[int, object]]
+    _cache: dict[str, dict[int, FlatClone]]
 
     def __init__(
         self,
@@ -223,7 +225,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         self.seams = seams
         self._cache = {}
 
-    def for_island(self, name: str) -> dict[int, object]:
+    def for_island(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones for island ``name`` (rule_id → flat clone), cached.
 
         Runs a fresh :class:`GrammarAnalysis` over the island sub-grammar
@@ -246,7 +248,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
             self._cache[name] = cached
         return cached
 
-    def held(self, name: str) -> dict[int, object]:
+    def held(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones already compiled for island ``name``, compiling
         nothing: what the artefact holds, for a reader that must not grow it.
 
@@ -255,7 +257,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         """
         return self._cache.get(name, {})
 
-    def _compile(self, island_name: str) -> dict[int, object]:
+    def _compile(self, island_name: str) -> dict[int, FlatClone]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
         analysis = GrammarAnalysis(
             IrAst(self.lifted.rules, island_name), delegated=True
@@ -265,7 +267,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
             return {}
         compiler_factory, flatten_clones = self.seams
         compiler: Any = compiler_factory(analysis, self.binding.routines)
-        rid_key: dict[int, object] = {}
+        rid_key: dict[int, CloneKey] = {}
         try:
             for rname in delegable:
                 rid_key[self.name_to_rid[rname]] = compiler.ensure_rule(

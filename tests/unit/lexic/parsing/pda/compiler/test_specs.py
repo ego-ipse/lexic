@@ -78,8 +78,8 @@ def test_group_spec_holds_arms_and_default():
 
 def test_clone_spec_field_order():
     """A clone spec is ``(name, arms, default, routine, match_only, struct_arm,
-    attempt_follow, consult)`` in order, with the last three trailing fields
-    defaulting to ``None``; a silent reorder or a rename of ``routine``
+    attempt_follow, consult, longest)`` in order, with the last four trailing
+    fields defaulting to ``None``; a silent reorder or a rename of ``routine``
     fails this."""
     spec = CloneSpec("r", (), None, None, False)
     assert (spec.name, spec.arms, spec.default, spec.routine, spec.match_only) == (
@@ -90,7 +90,8 @@ def test_clone_spec_field_order():
         False,
     )
     assert (spec.struct_arm, spec.attempt_follow, spec.consult) == (None, None, None)
-    assert tuple(spec) == ("r", (), None, None, False, None, None, None)
+    assert spec.longest is None
+    assert tuple(spec) == ("r", (), None, None, False, None, None, None, None)
 
 
 def test_clone_spec_carries_a_real_routine_object_positionally():

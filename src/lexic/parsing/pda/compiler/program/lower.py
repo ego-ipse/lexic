@@ -7,9 +7,10 @@ arm, item and selector becomes ints in one pass. What it produces is defined in
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple, Sequence, cast
 
+from lexic.exceptions import EngineInvariantError
 from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.bake.product import bake_product_build
@@ -475,6 +476,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.chartotal = True
     sub.runarm = None
     sub.needs_ends = clone.needs_ends
+    sub.longest = None  # an attempt sub-run's rule has a choice to try, no take
     return sub
 
 
@@ -564,7 +566,9 @@ def flatten_clones(
         bake_product_build(
             clone, spec.routine, None if folds is None else folds.get(key.name)
         )
+        clone.longest = spec.longest
     optimize_program(list(low.shells.values()), _consults(clones, low))
+    _require_checked_takes(low.shells.values())
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
         for key, spec in clones.items()
@@ -576,6 +580,22 @@ def flatten_clones(
         _optimize_entries(entries)
         clone.attempt = (follow, entries)
     return low.shells
+
+
+def _require_checked_takes(shells: Iterable[FlatClone]) -> None:
+    """Refuse a longest-take clone the runtime would not check.
+
+    Its span is checked on the matcher's multi-item path only, so an arm the
+    optimizer left one item wide would commit a span unchecked. The analysis
+    admits only arms of two items or more; this says so where it could fail.
+
+    :raises EngineInvariantError: On a longest-take clone with a one-item arm.
+    """
+    for clone in shells:
+        if clone.longest is not None and any(arm.n < 2 for arm in clone_arms(clone)):
+            raise EngineInvariantError(
+                f"flatten: longest-take clone {clone.name!r} has a one-item arm"
+            )
 
 
 def _optimize_entries(entries: tuple[Any, ...]) -> None:
