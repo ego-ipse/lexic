@@ -273,6 +273,7 @@ src/lexic/
           builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
           records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
           splits.py                Which slot owns the text — resolving a binarised chain from the left
+          decider.py               Which carving a parse keeps — the split decider as a value, and its licences
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart

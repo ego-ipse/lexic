@@ -142,6 +142,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import (
@@ -273,11 +274,13 @@ __all__ = [
     "BUILD_TREE",
     "BuildTree",
     "Chart",
+    "Decider",
     "EarleyParser",
     "EarleyItem",
     "FastTree",
     "GrammarAnalysis",
     "Kernel",
+    "LEFTMOST_LONGEST",
     "Link",
     "Links",
     "ParseTree",
