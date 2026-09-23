@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from lexic.ir import IrItem, IrNoneType
+from lexic.ir import IrCharClass, IrItem, IrLiteral, IrNoneType, IrNot, IrRule
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
@@ -105,3 +105,55 @@ def sub_conflict(
         eff = eff.union(analysis.atom_first(atom))
     ctx = ConflictCtx(notes, Cont(eff, hard_eff, structural_eff), scope.rule, k)
     SEQ_ATOM.resolve(atom).eval(analysis, atom, (ctx,))
+
+
+def greedy_exact(analysis: Any, rule: IrRule) -> bool:
+    """Whether a greedy left-to-right match of ``rule`` ends where its longest
+    match does, so the match stands for the island's own longest completion.
+
+    Every item is a literal or a class, the arms start apart so the first
+    character picks one, and no loop but the last can take a character what
+    follows it needs, unless what follows is one optional run that holds every
+    character the loop can take. The runtime still checks the character after
+    the match against the rule's EXTEND before it relies on it.
+
+    Every arm holds two items or more: the runtime checks the span on the
+    matcher's multi-item path, and a one-item arm takes the one-item path,
+    which is left as it is.
+    """
+    arms = [_arm_items(arm) for arm in rule.body]
+    if any(len(arm) < 2 for arm in arms):
+        return False
+    firsts = [analysis.seq_first(arm) for arm in arms]
+    for i, first in enumerate(firsts):
+        if any(first.overlaps(other) for other in firsts[i + 1 :]):
+            return False
+    return all(_arm_greedy_exact(analysis, arm) for arm in arms)
+
+
+def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
+    """One arm's half of :func:`greedy_exact`."""
+    for j, item in enumerate(items):
+        if not isinstance(item.atom, (IrLiteral, IrCharClass, IrNot)):
+            return False
+        if j + 1 == len(items) or _fixed(item):
+            continue
+        rest, first = items[j + 1 :], analysis.atom_first(item.atom)
+        if not first.overlaps(analysis.seq_first(rest)):
+            continue
+        last = rest[-1]
+        absorbs = len(rest) == 1 and int(last.quantifier.lo) == 0 and not _fixed(last)
+        if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
+            return False
+    return True
+
+
+def _arm_items(arm: Sequence[object]) -> list[IrItem]:
+    """The :class:`IrItem` members of an arm, in order."""
+    return [item for item in arm if isinstance(item, IrItem)]
+
+
+def _fixed(item: IrItem) -> bool:
+    """Whether the item occurs a fixed number of times."""
+    hi = item.quantifier.hi
+    return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)

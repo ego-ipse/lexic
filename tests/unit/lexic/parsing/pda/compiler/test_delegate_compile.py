@@ -24,7 +24,7 @@ class NoDelegates(DelegateSource):
     (delegation is otherwise unconditional). Constructed the same way as
     the real source; only ``_compile`` differs."""
 
-    def _compile(self, island_name: str) -> dict[int, object]:
+    def _compile(self, island_name: str) -> dict[int, FlatClone]:
         return {}
 
 

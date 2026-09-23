@@ -272,7 +272,7 @@ def bake_consults(clones: list[FlatClone], consults: Mapping[int, Pattern]) -> N
     """
     for clone in clones:
         pattern = consults.get(id(clone))
-        if pattern is not None:
+        if pattern is not None and clone.longest is None:
             clone.runarm = consult_arm(clone, pattern)
 
 
@@ -341,6 +341,10 @@ def bake_chartables(clones: list[FlatClone]) -> None:
     (:func:`bake_consults`) is already in the span-keyed slot when this runs and
     keeps it: it answers the same question over a wider class of clones.
     """
+    # A longest-take clone keeps every match on the path that checks its span
+    # (`vstr_once`'s multi-item branch): a table or a run would commit a span
+    # the island may have had to answer.
+    clones = [clone for clone in clones if clone.longest is None]
     pending = True
     while pending:
         pending = False

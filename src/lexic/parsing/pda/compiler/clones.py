@@ -86,6 +86,7 @@ from lexic.parsing.pda.compiler.specs import (
     IslandRef,
     ItemSpec,
     KTupleGate,
+    LongestTake,
     LoopGate,
     PeekGate,
     StopGate,
@@ -96,7 +97,7 @@ from lexic.parsing.pda.compiler.specs import (
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ScanGate
+from lexic.parsing.pda.core.scanner import ScanGate, class_source, compile_source
 from lexic.parsing.product import RuleRoutine
 
 __all__ = [
@@ -241,6 +242,12 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
             ctx.hi,
             ctx.gate,
         )
+    if name in compiler.analysis.taxonomy.longest:
+        # One clone per continuation the rule's references see: its match is
+        # greedy whatever follows, and what follows decides only when the
+        # match must ask the island instead (see `LongestTake`).
+        cont = compiler.continuations.follow(name, ctx.site)
+        return ItemSpec(REF, compiler.ensure_rule(name, cont), ctx.lo, ctx.hi, ctx.gate)
     if name in compiler.analysis.taxonomy.attempts:
         # ONE canonical clone per attemptable rule (the analysis-level hard
         # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
@@ -458,12 +465,22 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         return arms, default, struct, None
 
     def _compile_clone(self, key: CloneKey) -> None:
-        """Compile one queued clone body into :attr:`clones` (drain step)."""
+        """Compile one queued clone body into :attr:`clones` (drain step).
+
+        A longest-take rule's body is compiled against the end of input, so
+        its loops run greedily: the key's tail is the continuation its
+        :class:`LongestTake` checks, not one its loops stop at.
+        """
         name = key.name
         rule = self.analysis.rules[name]
-        arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
+        longest = self._longest_take(key)
+        tail = key.tail if longest is None else _EOF
+        arms, default, struct, follow = self._clone_shape(name, rule, tail)
         routine = self.routines.get(name)
         match_only = matches_own_text(routine)
+        consult = extent_consult(
+            self.analysis.rules, name, match_only, key.tail, self.analysis.follow[name]
+        )
         self.clones[key] = CloneSpec(
             name,
             arms,
@@ -472,14 +489,44 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             match_only,
             struct,
             follow,
-            extent_consult(
-                self.analysis.rules,
-                name,
-                match_only,
-                key.tail,
-                self.analysis.follow[name],
-            ),
+            consult if longest is None else None,
+            longest,
         )
+
+    def _longest_take(self, key: CloneKey) -> LongestTake | None:
+        """The key's :class:`LongestTake`, when its rule takes its longest match."""
+        extend = self.analysis.taxonomy.longest.get(key.name)
+        if extend is None:
+            return None
+        exits = extend.subtract(extend.subtract(key.tail)).subtract(_EOF)
+        island = (
+            key.name,
+            key.tail,
+            self.continuations.bounds(key.name, key.tail),
+            self.continuations.windows(key.name),
+        )
+        return LongestTake(
+            exits,
+            extend,
+            island,
+            0 if key.name in self.analysis.nullable else 1,
+            compile_source(class_source(exits.chars, exits.negated)),
+            None
+            if self._runs_hold(key.name, extend)
+            else compile_source(class_source(extend.chars, extend.negated)),
+        )
+
+    def _runs_hold(self, name: str, extend: CharSet) -> bool:
+        """Whether every arm of ``name`` ends in an unbounded run whose class
+        holds all of ``extend``: a greedy match then stops only at a character
+        nothing could lengthen it by."""
+        for arm in self.analysis.rules[name].body:
+            last = arm_items(arm)[-1]
+            if upper_bound(last) is not None:
+                return False
+            if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
+                return False
+        return True
 
     def compile_arms(
         self,

@@ -36,6 +36,8 @@ from types import BuiltinFunctionType, FunctionType, ModuleType
 
 import pytest
 
+from lexic.compile import compile_text
+from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram
 from lexic.parsing.products import _model_product
 from tools.benchmark.cases.grammars import BENCHES, Bench
@@ -92,9 +94,15 @@ def walked(program: PdaProgram, edges: tuple[str, ...] = EDGES) -> set[int]:
     them. Any other name holds none. They are compiled on first use, so
     which are held depends on what the process has parsed.
     """
+    return _walk(program.start, program.delegates, edges)
+
+
+def _walk(
+    root: object, delegates: DelegateSource | None, edges: tuple[str, ...]
+) -> set[int]:
+    """Clone ids reachable from ``root``, island interiors through ``delegates``."""
     seen: set[int] = set()
-    delegates = program.delegates
-    stack: list[object] = [program.start]
+    stack: list[object] = [root]
     while stack:
         node = stack.pop()
         _spread(getattr(node, "payloads", None), stack)
@@ -247,3 +255,31 @@ def test_a_clone_carries_no_completion_index() -> None:
     needs it brings the slot back with itself, populated on every path.
     """
     assert "completion" not in FlatClone.__slots__
+
+
+ISLAND_WITH_INTERIOR = (
+    'root ::= "<" expr ">"\nexpr ::= expr op term | expr "or" term | term\n'
+    'term ::= "ab" [x]+ | "ac" [y]+\nop ::= "and"\n'
+)
+"""``expr`` is an island whose sub-parse delegates ``term`` to a PDA clone."""
+
+
+def test_the_walk_follows_an_island_into_the_interiors_it_compiled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parse that reaches the island compiles its interior clones; the walk
+    reaches them through the island's reference and nowhere else."""
+    compiled = compile_text(ISLAND_WITH_INTERIOR, cache_key="walk-island-interior")
+    tables = _model_product(compiled.codegen_grammar, compiled.product).pda
+    compiled.parse("<abxxandacyyorabx>", cores=1)
+    held = tables.program.delegates.held("expr")
+    assert held, "the parse compiled no interior: the edge under test never ran"
+    oracle = referenced(tables)
+    assert walked(tables.program) == set(oracle)
+
+    monkeypatch.setattr(type(tables.program.delegates), "held", lambda _self, _name: {})
+    missed = set(oracle) - walked(tables.program)
+    assert {id(clone) for clone in held.values()} <= missed
+    assert missed <= set().union(
+        *(_walk(clone, None, EDGES) for clone in held.values())
+    )

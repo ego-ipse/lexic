@@ -136,15 +136,19 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
 
 
 class RuleMarks(NamedTuple):
-    """The rule-name sets a rule's notes mark it into, both flagged where the
+    """The rule-name sets a rule's notes mark it into, all flagged where the
     decision is made rather than read back from note text.
 
     :ivar fail: The fail-island rule names.
     :ivar policy_ends: Rules with a decision that picks an extent by policy.
+    :ivar longest: Text-only rules a greedy match answers wherever its span
+        holds none of the reference's followers, by name, each with its EXTEND
+        (see :func:`~lexic.parsing.pda.analysis.conflicts.greedy_exact`).
     """
 
     fail: set[str]
     policy_ends: set[str]
+    longest: dict[str, CharSet]
 
 
 class Taxonomy(IrLeaf[IrSelf, IrSelf]):
@@ -216,7 +220,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         self.delegated = delegated
         self.conflicts = {}
         self.demoted = {}
-        self.marks = RuleMarks(set(), set())
+        self.marks = RuleMarks(set(), set(), {})
         self.attempts = {}
         self.attempt_loops = {}
         self.gates = _GateStore()
@@ -230,6 +234,12 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     def policy_ends(self) -> set[str]:
         """Rules whose extent a policy picks (see :class:`RuleMarks`)."""
         return self.marks.policy_ends
+
+    @property
+    def longest(self) -> dict[str, CharSet]:
+        """Rules a greedy match answers short of the island (see
+        :class:`RuleMarks`)."""
+        return self.marks.longest
 
     @property
     def arm_gates(self) -> dict[str, Windows]:

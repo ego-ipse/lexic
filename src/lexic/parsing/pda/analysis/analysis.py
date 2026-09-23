@@ -29,6 +29,7 @@ from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.conflicts import (
     attempt_group,
     attempt_spec,
+    greedy_exact,
     soft_gap_conflict,
     sub_conflict,
 )
@@ -464,11 +465,35 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         invisible = _text_only(self.rules[name]) and not extends.overlaps(
             self.follow[name]
         )
+        longest = not invisible and self._takes_longest(name)
         for note in notes.stop_sets:
             if invisible:
                 notes.picks_extent(note)
+            elif longest:
+                notes.picks_extent(f"{note[: -len(' applied')]} taken longest")
             else:
                 notes.hard.append(f"{note[: -len(' applied')]} reaches FOLLOW")
+        if longest:
+            self.taxonomy.longest[name] = extends
+
+    def _takes_longest(self, name: str) -> bool:
+        """Whether rule ``name`` compiles to a greedy match that answers for its
+        island wherever the matched span holds none of the reference's
+        followers.
+
+        Its island takes the longest completion and refuses only where a
+        shorter end is followed by a character the reference can continue
+        with; such an end lies inside the span, before a character in EXTEND.
+        So a greedy match that is the longest (:func:`greedy_exact`), over a
+        span holding no follower, IS the island's answer, and where the span
+        does hold one the runtime asks the island itself. A delegate's
+        analysis withholds it: an island interior's end is not the document's.
+        """
+        return (
+            not self.taxonomy.delegated
+            and _text_only(self.rules[name])
+            and greedy_exact(self, self.rules[name])
+        )
 
     def arm_conflicts(
         self,

@@ -177,8 +177,9 @@ def test_left_recursive_rules_never_attempt():
 def test_ungatable_loops_carry_the_attempt_licence():
     """vyx: every island is attemptable once its ungatable loops carry the
     greedy-take licence — a loop extent is a split with a defined answer
-    (the first slot owns the text), so greedy take + rollback needs no gate —
-    EXCEPT the islands a stop-set filed hard, which no attempt order settles."""
+    (the first slot owns the text), so greedy take + rollback needs no gate.
+    The two stop-sets that reach FOLLOW sit in text-only rules, so they take
+    their longest match rather than island, and no island is left unattempted."""
     analysis = lifted_analysis("vyx.gbnf")
     taxonomy = analysis.taxonomy
     stop_sets = {
@@ -186,8 +187,9 @@ def test_ungatable_loops_carry_the_attempt_licence():
         for name, notes in analysis.conflicts.items()
         if any("stop-set reaches FOLLOW" in note for note in notes)
     }
-    assert stop_sets == {"nl-escape", "nl-force"}
-    assert set(taxonomy.attempts) == analysis.islands - stop_sets
+    assert not stop_sets
+    assert {"nl-escape", "nl-force"} <= set(taxonomy.longest)
+    assert set(taxonomy.attempts) == analysis.islands
     assert taxonomy.attempt_loops
     assert all(isinstance(key, int) for key in taxonomy.attempt_loops)
 
@@ -960,20 +962,25 @@ def test_a_stop_set_with_no_exit_in_reach_runs_longest() -> None:
 
 
 def test_a_stop_set_whose_overlap_reaches_the_follow_islands() -> None:
-    """``x ::= [ab]*`` before ``"a" y``: stopping at the first ``a`` moves
-    text from ``x`` into ``y``, a different model."""
+    """``x ::= q [ab]*`` before ``"a" y``: stopping at the first ``a`` moves
+    text from ``x`` into ``y``, a different model, and ``x`` builds a ``q``, so
+    its greedy match cannot stand for its island."""
     demoted, conflicts = stop_set_notes(
-        's ::= x "a" y\nx ::= [ab]*\ny ::= [ab]*\n', "x"
+        's ::= x "a" y\nx ::= q [ab]*\nq ::= "q"\ny ::= [ab]*\n', "x"
     )
-    assert conflicts == ["x[0]: loop stop-set reaches FOLLOW"]
+    assert conflicts == ["x[1]: loop stop-set reaches FOLLOW"]
     assert not demoted
 
 
 def test_a_noise_run_that_can_hold_its_follower_islands() -> None:
-    """``ws ::= [ =]*`` before ``"="``: which ``=`` ends the run is visible."""
-    source = '# @non-semantic ws\ns ::= w ws "=" ws w\nw ::= [a-z]+\nws ::= [ =]*\n'
+    """``ws ::= c [ =]*`` before ``"="``: which ``=`` ends the run is
+    visible, and a run that builds a ``c`` is not its text."""
+    source = (
+        '# @non-semantic ws\ns ::= w ws "=" ws w\nw ::= [a-z]+\n'
+        'ws ::= c [ =]*\nc ::= "#"?\n'
+    )
     _demoted, conflicts = stop_set_notes(source, "ws")
-    assert conflicts == ["ws[0]: loop stop-set reaches FOLLOW"]
+    assert conflicts == ["ws[1]: loop stop-set reaches FOLLOW"]
 
 
 def test_a_stop_set_in_a_rule_that_builds_structure_islands() -> None:

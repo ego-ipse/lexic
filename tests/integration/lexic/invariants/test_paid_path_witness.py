@@ -120,7 +120,7 @@ WITNESS: dict[str, str] = {
     "matchers.match_runtable": "11b9846c122f07b0",
     "matchers.run_span_once": "4ad4f40a11fa6667",
     "matchers.select_arm": "ff51ffda2566a8bb",
-    "matchers.vstr_once": "6c3f501cad3481bf",
+    "matchers.vstr_once": "4fdad163da4e6b94",
     "scanner.scan_gate_take": "d4d3e62975559ffd",
 }
 """The pinned instruction digests. Regenerate deliberately — see the docstring."""

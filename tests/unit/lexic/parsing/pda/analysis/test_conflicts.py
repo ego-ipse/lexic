@@ -10,15 +10,25 @@ the group's node identity, counting its notes covered.
 
 from __future__ import annotations
 
+from lexic.compile import compile_text
 from lexic.ir import IrAlternation, IrCharClass, IrChr, IrLiteral, IrRange, IrSequence
-from lexic.parsing.pda.analysis.conflicts import attempt_group, attempt_spec
+from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.conflicts import (
+    attempt_group,
+    attempt_spec,
+    greedy_exact,
+)
 from lexic.parsing.pda.analysis.cursors import Notes, Site
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 from lexic.parsing.pda.core.charsets import CharSet
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
 from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
+    arm_items,
+    stop_set_notes,
+)
 
 _LOWER = IrCharClass(IrRange(IrChr(97), IrChr(122)))
 
@@ -99,3 +109,63 @@ def test_attempt_group_declines_a_rule_body_site():
 
     assert notes.covered == 0
     assert not analysis.taxonomy.grp_arm_gates
+
+
+# ── the longest take ───────────────────────────────────────────────────────
+
+
+def test_a_text_only_run_that_reaches_its_follow_is_taken_longest() -> None:
+    """``x ::= "b" [ab]*`` before ``"a" y``: the same visible exit, but ``x``
+    is text, so its greedy match is its island's longest completion. It
+    compiles to that match, and the runtime asks the island only where the
+    span holds an ``a``."""
+    source = 's ::= x "a" y\nx ::= "b" [ab]*\ny ::= [ab]*\n'
+    demoted, conflicts = stop_set_notes(source, "x")
+    assert demoted == ["x[1]: loop stop-set taken longest"]
+    assert not conflicts
+    compiled = compile_text(source, cache_key="longest-x")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    assert "x" in analysis.taxonomy.longest
+
+
+def test_a_one_item_text_run_that_reaches_its_follow_islands() -> None:
+    """``x ::= [ab]*``: text too, but one item wide, and the runtime checks a
+    span only on the matcher's multi-item path, so it stays an island."""
+    demoted, conflicts = stop_set_notes(
+        's ::= x "a" y\nx ::= [ab]*\ny ::= [ab]*\n', "x"
+    )
+    assert conflicts == ["x[0]: loop stop-set reaches FOLLOW"]
+    assert not demoted
+
+
+def _greedy_exact(body: str) -> bool:
+    """:func:`greedy_exact` of rule ``x`` in ``s ::= x ";"`` with ``body``."""
+    compiled = compile_text(f's ::= x ";"\nx ::= {body}\n', cache_key=f"ge-{body}")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    return greedy_exact(analysis, analysis.rules["x"])
+
+
+def test_a_prefix_then_a_run_is_greedy_exact():
+    """A fixed prefix, then the run: nothing earlier can starve it."""
+    assert _greedy_exact('"v" [a-z]*')
+
+
+def test_a_loop_absorbed_by_the_final_run_is_greedy_exact():
+    """``"#"+`` before a run that holds ``#``: whatever the loop leaves, the
+    run takes, so the greedy end is the longest."""
+    assert _greedy_exact('"\\\\" "#"+ [#a-z]*')
+
+
+def test_a_loop_that_starves_what_follows_is_not():
+    """``[ab]*`` before ``"b"``: the loop eats the ``b`` the literal needs."""
+    assert not _greedy_exact('"v" [ab]* "b"')
+
+
+def test_arms_that_start_alike_are_not():
+    """The first character must pick the arm."""
+    assert not _greedy_exact('"v" [a-z]* | "v" [0-9]*')
+
+
+def test_a_one_item_arm_is_not():
+    """The span is checked on the multi-item path only."""
+    assert not _greedy_exact("[a-z]*")

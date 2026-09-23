@@ -46,7 +46,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -98,7 +98,12 @@ class KernelExecutionMixin[Carry]:
         Anything else builds through :meth:`_run_leaf`.
         """
         if clone.mode == BUILD_VALUE_STR:
-            self.pos = vstr_once(self.text, self._caches.intern, clone, out, self.pos)
+            try:
+                self.pos = vstr_once(
+                    self.text, self._caches.intern, clone, out, self.pos
+                )
+            except IslandEscape as escape:
+                self._islanded(escape, out)
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
@@ -140,19 +145,24 @@ class KernelExecutionMixin[Carry]:
                 sinks[i] = sub = []
                 # A tabled reference is exactly one iteration by its op-code, so
                 # it calls the matcher straight instead of the loop driver.
-                pos = (
-                    run_span_once(text, arm.payloads[i], sub, pos)
-                    if k == OP_VRUN
-                    else vstr_once(text, self._caches.intern, arm.payloads[i], sub, pos)
-                    if k == OP_V1
-                    else self._match_vdisp(sub, arm, i, pos)
-                    if k == OP_VDISP
-                    # a leaf inside a leaf: recur rather than descend, so a
-                    # chain of pass-throughs costs no frame at any depth
-                    else self._run_leaf(arm.payloads[i], sub, pos)
-                    if k == OP_LEAF1
-                    else self._match_vstr(sub, arm, i, pos)
-                )
+                try:
+                    pos = (
+                        run_span_once(text, arm.payloads[i], sub, pos)
+                        if k == OP_VRUN
+                        else vstr_once(
+                            text, self._caches.intern, arm.payloads[i], sub, pos
+                        )
+                        if k == OP_V1
+                        else self._match_vdisp(sub, arm, i, pos)
+                        if k == OP_VDISP
+                        # a leaf inside a leaf: recur rather than descend, so a
+                        # chain of pass-throughs costs no frame at any depth
+                        else self._run_leaf(arm.payloads[i], sub, pos)
+                        if k == OP_LEAF1
+                        else self._match_vstr(sub, arm, i, pos)
+                    )
+                except IslandEscape as escape:  # only `vstr_once` raises it here
+                    pos = self._islanded(escape, sub)
             else:
                 pos = (
                     match_lit(text, arm, i, pos)
@@ -194,7 +204,10 @@ class KernelExecutionMixin[Carry]:
         gk, gate = arm.gate_kinds[i], arm.gate_data[i]
         count = 0
         while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-            pos = vstr_once(text, intern, clone, sink, pos)
+            try:
+                pos = vstr_once(text, intern, clone, sink, pos)
+            except IslandEscape as escape:
+                pos = self._islanded(escape, sink)
             count += 1
         return pos
 
@@ -213,9 +226,26 @@ class KernelExecutionMixin[Carry]:
         lo, hi, gk, gate = loop_spec(arm, i)
         count = 0
         while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-            pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
+            try:
+                pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
+            except IslandEscape as escape:
+                pos = self._islanded(escape, sink)
             count += 1
         return pos
+
+    def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[Carry]) -> int:
+        """Answer a longest-take match that asked for its island.
+
+        The match began at :attr:`IslandEscape.pos`; the island question its
+        reference would have asked is :attr:`IslandEscape.payload`. The
+        sub-parse runs from there and splices into ``sink`` exactly as an
+        island reference does.
+
+        :returns: The position after the island's span.
+        """
+        self.pos = escape.pos
+        self._island(escape.payload, sink)
+        return self.pos
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
