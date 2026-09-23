@@ -116,9 +116,18 @@ def _most(q: IrQuantifier) -> float:
 
 
 def _scaled(d: _Shape, q: IrQuantifier, depth: int, size: Size) -> Size:
-    """A ref or group's size under its quantifier — the lower bound once spent."""
+    """A ref or group's size under its quantifier — the lower bound once spent.
+
+    A REPEATING one's room is at least its repetitions walked FREELY: more
+    siblings need no more depth, so a loop whose unit can no longer grow still
+    takes a large budget as more units, rather than leaving it to an unbounded
+    terminal run. A single occurrence walked freely is one natural unit, so its
+    room stays what steering can yield.
+    """
     count = float(q.lo) if depth <= 0 else d.free.pick_mean(q)
-    return count * size[0] if count else 0.0, _most(q) * size[1] if size[1] else 0.0
+    most = _most(q)
+    unit = max(size) if most > 1 else size[1]
+    return count * size[0] if count else 0.0, most * unit if unit else 0.0
 
 
 def _channel(nc: Sequence[IrSelf]) -> tuple[IrItem, int]:
