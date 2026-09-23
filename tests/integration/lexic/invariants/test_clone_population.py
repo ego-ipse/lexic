@@ -36,7 +36,7 @@ from types import BuiltinFunctionType, FunctionType, ModuleType
 
 import pytest
 
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram
 from lexic.parsing.products import _model_product
 from tools.benchmark.cases.grammars import BENCHES, Bench
 
@@ -83,13 +83,23 @@ def _spread(value: object, stack: list[object]) -> None:
         stack.append(value)
 
 
-def walked(program: object, edges: tuple[str, ...] = EDGES) -> set[int]:
-    """Clone ids reachable from ``program`` through the named fields."""
+def walked(program: PdaProgram, edges: tuple[str, ...] = EDGES) -> set[int]:
+    """Clone ids reachable from ``program`` through the named fields.
+
+    An island reference's payload names its rule (a string, once the payload
+    is spread), and the program's delegate source holds the interior clones
+    compiled for that island so far: that is the edge from the reference to
+    them. Any other name holds none. They are compiled on first use, so
+    which are held depends on what the process has parsed.
+    """
     seen: set[int] = set()
-    stack: list[object] = [getattr(program, "start", None)]
+    delegates = program.delegates
+    stack: list[object] = [program.start]
     while stack:
         node = stack.pop()
         _spread(getattr(node, "payloads", None), stack)
+        if delegates is not None and isinstance(node, str):
+            _spread(delegates.held(node), stack)
         if not isinstance(node, FlatClone) or id(node) in seen:
             continue
         seen.add(id(node))
