@@ -22,10 +22,8 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     ParseConfig,
 )
 from lexic.parsing.executable import ModelExecutable, ModelParse
-from lexic.parsing.parallel.discovery.regions import (
-    choose,
-    par_find,
-)
+from lexic.parsing.parallel.discovery.regions import par_find
+from lexic.parsing.parallel.partition import Division, partition, units
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
     cut_offsets,
@@ -43,14 +41,13 @@ from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.stitch.interior import source_split
-from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
+from lexic.parsing.parallel.stitch.merge import MergeRequest, stitch_units
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
     stitch_envelope,
     stitch_routed,
     stitch_terminated,
 )
-from lexic.parsing.parallel.stitch.plan import RegionWork
 from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
 
 
@@ -218,14 +215,15 @@ def _speculate[M: IrNamedTuple](
     return None
 
 
-def _parse_region_parts[M: IrNamedTuple](
+def _parse_units[M: IrNamedTuple](
     parse: ModelParse[M],
-    works: list[RegionWork],
+    tasks: list[tuple[IrAst, str]],
     ask: Request[M],
     pool: WorkPool,
-) -> list[list[GrammarModel]] | None:
-    """Parse every region piece concurrently against per-worker replicas."""
-    tasks, owners = region_tasks(works)
+) -> tuple[list[GrammarModel], M] | None:
+    """Parse every unit concurrently against per-worker replicas — the pieces
+    of every level AND the shell in one map, so the shell is not left for
+    after them."""
     try:
         parsed = pool.map(
             lambda k: worker_parse(
@@ -235,12 +233,10 @@ def _parse_region_parts[M: IrNamedTuple](
         )
     except LexicError:
         return None
-    grouped: list[list[GrammarModel]] = [[] for _work in works]
-    for owner, model in zip(owners, parsed, strict=True):
-        if not isinstance(model, GrammarModel):
-            return None
-        grouped[owner].append(model)
-    return grouped
+    pieces = [model for model in parsed[:-1] if isinstance(model, GrammarModel)]
+    if len(pieces) != len(parsed) - 1:
+        return None
+    return pieces, parsed[-1]
 
 
 def _split_regions[M: IrNamedTuple](
@@ -254,7 +250,7 @@ def _split_regions[M: IrNamedTuple](
 
     Reached only once every plan has declined, and then routed before the
     sweep: it is proof-certified against the start rule's own shape, where
-    :func:`~...discovery.regions.choose` is a size heuristic over whatever
+    :func:`~...discovery.regions.partition` is a size heuristic over whatever
     brackets a document happens to contain.
 
     The cascade's rule is FIRST MATCH AMONG SURVIVORS, and the survivor set is
@@ -276,7 +272,7 @@ def _split_regions[M: IrNamedTuple](
     # A bracket span may cover the whole source while still sit BELOW a
     # wrapper start model (``root ::= node``). Routing, not byte position,
     # decides whether it has a replaceable owner; a true root-region model
-    # yields no non-empty route and declines in ``_stitch_shell``.
+    # yields no non-empty route and declines in ``stitch_units``.
     found = [
         region
         for region in par_find(
@@ -284,14 +280,18 @@ def _split_regions[M: IrNamedTuple](
         )
         if region.rule != str(grammar.start)
     ]
-    divided = choose(ask.text, found, workers)
+    divided = partition(ask.text, found, workers)
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     works = region_works(merge, grammar, divided, analysis or grammar)
-    if works is None:
+    if not works:
         return None
-    parsed = _parse_region_parts(parse, works, ask, pool)
-    stands = standins(merge, works, parsed) if parsed is not None else None
-    return stitch_shell(merge, grammar, works, stands) if stands else None
+    plan = units(
+        ask.text,
+        [Division(work.region, work.cuts) for work in works],
+        [work.witness for work in works],
+    )
+    parsed = _parse_units(parse, region_tasks(grammar, works, plan), ask, pool)
+    return stitch_units(merge, works, plan, *parsed) if parsed is not None else None
 
 
 def split_model[M: IrNamedTuple](

@@ -32,7 +32,6 @@ from lexic.parsing.parallel.discovery.interiors import (
     skip_leads,
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
-from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
 
 
@@ -54,17 +53,6 @@ class Region(NamedTuple):
     def span(self) -> int:
         """How many characters the region covers."""
         return self.closer - self.opener
-
-
-class Division(NamedTuple):
-    """A region :func:`choose` divided: its bracketed pieces, and the separator
-    offsets between them — read back from the very bounds the pieces were cut
-    at, so the two cannot disagree, where deriving cuts again at another count
-    aims elsewhere (:func:`piece_marks` drops a repeated nearest mark)."""
-
-    region: Region
-    parts: list[str]
-    cuts: list[int]
 
 
 def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
@@ -553,146 +541,3 @@ def nearest_mark(marks: tuple[int, ...], want: float) -> int:
         return marks[-1]
     before, after = marks[at - 1], marks[at]
     return before if want - before <= after - want else after
-
-
-def piece_marks(region: Region, workers: int) -> list[int]:
-    """The separator offsets :func:`pieces` removes from ``region``.
-
-    Kept as a named result because the model stitch must rebuild each removed
-    separator under the region's own grammar. Re-deriving the marks from the
-    piece strings would guess at source extent when the same text repeats.
-
-    :param region: The run being divided.
-    :param workers: How many balanced pieces are wanted.
-    :returns: Distinct separator offsets, in document order.
-    """
-    lo, hi = region.opener + 1, region.closer
-    target = (hi - lo) / workers
-    cuts: list[int] = []
-    for k in range(1, workers):
-        nearest = nearest_mark(region.marks, lo + k * target)
-        if nearest not in cuts:
-            cuts.append(nearest)
-    return cuts
-
-
-def pieces(text: str, region: Region, workers: int) -> list[str] | None:
-    """``region`` cut into ``workers`` self-contained pieces, or ``None``.
-
-    Each piece carries only its OWN brackets, so it costs its own text —
-    the point of cutting regions rather than wrapping the document. Cuts aim
-    at equal byte positions and take the nearest separator, because dividing
-    the separator COUNT divides the work only when they are evenly spread.
-
-    :param text: The document.
-    :param region: The run to cut.
-    :param workers: How many pieces are wanted.
-    :returns: The pieces, or ``None`` when the run will not divide.
-    """
-    bounds = _piece_bounds(region, workers)
-    return _piece_texts(text, region, bounds) if bounds is not None else None
-
-
-def _piece_bounds(region: Region, workers: int) -> list[int] | None:
-    """Source bounds for balanced pieces, without copying their text."""
-    lo, hi = region.opener + 1, region.closer
-    target = (hi - lo) / workers
-    cuts = piece_marks(region, workers)
-    if not cuts:
-        return None
-    bounds = [lo, *[cut + 1 for cut in cuts], hi]
-    if max(bounds[i + 1] - bounds[i] for i in range(len(bounds) - 1)) > 2 * target:
-        return None
-    return bounds
-
-
-def _piece_texts(text: str, region: Region, bounds: list[int]) -> list[str]:
-    """Materialize one accepted bounds plan exactly once."""
-    open_char, close_char = text[region.opener], text[region.closer]
-    return [
-        open_char
-        + text[bounds[i] : bounds[i + 1] - (1 if i + 2 < len(bounds) else 0)]
-        + close_char
-        for i in range(len(bounds) - 1)
-    ]
-
-
-def stub(text: str, region: Region, nth: int = 0) -> str:
-    """The region's ``nth`` item, used as its distinct shell stand-in.
-
-    Different regions use different item indices so equal first entries do not
-    route to the same shell node. The index is clamped; equality plus exact
-    items-node class is still checked later, and an unresolved collision makes
-    the split decline.
-
-    :param text: The complete document.
-    :param region: The run whose one item should remain.
-    :param nth: The item index, clamped to the run's final item.
-    :returns: The raw item span, without the region's brackets.
-    """
-    at = min(nth, len(region.marks))
-    start = region.opener + 1 if at == 0 else region.marks[at - 1] + 1
-    end = region.marks[at] if at < len(region.marks) else region.closer
-    return text[start:end]
-
-
-def shell(text: str, regions: list[Region], keep: list[str]) -> str:
-    """Replace each divided interior by its one-item stand-in.
-
-    The owning brackets remain in the shell. Model orchestration replaces only
-    the parsed items child, so those bracket fields survive the stitch exactly.
-
-    :param text: The complete document.
-    :param regions: Non-overlapping divided runs, in document order.
-    :param keep: One replacement interior per region.
-    :returns: The small document parsed once to provide the outer model shell.
-    """
-    out: list[str] = []
-    at = 0
-    for region, item in zip(regions, keep, strict=True):
-        out.append(text[at : region.opener + 1])
-        out.append(item)
-        at = region.closer
-    out.append(text[at:])
-    return "".join(out)
-
-
-def choose(text: str, found: list[Region], workers: int) -> list[Division]:
-    """The biggest runs that actually divide, with their pieces and cuts.
-
-    The outermost bracket contains every other, so size alone would divide the
-    same text twice, and a big run that CANNOT divide (a tokenizer file's top
-    level: eight members, two enormous) would block the runs inside it that
-    can. So a region takes its span only if its pieces come out balanced.
-    ``workers`` is a ceiling: each run takes the largest count it can feed
-    :data:`MIN_CHUNK`, and the shared pool caps aggregate concurrency.
-    """
-    candidates: list[Division] = []
-    for region in sorted(found, key=lambda r: -r.span):
-        capacity = min(workers, region.span // MIN_CHUNK)
-        if capacity < 2:
-            continue
-        for count in range(capacity, 1, -1):
-            bounds = _piece_bounds(region, count)
-            # Capacity is an upper bound: a sparse outer container can leave one
-            # piece nearly empty and one holding the nested payload, blocking
-            # the balanced child. Every ACTUAL owner must clear the floor.
-            if (
-                bounds is not None
-                and min(bounds[i + 1] - bounds[i] + 1 for i in range(len(bounds) - 1))
-                >= MIN_CHUNK
-            ):
-                parts = _piece_texts(text, region, bounds)
-                cuts = [bound - 1 for bound in bounds[1:-1]]
-                candidates.append(Division(region, parts, cuts))
-                break
-    # Prefer the ownership plan that fills more runners. Span breaks ties, but
-    # cannot let a three-way outer container suppress an eight-way child.
-    picked: list[Division] = []
-    for division in sorted(candidates, key=lambda d: (-len(d.parts), -d.region.span)):
-        r = division.region
-        if not any(
-            r.opener < o.region.closer and o.region.opener < r.closer for o in picked
-        ):
-            picked.append(division)
-    return sorted(picked, key=lambda entry: entry.region.opener)

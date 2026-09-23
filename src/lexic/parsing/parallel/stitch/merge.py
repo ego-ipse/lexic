@@ -9,7 +9,7 @@ Neither path reparses a delegated subtree merely to discover where it belongs.
 from __future__ import annotations
 
 import random
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from itertools import count, islice
 from threading import Lock
 from typing import NamedTuple
@@ -21,11 +21,15 @@ from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
-from lexic.parsing.parallel.discovery.regions import shell
+from lexic.parsing.parallel.partition import Division, Unit, units
 from lexic.parsing.parallel.stitch.model import (
+    ModelStep,
     head_rest,
+    held_route,
+    model_at,
+    overlaid,
     region_items,
-    sole_route,
+    sole_routes,
     splice,
 )
 from lexic.parsing.parallel.stitch.plan import RegionPlan, RegionWork
@@ -294,93 +298,79 @@ def _witness(plan: RegionPlan, index: int) -> str | None:
 
 def assign_witnesses[M](
     request: MergeRequest[M], works: list[RegionWork]
-) -> list[RegionWork] | None:
-    """Give every region a stand-in the shell cannot confuse — BEFORE any piece
-    is parsed, so a region that cannot have one costs nothing.
+) -> list[RegionWork]:
+    """Give every region a stand-in its holder cannot confuse — BEFORE any
+    piece is parsed, so a region that cannot have one costs nothing.
 
-    Two pre-filters, both for LIVENESS — a split that would decline after its
-    pieces are parsed is cheaper declined now: a witness whose text occurs
-    nowhere else in the shell, nor inside another witness, will not route
-    ambiguously there; and one whose stand-in keeps the region's edge noise
-    in its edge slots (:func:`_keeps_edges`) will pass :func:`_standin`'s check.
-    SOUNDNESS stays with the checks after the parse — :func:`sole_route` and
-    :func:`_standin` — since text is only a proxy for model equality. A region
-    with no such witness is left undivided: its text returns to the shell,
+    The witness stands in for the region's whole interior, and its NEEDLE is
+    the items node it parses to: the unit holding it must hold exactly one
+    node equal to that. Equal models spell equal text, so a needle whose text
+    occurs nowhere else in its holder, nor inside another needle's there, has
+    exactly one route in it. Text is the proxy; :func:`sole_routes` still checks. A region
+    with no such witness is left undivided: its text returns to its holder,
     which can make an earlier choice collide, so choosing repeats over the
     regions still divided until every one has a witness.
 
-    :returns: The works that keep a witness, or ``None`` when none does.
+    :returns: The works that keep a witness; empty when none does.
     """
     text, kept = request.text, works
     while kept:
-        outside = shell(text, [work.region for work in kept], [""] * len(kept))
-        taken: list[str] = []
-        assigned: list[RegionWork] = []
-        for work in kept:
-            witness = next(
-                (
-                    w
-                    for w in witnesses(work.plan)
-                    if _unique(w, outside, taken) and _keeps_edges(request, work, w)
-                ),
-                None,
+        divided = [Division(work.region, work.cuts) for work in kept]
+        blank = units(text, divided, [""] * len(kept))
+        holder = {k: unit for unit in blank for k in unit.held}
+        taken: dict[int, list[str]] = {}
+        assigned = [
+            placed
+            for k, work in enumerate(kept)
+            if (
+                placed := _place(
+                    request,
+                    work,
+                    holder[k].text,
+                    taken.setdefault(id(holder[k]), []),
+                )
             )
-            if witness is not None:
-                taken.append(witness)
-                assigned.append(work._replace(witness=witness))
+            is not None
+        ]
         if len(assigned) == len(kept):
             return assigned
         kept = [work for work in kept if any(a.region == work.region for a in assigned)]
+    return []
+
+
+def _place[M](
+    request: MergeRequest[M], work: RegionWork, outside: str, taken: list[str]
+) -> RegionWork | None:
+    """``work`` with the first witness whose needle ``outside`` cannot confuse.
+
+    :param outside: The holding unit's text, the divided interiors blank.
+    :param taken: The needles' texts already placed in that unit; this one's
+        is added.
+    """
+    for witness in witnesses(work.plan):
+        needle = _needle(request, work, witness)
+        spelled = needle.to_text() if needle is not None else None
+        if spelled is not None and _unique(spelled, outside, taken):
+            taken.append(spelled)
+            return work._replace(witness=witness, needle=needle)
     return None
 
 
-def _keeps_edges[M](request: MergeRequest[M], work: RegionWork, witness: str) -> bool:
-    """Whether :func:`_standin`'s check would pass — predicted before any piece.
-
-    Parses the SAME stand-in text that check parses — the witness's core
-    (:func:`witness_core`) inside the region's edge noise — and asks the same
-    question of it: does the noise come back in the region's edge slots, or
-    did the witness absorb it (a ``{}`` whose own ``ws`` takes a closing
-    ``\n``, carrying it into the items the splice replaces)? The one gap: the
-    exact check places the noise the PIECES' edge slots hold, and this places
-    the source noise, which those slots may not hold.
-    """
-    text, region, plan = request.text, work.region, work.plan
-    opener, closer = text[region.opener], text[region.closer]
-    bare = _standin_model(request, work, opener + witness + closer)
-    core = witness_core(work, bare[0], witness, text) if bare is not None else None
-    if core is None:
-        return False
-    before = (
-        _leading_noise(text, region.opener + 1, region.closer, opener, plan.outer_skip)
-        if plan.outer_begin is not None
-        else ""
-    )
-    after = (
-        _trailing_noise(text, region.opener, region.closer, closer, plan.outer_trail)
-        if plan.outer_end is not None
-        else ""
-    )
-    item = before + core + after
-    if item == witness:
-        return True
-    noisy = _standin_model(request, work, opener + item + closer)
-    return noisy is not None and _edges_hold(
-        plan, noisy[0], (opener, closer, before, after)
-    )
-
-
-def _edges_hold(plan: RegionPlan, stand: GrammarModel, edges: tuple[str, ...]) -> bool:
-    """Whether a stand-in's edge slots hold exactly the noise placed at its edges.
-
-    :param edges: The opener, the closer, and the leading and trailing noise.
-    """
-    opener, closer, before, after = edges
-    children = stand.children()
-    return (
-        _edge_noise(children, plan.outer_begin, opener, True, "") == before
-        and _edge_noise(children, plan.outer_end, closer, False, "") == after
-    )
+def _needle[M](
+    request: MergeRequest[M], work: RegionWork, witness: str
+) -> GrammarModel | None:
+    """The items node the region's own brackets around ``witness`` parse to."""
+    text = request.text
+    source = text[work.region.opener] + witness + text[work.region.closer]
+    try:
+        stand = request.run(work.plan.root, source)
+    except LexicError:
+        return None
+    if not isinstance(stand, GrammarModel):
+        return None
+    items = region_items(stand, work.plan)
+    shaped = head_rest(items, work.plan) if items is not None else None
+    return items if shaped is not None else None
 
 
 def _unique(witness: str, outside: str, taken: list[str]) -> bool:
@@ -390,213 +380,199 @@ def _unique(witness: str, outside: str, taken: list[str]) -> bool:
     return all(witness not in other and other not in witness for other in taken)
 
 
-def _edge_noise(
-    children: Sequence[object],
-    slot: int | None,
-    boundary: str,
-    opening: bool,
-    fallback: str,
-) -> str | None:
-    """Text inside one fake boundary, or empty when that edge is inline."""
-    if slot is None:
-        result = ""
-    elif slot >= len(children):
-        result = None
-    else:
-        edge = children[slot]
-        result = edge.to_text() if isinstance(edge, GrammarModel) else None
-        if edge is None:
-            result = fallback
-        elif result is not None and opening and result.startswith(boundary):
-            result = result[1:]
-        elif result is not None and not opening and result.endswith(boundary):
-            result = result[:-1]
-    return result
+class Attached(NamedTuple):
+    """One finished region, ready to lay over its stand-in where it is held.
 
-
-def _leading_noise(
-    text: str, start: int, stop: int, boundary: str, allowed: frozenset[str]
-) -> str:
-    """Return the finite wrapper prefix following an opening boundary."""
-    at = start
-    while at < stop and text[at] != boundary and text[at] in allowed:
-        at += 1
-    return text[start:at]
-
-
-def _trailing_noise(
-    text: str, start: int, stop: int, boundary: str, allowed: frozenset[str]
-) -> str:
-    """Return the finite wrapper suffix preceding a closing boundary."""
-    at = stop
-    while at > start and text[at - 1] != boundary and text[at - 1] in allowed:
-        at -= 1
-    return text[at:stop]
-
-
-def witness_core(
-    work: RegionWork, stand: GrammarModel, raw: str, text: str
-) -> str | None:
-    """A witness without the edge noise its own parse put in the region's slots.
-
-    ``stand`` is the parse of the region's opener, ``raw`` and its closer, so
-    this is known before any piece is parsed. The stand-in's edges are then
-    whatever the caller places around the core.
-
-    :returns: The core, or ``None`` when ``raw`` does not carry those edges.
+    :ivar work: The region.
+    :ivar overlay: Slot → value on the stand-in's node: the merged items.
+    :ivar ends: The first and last pieces, whose edge slots decide the
+        region's edges inside its brackets.
+    :ivar up: The steps from the stand-in's node down to its needle.
     """
-    opener, closer = text[work.region.opener], text[work.region.closer]
-    wrapped = opener + raw + closer
-    fake_before = _edge_noise(
-        stand.children(),
-        work.plan.outer_begin,
-        opener,
-        True,
-        _leading_noise(wrapped, 1, len(wrapped) - 1, opener, work.plan.outer_skip),
-    )
-    fake_after = _edge_noise(
-        stand.children(),
-        work.plan.outer_end,
-        closer,
-        False,
-        _trailing_noise(wrapped, 1, len(wrapped) - 1, closer, work.plan.outer_trail),
-    )
-    if fake_before is None or fake_after is None:
-        return None
-    if not raw.startswith(fake_before) or not raw.endswith(fake_after):
-        return None
-    core_end = len(raw) - len(fake_after) if fake_after else len(raw)
-    if core_end < len(fake_before):
-        return None
-    return raw[len(fake_before) : core_end]
+
+    work: RegionWork
+    overlay: dict[int, Bound]
+    ends: tuple[GrammarModel, GrammarModel]
+    up: tuple[ModelStep, ...]
 
 
-def _boundary_stub(
-    work: RegionWork,
-    models: list[GrammarModel],
-    stand: GrammarModel,
-    raw: str,
-    text: str,
-) -> tuple[str, str, str] | None:
-    """Replace a stand-in's boundary noise with the delegated source noise.
-
-    :returns: The stand-in text, and the leading and trailing noise put into it.
-    """
-    begin_at, end_at = work.plan.outer_begin, work.plan.outer_end
-    opener, closer = text[work.region.opener], text[work.region.closer]
-    source_before = _leading_noise(
-        text, work.region.opener + 1, work.region.closer, opener, work.plan.outer_skip
-    )
-    source_after = _trailing_noise(
-        text, work.region.opener, work.region.closer, closer, work.plan.outer_trail
-    )
-    before = _edge_noise(models[0].children(), begin_at, opener, True, source_before)
-    after = _edge_noise(models[-1].children(), end_at, closer, False, source_after)
-    core = witness_core(work, stand, raw, text)
-    if before is None or after is None or core is None:
-        return None
-    return before + core + after, before, after
-
-
-def _standin_model[M](
-    request: MergeRequest[M], work: RegionWork, source: str
-) -> tuple[GrammarModel, GrammarModel] | None:
-    """Parse one bounded generated shell stand-in and locate its items node."""
-    try:
-        stand = request.run(work.plan.root, source)
-    except LexicError:
-        return None
-    if not isinstance(stand, GrammarModel):
-        return None
-    needle = region_items(stand, work.plan)
-    shaped = head_rest(needle, work.plan) if needle is not None else None
-    return (stand, needle) if shaped is not None and needle is not None else None
-
-
-def _standin[M](
-    request: MergeRequest[M],
-    work: RegionWork,
-    models: list[GrammarModel],
-) -> tuple[GrammarModel, str, GrammarModel] | None:
-    """Merged items and the shallow shell needle standing in for them."""
-    value = _merge_items(request, work, models)
-    if not work.witness:
-        return None
-    raw = work.witness
-    wrapped = request.text[work.region.opener] + raw + request.text[work.region.closer]
-    parsed = _standin_model(request, work, wrapped)
-    if value is None or parsed is None:
-        return None
-    stand, needle = parsed
-    stub = _boundary_stub(work, models, stand, raw, request.text)
-    if stub is None:
-        return None
-    item, before, after = stub
-    if item != raw:
-        parsed = _standin_model(request, work, wrapped[0] + item + wrapped[-1])
-        # The source noise must land in the region's edge slots: absorbed by
-        # the witness instead, it sits in the items the splice replaces.
-        edges = (wrapped[0], wrapped[-1], before, after)
-        if parsed is None or not _edges_hold(work.plan, parsed[0], edges):
-            return None
-        _stand, needle = parsed
-    return value, item, needle
-
-
-class Standins(NamedTuple):
-    """All reconstructed region values and their shell stand-ins."""
-
-    values: list[GrammarModel]
-    text: list[str]
-    needles: list[GrammarModel]
-
-
-def standins[M](
+def stitch_units[M](
     request: MergeRequest[M],
     works: list[RegionWork],
-    parsed: list[list[GrammarModel]],
-) -> Standins | None:
-    """Build every region's merged value and shallow unique shell needle."""
-    out = Standins([], [], [])
-    needles: dict[tuple[int, str], list[GrammarModel]] = {}
-    for work, models in zip(works, parsed, strict=True):
-        key = (id(work.plan.root), work.plan.head_rule)
-        stand = _standin(request, work, models)
-        if stand is None:
+    plan: list[Unit],
+    models: list[GrammarModel],
+    whole: M,
+) -> M | None:
+    """Attach every divided region's value where it is held, innermost first.
+
+    ``models`` are the pieces' parses, in ``plan`` order; ``whole`` is the
+    shell's, the last unit. A region's pieces first receive the values of the
+    regions they hold, then merge into that region's value. A held region
+    opens after its holder, so reverse document order finishes every region
+    before its holder needs it. Two equal needles in one unit are refused by
+    :func:`sole_routes` itself — each is found twice.
+    """
+    pieces: list[list[int]] = [[] for _work in works]
+    for at, unit in enumerate(plan[:-1]):
+        pieces[unit.owner].append(at)
+    attached: list[Attached | None] = [None] * len(works)
+    for index in reversed(range(len(works))):
+        region_plan = works[index].plan
+        filled = [
+            _attach(request, models[at], plan[at], region_plan, attached)
+            for at in pieces[index]
+        ]
+        ready = [model for model in filled if model is not None]
+        done = (
+            _finish(request, works[index], ready) if len(ready) == len(filled) else None
+        )
+        if done is None:
             return None
-        value, source, needle = stand
-        if needle in needles.setdefault(key, []):
+        attached[index] = done
+    if not isinstance(whole, GrammarModel):
+        return None
+    return _attach(request, whole, plan[-1], None, attached)
+
+
+def _finish[M](
+    request: MergeRequest[M], work: RegionWork, models: list[GrammarModel]
+) -> Attached | None:
+    """What the region's pieces decide about its node: the merged items, and
+    — through its first and last pieces — its edges inside the brackets."""
+    items = _merge_items(request, work, models)
+    plan = work.plan
+    if items is None:
+        return None
+    ends = (models[0], models[-1])
+    if plan.outer_items >= 0:
+        up: tuple[ModelStep, ...] = ((plan.outer_items, None),)
+        return Attached(work, {plan.outer_items: items}, ends, up)
+    merged = items.children()
+    overlay: dict[int, Bound] = {
+        plan.items_head: merged[plan.items_head],
+        plan.items_rest: merged[plan.items_rest],
+    }
+    return Attached(work, overlay, ends, ())
+
+
+def _attach[M, T: GrammarModel](
+    request: MergeRequest[M],
+    model: T,
+    unit: Unit,
+    plan: RegionPlan | None,
+    attached: list[Attached | None],
+) -> T | None:
+    """``model`` with each held region's pieces laid over its stand-in.
+
+    A piece (``plan`` given) is searched only in the item holding each needle;
+    the shell has no items, so the whole of it is walked once.
+    """
+    ready = [done for k in unit.held if (done := attached[k]) is not None]
+    needles = [done.work.needle for done in ready]
+    if len(ready) != len(unit.held) or None in needles:
+        return None
+    found = [needle for needle in needles if needle is not None]
+    routes = (
+        sole_routes(model, found)
+        if plan is None
+        else [
+            held_route(model, plan, item, needle)
+            for item, needle in zip(unit.items, found, strict=True)
+        ]
+    )
+    out: T | None = model
+    for route, done in zip(routes, ready, strict=True):
+        cut = len(route) - len(done.up) if route is not None else -1
+        if route is None or out is None or cut < 1 or route[cut:] != done.up:
             return None
-        needles[key].append(needle)
-        out.values.append(value)
-        out.text.append(source)
-        out.needles.append(needle)
+        node = model_at(out, route[:cut])
+        laid = _laid(request, done, node) if node is not None else None
+        out = splice(out, route[:cut], laid) if laid is not None else None
     return out
 
 
-def stitch_shell[M](
-    request: MergeRequest[M],
-    grammar: IrAst,
-    works: list[RegionWork],
-    stands: Standins,
-) -> M | None:
-    """Parse the small enclosing shell and attach delegated region values."""
-    try:
-        whole = request.run(
-            grammar,
-            shell(request.text, [work.region for work in works], stands.text),
-        )
-    except LexicError:
-        return None
-    if not isinstance(whole, GrammarModel):
-        return None
-    routes = [sole_route(whole, needle) for needle in stands.needles]
-    found = [route for route in routes if route is not None]
-    if len(found) != len(routes):
-        return None
-    for route, value in zip(found, stands.values, strict=True):
-        spliced = splice(whole, route, value)
-        if spliced is None:
+def _laid[M](
+    request: MergeRequest[M], done: Attached, node: GrammarModel
+) -> GrammarModel | None:
+    """The stand-in's node with the region's items and its true edges.
+
+    An edge slot can straddle a bracket — ``ws "}" ws`` — so its truth is the
+    PIECE's part inside the bracket and the HOLDER's outside it: the pieces
+    never saw what follows the closer, and the stand-in's own noise may sit
+    inside where a real item absorbed the source's. Each edge is built from
+    the two slots' children, split at the bracket, and taken only when it
+    spells exactly that truth.
+    """
+    plan, text = done.work.plan, request.text
+    region = done.work.region
+    overlay = dict(done.overlay)
+    for slot, piece, bracket, opening in (
+        (plan.outer_begin, done.ends[0], text[region.opener], True),
+        (plan.outer_end, done.ends[1], text[region.closer], False),
+    ):
+        if slot is None:
+            continue
+        edge = _true_edge(_child(node, slot), _child(piece, slot), bracket, opening)
+        if edge is None:
             return None
-        whole = spliced
-    return whole
+        overlay[slot] = edge[0]
+    return overlaid(node, overlay)
+
+
+def _child(model: GrammarModel, slot: int) -> Bound:
+    """One slot's value, or ``None`` past the model's children."""
+    children = model.children()
+    return children[slot] if slot < len(children) else None
+
+
+def _spelled(value: Bound) -> str | None:
+    """An edge slot's text: empty when unset, ``None`` when not a model."""
+    if value is None:
+        return ""
+    return value.to_text() if isinstance(value, GrammarModel) else None
+
+
+def _true_edge(
+    held: Bound, pieced: Bound, bracket: str, opening: bool
+) -> tuple[Bound] | None:
+    """The edge that spells the holder's text beyond ``bracket`` and the
+    piece's within it — as a 1-tuple, since an unset edge is ``None`` — or
+    ``None`` when no split of the two slots spells it."""
+    outer, inner = _spelled(held), _spelled(pieced)
+    if outer is None or inner is None:
+        return None
+    truth = _joined(outer, inner, bracket, opening)
+    candidates: list[Bound] = [held, pieced]
+    if (
+        isinstance(held, GrammarModel)
+        and isinstance(pieced, GrammarModel)
+        and held.__class__ is pieced.__class__
+    ):
+        candidates.extend(_splits(held, pieced, opening))
+    return next(((c,) for c in candidates if _spelled(c) == truth), None)
+
+
+def _splits(held: GrammarModel, pieced: GrammarModel, opening: bool) -> list[Bound]:
+    """The holder's slot rebuilt with the piece's children on the bracket's
+    inner side, at every split point."""
+    outer, inner = held.children(), pieced.children()
+    out: list[Bound] = []
+    for at in range(len(inner) + 1):
+        parts = [*outer[:at], *inner[at:]] if opening else [*inner[:at], *outer[at:]]
+        try:
+            out.append(held.rebuild(parts))
+        except TypeError, ValueError, LexicError:
+            continue
+    return out
+
+
+def _joined(outer: str, inner: str, bracket: str, opening: bool) -> str:
+    """One edge slot's true text: ``outer``'s part beyond the bracket, and
+    ``inner``'s part within it — the bracket itself where either spells it."""
+    if opening:
+        head = outer[: outer.find(bracket) + 1] if bracket in outer else ""
+        tail = inner[inner.find(bracket) + 1 :] if bracket in inner else inner
+        return head + tail
+    head = inner[: inner.rfind(bracket) + 1] if bracket in inner else inner
+    tail = outer[outer.rfind(bracket) + 1 :] if bracket in outer else ""
+    return head + tail
