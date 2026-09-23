@@ -790,3 +790,24 @@ def test_a_proposal_and_a_proof_share_one_sweep() -> None:
     assert shared is not None
     for plan in plans:
         assert plan.mark <= shared.separators
+
+
+@pytest.mark.parametrize(
+    ("workers", "cpus", "pieces"),
+    [
+        (16, 16, 15),  # the pool claims every CPU of a big host: spare one
+        (8, 8, 7),  # the smallest host that spares
+        (32, 16, 31),  # asked for more workers than CPUs: still claims them all
+        (4, 4, 4),  # a small host keeps every piece — one is a quarter of it
+        (2, 2, 2),  # and a 2-CPU host must still split in two
+        (4, 16, 4),  # a pool leaving CPUs free spares nothing
+        (7, 8, 7),
+    ],
+)
+def test_a_split_spares_a_cpu_only_when_the_pool_claims_a_big_host(
+    workers: int, cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The calling thread parses the shell beside the pieces; sparing it a CPU
+    pays on 16 CPUs and costs a quarter of the pool on 4."""
+    monkeypatch.setattr(orchestrate, "available_workers", lambda: cpus)
+    assert orchestrate.piece_count(workers) == pieces
