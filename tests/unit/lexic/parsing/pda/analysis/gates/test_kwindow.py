@@ -41,6 +41,7 @@ from lexic.parsing.pda.analysis.gates.kwindow import (
     follow_loop_gate,
     loop_gate,
     rule_references,
+    stop_exit_settles,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -765,3 +766,42 @@ def test_a_repeated_atom_under_the_optional_still_takes() -> None:
     for text in ("aaxay", "axay", "ay", "bbbxay"):
         model = parse_model(compiled.codegen_grammar, text, compiled.product)
         assert model.to_text() == text, text
+
+
+# ── a stop-set's first exit, judged two characters deep ────────────────────
+
+LINES = 'root ::= (e "=" ws e "\\n")+\ne ::= [a-z] ws\nws ::= [ \\n]*\n'
+"""Arithmetic's shape: ``ws`` ends ``e``, which ``"\\n"`` follows at one site
+and ``"="`` at the other, where a letter follows ``ws`` in turn."""
+
+
+def _exit_settles(source: str, rule: str, key: str) -> bool:
+    """:func:`stop_exit_settles` for the loop that opens ``rule``'s one arm,
+    exiting where its FIRST meets the rule's hard FOLLOW."""
+    analysis = _compiled_analysis(source, key)
+    items = _rule_items(analysis.rules[rule].body[0])
+    first = analysis.atom_first(items[0].atom)
+    hard = analysis.hard_cont_at(items, 0, analysis.hard_follow[rule])
+    exits = first.subtract(first.subtract(hard))
+    windows = FollowWindows(analysis.rules, analysis.start, FOLLOW_LOOP_K)
+    return stop_exit_settles(windows, items, 0, rule, exits)
+
+
+def test_an_exit_no_text_continues_both_ways_settles() -> None:
+    """Taking the ``\\n`` before ``"\\n"`` must meet another space, newline or
+    ``=``; stopping must meet a letter or the end. Judged site by site: the
+    letter after ``= ws`` belongs to another site, so it is not mixed in."""
+    assert _exit_settles(LINES, "ws", "kw-stop-lines")
+
+
+def test_an_exit_a_text_continues_both_ways_does_not_settle() -> None:
+    """``r ::= [ab]* "a" t``, ``t ::= [ab]* "!"``: ``aa`` both takes and stops."""
+    source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= [ab]* "!"\n'
+    assert not _exit_settles(source, "r", "kw-stop-both")
+
+
+def test_the_second_character_decides_where_the_first_cannot() -> None:
+    """``t ::= "!"`` instead: every exit character is ``a``, and only what
+    comes after it separates the take from the stop."""
+    source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= "!"\n'
+    assert _exit_settles(source, "r", "kw-stop-second")

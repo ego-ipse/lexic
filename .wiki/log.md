@@ -2268,3 +2268,12 @@ criterion would have served a mark whose occurrences are not aligned.
 `parallel-parsing.md` gains the plan-kind row and the proof's shape;
 `decisions.md` records why it is a source rather than a fourth plan kind, and
 that the bordered widening is sound and untaken.
+
+## A stop-set is granted only where its first exit is the split answer
+
+`decisions.md` records the three conditions a stop-set is granted under: it
+runs longest, its exit is decided two characters deep at each reference site,
+or its carving is invisible. Every other stop-set islands. The two-deep proof is
+per site through `FollowWindows.site_windows`, which shares the fixpoint's own
+walk. `public-api.md`'s decider bullet now lists `STOP_SET`, `NOISE_GREEDY` and
+`GREEDY_SPLIT` among `LEFTMOST_LONGEST`'s grants, with `GREEDY_ARM` withheld.
