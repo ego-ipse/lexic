@@ -52,7 +52,11 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.caches import memo, reset_caches, track
-from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig, Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+    Resolver,
+)
 from lexic.parsing.parallel import (
     AUTO,
     anchors,
@@ -293,7 +297,11 @@ class CompiledGrammar:
         # artefact's: it is the split plan's identity and every analysis is
         # memoised on it, so replicating it would re-derive them per thread.
         product = document_view(self.codegen_grammar, self.product)
-        config = ParseConfig(IrNone if resolve is None else resolve, decide)
+        config = (
+            DEFAULT_CONFIG
+            if resolve is None and decide is LEFTMOST_LONGEST
+            else ParseConfig(IrNone if resolve is None else resolve, decide)
+        )
         # Splitting is asked FIRST and of the grammar alone: whether the
         # input is split has nothing to do with which route reads it. A
         # segmented grammar simply never yields a plan (its terminals are
