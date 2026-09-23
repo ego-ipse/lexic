@@ -36,7 +36,9 @@ from types import BuiltinFunctionType, FunctionType, ModuleType
 
 import pytest
 
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.compile import compile_text
+from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram
 from lexic.parsing.products import _model_product
 from tools.benchmark.cases.grammars import BENCHES, Bench
 
@@ -47,8 +49,12 @@ EDGES = (
     "attempt",
     "runarm",
     "chartable",
+    "longest",
 )
 """Slots that hold, or nest, an arm or a clone.
+
+``longest`` nests the island reference a longest-take clone asks when its span
+holds a follower: the island's name, which reaches the interiors it compiled.
 
 ``struct_arm`` is deliberately absent: a ``ScanGate`` reaches no clone. The
 oracle does not consult this list, which is the point of having it.
@@ -83,13 +89,29 @@ def _spread(value: object, stack: list[object]) -> None:
         stack.append(value)
 
 
-def walked(program: object, edges: tuple[str, ...] = EDGES) -> set[int]:
-    """Clone ids reachable from ``program`` through the named fields."""
+def walked(program: PdaProgram, edges: tuple[str, ...] = EDGES) -> set[int]:
+    """Clone ids reachable from ``program`` through the named fields.
+
+    An island reference's payload names its rule (a string, once the payload
+    is spread), and the program's delegate source holds the interior clones
+    compiled for that island so far: that is the edge from the reference to
+    them. Any other name holds none. They are compiled on first use, so
+    which are held depends on what the process has parsed.
+    """
+    return _walk(program.start, program.delegates, edges)
+
+
+def _walk(
+    root: object, delegates: DelegateSource | None, edges: tuple[str, ...]
+) -> set[int]:
+    """Clone ids reachable from ``root``, island interiors through ``delegates``."""
     seen: set[int] = set()
-    stack: list[object] = [getattr(program, "start", None)]
+    stack: list[object] = [root]
     while stack:
         node = stack.pop()
         _spread(getattr(node, "payloads", None), stack)
+        if delegates is not None and isinstance(node, str):
+            _spread(delegates.held(node), stack)
         if not isinstance(node, FlatClone) or id(node) in seen:
             continue
         seen.add(id(node))
@@ -237,3 +259,31 @@ def test_a_clone_carries_no_completion_index() -> None:
     needs it brings the slot back with itself, populated on every path.
     """
     assert "completion" not in FlatClone.__slots__
+
+
+ISLAND_WITH_INTERIOR = (
+    'root ::= "<" expr ">"\nexpr ::= expr op term | expr "or" term | term\n'
+    'term ::= "ab" [x]+ | "ac" [y]+\nop ::= "and"\n'
+)
+"""``expr`` is an island whose sub-parse delegates ``term`` to a PDA clone."""
+
+
+def test_the_walk_follows_an_island_into_the_interiors_it_compiled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parse that reaches the island compiles its interior clones; the walk
+    reaches them through the island's reference and nowhere else."""
+    compiled = compile_text(ISLAND_WITH_INTERIOR, cache_key="walk-island-interior")
+    tables = _model_product(compiled.codegen_grammar, compiled.product).pda
+    compiled.parse("<abxxandacyyorabx>", cores=1)
+    held = tables.program.delegates.held("expr")
+    assert held, "the parse compiled no interior: the edge under test never ran"
+    oracle = referenced(tables)
+    assert walked(tables.program) == set(oracle)
+
+    monkeypatch.setattr(type(tables.program.delegates), "held", lambda _self, _name: {})
+    missed = set(oracle) - walked(tables.program)
+    assert {id(clone) for clone in held.values()} <= missed
+    assert missed <= set().union(
+        *(_walk(clone, None, EDGES) for clone in held.values())
+    )

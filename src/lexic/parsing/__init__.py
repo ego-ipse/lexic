@@ -109,7 +109,7 @@ is the user surface.
 
 from __future__ import annotations
 
-from lexic.ir import IrAst, IrInt, IrSelf, IrSeq, IrStr, IrTuple
+from lexic.ir import IrAst, IrInt, IrNone, IrSelf, IrSeq, IrStr, IrTuple
 from lexic.parsing.earley.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
@@ -128,7 +128,11 @@ from lexic.parsing.earley.kernel.forest.forest import (
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+    Resolver,
+)
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
@@ -142,6 +146,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import (
@@ -201,7 +206,10 @@ def parse(grammar: IrAst, text: str) -> ParseTree:
 
 
 def parse_first(
-    grammar: IrAst, text: str, tables: ParserTables | None = None
+    grammar: IrAst,
+    text: str,
+    tables: ParserTables | None = None,
+    decide: Decider = LEFTMOST_LONGEST,
 ) -> ParseTree:
     """Parse ``text`` into its FIRST derivation — deterministic under ambiguity.
 
@@ -218,11 +226,13 @@ def parse_first(
         the instance path passes product-licenced collapsed tables (see
         :func:`lexic.parsing.product.collapsed_product_tables`) for a faster
         lexical layer; ``None`` compiles the plain tables.
+    :param decide: The split decider whose carving the derivation keeps, as
+        :meth:`~lexic.compile.CompiledGrammar.parse` takes it.
     :returns: One derivation of ``text`` under the start rule.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
-    args = (IrStr(text),) if tables is None else (IrStr(text), tables)
-    return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(*args))
+    held = IrNone if tables is None else tables
+    return PARSE_FIRST.eval(EarleyParser(), grammar, IrTuple(IrStr(text), held, decide))
 
 
 def parse_forest(grammar: IrAst, text: str) -> IrSelf:
@@ -271,15 +281,19 @@ def is_ambiguous(grammar: IrAst, text: str) -> IrInt:
 
 __all__ = [
     "BUILD_TREE",
+    "DEFAULT_CONFIG",
     "BuildTree",
     "Chart",
+    "Decider",
     "EarleyParser",
     "EarleyItem",
     "FastTree",
     "GrammarAnalysis",
     "Kernel",
+    "LEFTMOST_LONGEST",
     "Link",
     "Links",
+    "ParseConfig",
     "ParseTree",
     "ParserTables",
     "PdaKernel",

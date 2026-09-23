@@ -135,6 +135,22 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
         self.struct_arm = {}
 
 
+class RuleMarks(NamedTuple):
+    """The rule-name sets a rule's notes mark it into, all flagged where the
+    decision is made rather than read back from note text.
+
+    :ivar fail: The fail-island rule names.
+    :ivar policy_ends: Rules with a decision that picks an extent by policy.
+    :ivar longest: Text-only rules a greedy match answers wherever its span
+        holds none of the reference's followers, by name, each with its EXTEND
+        (see :func:`~lexic.parsing.pda.analysis.conflicts.greedy_exact`).
+    """
+
+    fail: set[str]
+    policy_ends: set[str]
+    longest: dict[str, CharSet]
+
+
 class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     """The classified per-rule notes + gate specs — the taxonomy result.
 
@@ -147,8 +163,13 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
 
     :ivar conflicts: Rule name → island-worthy notes (presence marks an island).
     :ivar demoted: Rule name → stop-set / window demotion notes.
-    :ivar fail: The fail-island rule names — semantic rules that fired the F1
-        stop-set-escape branch (a subset of :attr:`conflicts`' keys).
+    :ivar marks: The rule-name sets, read through :attr:`fail` (semantic rules
+        that fired the F1 stop-set-escape branch, a subset of
+        :attr:`conflicts`' keys) and :attr:`policy_ends` (rules with a decision
+        that picks an EXTENT by policy, such as a stop-set or greedy exit or a
+        greedy arm over an empty one, rather than by what the text holds; such
+        a rule can end at more than one place a continuation accepts, so no
+        single run of it stands for all of them).
     :ivar attempts: Conflicted-but-attemptable rule name → its
         :class:`AttemptSpec`. A subset of :attr:`conflicts`' keys: rules whose
         EVERY island-worthy note an attempt can settle — a body-arm FIRST
@@ -173,7 +194,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "conflicts",
         "demoted",
-        "fail",
+        "marks",
         "attempts",
         "attempt_loops",
         "gates",
@@ -182,7 +203,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
 
     conflicts: dict[str, list[str]]
     demoted: dict[str, list[str]]
-    fail: set[str]
+    marks: RuleMarks
     attempts: dict[str, AttemptSpec]
     attempt_loops: dict[int, CharSet]
     delegated: bool
@@ -199,10 +220,26 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         self.delegated = delegated
         self.conflicts = {}
         self.demoted = {}
-        self.fail = set()
+        self.marks = RuleMarks(set(), set(), {})
         self.attempts = {}
         self.attempt_loops = {}
         self.gates = _GateStore()
+
+    @property
+    def fail(self) -> set[str]:
+        """The fail-island rule names (see :class:`RuleMarks`)."""
+        return self.marks.fail
+
+    @property
+    def policy_ends(self) -> set[str]:
+        """Rules whose extent a policy picks (see :class:`RuleMarks`)."""
+        return self.marks.policy_ends
+
+    @property
+    def longest(self) -> dict[str, CharSet]:
+        """Rules a greedy match answers short of the island (see
+        :class:`RuleMarks`)."""
+        return self.marks.longest
 
     @property
     def arm_gates(self) -> dict[str, Windows]:

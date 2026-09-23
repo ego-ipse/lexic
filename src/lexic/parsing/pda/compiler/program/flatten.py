@@ -225,6 +225,10 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
+    :ivar longest: A longest-take rule's
+        :class:`~lexic.parsing.pda.compiler.specs.LongestTake`: the matched span
+        is checked for this reference's followers before it is committed. ``None``
+        on every other clone.
 
     """
 
@@ -253,6 +257,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "chartotal",
         "runarm",
         "needs_ends",
+        "longest",
     )
 
     name: str
@@ -275,6 +280,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
+    longest: Any  # LongestTake | None — the specs leaf holds the record
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

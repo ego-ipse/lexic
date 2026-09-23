@@ -79,8 +79,8 @@ def dense_earley_corpus(terms: int, per_line: int = 24) -> str:
 def start_fallback_corpus(units: int) -> str:
     """A run of units for a left-recursive START rule the fold refuses.
 
-    The rule's recursive arm captures nothing, so the fold declines it
-    (``fold_build`` returns ``None``) and the predictive path raises — the
+    The rule has two recursive arms, so the fold declines it (``fold_build``
+    returns ``None``) and the predictive path raises — the
     product's own fallback then parses the whole document on Earley. The
     document is one flat run because the shape, not its content, is what
     reaches the engine.

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import canonical_grammar
+from lexic.compile import canonical_grammar, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -175,11 +175,20 @@ def test_left_recursive_rules_never_attempt():
 
 
 def test_ungatable_loops_carry_the_attempt_licence():
-    """vyx: EVERY island is attemptable once its ungatable loops carry the
+    """vyx: every island is attemptable once its ungatable loops carry the
     greedy-take licence — a loop extent is a split with a defined answer
-    (the first slot owns the text), so greedy take + rollback needs no gate."""
+    (the first slot owns the text), so greedy take + rollback needs no gate.
+    The two stop-sets that reach FOLLOW sit in text-only rules, so they take
+    their longest match rather than island, and no island is left unattempted."""
     analysis = lifted_analysis("vyx.gbnf")
     taxonomy = analysis.taxonomy
+    stop_sets = {
+        name
+        for name, notes in analysis.conflicts.items()
+        if any("stop-set reaches FOLLOW" in note for note in notes)
+    }
+    assert not stop_sets
+    assert {"nl-escape", "nl-force"} <= set(taxonomy.longest)
     assert set(taxonomy.attempts) == analysis.islands
     assert taxonomy.attempt_loops
     assert all(isinstance(key, int) for key in taxonomy.attempt_loops)
@@ -437,11 +446,12 @@ def test_loop_over_soft_only_follower_islands():
 
 def test_loop_over_hard_follower_stays_demoted():
     """A trailing loop whose only FOLLOW overlap is a *hard* follower stays a
-    sound stop-set demote — the arithmetic ``ws "\\n"`` shape.
+    stop-set demote: the arithmetic ``ws "\\n"`` shape.
 
-    ``ws``'s FIRST overlaps FOLLOW only on ``'a'``, but ``'a'`` is the mandatory
-    literal after ``ws`` — a hard follower present in the hard FOLLOW, so every
-    clone's stop-set excludes it and the demote is call-site invariant.
+    ``ws``'s FIRST overlaps FOLLOW only on ``'a'``, the mandatory literal after
+    it. Taking that ``'a'`` needs another character after it, and stopping
+    before it needs the end of the input, so no text continues both ways: the
+    first exit is the split answer or a failure.
     """
     ws = _rule(
         "ws", IrSequence(_item(IrCharClass(IrChr(10), IrChr(97)), lo=0, hi=None))
@@ -449,7 +459,9 @@ def test_loop_over_hard_follower_stays_demoted():
     root = _rule("root", IrSequence(_item(IrRuleRef("ws")), _item(IrLiteral("a"))))
     analysis = _analysis(root, ws, start="root")
     assert "ws" not in analysis.islands
-    assert "ws" in analysis.demoted
+    assert analysis.demoted["ws"] == [
+        "ws[0]: loop stop-set applied (exit decided two deep)"
+    ]
     assert analysis.hard_follow["ws"].has("a")
 
 
@@ -909,3 +921,72 @@ def test_unregistered_atom_type_raises_on_nullable():
     analysis = _analysis(_rule("s", IrSequence(IrItem(IrLiteral("a")))))
     with pytest.raises(UnsupportedConstructError):
         analysis.atom_nullable(UnknownAtom())
+
+
+# ── a stop-set exits first; it is granted only where no carving shows ──────
+
+
+def stop_set_notes(source: str, rule: str) -> tuple[list[str], list[str]]:
+    """``rule``'s (demotion notes, conflict notes) in ``source``."""
+    compiled = compile_text(source, cache_key=f"stop-set-{hash(source)}")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    return analysis.demoted.get(rule, []), analysis.conflicts.get(rule, [])
+
+
+def test_a_stop_set_inside_a_text_rule_with_a_fixed_end_is_granted() -> None:
+    """``w``'s model is its text and nothing extends a finished ``w``: every
+    carving of ``[ab]* "a" [ab]*`` builds the same ``w``, so the first exit is
+    safe though ``ab`` can continue it both ways."""
+    source = 's ::= w ";"\nw ::= [ab]* "a" [ab]* "!"\n'
+    demoted, conflicts = stop_set_notes(source, "w")
+    assert demoted == ["w[0]: loop stop-set applied"]
+    assert not conflicts
+
+
+def test_a_stop_set_whose_exit_nothing_can_follow_both_ways_is_granted() -> None:
+    """``r ::= [ab]* "a" t`` with ``t ::= "!"``: taking an ``a`` must meet
+    another letter, stopping before it must meet ``!``. One text never fits
+    both, though ``r`` builds structure."""
+    source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= "!"\n'
+    demoted, conflicts = stop_set_notes(source, "r")
+    assert demoted == ["r[0]: loop stop-set applied (exit decided two deep)"]
+    assert not conflicts
+
+
+def test_a_stop_set_with_no_exit_in_reach_runs_longest() -> None:
+    """``item``'s run overlaps only the soft loopback of ``item+``: no clone
+    subtracts anything, so the loop takes the longest run."""
+    demoted, conflicts = stop_set_notes("root ::= item+\nitem ::= [a-z]+\n", "item")
+    assert demoted == ["item[0]: loop stop-set applied (runs longest)"]
+    assert not conflicts
+
+
+def test_a_stop_set_whose_overlap_reaches_the_follow_islands() -> None:
+    """``x ::= q [ab]*`` before ``"a" y``: stopping at the first ``a`` moves
+    text from ``x`` into ``y``, a different model, and ``x`` builds a ``q``, so
+    its greedy match cannot stand for its island."""
+    demoted, conflicts = stop_set_notes(
+        's ::= x "a" y\nx ::= q [ab]*\nq ::= "q"\ny ::= [ab]*\n', "x"
+    )
+    assert conflicts == ["x[1]: loop stop-set reaches FOLLOW"]
+    assert not demoted
+
+
+def test_a_noise_run_that_can_hold_its_follower_islands() -> None:
+    """``ws ::= c [ =]*`` before ``"="``: which ``=`` ends the run is
+    visible, and a run that builds a ``c`` is not its text."""
+    source = (
+        '# @non-semantic ws\ns ::= w ws "=" ws w\nw ::= [a-z]+\n'
+        'ws ::= c [ =]*\nc ::= "#"?\n'
+    )
+    _demoted, conflicts = stop_set_notes(source, "ws")
+    assert conflicts == ["ws[1]: loop stop-set reaches FOLLOW"]
+
+
+def test_a_stop_set_in_a_rule_that_builds_structure_islands() -> None:
+    """``r``'s end is fixed and ``t`` lets ``aa`` continue both ways: on
+    ``aab!``, stopping first gives ``t`` = ``ab!`` where the split gives
+    ``b!``."""
+    source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= [ab]* "!"\n'
+    _demoted, conflicts = stop_set_notes(source, "r")
+    assert conflicts == ["r[0]: loop stop-set reaches FOLLOW"]

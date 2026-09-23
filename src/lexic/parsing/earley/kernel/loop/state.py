@@ -18,6 +18,20 @@ delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (islan
 delegation)."""
 
 
+PROMOTED: KLink = (-1, -1, -1)
+"""Leads a bucket whose later families are read from its completion group.
+
+A distinguished VALUE rather than a second container: one ``links`` lookup
+then tells a reader both that the key exists and how to read it, where a
+parallel set cost a second hash on every query.
+
+Shaped as a :data:`KLink` so a bucket stays ``list[KLink]`` and needs no wider
+element type, and negative so it cannot collide: a predecessor item, an origin
+column and a child handle are all packed non-negative ints, so no producer can
+file this triple. Compared by IDENTITY against this one module-level object,
+never by value."""
+
+
 class KernelState(IrLeaf[IrSelf, IrSelf]):
     """Per-parse index state — the kernel's mutable-chart exception.
 
@@ -31,11 +45,40 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     :ivar predicted: Per column, the ``rule_id``\\ s already predicted.
     :ivar leo: Per column, ``rule_id`` → memoised Leo top (``-1`` = none).
     :ivar links: handle → its packed SPPF families.
+    :ivar groups: ``(rule_id, end)`` → the completed items of that rule
+        ending there that the COMPLETER ACTUALLY PROCESSED, in event order,
+        from the first promotion at that ``(rule, end)`` on. Created only then,
+        so a chart that never promotes never builds one — and an empty
+        ``groups`` is how a reader knows no key promoted at all.
+
+        It exists because ``cols[end]`` is NOT a record of what the completer
+        processed: ``_complete`` returns early when ``_try_leo`` takes a
+        completion, leaving that completion in the column with no family
+        filed. A reader that walked the column re-derived those families and
+        served derivations the parse never built.
     :ivar leo_links: deferred Leo provenance — top handle → the bottom
         family of every chain that jumped to it (converging ambiguous
         chains each file theirs), rebuilt into :attr:`links` on demand.
+
+    One store, classified by MULTIPLICITY, and the classification is a value
+    IN :attr:`links` rather than a lane beside it: a bucket led by
+    :data:`PROMOTED` means "more than one ordinary family: the first follows
+    the marker, the rest are read from the group". A key with a single family
+    keeps it exactly as it always did — same dict, same one-element list, same
+    tuple — because at fanout one there is nothing to save and anything spent
+    reconstructing it per read is pure loss. One lookup answers both what is
+    stored and how to read it.
     """
 
+    # pylint: disable=too-many-instance-attributes
+    # An eighth lane: `groups` holds the completions the COMPLETER ACTUALLY
+    # FILED, which `cols` is not a record of — `_complete` returns before
+    # filing when `_try_leo` takes a completion. The alternative that would
+    # satisfy the cap is folding `leo` and `leo_links` into one record, and
+    # they are read SEPARATELY by the forest, the chart, `resume` and the
+    # readout across three dozen sites — coupling two unrelated per-parse
+    # indexes to please a counter would make four call sites worse to make
+    # one number smaller.
     __slots__ = (
         "seen",
         "waiting",
@@ -44,6 +87,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         "leo",
         "links",
         "leo_links",
+        "groups",
     )
 
     seen: list[set[int]]
@@ -53,6 +97,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
     leo: list[dict[int, int]]
     links: dict[int, list[KLink]]
     leo_links: dict[int, list[KLink]]
+    groups: dict[tuple[int, int], list[int]]
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
@@ -63,6 +108,7 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         self.leo = [{} for _ in range(columns)]
         self.links = {}
         self.leo_links = {}
+        self.groups = {}
 
     def file_item(self, i: int, item: int, s: int) -> None:
         """File a just-inserted item under the symbol its dot faces.

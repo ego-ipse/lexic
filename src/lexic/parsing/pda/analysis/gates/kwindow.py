@@ -56,6 +56,7 @@ __all__ = [
     "follow_loop_gate",
     "loop_gate",
     "rule_references",
+    "stop_exit_settles",
 ]
 
 
@@ -284,3 +285,68 @@ def follow_loop_gate(
     taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
     skip = extend_follow({((), END)}, follow, k)
     return windows_of(taken) if separable([taken, skip]) else None
+
+
+def stop_exit_settles(
+    windows: FollowWindows,
+    items: Sequence[IrItem],
+    idx: int,
+    label: str,
+    exits: CharSet,
+) -> bool:
+    """Whether a stop-set's first exit is the only way on, two characters deep.
+
+    The loop at item ``idx`` of rule ``label``'s arm leaves at the first
+    character of ``exits``. Taking that character instead is an iteration the
+    rest of the text must still complete. Where no text can continue both ways
+    for its next two characters, at most one of them completes: the exit, or
+    a failure that bails. So the exit is the split answer.
+
+    Checked at each reference site of ``label`` alone, never across them. The
+    other carving differs from the one taken only in where this loop ends, so
+    it keeps the enclosing arm, and both continue through the same site. Each
+    side is that site's continuation, END-extended by its rule's FOLLOW\\ :sub:`k`
+    (an over-approximation of the text after the rule, the same on both
+    sides).
+
+    :param windows: The grammar's FOLLOW\\ :sub:`k` windows at
+        :data:`FOLLOW_LOOP_K`.
+    :param items: The rule arm holding the loop.
+    :param idx: The looping item's index.
+    :param label: The rule the arm belongs to.
+    :param exits: The characters the loop can exit at.
+    :returns: ``True`` when no site lets both continue.
+    """
+    k = FOLLOW_LOOP_K
+    rest = list(items[idx + 1 :])
+    item = IrItem(items[idx].atom, IrQuantifier(1, items[idx].quantifier.hi))
+    taken = windows.solver.arm_prefixes([item, *rest], k)
+    stopped = windows.solver.arm_prefixes(rest, k)
+    for site in windows.site_windows(label):
+        take = extend_follow(taken, site, k)
+        stop = extend_follow(stopped, site, k)
+        if any(_both_go_on(t, s, exits) for t in take for s in stop):
+            return False
+    return True
+
+
+def _both_go_on(take: Pref, stop: Pref, exits: CharSet) -> bool:
+    """Whether one text fits a take window and a stop window that both begin
+    with an exit character. A window's characters are what it knows, as for
+    :func:`~.windows.collide`; a one-character window ENDs the input there, or
+    says nothing about what comes next."""
+    if not take[0] or not stop[0]:
+        # An empty window is the end of input, unless nothing is known.
+        return (not take[0] and take[1] != END) or (not stop[0] and stop[1] != END)
+    lead = take[0][0].subtract(take[0][0].subtract(stop[0][0]))
+    if not lead.overlaps(exits):
+        return False
+    if len(take[0]) > 1 and len(stop[0]) > 1:
+        return take[0][1].overlaps(stop[0][1])
+    take_ends = len(take[0]) == 1 and take[1] == END
+    stop_ends = len(stop[0]) == 1 and stop[1] == END
+    # One side ends the input where the other has more: disjoint. Both ending
+    # right after the exit character lands here too, and collides: a guard, not
+    # a case that arises, since an exit character is a HARD continuation
+    # character of the clone that exits and a take must still meet one after it.
+    return not (take_ends and len(stop[0]) > 1 or stop_ends and len(take[0]) > 1)

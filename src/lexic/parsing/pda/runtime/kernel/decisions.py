@@ -8,7 +8,7 @@ driver calls (:meth:`Attempting.attempt`,
 carries no slots of its own — every attribute it reads is declared by the kernel.
 
 The vocabulary: a both-viable boundary's viability CLASS
-(:func:`_arm_rest_scan` walked over the live chain), the probe (one side
+(:func:`arm_rest_scan` walked over the live chain), the probe (one side
 run to end-of-input on a structural stack copy), and the three-verdict
 fork resolution (take / stop-forced / fork) asked as the forest gate asks
 it — on completed VALUES.
@@ -24,21 +24,20 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
-from lexic.parsing.pda.compiler.program.opcodes import (
-    OP_CC,
-    OP_CC1,
-    OP_FAIL,
-    OP_ISLAND,
-    OP_LIT,
-    OP_LIT1,
-)
-from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
+    REST_ADMITS,
+    REST_ADMITS_HARD,
+    REST_ASCEND,
+    REST_DEAD,
     KernelCaches,
     RouteLane,
     Side,
     admits,
+    arm_rest_scan,
+    composes,
     control_signature,
     frames_copy,
     pending_values,
@@ -61,77 +60,8 @@ _LOCKSTEP_STEP = 8
 different control states — small, because convergence is usually one element
 away and every character driven past it is wasted."""
 
-_DEAD, _ASCEND, _ADMITS, _ADMITS_HARD = 0, 1, 2, 3
-"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
-stop side; a fully-skippable rest defers to the enclosing frame; an
-admitting OPTIONAL item is same-arm chain viability (the greedy split);
-an admitting MANDATORY item is the terminator-theft shape — a possessive
-take would steal the char the arm's own continuation requires, so the
-probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
-
 _TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Attempting._fork_verdict`)."""
-
-
-def _item_admits(arm: FlatArm, j: int, char: str) -> bool:
-    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
-    if char == "":
-        return False
-    k = arm.kinds[j]
-    payload = arm.payloads[j]
-    if k in (OP_LIT, OP_LIT1):
-        return payload[0] == char
-    if k in (OP_CC, OP_CC1):
-        chars, negated = payload
-        return (char not in chars) if negated else char in chars
-    if k in (OP_FAIL, OP_ISLAND):
-        return True  # no FIRST at hand — MAY (a spurious probe is safe)
-    return _clone_admits(payload, char)
-
-
-def _clone_admits(clone: FlatClone, char: str) -> bool:
-    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
-    if clone.attempt is not None:
-        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
-    if clone.wide_selectors is not None:
-        return True  # windowed selection — MAY
-    if clone.default is not None:
-        return True  # a nullable default may defer admission further down
-    for chars, negated, _arm in clone.selectors:
-        if (char not in chars) if negated else char in chars:
-            return True
-    return False
-
-
-def _arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
-    """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
-
-    An optional admitting item does NOT settle the walk (both the chain and
-    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
-    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
-    mandatory item settles it either way (admits → the terminator class;
-    refuses → the char cannot flow past, the stop side is dead).
-    """
-    opt = False
-    for j in range(i + 1, arm.n):
-        if _item_admits(arm, j, char):
-            if arm.los[j] > 0:
-                return _ADMITS_HARD, opt
-            opt = True
-        elif arm.los[j] > 0:
-            return _DEAD, opt
-    return _ASCEND, opt
-
-
-def _composes(follow: Any, text: str, end: int) -> bool:
-    """Whether an arm ending at ``end`` can be extended in ANY context.
-
-    The rule's soft FOLLOW over-approximates what may come next, so a next
-    character outside it proves this reading dead wherever the rule is used.
-    End of input composes: nothing follows, and a rule that may end the parse
-    carries the sentinel rather than a character.
-    """
-    return end >= len(text) or follow.has(text[end : end + 1])
 
 
 class Attempting[Carry]:
@@ -162,7 +92,7 @@ class Attempting[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
-    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
+    def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
         """Provided by the kernel — the windowed Earley island splice.
 
         ``ref`` is the ``OP_ISLAND`` payload: the island rule's name, what may
@@ -240,19 +170,19 @@ class Attempting[Carry]:
         # pays the exact continuation classification and fork audit.
         char = self.text[pos : pos + 1]
         soft = arm.gate_data[i][1]
-        cls = self._beyond_class(arm, i, char) if admits(char, *soft) else _DEAD
+        cls = self._beyond_class(arm, i, char) if admits(char, *soft) else REST_DEAD
         if self._caches.probing:
             # Inside a probe boundaries resolve GREEDILY by class — probes
             # never nest. The terminator class (a MANDATORY item anywhere up
             # the live chain wants the char) prefers stop; the chain class
             # takes. Either way the probe's outcome becomes a SAMPLED path
             # (uncertain).
-            if cls == _ADMITS_HARD:
+            if cls == REST_ADMITS_HARD:
                 self._caches.uncertain = True
                 return False
-            if cls == _ADMITS:
+            if cls == REST_ADMITS:
                 self._caches.uncertain = True
-        elif cls in (_ADMITS, _ADMITS_HARD):
+        elif cls in (REST_ADMITS, REST_ADMITS_HARD):
             verdict = self._fork_verdict(arm, i, pos, got)
             if verdict == _STOP_FORCED:
                 return False
@@ -266,39 +196,42 @@ class Attempting[Carry]:
     def _beyond_class(self, arm: FlatArm, i: int, char: str) -> int:
         """The boundary's viability CLASS over the whole live chain.
 
-        :returns: :data:`_ADMITS_HARD` when a MANDATORY item anywhere up the
+        :returns: :data:`REST_ADMITS_HARD` when a MANDATORY item anywhere up the
             live chain wants the char (the terminator class — stopping is the
-            strong prior); :data:`_ADMITS` for optional-item viability only
-            (the chain class — taking is); :data:`_DEAD` when no stop side
+            strong prior); :data:`REST_ADMITS` for optional-item viability only
+            (the chain class — taking is); :data:`REST_DEAD` when no stop side
             exists. Optional admits never settle the walk — a hard admit
             deeper up outranks them.
         """
-        verdict, opt = _arm_rest_scan(arm, i, char)
-        if verdict == _ASCEND:
+        verdict, opt = arm_rest_scan(arm, i, char)
+        if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = _arm_rest_scan(frame.arm, frame.i, char)
+                verdict, o = arm_rest_scan(frame.arm, frame.i, char)
                 opt = opt or o
-                if verdict != _ASCEND:
+                if verdict != REST_ASCEND:
                     break
-        if verdict == _ADMITS_HARD:
-            return _ADMITS_HARD
-        if verdict == _DEAD:
-            return _ADMITS if opt else _DEAD
-        return _ADMITS if (opt or char == "") else _DEAD
+        if verdict == REST_ADMITS_HARD:
+            return REST_ADMITS_HARD
+        if verdict == REST_DEAD:
+            return REST_ADMITS if opt else REST_DEAD
+        return REST_ADMITS if (opt or char == "") else REST_DEAD
 
     def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
         """Whether the boundary char is viable BEYOND another iteration —
         the island branch's trigger (:meth:`_beyond_class` in truth form)."""
-        return self._beyond_class(arm, i, char) in (_ADMITS, _ADMITS_HARD)
+        return self._beyond_class(arm, i, char) in (REST_ADMITS, REST_ADMITS_HARD)
 
     def _attempt_island(
         self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
-        """An attempted ISLAND / fail-island iteration — failure closes the loop."""
+        """An attempted ISLAND / fail-island iteration — failure closes the loop;
+        an island that cannot settle its own extent bails instead."""
         if arm.kinds[i] == OP_ISLAND:
             sink = self._sink_for(frame, arm, i)
             try:
                 self._island(arm.payloads[i], sink)
+            except ProbeFork:
+                raise
             except PdaFail:
                 pass
             else:
@@ -510,7 +443,7 @@ class Attempting[Carry]:
                 continue
             best = self._attempt_run(sub, pos)
             if best is not None:
-                if not _composes(follow, self.text, best[0]):
+                if not composes(follow, self.text, best[0]):
                     # It parses, but its own next character is outside the
                     # rule's FOLLOW, so no context can extend this reading —
                     # a dead arm, not a candidate. Committing would hand the
@@ -537,10 +470,12 @@ class Attempting[Carry]:
         :param pos: The attempt position.
         :param end: The winner's end.
         :param follow: The rule's soft-FOLLOW CharSet.
-        :raises PdaFail: A later entry succeeding on the SAME span (a value
+        :raises ProbeFork: A later entry succeeding on the SAME span (a value
             question this seam does not settle) or on a DIFFERENT span whose
             next character ``follow`` accepts (a cross-span arm choice) —
-            either way the gated engine decides.
+            either way the gated engine decides. Undecidable, not a miss: an
+            enclosing attempted iteration re-raises it rather than reading it
+            as its own arm failing, which would close the loop and commit.
         """
         char = self.text[pos : pos + 1]
         for chars, negated, prefix, window, sub in rest:
@@ -557,7 +492,7 @@ class Attempting[Carry]:
                 continue
             alt = other[0]
             if alt == end or (alt > end and self._spans_exactly(sub, pos, end)):
-                raise PdaFail(
+                raise ProbeFork(
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
                     "a value question for the gated engine",
                     pos,
@@ -570,7 +505,7 @@ class Attempting[Carry]:
             # as composable: the bail direction, where the gated engine's
             # whole-input view settles it.
             if alt >= len(self.text) or follow.has(self.text[alt : alt + 1]):
-                raise PdaFail(
+                raise ProbeFork(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
                     "and the alternative could compose",
                     pos,

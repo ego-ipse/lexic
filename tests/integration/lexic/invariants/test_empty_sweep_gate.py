@@ -27,8 +27,8 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import rebase, scan_windows, shared_scanner
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
@@ -63,7 +63,7 @@ def empty_document(units: int) -> str:
 
 def sweeping_scanner(grammar):
     """The scanner the orchestrator would sweep this grammar with."""
-    return shared_scanner(grammar, _safe_plans(_split_plans(grammar), grammar))
+    return shared_scanner(grammar, safe_plans(split_plans(grammar), grammar))
 
 
 def witness():
@@ -125,10 +125,10 @@ def test_an_empty_sweep_is_not_dispatched(workers: int) -> None:
     class Counting(WorkPool):
         """A pool that records every hand-out it is asked to make."""
 
-        def map(self, work, items):
+        def map(self, work, items, beside=None):
             """Record the request, then behave exactly like the real pool."""
             handed.append(len(items))
-            return super().map(work, items)
+            return super().map(work, items, beside)
 
     with Counting(workers) as pool:
         windows = scan_windows(scanner, text, workers, pool)
@@ -233,7 +233,7 @@ def opaque_separated_plan():
     """
     for bench in BENCHES:
         grammar = bench.compiled.codegen_grammar
-        for plan in _safe_plans(_split_plans(grammar), grammar):
+        for plan in safe_plans(split_plans(grammar), grammar):
             if plan.scanner.opaque and plan.scanner.separators:
                 return bench, plan
     raise AssertionError("no bench grammar offers an opaque, separator-bearing plan")

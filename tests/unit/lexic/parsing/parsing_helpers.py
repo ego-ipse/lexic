@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaCompiler, compile_clones
 from lexic.parsing.pda.core.errors import PdaFail
@@ -45,7 +46,9 @@ def compiled() -> CompiledGrammar:
     return compile_text(PRODUCTS_GRAMMAR_TEXT, cache_key="products-test-grammar")
 
 
-def engines_agree_or_both_refuse(cg: CompiledGrammar, text: str, resolve=None) -> str:
+def engines_agree_or_both_refuse(
+    cg: CompiledGrammar, text: str, config: ParseConfig = DEFAULT_CONFIG
+) -> str:
     """Assert the two engines answer ``text`` the same way; say which way.
 
     Three outcomes, all of them the contract rather than an excuse:
@@ -65,20 +68,20 @@ def engines_agree_or_both_refuse(cg: CompiledGrammar, text: str, resolve=None) -
 
     :param cg: The compiled grammar.
     :param text: The input both engines parse.
-    :param resolve: A resolver for the model route, or ``None`` to refuse.
+    :param config: The model route's resolver and split decider.
     :returns: ``"agreed"``, ``"refused"`` or ``"declined"``.
     """
     product = prod(cg)
     gated = _answer(
         lambda: earley_model(
-            product.instance_grammar, text, cg.product, product.tables, resolve
+            product.instance_grammar, text, cg.product, product.tables, config
         )
     )
     try:
         predictive = repr(pda_model(product.pda, text, cg.product.executor))
     except PdaFail:
         composed = _answer(
-            lambda: parse_model(cg.codegen_grammar, text, cg.product, resolve)
+            lambda: parse_model(cg.codegen_grammar, text, cg.product, config)
         )
         assert composed == gated, (
             f"{text!r}: the composed entry says {composed} where the gated "

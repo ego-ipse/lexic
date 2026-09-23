@@ -24,6 +24,7 @@ from typing import NamedTuple, TypedDict
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import LexicError
+from lexic.parsing import ParseConfig
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product, earley_model
@@ -96,6 +97,11 @@ def _case(name: str):
     return compiled, _model_product(compiled.codegen_grammar, compiled.product), text
 
 
+def _take_first[T](first: T, _other: T) -> T:
+    """The resolver the resolved rows parse under: keep the derivation in hand."""
+    return first
+
+
 def _call(row: Row) -> Callable[[], object]:
     """Build the production-adjacent callable for one row."""
     compiled, product, text = _case(row.case)
@@ -111,7 +117,7 @@ def _call(row: Row) -> Callable[[], object]:
             text,
             compiled.product,
             product.tables,
-            lambda first, _other: first,
+            ParseConfig(resolve=_take_first),
         )
     raise ValueError(row.engine)
 

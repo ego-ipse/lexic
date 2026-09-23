@@ -256,6 +256,78 @@ try the alternative composition instead of guessing from one character.
 With the bail, vyx holds raw parity (0/194 divergent; row added for real —
 its old "exclusion" subtracted a stem that was never in the list).
 
+## 2026-09-23 — An island's end is judged two characters deep, and only against sites that can meet it
+
+**Decision:** the two-ends check (`islands._unsettled_end`) refuses a shorter
+completion only if the continuation admits it TWO characters deep, and only
+counts continuations from reference sites that can stand at the same document
+position. `IslandContinuations` computes both on the document grammar.
+`windows(name, site)` is FIRST-2 of each site's arm rest, END-extended by its
+rule's FOLLOW-2, with the next occurrence's windows grown to a fixpoint where
+the reference repeats. `follow(name, site)` and `windows(name, site)` union
+only sites whose position intervals meet (`site_positions`: the start rule at
+0, a reference at its rule's start plus its prefix's span, the hull over every
+path). A delegate's analysis never narrows: its window rebases positions.
+
+**Why:** the one-character, all-sites test refused ends no continuation could
+take, sending whole documents to Earley. abnf-meta's ` ` was followed by `/`,
+which begins no continuation. gbnf-meta's `#` came only from a site that
+follows a whole rule, never the document's first position. Both remain over-
+approximations, so a refusal still happens whenever some continuation could
+compose. The windows had one bug on the way: extending the next occurrence by
+the RULE's FOLLOW instead of the arm's rest dropped `;a` in
+`sec ::= stmt+ end`, and the random differential caught a wrong model from it.
+Both fixpoints (`rule_spans`, `site_positions`) run until nothing moves and
+update monotonically: a fixed round count left a widened `inf` unpropagated,
+and a high end recomputed from not-yet-widened arms oscillated. A reference
+inside an inline group is a site too, followed by what follows its groups.
+
+**Scope:** vyx's `envelope` refusal survives to four characters. It is genuine,
+and item 36's route owns it.
+
+## 2026-09-23 — What follows an island is what follows ONE occurrence of it
+
+**Decision:** `IslandContinuations.follow` adds the island's own FIRST at every
+reference site where the reference can repeat (`sec+`, `sec{2,3}`).
+
+**Why:** the set is what `_unsettled_end` asks when deciding whether a shorter
+completion could compose with the caller. `cont_at` gives what follows the
+reference ITEM as a whole, so for `doc ::= sec+` it said only end-of-input. A
+shorter `sec` that another `sec` would continue is a second carving of `doc`,
+and longest-match settled it unchecked: `;!;;;!` came back as two sections
+where Earley builds three. The next occurrence is a different node, so it is
+not the island continuing itself, which is what the rule's own arms are
+excluded for. A reference inside a repeated GROUP needs nothing: the group
+arrives hoisted, and its rule's FOLLOW already carries the loopback.
+
+**Cost:** an island that can spell its own first character no longer has an
+exact window at a repeating site. The first continuation character no longer
+bounds it, so the window climbs. Of the benches and ground truth, only
+backtrack's `stmt` goes from exact to climbing; c.gbnf's four sites were
+already climbing. Answers are unchanged on both.
+
+## 2026-09-23 — A delegate stands for its rule only if the rule has one end
+
+**Decision:** an island-interior rule is delegated only if no rule in its
+reachable interior picks an EXTENT by policy. That covers a stop-set exit, a
+greedy loop split, a split-greedy licence, and a greedy arm over an empty
+one. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
+decision is made (`Notes.picks_extent`), never read back from note text, and
+`_delegable` refuses a reachable member.
+
+**Why:** a delegate injects ONE completion into the island's chart, at the end
+its PDA run reaches, and skips the rule's own seeding. Being conflict-free
+gives one derivation per end, not one end. A policy-picked exit can stop where
+another end is also followable: `term ::= [a-z]+` under `op ::= "and"` stops
+at the first `a`. The whole-word end then never reaches the chart, the arm
+choice it belonged to vanishes, and the island returned `a and b` for `aandb`,
+which Earley refuses. Exact-lookahead demotions (k-window, noise-skip,
+FOLLOW-window, structured-noise) decide from the text, so the rule keeps one
+followable end and still delegates.
+
+**Cost:** vyx loses `nl-escape` and `nl-force` as delegates in each of its 25
+islands. No other bench or ground-truth grammar loses one.
+
 ## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
 
 **Decision:** `island_parse` grows its doubling window iff the windowed chart
@@ -880,7 +952,60 @@ marks it proves each occurrence is aligned. No border theory is involved:
 `" + "` and `"aba"` have the same border structure, and what separates them is
 whether an owner can emit the character a spurious occurrence would need.
 
+**A fold's boundaries are proved, not assumed.** `(γ)(β)*` turns the choice
+between `A`'s arms into where a piece ends, and the descent settles that
+greedily, as it settles a split. That matches the grammar only when the text
+fixes every boundary. `leftrec/shape.settled` asks for that by analysis: the
+EXTEND of γ, and of the steps, must be disjoint from FIRST(β). EXTEND is the
+set of characters at which a complete match can be lengthened and still match
+(`analysis/predicates.rule_extensions`, a least fixpoint bounded by ALPHABET).
+Take the first boundary where two carvings differ. The shorter piece there is
+lengthened by the character that starts a β, so disjointness leaves one
+carving at every width. A rule that fails it is not folded and islands, where
+Earley answers, or refuses. The parallel layer reads the same `foldable`, so a
+spine it would split is one whose carving is certain. The alternative, a
+runtime probe at the loop, is not taken: the greedy choice happens INSIDE the
+piece (a `"a"*` in γ, or a lexical run), where the loop's entry cannot see it.
+
 The bordered widening — exclude `mark[0]`, then for each border offset exclude
 the character at `len - k` — is sound and NOT taken. It is what a grammar whose
 owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
 would need, and nothing on the roster does.
+
+## A stop-set is granted only where its first exit is the split answer
+
+A stop-set loop leaves at the first character its continuation can start with:
+the SHORTEST take. The split answer is the longest take that completes. The
+analysis (`analysis/analysis.py`, `_stop_set` then `_settle`) grants a stop-set
+under one of three conditions and files every other one hard, so its rule
+islands and Earley answers:
+
+1. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
+   so no clone subtracts anything and the loop takes every character it can.
+   An overlap reached only through a soft follower, such as the loopback of
+   `item+`, is this case.
+2. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
+   continues both ways: with `c` an exit character, no window `(c, d)` of the
+   continuation also fits a take of `c`. Then at most one of the two completes,
+   and the PDA's exit is the answer or a failure that bails. Each reference site
+   of the rule is judged alone, through `FollowWindows.site_windows`: the other
+   carving differs only in where this loop ends, so it keeps the enclosing arm
+   and continues through the same site. Unioning the sites loses arithmetic's
+   `ws`, whose take at the end of `e` would be continued by the letter after
+   `= ws` at another site. A take and a stop that both end the input right
+   after `c` are refused as a guard. That is never realised, since `c` is a
+   hard continuation character of the clone that exits. It costs nothing
+   because the FOLLOW_k fixpoint treats an empty tail as its bottom rather than
+   as "the input may end here": a rule only gets an end window if the input
+   can really end after it. A delegate's analysis withholds this grant,
+   because its end is not the document's.
+3. **The carving is invisible** (`_settle`). The rule's model is its text (no
+   reference anywhere in its body, groups included), and its end is fixed:
+   EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
+   same model.
+
+`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the three conditions
+refuse costs Earley time where a real grammar's run can hold its closer.
+Vyx's `nl-escape` and `nl-force` are the case: the third character separates
+the exit from the take there, and `FOLLOW_LOOP_K` is 2 by measurement, not by
+budget. So those runs island rather than widen the window.

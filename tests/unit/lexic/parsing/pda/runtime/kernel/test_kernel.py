@@ -37,6 +37,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
+from lexic.parsing import ParseConfig
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
@@ -243,8 +244,9 @@ def test_kernel_and_islands_share_one_policy_record():
     def take_first(first, _other):
         return first
 
-    kern = PdaKernel(pda, "{}", compiled.executor, resolve=take_first)
+    config = ParseConfig(resolve=take_first)
+    kern = PdaKernel(pda, "{}", compiled.executor, config=config)
     assert isinstance(kern.policy, IslandPolicy)
     assert kern.policy.executor is compiled.executor
-    assert kern.policy.resolve is take_first
+    assert kern.policy.config is config
     assert kern.policy.delegates is None  # filled per island, at the reference

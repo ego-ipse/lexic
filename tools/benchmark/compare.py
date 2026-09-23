@@ -29,6 +29,14 @@ from statistics import median
 from typing import NamedTuple
 
 from tools.benchmark.execution.isolation import Job, RowRequest, run_job, run_roster
+from tools.benchmark.judging.arithmetic import (
+    MT_ROWS,
+    Pairing,
+    Verdict,
+    decide,
+    log_interval,
+    primary_reading,
+)
 from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
 MIN_PAIRS = 6
@@ -56,9 +64,6 @@ which is what :data:`BLOCK` settles. Their difference is a whole number of
 blocks, so growth reaches the ceiling exactly.
 """
 
-CONFIDENCE_Z = 1.96
-"""Two-sided 95% normal quantile — the predeclared interval."""
-
 ROUNDS = 5
 """Inner passes reduced to one process-level observation.
 
@@ -67,155 +72,6 @@ Raising this narrows each observation but multiplies the run: at 15 the full
 seventy-two here. The independent unit is the process either way, so the honest
 lever for an unresolved row is a quieter machine, not a longer inner loop.
 """
-
-MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
-"""Rows whose primary clock is wall, because their work is on other threads."""
-
-
-class Pairing(NamedTuple):
-    """One row's paired candidate and control log ratios.
-
-    :ivar candidate: log(head/base), one per pair.
-    :ivar control: log(control-a/control-b), one per pair.
-    :ivar slots: log(first/second) for the same control pairs — the ORDERING
-        artefact, oriented by which process actually ran first. The control's
-        two processes are byte-identical, so this is the first slot's own cost
-        and nothing else; it is reported rather than left to widen the envelope
-        silently.
-    """
-
-    candidate: tuple[float, ...]
-    control: tuple[float, ...]
-    slots: tuple[float, ...]
-
-
-class Verdict(NamedTuple):
-    """One row's decision and the numbers behind it.
-
-    :ivar row: ``grammar/name``.
-    :ivar status: The judging tier's word for this row. The gate's are ``ok``,
-        ``slower``, ``faster`` and ``unresolved``; a tier that decides on a
-        different rule must spell its outcomes differently, so that a verdict
-        can never be read against the wrong rule.
-    :ivar ratio: Median head/base ratio; 1.0 is no change.
-    :ivar low: Lower bound of the candidate's confidence interval, as a ratio.
-    :ivar high: Upper bound, as a ratio.
-    :ivar envelope: The control's upper bound, as a ratio — the noise this
-        machine actually produced under the identical protocol.
-    :ivar pairs: Independent process pairs behind the interval.
-    :ivar clock: Which clock decided, ``cpu`` or ``wall``.
-    """
-
-    row: str
-    status: str
-    ratio: float
-    low: float
-    high: float
-    envelope: float
-    pairs: int
-    clock: str
-
-
-def primary_reading(observation: Observation, row: str) -> float:
-    """The clock this row is judged on.
-
-    Sequential rows are judged on CPU, which ignores time the process spent
-    descheduled. A threaded row's result IS latency, so it is judged on wall —
-    and its CPU is reported beside it, because a wall win paid for with far
-    more total CPU is a different fact.
-    """
-    return observation.wall if row in MT_ROWS else observation.cpu
-
-
-def log_interval(ratios: Sequence[float]) -> tuple[float, float, float]:
-    """Mean log ratio and its confidence bounds, in log space."""
-    count = len(ratios)
-    mean = sum(ratios) / count
-    if count < 2:
-        return mean, mean, mean
-    variance = sum((value - mean) ** 2 for value in ratios) / (count - 1)
-    error = math.sqrt(variance / count)
-    return mean, mean - CONFIDENCE_Z * error, mean + CONFIDENCE_Z * error
-
-
-def noise_envelope(control: Sequence[float]) -> float:
-    """The control's upper log bound — what this machine calls no change.
-
-    Built from the byte-identical pairs' own spread, so a quiet machine gets a
-    tight envelope and a noisy one is honest about being noisy. A fixed
-    percentage cannot do either.
-    """
-    if not control:
-        return 0.0
-    _mean, low, high = log_interval(control)
-    return max(abs(low), abs(high))
-
-
-class Judged(NamedTuple):
-    """One row's numbers in the space they are JUDGED in, beside the verdict.
-
-    A verdict is read as ratios and decided as logs, and the two must not drift
-    apart: every tier that judges a row does it from this record, so its
-    thresholds and its published figures come from one arithmetic.
-
-    :ivar verdict: The row as a reader sees it, carrying the tier's word for
-        an undecided row.
-    :ivar low: The candidate interval's lower bound, in log space.
-    :ivar high: Its upper bound, in log space.
-    :ivar envelope: The control's magnitude, in log space.
-    """
-
-    verdict: Verdict
-    low: float
-    high: float
-    envelope: float
-
-
-def judge(row: str, pairing: Pairing, clock: str, undecided: str) -> Judged:
-    """One row's interval against its control envelope, before any rule applies.
-
-    :param undecided: What the judging tier calls a row it has not decided.
-    """
-    mean, low, high = log_interval(pairing.candidate)
-    envelope = noise_envelope(pairing.control)
-    return Judged(
-        Verdict(
-            row,
-            undecided,
-            math.exp(mean),
-            math.exp(low),
-            math.exp(high),
-            math.exp(envelope),
-            len(pairing.candidate),
-            clock,
-        ),
-        low,
-        high,
-        envelope,
-    )
-
-
-def decide(row: str, pairing: Pairing, clock: str) -> Verdict:
-    """Judge one row's candidate interval against its control envelope.
-
-    The gate is about SLOWDOWNS, so the only edge that can leave a row
-    undecided is the envelope's upper one. An interval whose top is inside the
-    envelope has already answered the gate's question — it cannot be slower —
-    and it passes: as ``faster`` when the whole interval sits below the
-    envelope's lower edge, as ``ok`` otherwise. Demanding ``low >= -envelope``
-    for ``ok`` as well made a row that is clearly not slower read
-    ``unresolved`` merely for being possibly FASTER than the machine's own
-    noise, which then blocked the gate and earned it more pairs it could not
-    spend.
-    """
-    judged = judge(row, pairing, clock, "unresolved")
-    if judged.low > judged.envelope:
-        return judged.verdict._replace(status="slower")
-    if judged.high < -judged.envelope:
-        return judged.verdict._replace(status="faster")
-    if judged.high <= judged.envelope:
-        return judged.verdict._replace(status="ok")
-    return judged.verdict
 
 
 class Arm(NamedTuple):
@@ -352,18 +208,16 @@ def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:
     )
 
 
-def _pair(first: Job, second: Job, row: str) -> tuple[float, float]:
-    """Run one ordered pair to completion and return both primary readings."""
+def _pair(first: Job, second: Job, row: str) -> tuple[Arm, Arm]:
+    """Run one ordered pair to completion and return both arms, checked."""
     results = (run_job(first), run_job(second))
-    arms = tuple(
+    one, other = (
         require(result, job.label)
         for result, job in zip(results, (first, second), strict=True)
     )
-    agree(arms[0].contract, arms[1].contract, row)
-    comparable(arms[0], arms[1], row)
-    return primary_reading(arms[0].observation, row), primary_reading(
-        arms[1].observation, row
-    )
+    agree(one.contract, other.contract, row)
+    comparable(one, other, row)
+    return one, other
 
 
 class Arms(NamedTuple):
@@ -374,16 +228,20 @@ class Arms(NamedTuple):
     cores: int
 
 
-def _ratio(numerator: Job, denominator: Job, numerator_first: bool, row: str) -> float:
-    """Log ratio of ``numerator`` over ``denominator``.
+def _ratio(
+    numerator: Job, denominator: Job, numerator_first: bool, row: str
+) -> tuple[float, Arm]:
+    """Log ratio of ``numerator`` over ``denominator``, and the numerator's arm.
 
     ``numerator_first`` says which of the two processes RUNS first. Flipping it
     between pairs is what stops the first slot's cache and thermal state from
     becoming a fixed advantage for whichever arm always occupies it.
     """
     pair = (numerator, denominator) if numerator_first else (denominator, numerator)
-    readings = dict(zip((job.label for job in pair), _pair(*pair, row), strict=True))
-    return math.log(readings[numerator.label] / readings[denominator.label])
+    arms = dict(zip((job.label for job in pair), _pair(*pair, row), strict=True))
+    top, bottom = arms[numerator.label], arms[denominator.label]
+    reading = primary_reading(top.observation, row)
+    return math.log(reading / primary_reading(bottom.observation, row)), top
 
 
 def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairing:
@@ -430,7 +288,7 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     :param pairs: How many pairs this call collects.
     :param first: The absolute index of the first of them.
     """
-    candidate: list[float] = []
+    candidate: list[tuple[float, Arm]] = []
     control: list[float] = []
     slots: list[float] = []
     for index in range(first, first + pairs):
@@ -440,12 +298,28 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
         left = _job(arms.head, grammar, row, arms.cores, "control-a")
         right = _job(arms.head, grammar, row, arms.cores, "control-b")
         a_first = index % 2 == 1
-        reading = _ratio(left, right, a_first, row)
+        reading = _ratio(left, right, a_first, row)[0]
         control.append(reading)
         # `_ratio` always divides control-a by control-b; flipping the sign when
         # control-b ran first turns the same reading into first-over-second.
         slots.append(reading if a_first else -reading)
-    return Pairing(tuple(candidate), tuple(control), tuple(slots))
+    return _with_heads(candidate, control, slots)
+
+
+def _with_heads(
+    candidate: list[tuple[float, Arm]], control: list[float], slots: list[float]
+) -> Pairing:
+    """The pairing, carrying each candidate pair's head arm as nanoseconds per byte."""
+    size = candidate[-1][1].contract.document_bytes if candidate else 0
+    heads = [head.observation for _log, head in candidate]
+    return Pairing(
+        tuple(ratio for ratio, _head in candidate),
+        tuple(control),
+        tuple(slots),
+        tuple(one.wall / size * 1e9 for one in heads),
+        tuple(one.cpu / size * 1e9 for one in heads),
+        size,
+    )
 
 
 def rosters(base: Path, head: Path) -> tuple[tuple[str, str], ...]:
@@ -508,6 +382,9 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
             pairing.candidate + extra.candidate,
             pairing.control + extra.control,
             pairing.slots + extra.slots,
+            pairing.head_wall + extra.head_wall,
+            pairing.head_cpu + extra.head_cpu,
+            pairing.document_bytes,
         )
         verdict = decide(label, pairing, clock)
     return verdict, pairing
@@ -529,6 +406,70 @@ def report_table(verdicts: Sequence[Verdict]) -> None:
             f"{verdict.row:{width}}  {verdict.clock:>5}  {verdict.ratio:7.4f}  "
             f"{verdict.low:7.4f}  {verdict.high:7.4f}  {verdict.envelope:7.4f}  "
             f"{verdict.pairs:5}  {verdict.status}"
+        )
+
+
+class Absolute(NamedTuple):
+    """One row's head cost per byte on both clocks — beside the verdict.
+
+    A verdict compares a seat with the SAME seat at the base, so it cannot say
+    how two seats compare with each other. These figures can, because every
+    row of one grammar is timed on the same runner in the same run. Each clock
+    is summarised with the verdicts' own arithmetic — the mean of the logs and
+    its interval, as ``(mean, low, high)`` — and nothing judges them: no status,
+    envelope or exit code reads this record.
+
+    :ivar document_bytes: The row's document, the per-byte denominator.
+    :ivar pairs: How many head readings each summary is over.
+    :ivar wall_ns_per_byte: Wall clock, nanoseconds per byte.
+    :ivar cpu_ns_per_byte: Process clock, nanoseconds per byte.
+    """
+
+    document_bytes: int
+    pairs: int
+    wall_ns_per_byte: tuple[float, float, float]
+    cpu_ns_per_byte: tuple[float, float, float]
+
+
+def _per_byte(values: Sequence[float]) -> tuple[float, float, float]:
+    """Mean and interval of positive readings, taken in log space."""
+    mean, low, high = log_interval([math.log(value) for value in values])
+    return math.exp(mean), math.exp(low), math.exp(high)
+
+
+def absolute(pairing: Pairing) -> Absolute | None:
+    """The head arm's cost per byte, or ``None`` for a pairing with no readings."""
+    if not pairing.head_wall:
+        return None
+    return Absolute(
+        pairing.document_bytes,
+        len(pairing.head_wall),
+        _per_byte(pairing.head_wall),
+        _per_byte(pairing.head_cpu),
+    )
+
+
+def report_absolute(samples: dict[str, Pairing]) -> None:
+    """Print each row's head cost per byte, headed as never judged."""
+    known = {row: one for row, p in samples.items() if (one := absolute(p))}
+    if not known:
+        return
+    width = max(len(row) for row in known)
+    print(
+        "\nhead, absolute — per byte of the row's document; "
+        "beside the verdicts, never judged"
+    )
+    print(
+        f"{'row':{width}}  {'bytes':>8}  {'wall ns/B':>10}  {'ci':>17}  "
+        f"{'cpu ns/B':>10}  {'ci':>17}  pairs"
+    )
+    for row in sorted(known):
+        one = known[row]
+        wall, cpu = one.wall_ns_per_byte, one.cpu_ns_per_byte
+        print(
+            f"{row:{width}}  {one.document_bytes:>8}  {wall[0]:10.2f}  "
+            f"{wall[1]:8.2f}..{wall[2]:<7.2f}  {cpu[0]:10.2f}  "
+            f"{cpu[1]:8.2f}..{cpu[2]:<7.2f}  {one.pairs}"
         )
 
 
@@ -631,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  {verdict.row}: {verdict.status} ({verdict.ratio:.4f}x)", flush=True)
     print()
     report_table(verdicts)
+    report_absolute(samples)
     if args.json:
         args.json.write_text(
             json.dumps(
@@ -643,6 +585,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "slots": list(p.slots),
                         }
                         for row, p in samples.items()
+                    },
+                    "absolute": {
+                        row: one._asdict()
+                        for row, p in samples.items()
+                        if (one := absolute(p)) is not None
                     },
                 },
                 indent=1,

@@ -695,11 +695,12 @@ def test_compiledgrammar_parse_start_island_completes_on_earley():
     start (its ``start_key`` is an ``IslandRef``); ``cg.parse`` still parses
     correctly, completing on the Earley engine per parse — no ``None`` channel.
     The start island is LEFT-RECURSIVE — the island class no attempt order can
-    settle (the digit-prefix overlap shape now legitimately attempts)."""
-    text = 'root ::= root "a" | "b"\n'
+    settle (the digit-prefix overlap shape now legitimately attempts) — with TWO
+    recursive arms, which the left-recursion fold refuses, so it stays one."""
+    text = 'root ::= root "a" | root "c" | "b"\n'
     cg = compile_text(text, flavour="gbnf")
     assert isinstance(prod(cg).pda.start_key, IslandRef)
-    assert cg.parse("baa").to_text() == "baa"
+    assert cg.parse("baca").to_text() == "baca"
     assert cg.parse("b").to_text() == "b"
 
 

@@ -19,8 +19,8 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import cut_offsets
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.pool import PoolLease
 from tests.split_helpers import engages
@@ -464,8 +464,8 @@ def test_runs_of_the_mark_never_cut_adjacent_or_empty() -> None:
     between them; the run thins to one boundary, and the pieces prove it."""
     text = _paragraphs(400)
     compiled = compile_text(_SAFE, cache_key="adv-faith-mark-runs")
-    plans = _safe_plans(
-        _split_plans(compiled.codegen_grammar),
+    plans = safe_plans(
+        split_plans(compiled.codegen_grammar),
         compiled.split_analysis or compiled.grammar,
     )
     assert len(plans) == 1 and plans[0].trailing

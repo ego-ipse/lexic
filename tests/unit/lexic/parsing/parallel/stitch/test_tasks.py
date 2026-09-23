@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from lexic.compile import compile_text
-from lexic.parsing import parse_model
+from lexic.compile import compile_ast, compile_text
+from lexic.grammars.json import JSON_GRAMMAR
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.discovery.interiors import interior_rules
+from lexic.parsing.parallel.discovery.regions import find
 from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.discovery.partition import partition
+from lexic.parsing.parallel.stitch.merge import MergeRequest
 from lexic.parsing.parallel.stitch.safety import owner_excludes
+from lexic.parsing.parallel.stitch.tasks import region_works
+from tests.unit.lexic.parsing.parallel.stitch.support import record_stitches
 
 
 def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
@@ -18,9 +24,9 @@ def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
     text = "(" + ",".join("a" * 20 for _ in range(900)) + ")"
     calls: list[str] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append(source)
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     grammar, binding = compiled.codegen_grammar, compiled.product
     assert split_model(recording_parse, grammar, Request(text, binding), 4) is None
@@ -46,3 +52,40 @@ def test_quote_like_rule_not_classified_as_interior_does_not_protect_owner() -> 
 
     assert "quote" not in interior_rules(grammar)
     assert not owner_excludes(grammar, "item", ",")
+
+
+UNEVEN = [9000, 2500, 2500, 9000, 5000, 2500, 300, 900, 40, 40]
+"""Item sizes that pack unevenly at eight workers: two items alone over the
+target, and a tail of small ones that ride together."""
+
+
+def _uneven() -> str:
+    """A json array of :data:`UNEVEN` strings, no whitespace."""
+    return "[" + ",".join('"' + "q" * k + '"' for k in UNEVEN) + "]"
+
+
+def test_a_work_binds_the_cuts_its_pieces_were_cut_at() -> None:
+    """The partition's cuts, not a re-derivation — and at the separators that
+    close each run, so the oversized items stand alone."""
+    compiled = compile_ast(JSON_GRAMMAR)
+    grammar, text = compiled.codegen_grammar, _uneven()
+    divided = partition(text, find(grammar, text), 8)
+    (division,) = divided
+    commas = [at for at, char in enumerate(text) if char == ","]
+    assert division.cuts == tuple(commas[k] for k in (0, 1, 2, 3, 4))
+    request = MergeRequest(parse_model, text, compiled.product, DEFAULT_CONFIG)
+    works = region_works(request, grammar, divided, grammar)
+    assert [work.cuts for work in works] == [division.cuts]
+
+
+def test_a_division_whose_cuts_would_rederive_differently_still_stitches(
+    monkeypatch,
+) -> None:
+    """The split is taken — not declined into a sequential parse — and its
+    model is the sequential one."""
+    compiled = compile_ast(JSON_GRAMMAR)
+    text = _uneven()
+    stitched = record_stitches(monkeypatch)
+    split = compiled.parse(text, cores=8)
+    assert stitched == [True]
+    assert split.dump() == compiled.parse(text, cores=1).dump()

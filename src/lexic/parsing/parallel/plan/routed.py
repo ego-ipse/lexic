@@ -620,7 +620,7 @@ def divide(
     """
     lo, hi = region.opener + 1, region.closer
     # The user-pinned floor applies to ACTUAL pieces, not just the document:
-    # capacity caps the division exactly as the sweep path's ``choose`` does,
+    # capacity caps the division as the region partition's floor does,
     # so a small interior at a high worker count declines rather than paying
     # sub-2 KiB parses.
     workers = min(workers, (hi - lo) // MIN_CHUNK)

@@ -344,8 +344,7 @@ def folded_pieces(terms: int, workers: int) -> FoldedCase:
     )
     roots = [compiled.parse(part, cores=1) for part in cut.parts]
     leads = [
-        parse_model(plan.lead_grammar, mark, compiled.product, None)
-        for mark in cut.leads
+        parse_model(plan.lead_grammar, mark, compiled.product) for mark in cut.leads
     ]
     spines = [root.children()[0] for root in roots]
     # The narrowing sits here, once, at the boundary where a parse hands back

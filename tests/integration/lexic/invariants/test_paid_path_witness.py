@@ -102,7 +102,7 @@ made.
 
 WITNESS: dict[str, str] = {
     "AttemptInlineMixin._attempt_tabled_loop": "c4566542d199cf29",
-    "AttemptInlineMixin._attempt_vdisp_loop": "1f2c3fe908c9e76e",
+    "AttemptInlineMixin._attempt_vdisp_loop": "9b5ec8133642b23c",
     "AttemptInlineMixin.attempt_inline_loop": "6c7e913ef9c86b20",
     "Kernel._advance_all": "56e7c5a8e276af55",
     "Kernel._close": "2705b7a15a0c4493",
@@ -110,7 +110,7 @@ WITNESS: dict[str, str] = {
     "Kernel.run": "9a328778d4035968",
     "PdaKernel._drive": "ba05ca518cf2dc27",
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
-    "PdaKernel._quant_step": "1c88d7247121a287",
+    "PdaKernel._quant_step": "14696d35b5d6f3cc",
     "gating.gate_take": "76e35db5019cf024",
     "matchers.match_arm": "5d1c46d9408b6d2c",
     "matchers.match_cc": "2f81af2235e50891",
@@ -120,7 +120,7 @@ WITNESS: dict[str, str] = {
     "matchers.match_runtable": "11b9846c122f07b0",
     "matchers.run_span_once": "4ad4f40a11fa6667",
     "matchers.select_arm": "ff51ffda2566a8bb",
-    "matchers.vstr_once": "6c3f501cad3481bf",
+    "matchers.vstr_once": "4fdad163da4e6b94",
     "scanner.scan_gate_take": "d4d3e62975559ffd",
 }
 """The pinned instruction digests. Regenerate deliberately — see the docstring."""

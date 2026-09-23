@@ -29,8 +29,8 @@ import pytest
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing import parse_model
-from lexic.parsing.parallel import orchestrate, split_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
+from lexic.parsing.parallel import orchestrate, planner, split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from tests.split_helpers import assert_parallel_matches_sequential
@@ -408,9 +408,9 @@ def test_family_engages_multiple_workers_at_large_size(family: str) -> None:
     sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
     calls: list[int] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append(len(source))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     split = split_model(
         recording_parse,
@@ -459,9 +459,9 @@ def test_sub_floor_document_declines_before_any_plan_analysis(
     def unexpected(*_args, **_kwargs):
         raise AssertionError(f"{family}: parallel analysis ran behind the floor gate")
 
-    monkeypatch.setattr(orchestrate, "_split_plans", unexpected)
-    monkeypatch.setattr(orchestrate, "owner_excludes", unexpected)
-    monkeypatch.setattr(orchestrate, "terminates_once", unexpected)
+    monkeypatch.setattr(orchestrate, "split_plans", unexpected)
+    monkeypatch.setattr(planner, "owner_excludes", unexpected)
+    monkeypatch.setattr(planner, "terminates_once", unexpected)
     monkeypatch.setattr(orchestrate, "par_find", unexpected)
 
     declined = orchestrate.split_model(
@@ -506,9 +506,9 @@ def test_genuine_prefix_ambiguity_declines_and_matches_sequential_refusal() -> N
 
     attempts: list[int] = []
 
-    def counting_parse(gr, piece, model_binding, resolve=None):
+    def counting_parse(gr, piece, model_binding, config=DEFAULT_CONFIG):
         attempts.append(len(piece))
-        return parse_model(gr, piece, model_binding, resolve)
+        return parse_model(gr, piece, model_binding, config)
 
     assert split_model(counting_parse, grammar, Request(text, binding), 2) is None
     assert len(attempts) >= 2, "both chunks must have actually been attempted"

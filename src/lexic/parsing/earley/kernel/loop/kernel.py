@@ -34,10 +34,15 @@ from typing import Callable, Self
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.forest.families import FamilyTable
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import leo_resolve, leo_sole
-from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
-from lexic.parsing.earley.kernel.tables.atoms import RunTerm
+from lexic.parsing.earley.kernel.loop.state import (
+    PROMOTED,
+    KernelState,
+    KLink,
+)
+from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
 Delegate = Callable[[str, int], tuple[int, object] | None]
@@ -124,6 +129,18 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.delegated = {}
 
     # ── the driver ────────────────────────────────────────────────────
+
+    def family_reader(self) -> FamilyReader:
+        """How this finished parse's families are read — chosen once per reader.
+
+        No key promoted means an empty ``groups``, and then the link dict IS the
+        reader: native lookups, no wrapper, no marker check. A chart that
+        factored gets a :class:`FamilyTable` that resolves promoted keys. The
+        choice holds for the reader's lifetime because only recognition
+        promotes — Leo expansion appends to buckets but never promotes, and
+        ``ResumableKernel.extend`` refuses under ``record_links``.
+        """
+        return FamilyTable(self) if self.st.groups else self.st.links
 
     def run(self) -> Self:
         """Build the chart: close each column to a fixpoint, scan one char.
@@ -219,8 +236,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         the sub-run's end column instead (:meth:`_inject_delegate`): the normal
         completer advances the by-then-fully-populated ``waiting[i][rid]`` at
         ``_close(end)``, so late waiters (added after this predict) are covered.
-        A delegable rule is conflict-free, so its parse from ``i`` is the unique
-        one the grammar admits there — the injected span is a true derivation.
+        Being conflict-free gives one derivation per END, not one end: the
+        injected span stands for every derivation only because a delegable
+        rule also decides every exit by lookahead, so at most one end from
+        ``i`` can be followed at all. A rule that picks its extent by policy
+        is never delegated, since its other ends are derivations this chart
+        would then never see.
         A declined delegate (``None``) falls through to normal seeding (the
         fail-soft net); delegation never runs on a non-island parse
         (``delegates`` is empty).
@@ -339,23 +360,79 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
         if self.record_links:
-            self._record_families(i, wl, origin, (it << bits) | i)
+            self._index_completion(i, it, wl, origin)
 
-    def _record_families(self, i: int, wl: list[int], origin: int, child: int) -> None:
-        """Record one packed family per advanced waiter (Scott 2008, deduped)."""
+    def _index_completion(self, i: int, it: int, wl: list[int], origin: int) -> None:
+        """File one completion's families — the first directly, the rest not.
+
+        `wl` is the waiter list `_complete` already holds, so this is the same
+        second iteration over one list the engine has always had.
+
+        A fresh key costs what the old recorder paid: one link, one `get`, one
+        insert. The group lookup waits behind ``if st.groups`` — empty on every
+        chart that never promotes — and everything a promotion needs waits
+        behind an OCCUPIED bucket, which a chart of fanout one never meets. A
+        PROMOTED bucket allocates nothing: the family tuple is built only
+        where a bucket still records families, so the factored chart does not
+        pay one per waiter per completion.
+        """
         links = self.st.links
         pk = self.tables.packing
         bits, advance = pk.bits, pk.advance
+        child = (it << bits) | i
+        group = self._join_group(i, it) if self.st.groups else None
         for w in wl:
             key = ((w + advance) << bits) | i
-            entry: KLink = (w, origin, child)
             bucket = links.get(key)
             if bucket is None:
-                links[key] = [entry]
-            elif entry not in bucket:
-                bucket.append(entry)
+                links[key] = [(w, origin, child)]
+            elif bucket[0] is not PROMOTED:
+                entry: KLink = (w, origin, child)
+                if entry not in bucket:
+                    group = self._promote(i, it, entry, bucket, group)
 
-    # ── island-interior delegation ────────────────────────────────────
+    def _join_group(self, i: int, it: int) -> list[int] | None:
+        """Record completion ``it`` in its ``(rule, i)`` group, if one exists."""
+        c = self.tables.codes
+        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
+        group = self.st.groups.get((rid, i))
+        if group is not None:
+            group.append(it)
+        return group
+
+    def _promote(
+        self,
+        i: int,
+        it: int,
+        entry: KLink,
+        bucket: list[KLink],
+        group: list[int] | None,
+    ) -> list[int] | None:
+        """A key's second distinct family: hand its record to the shared group.
+
+        A key facing a NULLABLE rule, or one the island delegates, is never
+        factored and keeps every family as the old recorder did: those keys
+        also receive families from `_nullable_advance` or `_complete_delegated`,
+        interleaved with ordinary ones in event order, and only the bucket
+        records that interleaving.
+
+        Otherwise the bucket becomes ``[PROMOTED, first]``. Its first family
+        stays because the group may not hold it — it can predate the group —
+        and it needs no position: every other family the key reads from the
+        group was filed after it.
+
+        :returns: the group, created here on the first promotion at its
+            ``(rule, end)``; ``None`` if this key is not one to factor.
+        """
+        c = self.tables.codes
+        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
+        if c.nullable_completes[rid] or rid in self.delegates:
+            bucket.append(entry)
+            return group
+        if group is None:
+            group = self.st.groups[(rid, i)] = [it]
+        bucket.insert(0, PROMOTED)
+        return group
 
     def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
         """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).

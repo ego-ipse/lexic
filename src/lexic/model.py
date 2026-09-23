@@ -27,7 +27,7 @@ re-emits them as lists and walks nested models on an explicit stack.
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Self, Sequence, cast
+from typing import Any, Callable, ClassVar, NamedTuple, Self, Sequence, cast
 
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.grammars import get_flavour
@@ -194,6 +194,19 @@ _FIELD_CHECK: IrDispatch = IrDispatch(
 )
 
 
+class ChildOrder(NamedTuple):
+    """A model class's bound fields in item order, and the binds table read.
+
+    :ivar binds: The table the order was derived from — compared by identity.
+    :ivar names: The bound field names, in item order.
+    :ivar indices: Each one's position in the record's field tuple.
+    """
+
+    binds: dict[int, tuple[str, IrBind]]
+    names: tuple[str, ...]
+    indices: tuple[int, ...]
+
+
 class GrammarModel(IrNamedTuple):
     """Abstract base for all generated grammar model classes.
 
@@ -217,6 +230,7 @@ class GrammarModel(IrNamedTuple):
     value names byte-identical while the document that value re-emits no longer
     parses. See :func:`lexic.ir.grammar.transform.order.rule_closure`."""
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {}
+    _child_order_cache: ClassVar[ChildOrder | None] = None
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         """Build the record with checked construction (hand-construction path).
@@ -354,6 +368,26 @@ class GrammarModel(IrNamedTuple):
         """
         return cls.__binds__
 
+    @classmethod
+    def _child_order(cls) -> ChildOrder:
+        """The bound fields in item order — sorted once per binds table.
+
+        Every walk asks for a model's children, and sorting the table on every
+        ask was most of what a walk cost. The order is re-derived only when
+        the class's table is REPLACED — a twin module's attach does that — so
+        a stale order cannot outlive the table it was read from.
+
+        :returns: The field names in item order, and their tuple positions.
+        """
+        binds = cls.bound_fields()
+        order = cls.__dict__.get("_child_order_cache")
+        if order is None or order.binds is not binds:
+            names = tuple(name for _slot, (name, _bind) in sorted(binds.items()))
+            where = {name: index for index, name in enumerate(cls._fields)}
+            order = ChildOrder(binds, names, tuple(where[name] for name in names))
+            cls._child_order_cache = order
+        return order
+
     def children(self) -> Sequence[IrSelf]:
         """Bound-field values in item order — the model's walk/viz payload.
 
@@ -366,13 +400,7 @@ class GrammarModel(IrNamedTuple):
 
         :returns: The bound values, item order.
         """
-        bound = type(self).bound_fields()
-        return cast(
-            Sequence[IrSelf],
-            tuple(
-                getattr(self, name) for _slot, (name, _bind) in sorted(bound.items())
-            ),
-        )
+        return tuple(map(self.__getitem__, type(self)._child_order().indices))
 
     def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Splice replacements into the bound fields; keep everything else.
@@ -383,8 +411,7 @@ class GrammarModel(IrNamedTuple):
         :param new_children: Replacement values for the bound fields.
         :returns: A new instance with the bound fields replaced.
         """
-        bound = type(self).bound_fields()
-        names = [name for _slot, (name, _bind) in sorted(bound.items())]
+        names = type(self)._child_order().names
         replacements = dict(zip(names, new_children, strict=True))
         values = [
             replacements.get(name, self[index])

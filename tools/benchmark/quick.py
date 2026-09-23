@@ -48,17 +48,19 @@ from typing import NamedTuple
 
 from tools.benchmark.compare import (
     BLOCK,
-    CONFIDENCE_Z,
     MAX_PAIRS,
     MIN_PAIRS,
-    MT_ROWS,
     Arms,
-    Pairing,
-    Verdict,
-    decide,
     report_table,
     rosters,
     sample,
+)
+from tools.benchmark.judging.arithmetic import (
+    CONFIDENCE_Z,
+    MT_ROWS,
+    Pairing,
+    Verdict,
+    decide,
 )
 from tools.benchmark.measurement.copy import digest
 from tools.benchmark.scope.diff import changed_paths

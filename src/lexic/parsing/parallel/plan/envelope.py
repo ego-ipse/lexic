@@ -1,7 +1,7 @@
 """Envelope containers and noise-run leads — the shapes a plain repetition is not.
 
 Two facts keep a real grammar's start rule out of the ``unit item*`` shape
-:mod:`~lexic.parsing.parallel.orchestrate` plans over.
+:mod:`~lexic.parsing.parallel.planner` plans over.
 
 **The core sits in an envelope.** A document is rarely only its repetition:
 ``rulelist ::= filler* rule rl-cont* c-wsp* c-nl?`` wraps the repeated core in

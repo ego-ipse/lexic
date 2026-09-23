@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
     reads_a_sweep,
     rebase,
     scan_marks,
     shared_scanner,
 )
+from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.pool import PoolLease
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -36,7 +36,7 @@ def sweeping(name: str):
     """A grammar's sweep-reading certified plans, or an empty tuple."""
     bench = next(one for one in BENCHES if one.name == name)
     grammar = bench.compiled.codegen_grammar
-    plans = _safe_plans(_split_plans(grammar), grammar)
+    plans = safe_plans(split_plans(grammar), grammar)
     return bench, grammar, tuple(one for one in plans if reads_a_sweep(one))
 
 

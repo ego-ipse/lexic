@@ -42,7 +42,7 @@ document and are never cached across two of them**.
 | terminated, boundary route | unit emits its own mark (continuation lines) | the unit ANNOUNCES itself: a certified prefix, filtered at runtime by `admits` |
 | envelope | optional head/tail wrapping the repetition, separator is a noise run | the envelope's own certified boundary |
 | routed | an interior a character sweep cannot see | route-derived interiors |
-| folded | a left recursion the predictive path folds into `(γ)(β)*` | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
+| folded | a left recursion the predictive path folds into `(γ)(β)*`, its boundaries settled | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
@@ -117,6 +117,45 @@ survive" and "is this the same product" are two questions with two digests.
 
 `is_run` is public for the same reason: three call sites ask it, and a fourth
 spelling would be a fourth chance to get the subclass case wrong.
+
+---
+
+## The region route divides top-down, and each piece is a worker's share
+
+`discovery/partition.py` takes a tree of divisible spans — an opener, a closer and the
+separators between items, nesting read from containment (`Span`) — and a
+target of one worker's share of the text. A span's adjacent items pack into
+runs of at most the target, and each run is ONE piece in the span's own
+brackets, so siblings that ship together come back already joined. An item
+larger than the target whose value is a span is descended into and
+partitioned the same way. Every span on the path of an oversized item is
+divided, even one whose items make a single run, so a descended span is HELD
+by a piece and found by item — unless that path span keeps under `MIN_CHUNK`
+of its own text, which then stays with its holder. The region scan is the one
+supplier today.
+
+`units` renders every piece and the shell with the stand-in of each span
+divided inside it, and says which ITEM of the holding piece carries each
+stand-in. The pieces of every level parse in ONE pool map, and the calling
+thread parses the shell beside them (`WorkPool.map`'s `beside`): the shell is
+parsed under the whole grammar, whose view that thread already holds, where a
+pool worker drawing it would build a replica of the whole grammar for one
+small parse. The stitch then runs innermost first: it finds a stand-in by the
+holding item alone (`held_route`), and lays the span's merged items over the
+stand-in's node together with its true edge slots. An edge slot can straddle
+the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and
+the HOLDER's part outside it, so the edge is built from the two slots'
+children and taken only when it spells exactly that text.
+
+A stand-in's needle must be unique in the unit that holds it, not in the whole
+document. The uniqueness pre-filter reads the NEEDLE's text — what the holder's
+node will spell — never the drawn witness's, which can carry noise the needle
+does not.
+
+The design keeps every per-unit cost from multiplying: no stand-in is found by
+walking a whole unit per region (regions times unit size), and no more pieces
+are made than the target asks for — on a skewed document that is a handful of
+runs, not dozens of divided regions.
 
 ---
 
@@ -407,7 +446,7 @@ split asks for it once per DOCUMENT rather than once per grammar — on a meta
 grammar that re-walk was several percent of the whole split parse. `_ROLES` is a
 registered `memo({})` keyed on `id(grammar)`, and its value carries the grammar
 itself: the strong reference pins the id, so a recycled address can never alias
-a live entry. The split-plan memos in `orchestrate.py` and `plan/routed.py` are
+a live entry. The split-plan memos in `planner.py` and `plan/routed.py` are
 the same shape.
 
 Every registered memo is a **pure memo**: dropping an entry costs a

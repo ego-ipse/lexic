@@ -40,10 +40,10 @@ its submodules (enforced by the layering test).
 
 | Function | Returns | Meaning |
 |---|---|---|
-| `parse_model(grammar, text, binding: ModelExecutable[M], resolve=None)` | `M` | **Instance product.** PDA-first, Earley + product completion. Same authored-grammar contract; memoised per (grammar, binding) identity — the tables bake the binding's rule routines and the collapsed lexical runs. Generic in the model type `M` the binding builds: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the binding's type parameter rather than an import — `compile/` binds `ModelExecutable[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. `resolve` is the caller's ambiguity resolver; `None` refuses a span that means two things. |
+| `parse_model(grammar, text, binding: ModelExecutable[M], config=DEFAULT_CONFIG)` | `M` | **Instance product.** PDA-first, Earley + product completion. Same authored-grammar contract; memoised per (grammar, binding) identity — the tables bake the binding's rule routines and the collapsed lexical runs. Generic in the model type `M` the binding builds: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the binding's type parameter rather than an import — `compile/` binds `ModelExecutable[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. `config` is the caller's `ParseConfig`: its `resolve` answers a span that means two things (`IrNone` refuses one), and its `decide` is the split decider. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
-| `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. Raises only on no-parse. |
+| `parse_first(grammar, text, tables=None, decide=LEFTMOST_LONGEST)` | `ParseTree` | The *first* derivation — deterministic under ambiguity, keeping `decide`'s carving as `parse_model` does. Raises only on no-parse. |
 | `parse_forest(grammar, text)` | `SppfNode` \| `IrNone` | The shared packed parse forest root, or `IrNone` on no-parse. |
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
 | `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |

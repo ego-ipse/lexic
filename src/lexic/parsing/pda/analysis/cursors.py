@@ -77,20 +77,33 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     :ivar covered: How many of :attr:`hard` an attempt licence covers (the
         ungatable-loop notes filed into ``Taxonomy.attempt_loops``); a rule
         whose every hard note is covered or a body-arm overlap is attemptable.
+    :ivar policy: Set when a decision picks an EXTENT by policy (a greedy or
+        stop-set exit) rather than by what the text holds.
+    :ivar stop_sets: Stop-set notes awaiting the rule-level check that decides
+        whether a first-exit is invisible (:meth:`GrammarAnalysis._settle`).
     """
 
-    __slots__ = ("hard", "soft", "f1", "covered")
+    __slots__ = ("hard", "soft", "f1", "covered", "policy", "stop_sets")
 
     hard: list[str]
     soft: list[str]
     f1: bool
     covered: int
+    policy: bool
+    stop_sets: list[str]
 
     def __init__(self) -> None:
         self.hard = []
         self.soft = []
         self.f1 = False
         self.covered = 0
+        self.policy = False
+        self.stop_sets = []
+
+    def picks_extent(self, note: str) -> None:
+        """File a demotion whose decision picks an extent by policy."""
+        self.soft.append(note)
+        self.policy = True
 
 
 class Site(IrLeaf[IrSelf, IrSelf]):

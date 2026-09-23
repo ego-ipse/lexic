@@ -33,15 +33,17 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
+from lexic.parsing import ParseConfig
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, Pref
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
@@ -130,9 +132,11 @@ def _cross_span_tables():
 
 def test_island_parse_bails_when_a_shorter_end_could_compose():
     """A second completion end whose next char the continuation accepts is a
-    cross-span arm choice the seam cannot settle — PdaFail names both ends."""
+    cross-span arm choice the seam cannot settle. It is UNDECIDABLE, not a
+    miss (``ProbeFork``), so no enclosing attempt reads it as the island
+    failing; the message names both ends."""
     policy = IslandPolicy(follow=CharSet(frozenset("b")))
-    with pytest.raises(PdaFail, match=r"arm choice spans two ends \(1, 2\)"):
+    with pytest.raises(ProbeFork, match=r"arm choice spans two ends \(1, 2\)"):
         island_parse(_cross_span_tables(), "abc", 0, "x", policy)
 
 
@@ -191,7 +195,11 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     """
     tables = compile_tables(sss_grammar)
     tree, end, _value = island_parse(
-        tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
+        tables,
+        "aaa",
+        0,
+        "s",
+        IslandPolicy(config=ParseConfig(resolve=lambda first, other: first)),
     )
     assert isinstance(tree, ParseTree)
     assert end == 3
@@ -714,3 +722,40 @@ def test_an_executor_less_island_hands_back_no_value(digit_grammar: IrAst) -> No
     assert isinstance(tree, ParseTree)
     assert end == 1
     assert value is None
+
+
+# ── continues: the continuation a few characters deep ──────────────────────
+
+
+def _window(chars: str, state: str) -> Pref:
+    """One window over single-character sets, spelled as a string."""
+    return (tuple(CharSet.from_chars(c) for c in chars), state)
+
+
+def test_no_windows_is_no_evidence_and_admits():
+    """Without windows the one-character test decides alone."""
+    assert islands.continues((), "ab", 0)
+
+
+def test_a_window_must_match_every_character_it_names():
+    """Two characters named, two characters checked."""
+    windows = (_window("+a", MORE),)
+    assert islands.continues(windows, "x+a", 1)
+    assert not islands.continues(windows, "x+b", 1)
+
+
+def test_a_window_past_the_end_of_the_text_cannot_match():
+    """Text too short for the window is not a continuation of it."""
+    assert not islands.continues((_window("+a", MORE),), "x+", 1)
+
+
+def test_a_complete_window_matches_only_where_the_input_ends():
+    """END is the whole continuation, so anything after it disagrees."""
+    windows = (_window(";", END),)
+    assert islands.continues(windows, "x;", 1)
+    assert not islands.continues(windows, "x;y", 1)
+
+
+def test_unknown_past_its_characters_matches_on_them_alone():
+    """UNK says nothing beyond what it spells."""
+    assert islands.continues((_window(" ", UNK),), "x y", 1)

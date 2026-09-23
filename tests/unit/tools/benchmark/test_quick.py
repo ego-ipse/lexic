@@ -23,6 +23,7 @@ import pytest
 from tools.benchmark import compare, quick
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.execution.isolation import Job
+from tools.benchmark.judging import arithmetic
 from tools.benchmark.measurement.contract import (
     CLOCKS,
     PROTOCOL,
@@ -69,9 +70,9 @@ PDA_REACH = frozenset({"lexic-pda", "lexic-lex", "lexic-mt"})
 """What a change under the predictive runtime reaches, within this roster."""
 
 
-def _pairing(candidate: list[float], control: list[float]) -> compare.Pairing:
+def _pairing(candidate: list[float], control: list[float]) -> arithmetic.Pairing:
     """A row's paired log ratios; the slot readings follow the control's."""
-    return compare.Pairing(tuple(candidate), tuple(control), tuple(control))
+    return arithmetic.Pairing(tuple(candidate), tuple(control), tuple(control))
 
 
 def _result(reading: float) -> RowResult:
@@ -88,7 +89,7 @@ def _unresolved(row: str = "g/r", pairs: int = 6) -> quick.Reading:
     proves nothing.
     """
     pairing = _spread_pairing(0.0249, 0.0302, 0.0012, 0.0253, pairs)
-    verdict = compare.decide(row, pairing, "cpu")
+    verdict = arithmetic.decide(row, pairing, "cpu")
     assert verdict.status == "unresolved", verdict
     return quick.Reading(verdict, pairing, None)
 
@@ -96,12 +97,12 @@ def _unresolved(row: str = "g/r", pairs: int = 6) -> quick.Reading:
 def _reading(row: str, candidate: list[float], control: list[float]) -> quick.Reading:
     """One judged row, built from stated log ratios."""
     pairing = _pairing(candidate, control)
-    return quick.Reading(compare.decide(row, pairing, "cpu"), pairing, None)
+    return quick.Reading(arithmetic.decide(row, pairing, "cpu"), pairing, None)
 
 
 def _spread_pairing(
     mean: float, sigma: float, control_mean: float, control_sigma: float, pairs: int
-) -> compare.Pairing:
+) -> arithmetic.Pairing:
     """A pairing whose sample mean and sample deviation ARE the ones asked for.
 
     Built rather than drawn, so a projection test states its own inputs instead
@@ -115,7 +116,7 @@ def _spread_pairing(
             centre + (half if index % 2 == 0 else -half) for index in range(pairs)
         )
 
-    return compare.Pairing(
+    return arithmetic.Pairing(
         arm(mean, sigma), arm(control_mean, control_sigma), (0.0,) * pairs
     )
 
@@ -174,7 +175,7 @@ def test_every_verdict_this_tier_publishes_is_spelled_the_gate_s_way() -> None:
         ([0.001] * 6, [0.05, -0.05] * 3),
         ([0.0] * 6, [0.0] * 6),
     ):
-        verdict = compare.decide("g/r", _pairing(candidate, control), "cpu")
+        verdict = arithmetic.decide("g/r", _pairing(candidate, control), "cpu")
         assert verdict.status in GATE_WORDS
 
 
@@ -251,7 +252,7 @@ def test_the_default_budget_is_exactly_the_floor_cost(
 
     printed = capsys.readouterr().out
     rows = [row for row in ROSTER if row[0] == "json" and row[1] in PDA_REACH]
-    sequential = [row for row in rows if row[1] not in compare.MT_ROWS]
+    sequential = [row for row in rows if row[1] not in arithmetic.MT_ROWS]
     assert f"budget {quick.floor_cost(sequential)} pairs" in printed
     assert "not measured" not in printed
 
@@ -529,8 +530,8 @@ def test_no_grammar_name_is_written_into_this_module() -> None:
 def test_threaded_rows_are_separated_from_sequential_ones() -> None:
     """A wall-clock row cannot share the machine with anything."""
     shared, alone = quick.by_schedule(ROSTER)
-    assert not {row[1] for row in shared} & compare.MT_ROWS
-    assert {row[1] for row in alone} <= compare.MT_ROWS
+    assert not {row[1] for row in shared} & arithmetic.MT_ROWS
+    assert {row[1] for row in alone} <= arithmetic.MT_ROWS
     assert len(shared) + len(alone) == len(ROSTER)
 
 
@@ -539,7 +540,7 @@ def test_every_threaded_row_in_the_roster_is_judged_on_wall(
     grammar: str, row: str
 ) -> None:
     """A threaded row's result IS latency; CPU would hide the whole effect."""
-    expected = "wall" if row in compare.MT_ROWS else "cpu"
+    expected = "wall" if row in arithmetic.MT_ROWS else "cpu"
     assert quick.clock_for(f"{grammar}/{row}") == expected
 
 
@@ -640,7 +641,7 @@ def test_the_projection_agrees_with_the_gate_at_the_count_that_was_run() -> None
     )
     for mean, sigma, control_mean, control_sigma in cases:
         pairing = _spread_pairing(mean, sigma, control_mean, control_sigma, 4)
-        decided = compare.decide("g/r", pairing, "cpu").status != "unresolved"
+        decided = arithmetic.decide("g/r", pairing, "cpu").status != "unresolved"
         assert quick.decided_at(pairing, 4) is decided, (mean, sigma)
 
 
@@ -659,7 +660,7 @@ def test_a_projection_never_names_a_count_below_the_one_already_spent() -> None:
     after sixteen were spent, which is the search's artefact and not advice.
     """
     pairing = _spread_pairing(0.0058, 0.0180, 0.0007, 0.0250, 16)
-    assert compare.decide("g/r", pairing, "cpu").status == "unresolved"
+    assert arithmetic.decide("g/r", pairing, "cpu").status == "unresolved"
     assert quick.decided_at(pairing, 6)
     projected = quick.separation(pairing)
     assert projected is None or projected > 16
@@ -682,7 +683,7 @@ def test_a_row_can_need_more_pairs_than_the_gate_itself_will_spend() -> None:
     number someone can act on, where a bare `unresolved` is not.
     """
     pairing = _spread_pairing(0.0249, 0.0302, 0.0012, 0.0253, 4)
-    assert compare.decide("g/r", pairing, "cpu").status == "unresolved"
+    assert arithmetic.decide("g/r", pairing, "cpu").status == "unresolved"
     assert not quick.decided_at(pairing, compare.MAX_PAIRS)
     projected = quick.separation(pairing)
     assert projected is not None
@@ -692,7 +693,7 @@ def test_a_row_can_need_more_pairs_than_the_gate_itself_will_spend() -> None:
 def test_the_projection_never_promises_what_the_current_count_already_denies() -> None:
     """A row that has settled projects the count it settled at or lower."""
     pairing = _spread_pairing(math.log(1.30), 0.004, 0.0, 0.004, 6)
-    assert compare.decide("g/r", pairing, "cpu").status == "slower"
+    assert arithmetic.decide("g/r", pairing, "cpu").status == "slower"
     assert quick.separation(pairing) == 6
 
 

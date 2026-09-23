@@ -20,7 +20,7 @@ import pytest
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
@@ -80,9 +80,9 @@ def test_the_split_is_not_vacuous(compiled) -> None:
     sequential = parse_model(grammar, DOCUMENT, binding)
     calls: list[int] = []
 
-    def recording_parse(g, source, f, resolve=None):
+    def recording_parse(g, source, f, config=DEFAULT_CONFIG):
         calls.append(len(source))
-        return parse_model(g, source, f, resolve)
+        return parse_model(g, source, f, config)
 
     split = split_model(recording_parse, grammar, Request(DOCUMENT, binding), 8)
 

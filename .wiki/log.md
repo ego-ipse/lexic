@@ -1,5 +1,75 @@
 # Log
 
+## A document splits top-down, a worker's share at a time (2026-09-23)
+
+`parallel-parsing.md` records the top-down partition that replaced the region
+chooser: a region's adjacent items ship whole in runs of about a worker's
+share, and only an item larger than that share is descended into, so the
+pieces number about the workers rather than every region that could divide.
+The shell parses on the calling thread beside the pieces, and a path region is
+divided only if it keeps a chunk of its own text.
+
+## FOLLOW_k's empty tail is the bottom (2026-09-23)
+
+`decisions.md`'s stop-set entry is corrected. `FollowWindows._rest_windows` now
+treats an empty tail as the fixpoint's bottom, so a rule gets an end-of-input
+window only if the input can really end after it (83 false ones gone across
+the roster). `extend_follow`'s pass-through stays for its other callers. The
+two-deep proof's case of a take and a stop that both end the input is stated
+at the fallthrough, where it collides, and pinned by a test.
+
+## An island's end is judged two characters deep, per site (2026-09-23)
+
+The two-ends refusal now reads the continuation two characters deep, and only
+from reference sites that can share the island's position. That keeps
+gbnf-meta and abnf-meta on the PDA once the attempt licence is narrowed.
+`decisions.md` records the rule and the bug the differential caught.
+
+## What follows an island is what follows one occurrence of it (2026-09-23)
+
+A repeating island reference left its next occurrence out of the follow set,
+so a shorter end another occurrence would continue went unrefused.
+`decisions.md` records the fix and the one window it turns from exact to
+climbing.
+
+## A delegate stands for its rule only if the rule has one end (2026-09-23)
+
+A delegated rule whose exit a policy picks injected one end and hid an arm
+choice from the island, which then accepted what Earley refuses.
+`decisions.md` records the one-end condition and what it costs vyx.
+
+## The fold proves its boundaries before it folds (2026-09-23)
+
+`(γ)(β)*` settles each piece's end greedily, which was the grammar's answer
+only by luck. A base ending in `"a"*` under a step `"a"`, or a word that can
+hold its own operator, gave one model where Earley refuses or answers another.
+`decisions.md` records the proof (EXTEND disjoint from FIRST(β)), why it holds
+at every width, and why no runtime probe is used.
+
+## `tracemalloc` needs `PYTHON_TLBC=0` under free threading (2026-09-22)
+
+Traced parses hung, and at first they looked like a thousandfold slowdown. The
+cause is CPython's, not lexic's: a lock-order deadlock between the allocation
+tracer and thread-local bytecode, triggered by any thread that runs a code
+object for the first time while tracing is on. CPython 3.14.5 fixes it
+(gh-148037). `testing.md` records the rule, the trigger and the fix.
+
+## `generate` gains `size=`: a document OF the grammar at a stated scale (2026-09-22)
+
+Large-document benchmarks needed a valid document of about N characters, not a
+repeated sample. That is a library capability, so it is a keyword on the ONE
+generator rather than a second generator under `tools/`. The default path is
+untouched and pinned by digest AND next draw. The steering is derived from the
+grammar — natural size, room within depth, whether an item reaches a cycle —
+so it holds over any formulation; `public-api.md` states the mechanism and the
+one shape it cannot reach (growth by linear recursion only).
+The steering lives in its own module, `lexic.generate.sizing`, handed the free walk and
+its arm filter by `generate`, so the dependency runs one way. A target deeper
+than the stack carries is REFUSED with words — frames per steered level depend
+on the grammar, so a clamp calibrated on one shape could not bound another.
+`tools/benchmark/diagnostics/ladder.py` is the wiring: grammars with derived
+bracket pairs plus the second json formulation, one pinned process per rung.
+
 ## Region discovery reads one spelling, and can be windowed (2026-09-12)
 
 The region walk classified each structural character with three shared dict
@@ -2216,3 +2286,31 @@ criterion would have served a mark whose occurrences are not aligned.
 `parallel-parsing.md` gains the plan-kind row and the proof's shape;
 `decisions.md` records why it is a source rather than a fourth plan kind, and
 that the bordered widening is sound and untaken.
+
+## A stop-set is granted only where its first exit is the split answer
+
+`decisions.md` records the three conditions a stop-set is granted under: it
+runs longest, its exit is decided two characters deep at each reference site,
+or its carving is invisible. Every other stop-set islands. The two-deep proof is
+per site through `FollowWindows.site_windows`, which shares the fixpoint's own
+walk. `public-api.md`'s decider bullet now lists `STOP_SET`, `NOISE_GREEDY` and
+`GREEDY_SPLIT` among `LEFTMOST_LONGEST`'s grants, with `GREEDY_ARM` withheld.
+
+## The parse's configuration is one value
+
+`public-api.md` gains `ParseConfig` / `DEFAULT_CONFIG`, the resolver and the
+split decider as one record. Every internal parse signature that carried
+`resolve` carries it: `parse_model`, `earley_model`, `token_model`, `pda_model`,
+`watch`, the island policy and the parallel request. `CompiledGrammar.parse`
+gains `decide=` beside `resolve=` and builds the record itself. The resolver
+paragraph and `watch`'s signature say so.
+
+## The region route divides top-down
+
+`parallel-parsing.md` gains the top-down partition section. `partition.py` replaces
+`discovery/regions.choose`: spans pack into runs of about one worker's share, an
+oversized item is descended into, and every span on its path is divided, so a
+nested span is found by item. The stitch lays each span's items and its true edges
+over the stand-in's node, all units parse in one map, and needle uniqueness is per
+holding unit.
+

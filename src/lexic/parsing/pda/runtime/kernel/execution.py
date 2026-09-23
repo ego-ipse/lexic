@@ -20,6 +20,7 @@ from typing import Any, cast
 
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -42,9 +43,10 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -96,7 +98,12 @@ class KernelExecutionMixin[Carry]:
         Anything else builds through :meth:`_run_leaf`.
         """
         if clone.mode == BUILD_VALUE_STR:
-            self.pos = vstr_once(self.text, self._caches.intern, clone, out, self.pos)
+            try:
+                self.pos = vstr_once(
+                    self.text, self._caches.intern, clone, out, self.pos
+                )
+            except IslandEscape as escape:
+                self._islanded(escape, out)
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
@@ -138,19 +145,24 @@ class KernelExecutionMixin[Carry]:
                 sinks[i] = sub = []
                 # A tabled reference is exactly one iteration by its op-code, so
                 # it calls the matcher straight instead of the loop driver.
-                pos = (
-                    run_span_once(text, arm.payloads[i], sub, pos)
-                    if k == OP_VRUN
-                    else vstr_once(text, self._caches.intern, arm.payloads[i], sub, pos)
-                    if k == OP_V1
-                    else self._match_vdisp(sub, arm, i, pos)
-                    if k == OP_VDISP
-                    # a leaf inside a leaf: recur rather than descend, so a
-                    # chain of pass-throughs costs no frame at any depth
-                    else self._run_leaf(arm.payloads[i], sub, pos)
-                    if k == OP_LEAF1
-                    else self._match_vstr(sub, arm, i, pos)
-                )
+                try:
+                    pos = (
+                        run_span_once(text, arm.payloads[i], sub, pos)
+                        if k == OP_VRUN
+                        else vstr_once(
+                            text, self._caches.intern, arm.payloads[i], sub, pos
+                        )
+                        if k == OP_V1
+                        else self._match_vdisp(sub, arm, i, pos)
+                        if k == OP_VDISP
+                        # a leaf inside a leaf: recur rather than descend, so a
+                        # chain of pass-throughs costs no frame at any depth
+                        else self._run_leaf(arm.payloads[i], sub, pos)
+                        if k == OP_LEAF1
+                        else self._match_vstr(sub, arm, i, pos)
+                    )
+                except IslandEscape as escape:  # only `vstr_once` raises it here
+                    pos = self._islanded(escape, sub)
             else:
                 pos = (
                     match_lit(text, arm, i, pos)
@@ -192,7 +204,10 @@ class KernelExecutionMixin[Carry]:
         gk, gate = arm.gate_kinds[i], arm.gate_data[i]
         count = 0
         while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-            pos = vstr_once(text, intern, clone, sink, pos)
+            try:
+                pos = vstr_once(text, intern, clone, sink, pos)
+            except IslandEscape as escape:
+                pos = self._islanded(escape, sink)
             count += 1
         return pos
 
@@ -211,13 +226,30 @@ class KernelExecutionMixin[Carry]:
         lo, hi, gk, gate = loop_spec(arm, i)
         count = 0
         while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-            pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
+            try:
+                pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
+            except IslandEscape as escape:
+                pos = self._islanded(escape, sink)
             count += 1
         return pos
 
+    def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[Carry]) -> int:
+        """Answer a longest-take match that asked for its island.
+
+        The match began at :attr:`IslandEscape.pos`; the island question its
+        reference would have asked is :attr:`IslandEscape.payload`. The
+        sub-parse runs from there and splices into ``sink`` exactly as an
+        island reference does.
+
+        :returns: The position after the island's span.
+        """
+        self.pos = escape.pos
+        self._island(escape.payload, sink)
+        return self.pos
+
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
+    def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
@@ -234,20 +266,21 @@ class KernelExecutionMixin[Carry]:
         it rather than the value.
 
         :param ref: ``(island rule name, this occurrence's continuation, whether
-            that continuation bounds the island's extent)``.
+            that continuation bounds the island's extent, the continuation's
+            windows)``.
         :param sink: The enclosing sink the value splices into.
         :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
             product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        name, cont, exact = ref
+        name, cont, exact, windows = ref
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end, built = self._island_subparse(name, cont, exact)
+        tree, end, built = self._island_subparse(name, cont, exact, windows)
         # The settle step builds the value to answer the ambiguity question
         # and retains it for exactly this reason; splicing the same tree again
         # would build the same value twice.
@@ -261,7 +294,7 @@ class KernelExecutionMixin[Carry]:
         self.pos += end
 
     def _island_subparse(
-        self, name: str, cont: CharSet, exact: bool
+        self, name: str, cont: CharSet, exact: bool, windows: tuple[Pref, ...]
     ) -> tuple[Any, int, Any]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
@@ -274,6 +307,8 @@ class KernelExecutionMixin[Carry]:
             takes plain longest-match.
         :param exact: That same set bounds the island's extent, so the window
             is one scan away and one sub-parse settles it.
+        :param windows: The continuation a few characters deep, for the ends
+            ``cont`` alone would refuse.
         :returns: ``(tree, consumed length, the value the settle step built)``
             — the value is ``None`` where none was built.
         """
@@ -286,6 +321,7 @@ class KernelExecutionMixin[Carry]:
                 self._delegates(name),
                 None if cont.is_empty() else cont,
                 bounded_window(self.text, self.pos, cont) if exact else None,
+                windows,
             ),
         )
 
@@ -331,7 +367,7 @@ class KernelExecutionMixin[Carry]:
             self.tables,
             window_text,
             self.policy.executor,
-            resolve=self.policy.resolve,
+            config=self.policy.config,
         )
         return finish_delegate(sub, clone, window_text, pos)
 
@@ -405,7 +441,9 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     # See `bake_product_build` for why they are not fields of their own.
     slots = clone.n_items
     width = slots - 1
-    if width < 1 or len(steps) % width:
+    if width == 0:
+        return _folded_count(text, model, frame.count, clone)
+    if len(steps) % width:
         # Every iteration contributes exactly `width` values, so a remainder
         # means the sink does not hold whole iterations. Folding the whole
         # ones and dropping the rest would build a SHORT model and report
@@ -421,4 +459,21 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
         for offset in range(width):
             scratch[offset + 1] = [steps[start + offset]]
         model = clone.build(text, (), scratch)
+    return model
+
+
+def _folded_count[Carry](
+    text: str, model: Carry, depth: int, clone: FlatClone[Carry]
+) -> Carry:
+    """A capture-free fold: the loop's own iteration count is the whole depth.
+
+    ``A ::= A "a" | "a"`` leaves no value per iteration — the nesting depth is
+    the whole information — so the fold frame keeps its ``(β)*`` loop's count
+    past the close (:meth:`Frame.close_loop`), and the arm's own build runs that
+    many times, slot 0 the value so far.
+    """
+    scratch: list[Any] = [[model]]
+    for _ in range(depth):
+        model = clone.build(text, (), scratch)
+        scratch[0] = [model]
     return model

@@ -120,7 +120,7 @@ Two conventions worth knowing before you go looking:
   tuple aliases and mutable cursors for their LANES. Strictness is `ir/`'s
   contract, not theirs — don't "clean up" the engine into records. The PDA
   frame is the stated exception: it is a typed slotted `Frame[M]`, read and
-  written by name, because its seven lanes have seven different types.
+  written by name, because its eight lanes hold different types.
 
 ## Project layout
 
@@ -132,7 +132,6 @@ anyone noticed). Annotations are one line; module docstrings carry the detail.
 src/lexic/
   __init__.py                      Lexic — Grammar engine
   exceptions.py                    LexicError hierarchy — UnsupportedConstructError, TargetRefusalError, FieldValidationError
-  generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
   model_fields.py                  Per-field construction checks a field's own grammar ITEM decides
@@ -184,6 +183,9 @@ src/lexic/
       naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
+  generate/
+    __init__.py                    random string generator — walks a canonical grammar's rules directly
+    sizing.py                      size-targeted generation — steers the free walk toward about N characters
   grammars/
     __init__.py                    Grammar-flavour layer — public endpoint
     abnf/
@@ -257,6 +259,7 @@ src/lexic/
         forest/                    What the filled chart MEANS — the SPPF and its readers
           __init__.py              the group's package marker
           chart.py                 The IR-native SPPF link table — the decoded form of a kernel parse
+          families.py              Completion families — ordinary ones DERIVED, the rest stored
           fasttree.py              The fast tree build — the unambiguous parse's short path
           forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
           support/
@@ -270,6 +273,7 @@ src/lexic/
           builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
           records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
           splits.py                Which slot owns the text — resolving a binarised chain from the left
+          decider.py               Which carving a parse keeps — the split decider as a value, and its licences
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
@@ -290,6 +294,7 @@ src/lexic/
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
+      planner.py                   Which split plans a grammar admits, and which a safety proof licenses
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      WorkPool/ParsePool — warm split phases and N documents in flight
       replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
@@ -306,6 +311,7 @@ src/lexic/
         __init__.py                Region-discovery package marker
         anchors.py                 Structural anchor analysis
         interiors.py               Opaque delimited interiors
+        partition.py               The top-down partition — which spans to divide so each piece is a worker's share
         regions.py                 Bracketed runs, balanced pieces, and shell spans
         scan.py                    Self-locating window scan
         shapes.py                  Grammar arm shapes

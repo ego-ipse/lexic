@@ -22,6 +22,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig
 from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.splits import (
@@ -48,7 +49,9 @@ def _built(source: str, key: str):
     return compiled, _model_product(compiled.codegen_grammar, compiled.product)
 
 
-def _answer(source: str, key: str, text: str, resolve=None) -> str:
+def _answer(
+    source: str, key: str, text: str, config: ParseConfig = DEFAULT_CONFIG
+) -> str:
     """``text``'s model through the Earley model route, or ``"REFUSED"``."""
     compiled, product = _built(source, key)
     try:
@@ -58,7 +61,7 @@ def _answer(source: str, key: str, text: str, resolve=None) -> str:
                 text,
                 compiled.product,
                 product.tables,
-                resolve,
+                config,
             )
         )
     except UnsupportedConstructError:
@@ -100,7 +103,7 @@ def test_the_resolver_is_offered_exactly_one_pair_on_that_span() -> None:
         seen.append((first, other))
         return first
 
-    got = _answer(MIXED, "canonical-mixed", "aaa", spy)
+    got = _answer(MIXED, "canonical-mixed", "aaa", ParseConfig(resolve=spy))
 
     assert len(seen) == 1, f"expected one pair, got {len(seen)}"
     first, other = seen[0]
@@ -174,7 +177,7 @@ def test_the_primitive_answers_what_the_chain_reader_answers(
 
 def _agreeing_keys(kernel: Kernel, tables) -> int:
     """Assert the two entry points agree at every packed split key; count them."""
-    links = kernel.st.links
+    links = kernel.family_reader()
     codes, bits = tables.codes, tables.packing.bits
     checked = 0
     for handle, bucket in links.items():
@@ -188,7 +191,11 @@ def _agreeing_keys(kernel: Kernel, tables) -> int:
         for rival in bucket[1:]:
             best = dominant(links, best, rival, spec)
         checked += 1
-        assert best is chain[-1], (
+        # Compared by VALUE, not identity: a family IS its
+        # ``(waiter, origin, child)`` triple — the same triple names the same
+        # family however it was obtained — and a promoted key's families are
+        # rebuilt per read rather than being one shared object.
+        assert best == chain[-1], (
             f"at key {handle} the primitive keeps {best[:2]} where the chain "
             f"reader descends into {chain[-1][:2]}"
         )

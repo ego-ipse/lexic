@@ -155,31 +155,32 @@ exclusion curve flattens against the derivation's fan-out cost."""
 class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     """The per-item compile context the :data:`_ATOM_SPEC` bodies read off ``nc``.
 
-    :ivar lo: The item's quantifier lower bound.
-    :ivar hi: The item's quantifier upper bound, or ``None``.
+    :ivar site: The item itself: its bounds, and which reference it is.
     :ivar cont: The item's hard continuation (the loop-gate / ref-tail base).
     :ivar gate: The precomputed loop-continuation gate.
     """
 
-    __slots__ = ("lo", "hi", "cont", "gate")
+    __slots__ = ("site", "cont", "gate")
 
-    lo: int
-    hi: int | None
+    site: IrItem
     cont: CharSet
     gate: LoopGate
 
-    def __init__(
-        self,
-        lo: int,
-        hi: int | None,
-        cont: CharSet,
-        gate: LoopGate,
-    ) -> None:
-        """Bind one item's bounds, continuation and gate."""
-        self.lo = lo
-        self.hi = hi
+    def __init__(self, site: IrItem, cont: CharSet, gate: LoopGate) -> None:
+        """Bind one item, its continuation and its gate."""
+        self.site = site
         self.cont = cont
         self.gate = gate
+
+    @property
+    def lo(self) -> int:
+        """The item's quantifier lower bound."""
+        return int(self.site.quantifier.lo)
+
+    @property
+    def hi(self) -> int | None:
+        """The item's quantifier upper bound, or ``None``."""
+        return upper_bound(self.site)
 
 
 # ── atom-type dispatch bodies ──────────────────────────────────────────────
@@ -226,14 +227,26 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     name = str(n)
     if name in compiler.islands:
         fail = name in compiler.fail_islands
-        cont = compiler.continuations.follow(name)
+        cont = compiler.continuations.follow(name, ctx.site)
         return ItemSpec(
             REF,
-            IslandRef(name, fail, cont, compiler.continuations.bounds(name, cont)),
+            IslandRef(
+                name,
+                fail,
+                cont,
+                compiler.continuations.bounds(name, cont),
+                compiler.continuations.windows(name, ctx.site),
+            ),
             ctx.lo,
             ctx.hi,
             ctx.gate,
         )
+    if name in compiler.analysis.taxonomy.longest:
+        # One clone per continuation the rule's references see: its match is
+        # greedy whatever follows, and what follows decides only when the
+        # match must ask the island instead (see `LongestTake`).
+        cont = compiler.continuations.follow(name, ctx.site)
+        return ItemSpec(REF, compiler.ensure_rule(name, cont), ctx.lo, ctx.hi, ctx.gate)
     if name in compiler.analysis.taxonomy.attempts:
         # ONE canonical clone per attemptable rule (the analysis-level hard
         # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
@@ -451,12 +464,22 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         return arms, default, struct, None
 
     def _compile_clone(self, key: CloneKey) -> None:
-        """Compile one queued clone body into :attr:`clones` (drain step)."""
+        """Compile one queued clone body into :attr:`clones` (drain step).
+
+        A longest-take rule's body is compiled against the end of input, so
+        its loops run greedily: the key's tail is the continuation its
+        :class:`LongestTake` checks, not one its loops stop at.
+        """
         name = key.name
         rule = self.analysis.rules[name]
-        arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
+        longest = self.continuations.longest_take(key.name, key.tail)
+        tail = key.tail if longest is None else _EOF
+        arms, default, struct, follow = self._clone_shape(name, rule, tail)
         routine = self.routines.get(name)
         match_only = matches_own_text(routine)
+        consult = extent_consult(
+            self.analysis.rules, name, match_only, key.tail, self.analysis.follow[name]
+        )
         self.clones[key] = CloneSpec(
             name,
             arms,
@@ -465,13 +488,8 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             match_only,
             struct,
             follow,
-            extent_consult(
-                self.analysis.rules,
-                name,
-                match_only,
-                key.tail,
-                self.analysis.follow[name],
-            ),
+            consult if longest is None else None,
+            longest,
         )
 
     def compile_arms(
@@ -556,10 +574,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """
         item = items[idx]
         atom = item.atom
-        lo = int(item.quantifier.lo)
-        hi = upper_bound(item)
-        gate = self._loop_gate(items, idx, cont)
-        ctx = _ItemCtx(lo, hi, cont, gate)
+        ctx = _ItemCtx(item, cont, self._loop_gate(items, idx, cont))
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
     def _loop_gate(self, items: Sequence[IrItem], idx: int, cont: CharSet) -> LoopGate:
