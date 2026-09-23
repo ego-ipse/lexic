@@ -345,9 +345,8 @@ def _both_go_on(take: Pref, stop: Pref, exits: CharSet) -> bool:
         return take[0][1].overlaps(stop[0][1])
     take_ends = len(take[0]) == 1 and take[1] == END
     stop_ends = len(stop[0]) == 1 and stop[1] == END
-    if take_ends:
-        # Never realised: an exit character is a HARD continuation character
-        # of the clone that exits, so a take must still meet one after it.
-        return False
-    # The stop side ends the input where the take side has more: disjoint.
-    return not (stop_ends and len(take[0]) > 1)
+    # One side ends the input where the other has more: disjoint. Both ending
+    # right after the exit character lands here too, and collides: a guard, not
+    # a case that arises, since an exit character is a HARD continuation
+    # character of the clone that exits and a take must still meet one after it.
+    return not (take_ends and len(stop[0]) > 1 or stop_ends and len(take[0]) > 1)

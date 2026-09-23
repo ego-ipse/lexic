@@ -1,5 +1,14 @@
 # Log
 
+## FOLLOW_k's empty tail is the bottom (2026-09-23)
+
+`decisions.md`'s stop-set entry is corrected. `FollowWindows._rest_windows` now
+treats an empty tail as the fixpoint's bottom, so a rule gets an end-of-input
+window only if the input can really end after it (83 false ones gone across
+the roster). `extend_follow`'s pass-through stays for its other callers. The
+two-deep proof's case of a take and a stop that both end the input is stated
+at the fallthrough, where it collides, and pinned by a test.
+
 ## An island's end is judged two characters deep, per site (2026-09-23)
 
 The two-ends refusal now reads the continuation two characters deep, and only

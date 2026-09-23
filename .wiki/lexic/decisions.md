@@ -992,11 +992,13 @@ islands and Earley answers:
    carving differs only in where this loop ends, so it keeps the enclosing arm
    and continues through the same site. Unioning the sites loses arithmetic's
    `ws`, whose take at the end of `e` would be continued by the letter after
-   `= ws` at another site. A take window that ends the input right after `c` is
-   never realised, since `c` is a hard continuation character of the clone that
-   exits. The FOLLOW_k fixpoint does hold such spurious end windows, because it
-   passes an END prefix through while a tail is still empty. A delegate's
-   analysis withholds this grant, because its end is not the document's.
+   `= ws` at another site. A take and a stop that both end the input right
+   after `c` are refused as a guard. That is never realised, since `c` is a
+   hard continuation character of the clone that exits. It costs nothing
+   because the FOLLOW_k fixpoint treats an empty tail as its bottom rather than
+   as "the input may end here": a rule only gets an end window if the input
+   can really end after it. A delegate's analysis withholds this grant,
+   because its end is not the document's.
 3. **The carving is invisible** (`_settle`). The rule's model is its text (no
    reference anywhere in its body, groups included), and its end is fixed:
    EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the

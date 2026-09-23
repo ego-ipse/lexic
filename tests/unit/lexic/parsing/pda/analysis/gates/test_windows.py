@@ -11,6 +11,9 @@ grammar.
 
 from __future__ import annotations
 
+import pytest
+
+from lexic.compile import compile_from_path
 from lexic.ir import (
     IrAlternation,
     IrItem,
@@ -19,6 +22,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSequence,
 )
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
     MORE,
@@ -26,6 +30,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.paths import GROUND_TRUTH
 
 A = CharSet.from_chars("a")
 B = CharSet.from_chars("b")
@@ -96,3 +101,45 @@ def test_site_windows_keeps_each_reference_apart_and_unions_to_follow():
     ]
     assert set().union(*sites) == fw.follow["mid"]
     assert fw.site_windows("root") == [{((), END)}]
+
+
+def _follow_2(stem: str) -> FollowWindows:
+    """FOLLOW\\ :sub:`2` over a ground-truth grammar, lifted as the analysis
+    sees it."""
+    grammar = lift_optional_nullables(
+        compile_from_path(GROUND_TRUTH / stem).codegen_grammar
+    )
+    return FollowWindows({str(r.name): r for r in grammar.rules}, str(grammar.start), 2)
+
+
+def test_an_empty_tail_is_the_fixpoints_bottom_not_the_end_of_input():
+    """``term`` is always followed by something in arithmetic.gbnf: the input
+    never ends right after it. Early in the fixpoint its tail is still empty,
+    and reading that as "may end here" left a false end window for good. The
+    start rule keeps its real one."""
+    fw = _follow_2("arithmetic.gbnf")
+    assert ((), END) not in fw.follow["term"]
+    assert ((), END) in fw.follow[fw.start]
+
+
+PINNED_ENDS: dict[str, int] = {
+    "arithmetic.ebnf": 1,
+    "arithmetic.gbnf": 1,
+    "json.abnf": 19,
+    "json.ebnf": 19,
+    "json.gbnf": 19,
+    "json_arr.gbnf": 1,
+    "json_ws.gbnf": 2,
+    "vyx.gbnf": 50,
+}
+"""Rules other than the start whose FOLLOW\\ :sub:`2` may end the input. Each is
+a rule that really can end it; the fixpoint once held 7, 7, 20, 20, 20, 8, 7
+and 73 here, the rest being the empty-tail pass-through."""
+
+
+@pytest.mark.parametrize("stem", sorted(PINNED_ENDS))
+def test_only_rules_that_can_end_the_input_hold_an_end_window(stem: str):
+    """The per-grammar count of end windows, pinned where the false ones went."""
+    fw = _follow_2(stem)
+    ends = [n for n, found in fw.follow.items() if ((), END) in found and n != fw.start]
+    assert len(ends) == PINNED_ENDS[stem]

@@ -58,6 +58,7 @@ from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.products import parse_model
 from tests.gate_grammars import ARM_FINAL_LOOP
 from tests.gate_grammars import NULL_ARM as NULL_ARM_GRAMMAR
+from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     lifted_analysis as _ground_truth_analysis,
@@ -805,3 +806,33 @@ def test_the_second_character_decides_where_the_first_cannot() -> None:
     comes after it separates the take from the stop."""
     source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= "!"\n'
     assert _exit_settles(source, "r", "kw-stop-second")
+
+
+def test_arithmetics_exit_settles_under_the_end_guard() -> None:
+    """The guard refuses a take and a stop that both end the input right after
+    the exit character. arithmetic.gbnf's ``ws`` exit passes it, because no
+    rule after which the input cannot end is given an end window."""
+    source = (GROUND_TRUTH / "arithmetic.gbnf").read_text()
+    assert _exit_settles(source, "ws", "kw-stop-arithmetic")
+
+
+def test_a_take_and_a_stop_that_both_end_the_input_do_not_settle() -> None:
+    """The guard, fed the site it guards against: ``r ::= [a]*`` where the
+    input may end right after the ``a`` that follows ``r``, or right after an
+    ``a`` the run takes instead. No grammar's fixpoint builds this site any
+    more, so it is set on the windows by hand; both ending means one text fits
+    both, and the exit is not settled."""
+    rules = {
+        "s": IrRule("s", IrAlternation(IrSequence(IrItem(IrRuleRef("r"))))),
+        "r": IrRule(
+            "r",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrChr(97)), IrQuantifier(0, IrNone)))
+            ),
+        ),
+    }
+    windows = FollowWindows(rules, "s", FOLLOW_LOOP_K)
+    a = CharSet.from_chars("a")
+    windows.follow["s"] = {((), END), ((a,), END)}
+    items = _rule_items(rules["r"].body[0])
+    assert not stop_exit_settles(windows, items, 0, "r", a)
