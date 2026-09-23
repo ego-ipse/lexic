@@ -41,10 +41,13 @@ from lexic.compile import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.model import GrammarModel
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
+from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
+from lexic.parsing.products import earley_model
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates
@@ -201,3 +204,77 @@ def test_delegation_synthetic_long_interior() -> None:
     assert "digits" in names, "the long-run rule must delegate"
     for text in SYNTH_SAMPLES:
         instance_ab(cg, text)
+
+
+# ── one end: an injected delegate must not hide an arm choice ─────────────
+
+ONE_STEP_OR_TWO = {
+    "reached directly": (
+        'root ::= expr\nexpr ::= expr op t2 | t2\nt2 ::= term "#"*\n'
+        'term ::= [a-z]+\nop ::= "and"\n'
+    ),
+    "reached through a group": (
+        'root ::= expr\nexpr ::= expr op t2 | t2\nt2 ::= ("#" | term) "#"*\n'
+        'term ::= [a-z]+\nop ::= "and"\n'
+    ),
+    "rule": (
+        'root ::= expr\nexpr ::= expr op term | expr "or" term | term\n'
+        'term ::= [a-z]+\nop ::= "and"\n'
+    ),
+    "inline": (
+        'root ::= expr\nexpr ::= expr op [a-z]+ | expr "or" [a-z]+ | [a-z]+\n'
+        'op ::= "and"\n'
+    ),
+}
+"""``aandb`` is one word or ``a and b``. The two ``reached`` forms get to the
+word from ``t2``, once as an item and once only inside an inline group, which
+the delegability walk must enter to see; they have no ``or`` arm, so only
+``aandb`` is theirs. Delegating the word's run injected the
+end its stop-set picked, the whole-word end never reached the island's chart,
+and the island returned ``a and b`` where Earley refuses."""
+
+
+@pytest.mark.parametrize(
+    ("form", "text"),
+    [
+        (form, text)
+        for form in sorted(ONE_STEP_OR_TWO)
+        for text in (("aandb",) if form.startswith("reached") else ("aandb", "xory"))
+    ],
+)
+def test_a_text_the_word_can_swallow_is_refused_as_earley_refuses(
+    form: str, text: str
+) -> None:
+    """The public parse refuses, and so does the whole-document Earley."""
+    cg = compile_text(ONE_STEP_OR_TWO[form], cache_key=f"delegation-one-end-{form}")
+    product = prod(cg)
+    with pytest.raises(UnsupportedConstructError, match="supply a resolver"):
+        earley_model(product.instance_grammar, text, cg.product, product.tables)
+    with pytest.raises(UnsupportedConstructError, match="supply a resolver"):
+        cg.parse(text)
+
+
+def test_a_lookahead_decided_delegate_still_fires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The near miss delegates at parse time and keeps Earley's model."""
+    source = (
+        'root ::= expr\nexpr ::= expr op term | expr "or" term | term\n'
+        'term ::= "ab" [x]+ | "ac" [y]+\nop ::= "and"\n'
+    )
+    cg = compile_text(source, cache_key="delegation-lookahead")
+    product = prod(cg)
+    injected: list[object] = []
+    real = islands.island_run
+
+    def watched(tables: ParserTables, window: str, delegates=None):
+        kern, best = real(tables, window, delegates)
+        injected.extend(kern.delegated.values())
+        return kern, best
+
+    monkeypatch.setattr(islands, "island_run", watched)
+    text = "abxxandacyyorabx"
+    got = cg.parse(text).dump()
+    assert injected, "the lookahead-decided rule no longer delegates"
+    want = earley_model(product.instance_grammar, text, cg.product, product.tables)
+    assert got == want.dump()

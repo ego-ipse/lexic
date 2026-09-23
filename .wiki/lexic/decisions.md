@@ -256,6 +256,28 @@ try the alternative composition instead of guessing from one character.
 With the bail, vyx holds raw parity (0/194 divergent; row added for real —
 its old "exclusion" subtracted a stem that was never in the list).
 
+## 2026-09-23 — A delegate stands for its rule only if the rule has one end
+
+**Decision:** an island-interior rule is delegated only if no rule in its
+reachable interior picks an EXTENT by policy. That covers a stop-set exit, a
+greedy loop split, a split-greedy licence, and a greedy arm over an empty
+one. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
+decision is made (`Notes.picks_extent`), never read back from note text, and
+`_delegable` refuses a reachable member.
+
+**Why:** a delegate injects ONE completion into the island's chart, at the end
+its PDA run reaches, and skips the rule's own seeding. Being conflict-free
+gives one derivation per end, not one end. A policy-picked exit can stop where
+another end is also followable: `term ::= [a-z]+` under `op ::= "and"` stops
+at the first `a`. The whole-word end then never reaches the chart, the arm
+choice it belonged to vanishes, and the island returned `a and b` for `aandb`,
+which Earley refuses. Exact-lookahead demotions (k-window, noise-skip,
+FOLLOW-window, structured-noise) decide from the text, so the rule keeps one
+followable end and still delegates.
+
+**Cost:** vyx loses `nl-escape` and `nl-force` as delegates in each of its 25
+islands. No other bench or ground-truth grammar loses one.
+
 ## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
 
 **Decision:** `island_parse` grows its doubling window iff the windowed chart

@@ -236,8 +236,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         the sub-run's end column instead (:meth:`_inject_delegate`): the normal
         completer advances the by-then-fully-populated ``waiting[i][rid]`` at
         ``_close(end)``, so late waiters (added after this predict) are covered.
-        A delegable rule is conflict-free, so its parse from ``i`` is the unique
-        one the grammar admits there — the injected span is a true derivation.
+        Being conflict-free gives one derivation per END, not one end: the
+        injected span stands for every derivation only because a delegable
+        rule also decides every exit by lookahead, so at most one end from
+        ``i`` can be followed at all. A rule that picks its extent by policy
+        is never delegated, since its other ends are derivations this chart
+        would then never see.
         A declined delegate (``None``) falls through to normal seeding (the
         fail-soft net); delegation never runs on a non-island parse
         (``delegates`` is empty).
