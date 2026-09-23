@@ -34,17 +34,17 @@ from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar
 from lexic.ir import IrAst
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import split_model, worker_count
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.products import parse_model
 
-type ModelProduct[M, B] = Callable[[IrAst, str, B, Resolver | None], M]
+type ModelProduct[M, B, C] = Callable[[IrAst, str, B, C], M]
 """A revision's model parse entry, as this benchmark uses one.
 
-``B`` is the compiled grammar's build object, and the point of the parameter is
-that nothing here writes it down: the probe is handed the entry, reads ``B``
-off it, and passes back exactly what it was given.
+``B`` is the compiled grammar's build object and ``C`` what the revision hands a
+parse beside it, and the point of the parameters is that nothing here writes
+either down: the probe is handed the entry, reads them off it, and passes back
+exactly what it was given.
 """
 
 
@@ -109,7 +109,7 @@ class _Attempt:
         return hashlib.sha256(shape.encode("utf-8")).hexdigest()[:16]
 
 
-class _WatchedParse[M, B](NamedTuple):
+class _WatchedParse[M, B, C](NamedTuple):
     """The model product, marking the thread every piece was driven from.
 
     Wraps the product the split is handed rather than the pool, because every
@@ -117,15 +117,15 @@ class _WatchedParse[M, B](NamedTuple):
     routed interiors — reaches the engine through this one callable. The
     driver's own thread is excluded by the reader, which knows its own ident.
 
-    The entry is supplied rather than reached for, which is what lets ``B`` —
-    the build object this revision hands a parse — be read off the argument
-    instead of spelled.
+    The entry is supplied rather than reached for, which is what lets ``B`` and
+    ``C`` — what this revision hands a parse — be read off the argument instead
+    of spelled.
 
     :ivar parse: This revision's model parse entry.
     :ivar attempt: The record every call marks.
     """
 
-    parse: ModelProduct[M, B]
+    parse: ModelProduct[M, B, C]
     attempt: _Attempt
 
     def __call__(
@@ -133,11 +133,11 @@ class _WatchedParse[M, B](NamedTuple):
         grammar: IrAst,
         text: str,
         build: B,
-        resolve: Resolver | None = None,
+        config: C,
     ) -> M:
         """Record the piece and the calling thread, then parse as the product does."""
         self.attempt.mark(text)
-        return self.parse(grammar, text, build, resolve)
+        return self.parse(grammar, text, build, config)
 
 
 def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occupancy:
@@ -157,7 +157,7 @@ def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occ
     split = split_model(
         _WatchedParse(parse_model, attempt),
         compiled.codegen_grammar,
-        Request(document, compiled.product, None),
+        Request(document, compiled.product),
         cores,
         analysis=compiled.split_analysis or compiled.grammar,
     )

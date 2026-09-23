@@ -14,7 +14,7 @@ import pytest
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
@@ -319,9 +319,9 @@ def test_empty_outer_arithmetic_tail_routes_to_inner_multiplication():
     text = "*".join(str(index % 10) * 12 for index in range(1200))
     calls: list[tuple[str, int]] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append((str(grammar.start), len(source)))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     parallel = split_model(
         recording_parse,
@@ -344,9 +344,9 @@ def test_nonempty_outer_arithmetic_tail_uses_outer_separator_route():
     text = "+".join(terms)
     calls: list[str] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append(str(grammar.start))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     parallel = split_model(
         recording_parse,
@@ -393,9 +393,9 @@ def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
     text = ", ".join("a" * length + ":1" for length in lengths)
     sizes: list[int] = []
 
-    def measured_parse(grammar, part, fold, resolve):
+    def measured_parse(grammar, part, fold, config):
         sizes.append(len(part))
-        return parse_model(grammar, part, fold, resolve)
+        return parse_model(grammar, part, fold, config)
 
     split = split_model(
         measured_parse,
@@ -428,10 +428,10 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
     )
     calls: list[int] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         if str(grammar.start) == "root":
             calls.append(len(source))
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     parallel = orchestrate.split_model(
         recording_parse,
@@ -451,9 +451,9 @@ def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():
     text = "```\na\nb\n```\n```\nc\nd\n```\n"
     calls: list[str] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append(source)
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     plan = split_plan(compiled.codegen_grammar)
     sequential = compiled.parse(text, cores=1)
@@ -575,9 +575,9 @@ def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evid
     sequential = parse_model(grammar, text, binding)
     calls: list[int] = []
 
-    def recording_parse(g, source, f, resolve=None):
+    def recording_parse(g, source, f, config=DEFAULT_CONFIG):
         calls.append(len(source))
-        return parse_model(g, source, f, resolve)
+        return parse_model(g, source, f, config)
 
     split = split_model(recording_parse, grammar, Request(text, binding), 8)
     assert split is not None, "the newline-marked plan must have carried this"

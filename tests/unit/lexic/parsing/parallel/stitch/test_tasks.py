@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.compile import compile_ast, compile_text
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.parsing import parse_model
+from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.discovery.interiors import interior_rules
 from lexic.parsing.parallel.discovery.regions import choose, find, piece_marks
@@ -23,9 +23,9 @@ def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
     text = "(" + ",".join("a" * 20 for _ in range(900)) + ")"
     calls: list[str] = []
 
-    def recording_parse(grammar, source, fold, resolve=None):
+    def recording_parse(grammar, source, fold, config=DEFAULT_CONFIG):
         calls.append(source)
-        return parse_model(grammar, source, fold, resolve)
+        return parse_model(grammar, source, fold, config)
 
     grammar, binding = compiled.codegen_grammar, compiled.product
     assert split_model(recording_parse, grammar, Request(text, binding), 4) is None
@@ -70,7 +70,7 @@ def test_a_work_binds_the_cuts_its_pieces_were_cut_at() -> None:
     divided = choose(text, find(grammar, text), 8)
     (division,) = divided
     assert len(piece_marks(division.region, len(division.parts))) != len(division.cuts)
-    request = MergeRequest(parse_model, text, compiled.product, None)
+    request = MergeRequest(parse_model, text, compiled.product, DEFAULT_CONFIG)
     works = region_works(request, grammar, divided, grammar) or []
     assert [work.cuts for work in works] == [division.cuts]
 

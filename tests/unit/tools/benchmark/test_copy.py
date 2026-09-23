@@ -10,18 +10,24 @@ reads as "the run is broken" rather than "this import is new".
 from __future__ import annotations
 
 import ast
+import io
 import subprocess
+import tokenize
 from pathlib import Path
 
 import pytest
 
 from tools.benchmark.measurement.copy import (
+    ARM_SPELLED,
     BUILD_OBJECT,
+    PARSE_CONFIG,
     PROTOCOL_MODULES,
     RETIRED_MODULES,
     SHARED_VOCABULARY,
     _rewrite,
+    _unwrap_config,
     digest,
+    exports_config,
     materialise,
 )
 
@@ -66,7 +72,7 @@ def test_a_protocol_module_imports_only_declared_shared_vocabulary(module: str):
     gate runs without one, so what it enforces is that every such import was
     written down — which is the moment somebody has to look at the other arm.
     """
-    undeclared = lexic_imports(module_source(module)) - SHARED_VOCABULARY
+    undeclared = lexic_imports(module_source(module)) - SHARED_VOCABULARY - ARM_SPELLED
     assert not undeclared, (
         f"{module} imports {sorted(undeclared)}, which is not declared shared "
         "with the comparison base. Confirm the base revision has it, then add "
@@ -108,9 +114,20 @@ def test_the_declared_vocabulary_carries_nothing_unused():
         *(lexic_imports(module_source(module)) for module in PROTOCOL_MODULES)
     )
     assert not SHARED_VOCABULARY - imported
+    assert not ARM_SPELLED - imported
 
 
 # ── the build-object rename ───────────────────────────────────────────────
+
+
+def _revision(root: Path, exports: bool) -> Path:
+    """Give ``root`` a ``lexic.parsing`` package root that does, or does not,
+    export the parse configuration."""
+    package = root / "src" / "lexic" / "parsing"
+    package.mkdir(parents=True)
+    names = ["Resolver", PARSE_CONFIG] if exports else ["Resolver"]
+    (package / "__init__.py").write_text(f"__all__ = {names!r}\n".replace("'", '"'))
+    return root
 
 
 def _copy_of(tmp_path: Path) -> Path:
@@ -174,7 +191,7 @@ def test_materialise_installs_the_protocol_and_deletes_the_retired(
     tmp_path: Path,
 ) -> None:
     """The copy is the protocol plus the absence of what the correction dropped."""
-    target = tmp_path / "tools" / "benchmark"
+    target = _revision(tmp_path, exports=True) / "tools" / "benchmark"
     target.mkdir(parents=True)
     for retired in RETIRED_MODULES:
         (target / retired).parent.mkdir(parents=True, exist_ok=True)
@@ -186,6 +203,112 @@ def test_materialise_installs_the_protocol_and_deletes_the_retired(
         assert (target / module).read_text(encoding="utf-8") == module_source(module)
     for retired in RETIRED_MODULES:
         assert not (target / retired).exists()
+
+
+def _materialised_split_ab(root: Path, exports: bool) -> str:
+    """``diagnostics/split_ab.py`` as :func:`materialise` leaves it in a
+    checkout that does, or does not, export the parse configuration."""
+    (_revision(root, exports) / "tools" / "benchmark").mkdir(parents=True)
+    materialise(root, BUILD_OBJECT, BENCHMARK.parents[1])
+    return (root / "tools" / "benchmark" / "diagnostics" / "split_ab.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_a_base_without_the_parse_config_takes_the_resolver_bare(
+    tmp_path: Path,
+) -> None:
+    """Its ``earley_model`` takes the resolver positionally, and it has no
+    ``ParseConfig`` to import: the copy must name neither."""
+    copied = _materialised_split_ab(tmp_path, exports=False)
+    assert PARSE_CONFIG not in copied
+    assert "            _take_first,\n" in copied
+    assert "lexic.parsing.ParseConfig" not in lexic_imports(copied)
+
+
+def test_a_base_with_the_parse_config_keeps_the_config_form(tmp_path: Path) -> None:
+    """A revision that exports it gets the module byte for byte."""
+    copied = _materialised_split_ab(tmp_path, exports=True)
+    assert copied == module_source("diagnostics/split_ab.py")
+    assert "ParseConfig(resolve=_take_first)" in copied
+
+
+def test_no_parse_config_survives_a_copy_into_a_base_without_it(
+    tmp_path: Path,
+) -> None:
+    """The gate: after materialising into a base that does not export it, no
+    protocol module names ``ParseConfig`` in code, and every module parses."""
+    (_revision(tmp_path, exports=False) / "tools" / "benchmark").mkdir(parents=True)
+    materialise(tmp_path, BUILD_OBJECT, BENCHMARK.parents[1])
+    for module in PROTOCOL_MODULES:
+        text = (tmp_path / "tools" / "benchmark" / module).read_text(encoding="utf-8")
+        ast.parse(text)
+        names = {
+            token.string
+            for token in tokenize.generate_tokens(io.StringIO(text).readline)
+            if token.type == tokenize.NAME
+        }
+        assert PARSE_CONFIG not in names, module
+
+
+@pytest.mark.parametrize(
+    ("init", "exports"),
+    [
+        ('"""ParseConfig is only mentioned here."""\n__all__ = ["Resolver"]\n', False),
+        ("__all__ = ['Resolver', 'ParseConfig']\n", True),
+        ("from lexic.parsing.x import ParseConfig\n", True),
+    ],
+)
+def test_the_export_is_read_from_the_code_not_the_text(
+    tmp_path: Path, init: str, exports: bool
+) -> None:
+    """A docstring mention is not an export; single quotes and an import are."""
+    package = tmp_path / "src" / "lexic" / "parsing"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(init, encoding="utf-8")
+    assert exports_config(tmp_path) is exports
+
+
+def _unwrapped(tmp_path: Path, text: str) -> str:
+    """``text`` as one protocol module, after the unwrap."""
+    root = _copy_of(tmp_path)
+    module = root / "tools" / "benchmark" / "diagnostics" / "split_ab.py"
+    module.write_text(text, encoding="utf-8")
+    _unwrap_config(root)
+    return module.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("call", "bare"),
+    [
+        ("ParseConfig(take)", "take"),
+        ("ParseConfig(resolve = take)", "take"),
+        ("lexic.parsing.ParseConfig(resolve=self.take)", "self.take"),
+        (
+            "ParseConfig(\n    resolve=lambda one, _other: one,\n)",
+            "lambda one, _other: one",
+        ),
+    ],
+)
+def test_every_call_form_unwraps_to_its_resolver(
+    tmp_path: Path, call: str, bare: str
+) -> None:
+    """Positional, spaced, dotted and multi-line calls all lose the wrapper."""
+    text = f"from lexic.parsing import DEFAULT_CONFIG, ParseConfig\nrun(x, {call})\n"
+    assert _unwrapped(tmp_path, text) == (
+        f"from lexic.parsing import DEFAULT_CONFIG\nrun(x, {bare})\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "use",
+    ["run(ParseConfig(resolve=take, decide=d))", "kind = ParseConfig"],
+)
+def test_a_use_with_no_bare_spelling_refuses_locally(tmp_path: Path, use: str) -> None:
+    """A decider, or a use that is not a call, has no form a base without the
+    record can take: materialise refuses it here, not the runner at import."""
+    with pytest.raises(ValueError, match=PARSE_CONFIG):
+        _unwrapped(tmp_path, f"from lexic.parsing import ParseConfig\n{use}\n")
 
 
 def test_materialise_refuses_a_root_with_no_benchmark(tmp_path: Path) -> None:

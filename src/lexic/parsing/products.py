@@ -29,8 +29,9 @@ from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.engine import first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
     MeaningBuilder,
-    Resolver,
+    ParseConfig,
     chosen_meaning,
     different_meaning,
 )
@@ -87,14 +88,14 @@ def earley_model[M](
     text: str,
     binding: ModelExecutable[M],
     tables: ParserTables | None = None,
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> M:
     """Parse ``text`` and complete its model product through Earley.
 
     The instance product's Earley completion — :func:`~lexic.parsing.earley
     .engine.first_meaning` completed through ``binding``. The product is also the gate's
     ``build``: a span whose derivations fold to DIFFERENT models is refused
-    unless ``resolve`` settles it, the same question the PDA's island sub-parse
+    unless ``config``'s resolver settles it, the same question the PDA's island sub-parse
     asks, so the two engines refuse (or resolve) identically instead of each
     quietly taking its own "first".
 
@@ -102,8 +103,7 @@ def earley_model[M](
     :param text: The input string.
     :param binding: The bound model product producing ``M``.
     :param tables: Optional pre-built run-collapsed tables for ``grammar``.
-    :param resolve: The caller's deterministic answer to an ambiguity;
-        ``None`` refuses one.
+    :param config: The caller's resolver and split decider.
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
@@ -114,7 +114,7 @@ def earley_model[M](
         text,
         MeaningBuilder(executor.build, executor.replay),
         tables,
-        resolve,
+        config,
     )
 
 
@@ -123,7 +123,7 @@ def token_model[M](
     text: str,
     binding: ModelExecutable[M],
     bounds: dict[int, tuple[int, int]],
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> M:
     """Parse token-segmented ``text`` to a model via the token Earley kernel.
 
@@ -137,8 +137,8 @@ def token_model[M](
     :param text: The input string.
     :param binding: The bound model product producing ``M``.
     :param bounds: char position → ``(token_id, char_len)`` segmentation.
-    :param resolve: The caller's deterministic resolver, or ``None`` to refuse
-        an ambiguous span — the same contract the char route offers.
+    :param config: The caller's resolver and split decider — the same
+        contract the char route offers.
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
@@ -154,13 +154,15 @@ def token_model[M](
     # RESOLVING mode, as the char route uses. Bail mode declined on exactly the
     # inputs at issue and reported them as "no token derivation" — so an
     # ambiguous span and a plain SPLIT both died claiming nothing derived.
-    tree = FastTree(kernel, {}).build(handle)
+    tree = FastTree(kernel, {}, config.decide).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
     executor = binding.executor
     builder = MeaningBuilder(executor.build, executor.replay)
     return chosen_meaning(
-        different_meaning(kernel, handle, builder, tree), builder, resolve
+        different_meaning(kernel, handle, builder, tree, config.decide),
+        builder,
+        config,
     )
 
 
@@ -289,7 +291,7 @@ def parse_model[M](
     grammar: IrAst,
     text: str,
     binding: ModelExecutable[M],
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
@@ -299,14 +301,13 @@ def parse_model[M](
     (:func:`~lexic.parsing.earley.kernel.tables.tier_for`). Each parse runs the model
     PDA first and, on any :class:`PdaFail`, completes on the gated Earley
     first derivation + ``fold``. A span whose derivations mean two different
-    models is refused by BOTH routes unless ``resolve`` settles it — the same
-    resolver reaches whichever engine ends up choosing.
+    models is refused by BOTH routes unless ``config``'s resolver settles it —
+    the same configuration reaches whichever engine ends up choosing.
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
     :param binding: The bound model product producing ``M``.
-    :param resolve: The caller's deterministic answer to an ambiguity;
-        ``None`` refuses one.
+    :param config: The caller's resolver and split decider.
     :returns: The model the start rule folds to.
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
@@ -314,11 +315,15 @@ def parse_model[M](
     text = _owned_text(text)
     product = _model_product(grammar, binding, tier_for(len(text)))
     try:
-        return pda_model(product.pda, text, binding.executor, resolve=resolve)
+        return pda_model(product.pda, text, binding.executor, config=config)
     except PdaFail as fail:
         try:
             return earley_model(
-                product.instance_grammar, text, binding, product.tables, resolve
+                product.instance_grammar,
+                text,
+                binding,
+                product.tables,
+                config,
             )
         except UnsupportedConstructError as refusal:
             raise _refused(fail, refusal) from None

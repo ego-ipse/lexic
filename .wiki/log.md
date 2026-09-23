@@ -2277,3 +2277,12 @@ or its carving is invisible. Every other stop-set islands. The two-deep proof is
 per site through `FollowWindows.site_windows`, which shares the fixpoint's own
 walk. `public-api.md`'s decider bullet now lists `STOP_SET`, `NOISE_GREEDY` and
 `GREEDY_SPLIT` among `LEFTMOST_LONGEST`'s grants, with `GREEDY_ARM` withheld.
+
+## The parse's configuration is one value
+
+`public-api.md` gains `ParseConfig` / `DEFAULT_CONFIG`, the resolver and the
+split decider as one record. Every internal parse signature that carried
+`resolve` carries it: `parse_model`, `earley_model`, `token_model`, `pda_model`,
+`watch`, the island policy and the parallel request. `CompiledGrammar.parse`
+gains `decide=` beside `resolve=` and builds the record itself. The resolver
+paragraph and `watch`'s signature say so.

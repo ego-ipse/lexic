@@ -17,7 +17,10 @@ from lexic.ir import (
     IrNamedTuple,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+)
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import (
     choose,
@@ -60,12 +63,12 @@ class Request[M: IrNamedTuple](NamedTuple):
 
     :ivar text: The document.
     :ivar binding: The bound model product producing ``M``.
-    :ivar resolve: The caller's ambiguity resolver, or ``None``.
+    :ivar config: The caller's resolver and split decider.
     """
 
     text: str
     binding: ModelExecutable[M]
-    resolve: Resolver | None = None
+    config: ParseConfig = DEFAULT_CONFIG
 
 
 def _split_parse[M: IrNamedTuple](
@@ -76,7 +79,7 @@ def _split_parse[M: IrNamedTuple](
     pool: WorkPool,
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
-    text, binding, resolve = ask
+    text, binding, config = ask
     terminated = plan.terminated
     spans, leads = cut_spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
@@ -89,14 +92,14 @@ def _split_parse[M: IrNamedTuple](
                 plan.grammar,
                 text[spans[k][0] : spans[k][1]],
                 binding,
-                resolve,
+                config,
             ),
             list(range(len(spans))),
         )
         if plan.envelope is not None:
             return _envelope_join(parse, plan, ask, (chunks, leads))
         lead_models = [
-            (parse(plan.lead_grammar, lead, binding, resolve),)
+            (parse(plan.lead_grammar, lead, binding, config),)
             if plan.lead_grammar is not None
             else ()
             for lead in leads
@@ -127,7 +130,7 @@ def _piece[M: IrNamedTuple](
     and the caller's sequential parse is what raises.
     """
     try:
-        return worker_parse(parse, grammar, text, ask.binding, ask.resolve)
+        return worker_parse(parse, grammar, text, ask.binding, ask.config)
     except LexicError:
         return None
 
@@ -226,7 +229,7 @@ def _parse_region_parts[M: IrNamedTuple](
     try:
         parsed = pool.map(
             lambda k: worker_parse(
-                parse, tasks[k][0], tasks[k][1], ask.binding, ask.resolve
+                parse, tasks[k][0], tasks[k][1], ask.binding, ask.config
             ),
             list(range(len(tasks))),
         )
@@ -267,7 +270,7 @@ def _split_regions[M: IrNamedTuple](
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    sourced = source_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
+    sourced = source_split(parse, grammar, ask, pool)
     if sourced is not None:
         return sourced
     # A bracket span may cover the whole source while still sit BELOW a
@@ -282,7 +285,7 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    merge = MergeRequest(parse, ask.text, ask.binding, ask.resolve)
+    merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     works = region_works(merge, grammar, divided, analysis or grammar)
     if works is None:
         return None
@@ -311,7 +314,7 @@ def split_model[M: IrNamedTuple](
 
     :param parse: The model product, injected by the layer that owns it.
     :param grammar: The codegen grammar.
-    :param ask: The document, its bound product, and the ambiguity resolver.
+    :param ask: The document, its bound product and the configuration.
     :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
     :param analysis: A language-equivalent structural view for derived grammars
         whose parse model intentionally elides quoted interiors or wrappers.
@@ -376,7 +379,7 @@ def _envelope_join[M: IrNamedTuple](
     tails, trimmed = moved
     witness = unit_witness(plan.grammar, found.shape.unit) or ""
     rebuilt = [
-        parse(repeated, tails[at] + lead + witness, ask.binding, ask.resolve)
+        parse(repeated, tails[at] + lead + witness, ask.binding, ask.config)
         for at, lead in enumerate(leads)
     ]
     return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding)

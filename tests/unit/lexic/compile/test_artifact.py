@@ -40,8 +40,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
-from lexic.parsing import PdaTables, parse_model
+from lexic.parsing import DEFAULT_CONFIG, FastTree, PdaTables, parse_model
 from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE, lead_rule_document
@@ -600,7 +601,7 @@ class _WhoParsed:
         self.overlap = threading.Barrier(2)
         self.lock = threading.Lock()
 
-    def __call__(self, grammar, text, binding, resolve=None):
+    def __call__(self, grammar, text, binding, config=DEFAULT_CONFIG):
         """Record one parse, hold the drivers together, then parse for real."""
         who = threading.get_ident()
         with self.lock:
@@ -611,7 +612,7 @@ class _WhoParsed:
             # Both drivers are now inside their split attempt at once, which is
             # the interval the claim has to hold across.
             self.overlap.wait(timeout=30)
-        return parse_model(grammar, text, binding, resolve)
+        return parse_model(grammar, text, binding, config)
 
     def products(self, driver: str) -> set[int]:
         """Every product identity that driver's own calls ran through."""
@@ -685,11 +686,11 @@ def test_a_driver_parses_its_leads_on_its_own_product(
     seen: list[tuple[int, int]] = []
     lock = threading.Lock()
 
-    def watched(grammar, source, binding, resolve=None):
+    def watched(grammar, source, binding, config=DEFAULT_CONFIG):
         """Record which thread parsed through which product."""
         with lock:
             seen.append((threading.get_ident(), id(binding)))
-        return parse_model(grammar, source, binding, resolve)
+        return parse_model(grammar, source, binding, config)
 
     monkeypatch.setattr(artifact_module, "parse_model", watched)
     model = compiled.parse(text, cores=4)
@@ -701,3 +702,38 @@ def test_a_driver_parses_its_leads_on_its_own_product(
     assert len(seen) > len(mine), "the split never reached a worker thread"
     assert len(mine) == 1, "the driver parsed through more than one product"
     assert mine.isdisjoint(theirs)
+
+
+# ── the parse's configuration reaches every tree it builds ────────────────
+
+ISLAND_START = "root ::= item item+\nitem ::= [a-z]+\n"
+"""A start rule that is an island: the whole parse is Earley's."""
+
+INNER_ISLAND = 'root ::= "<" run ">"\nrun ::= item item+\nitem ::= [a-z]+\n'
+"""A predictive parse whose ``run`` is an island: its tree is an Earley sub-parse."""
+
+
+@pytest.mark.parametrize(
+    ("source", "text"), [(ISLAND_START, "abc"), (INNER_ISLAND, "<abc>")]
+)
+def test_the_decider_reaches_every_tree_the_parse_builds(
+    source: str, text: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``parse(decide=…)`` is handed down, not re-defaulted on the way: every
+    fast tree the parse builds, on the Earley route and in an island, holds the
+    caller's decider. A decider equal in rank but with no licences is a value
+    no default could stand in for."""
+    decider = LeftmostLongest(frozenset())
+    seen: list[object] = []
+    build = FastTree.build
+
+    def spy(tree: FastTree, handle: int):
+        seen.append(tree.decide)
+        return build(tree, handle)
+
+    monkeypatch.setattr(FastTree, "build", spy)
+    compiled = compile_text(source, cache_key=f"config-reach-{text}")
+    model = compiled.parse(text, cores=1, decide=decider)
+    assert model.to_text() == text
+    assert seen, "no fast tree was built: the route under test did not run"
+    assert all(one is decider for one in seen)

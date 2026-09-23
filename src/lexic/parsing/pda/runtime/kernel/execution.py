@@ -337,7 +337,7 @@ class KernelExecutionMixin[Carry]:
             self.tables,
             window_text,
             self.policy.executor,
-            resolve=self.policy.resolve,
+            config=self.policy.config,
         )
         return finish_delegate(sub, clone, window_text, pos)
 

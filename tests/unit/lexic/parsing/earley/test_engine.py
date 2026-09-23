@@ -44,6 +44,8 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
 )
 from lexic.parsing import (
     EarleyParser,
@@ -59,6 +61,7 @@ from lexic.parsing.earley.engine import (
     PARSE_FIRST,
     ParseFirst,
 )
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     DerivationStream,
     IrStream,
@@ -66,6 +69,7 @@ from lexic.parsing.earley.kernel.forest.forest import (
 )
 from lexic.parsing.earley.kernel.tables.atoms import RunTerm
 from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
@@ -654,6 +658,36 @@ def test_parse_first_returns_one_tree_where_parse_raises_expr_plus(
         parse(expr_plus_grammar, "a+a+a")
     tree = parse_first(expr_plus_grammar, "a+a+a")
     assert isinstance(tree, ParseTree)
+
+
+def test_parse_first_keeps_the_carving_of_the_callers_decider(
+    expr_plus_grammar: IrAst, monkeypatch: pytest.MonkeyPatch
+):
+    """The resolving build behind ``parse_first`` asks the decider the caller
+    passed, as ``parse`` does: every fast tree it builds holds that decider.
+    One equal in rank but granting nothing is a value no default stands for."""
+    decider = LeftmostLongest(frozenset())
+    seen: list[object] = []
+    build = FastTree.build
+
+    def spy(tree: FastTree, handle: int):
+        seen.append(tree.decide)
+        return build(tree, handle)
+
+    monkeypatch.setattr(FastTree, "build", spy)
+    tree = parse_first(expr_plus_grammar, "a+a+a", decide=decider)
+    assert isinstance(tree, ParseTree)
+    assert seen, "no fast tree was built: the resolving route did not run"
+    assert all(one is decider for one in seen)
+
+
+def test_parse_first_refuses_a_call_without_a_decider(expr_plus_grammar: IrAst):
+    """The dispatcher is handed its decider by the public edge; an ``nc`` without
+    one is refused rather than defaulted."""
+    with pytest.raises(UnsupportedConstructError, match="decider"):
+        PARSE_FIRST.eval(
+            EarleyParser(), expr_plus_grammar, IrTuple(IrStr("a"), IrNone, IrNone)
+        )
 
 
 def test_parse_first_is_deterministic_across_calls(sss_grammar: IrAst):

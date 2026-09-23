@@ -33,6 +33,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
+from lexic.parsing import ParseConfig
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
@@ -194,7 +195,11 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     """
     tables = compile_tables(sss_grammar)
     tree, end, _value = island_parse(
-        tables, "aaa", 0, "s", IslandPolicy(resolve=lambda first, other: first)
+        tables,
+        "aaa",
+        0,
+        "s",
+        IslandPolicy(config=ParseConfig(resolve=lambda first, other: first)),
     )
     assert isinstance(tree, ParseTree)
     assert end == 3
