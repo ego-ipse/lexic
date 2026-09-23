@@ -294,7 +294,6 @@ src/lexic/
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
-      partition.py                 The top-down partition — which spans to divide so each piece is a worker's share
       planner.py                   Which split plans a grammar admits, and which a safety proof licenses
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      WorkPool/ParsePool — warm split phases and N documents in flight
@@ -312,6 +311,7 @@ src/lexic/
         __init__.py                Region-discovery package marker
         anchors.py                 Structural anchor analysis
         interiors.py               Opaque delimited interiors
+        partition.py               The top-down partition — which spans to divide so each piece is a worker's share
         regions.py                 Bracketed runs, balanced pieces, and shell spans
         scan.py                    Self-locating window scan
         shapes.py                  Grammar arm shapes

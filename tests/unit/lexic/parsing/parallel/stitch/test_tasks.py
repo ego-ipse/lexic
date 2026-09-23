@@ -8,8 +8,8 @@ from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.discovery.interiors import interior_rules
 from lexic.parsing.parallel.discovery.regions import find
-from lexic.parsing.parallel.partition import partition
 from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.discovery.partition import partition
 from lexic.parsing.parallel.stitch.merge import MergeRequest
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.parallel.stitch.tasks import region_works

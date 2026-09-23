@@ -11,7 +11,7 @@ from lexic.compile import compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel.discovery.regions import find
-from lexic.parsing.parallel.partition import Division, partition, units
+from lexic.parsing.parallel.discovery.partition import Division, partition, units
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.stitch.merge import MergeRequest, witnesses
 from lexic.parsing.parallel.stitch.plan import RegionWork

@@ -230,7 +230,7 @@ class GrammarModel(IrNamedTuple):
     value names byte-identical while the document that value re-emits no longer
     parses. See :func:`lexic.ir.grammar.transform.order.rule_closure`."""
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {}
-    _child_order: ClassVar[ChildOrder | None] = None
+    _child_order_cache: ClassVar[ChildOrder | None] = None
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         """Build the record with checked construction (hand-construction path).
@@ -369,7 +369,7 @@ class GrammarModel(IrNamedTuple):
         return cls.__binds__
 
     @classmethod
-    def child_order(cls) -> ChildOrder:
+    def _child_order(cls) -> ChildOrder:
         """The bound fields in item order — sorted once per binds table.
 
         Every walk asks for a model's children, and sorting the table on every
@@ -380,12 +380,12 @@ class GrammarModel(IrNamedTuple):
         :returns: The field names in item order, and their tuple positions.
         """
         binds = cls.bound_fields()
-        order = cls.__dict__.get("_child_order")
+        order = cls.__dict__.get("_child_order_cache")
         if order is None or order.binds is not binds:
             names = tuple(name for _slot, (name, _bind) in sorted(binds.items()))
             where = {name: index for index, name in enumerate(cls._fields)}
             order = ChildOrder(binds, names, tuple(where[name] for name in names))
-            cls._child_order = order
+            cls._child_order_cache = order
         return order
 
     def children(self) -> Sequence[IrSelf]:
@@ -400,7 +400,7 @@ class GrammarModel(IrNamedTuple):
 
         :returns: The bound values, item order.
         """
-        return tuple([self[index] for index in type(self).child_order().indices])
+        return tuple(map(self.__getitem__, type(self)._child_order().indices))
 
     def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Splice replacements into the bound fields; keep everything else.
@@ -411,7 +411,7 @@ class GrammarModel(IrNamedTuple):
         :param new_children: Replacement values for the bound fields.
         :returns: A new instance with the bound fields replaced.
         """
-        names = type(self).child_order().names
+        names = type(self)._child_order().names
         replacements = dict(zip(names, new_children, strict=True))
         values = [
             replacements.get(name, self[index])

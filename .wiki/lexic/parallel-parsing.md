@@ -122,21 +122,25 @@ spelling would be a fourth chance to get the subclass case wrong.
 
 ## The region route divides top-down, and each piece is a worker's share
 
-`partition.py` takes a tree of divisible spans — an opener, a closer and the
+`discovery/partition.py` takes a tree of divisible spans — an opener, a closer and the
 separators between items, nesting read from containment (`Span`) — and a
 target of one worker's share of the text. A span's adjacent items pack into
 runs of at most the target, and each run is ONE piece in the span's own
 brackets, so siblings that ship together come back already joined. An item
 larger than the target whose value is a span is descended into and
 partitioned the same way. Every span on the path of an oversized item is
-divided, even one whose items make a single run, so every descended span is
-HELD by a piece, never by walking the shell. The region scan is the one
+divided, even one whose items make a single run, so a descended span is HELD
+by a piece and found by item — unless that path span keeps under `MIN_CHUNK`
+of its own text, which then stays with its holder. The region scan is the one
 supplier today.
 
 `units` renders every piece and the shell with the stand-in of each span
 divided inside it, and says which ITEM of the holding piece carries each
-stand-in. All units — the pieces of every level and the shell — parse in ONE
-pool map. The stitch then runs innermost first: it finds a stand-in by the
+stand-in. The pieces of every level parse in ONE pool map, and the calling
+thread parses the shell beside them (`WorkPool.map`'s `beside`): the shell is
+parsed under the whole grammar, whose view that thread already holds, where a
+pool worker drawing it would build a replica of the whole grammar for one
+small parse. The stitch then runs innermost first: it finds a stand-in by the
 holding item alone (`held_route`), and lays the span's merged items over the
 stand-in's node together with its true edge slots. An edge slot can straddle
 the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and

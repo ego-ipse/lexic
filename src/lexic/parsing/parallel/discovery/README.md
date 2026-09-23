@@ -1,10 +1,11 @@
 # Region discovery
 
 Grammar-shape analysis, opaque-interior discovery, anchors, window scanning,
-and the region records shared by parallel parsing plans. Region division keeps
-the exact removed separator offsets alongside balanced, self-bracketed pieces;
-stub and shell spans remain source-text facts here, while model routing lives
-under `parallel/stitch`.
+and the region records shared by parallel parsing plans. `partition.py` decides
+which spans to divide and where: runs of adjacent items of about one worker's
+share, descending only into an item too big for one, and renders every piece
+and the shell with the stand-ins of the spans divided inside them. Those are
+source-text facts; model routing lives under `parallel/stitch`.
 
 A selected region must provide one `MIN_CHUNK` share per requested worker.
 The older two-chunk-only floor produced hundreds of sub-kilobyte tasks when a

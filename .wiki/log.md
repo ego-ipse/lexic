@@ -1,5 +1,14 @@
 # Log
 
+## A document splits top-down, a worker's share at a time (2026-09-23)
+
+`parallel-parsing.md` records the top-down partition that replaced the region
+chooser: a region's adjacent items ship whole in runs of about a worker's
+share, and only an item larger than that share is descended into, so the
+pieces number about the workers rather than every region that could divide.
+The shell parses on the calling thread beside the pieces, and a path region is
+divided only if it keeps a chunk of its own text.
+
 ## FOLLOW_k's empty tail is the bottom (2026-09-23)
 
 `decisions.md`'s stop-set entry is corrected. `FollowWindows._rest_windows` now

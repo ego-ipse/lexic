@@ -108,8 +108,9 @@ def partition[S: Span](text: str, found: list[S], workers: int) -> list[Division
     than that whose value is a region is DESCENDED into and partitioned the
     same way; everything else ships whole, so only the regions on the path of
     an oversized item are divided — each of them, even one whose items make a
-    single run, so every descended region is held by a PIECE, where the
-    stitch finds it by item, never by walking. The text outside every region
+    single run, so a descended region is held by a PIECE, where the stitch
+    finds it by item, not by walking; only a path region with under
+    :data:`MIN_CHUNK` of its own text is left to its holder. The text outside every region
     is the shell; its largest regions ship as pieces of their own until what
     stays in it is no larger than one piece. Every run clears
     :data:`MIN_CHUNK`.
@@ -121,9 +122,11 @@ def partition[S: Span](text: str, found: list[S], workers: int) -> list[Division
     for region in sorted(plan.nest.top, key=lambda r: -r.span):
         if kept <= plan.target:
             break
-        if _divide(plan, region):
+        left = _divide(plan, region)
+        if left == region.span:
             plan.out.append(Division(region, ()))
-        kept -= region.span
+            left = 0
+        kept -= region.span - left
     pieces = sum(len(division.cuts) + 1 for division in plan.out)
     if pieces + (kept >= MIN_CHUNK) < 2:
         return []  # one unit of work: nothing runs beside it
@@ -131,32 +134,37 @@ def partition[S: Span](text: str, found: list[S], workers: int) -> list[Division
 
 
 def _divide[S: Span](plan: _Partition[S], region: S) -> int:
-    """Partition ``region``: ``0`` once it is divided, else its whole span,
-    which then travels with whatever holds it."""
+    """Partition ``region``; how much of its text stays with what holds it.
+
+    ``0`` once it is divided. A region whose only change is a descended value
+    is divided too — as one piece holding that value's stand-in — unless what
+    is left of it is under :data:`MIN_CHUNK`: then its holder keeps that text,
+    and finding the stand-in in so little costs less than a unit of its own.
+    """
     if region.span <= plan.target:
         return region.span
-    spans = list(
-        zip(
-            [region.opener + 1, *[mark + 1 for mark in region.marks]],
-            [*region.marks, region.closer],
-            strict=True,
-        )
-    )
+    starts = [region.opener + 1, *[mark + 1 for mark in region.marks]]
+    ends = [*region.marks, region.closer]
+    sizes = [hi + 1 - lo for lo, hi in zip(starts, ends, strict=True)]
+    whole = sum(sizes)
     kids = plan.nest.children.get(region, [])
-    sizes = [_item(plan, kids, lo, hi) for lo, hi in spans]
+    for at in [at for at, size in enumerate(sizes) if size > plan.target]:
+        sizes[at] = _item(plan, kids, starts[at], ends[at])
     cuts = _runs(plan.target, sizes, region.marks)
-    if cuts or sum(sizes) < sum(hi + 1 - lo for lo, hi in spans):
+    left = region.span - whole + sum(sizes)
+    if cuts or MIN_CHUNK <= left < region.span:
         plan.out.append(Division(region, cuts))
         return 0
-    return region.span
+    return left
 
 
 def _item[S: Span](plan: _Partition[S], kids: list[S], lo: int, hi: int) -> int:
-    """One item's weight in its region's runs: its text and the separator
-    after it, less whatever of a descended value no longer travels with it."""
+    """An oversized item's weight in its region's runs: its text and the
+    separator after it, less whatever of a descended value no longer travels
+    with it."""
     size = hi + 1 - lo
     kid = next((k for k in kids if lo <= k.opener and k.closer < hi), None)
-    if size <= plan.target or kid is None or kid.span <= plan.target:
+    if kid is None or kid.span <= plan.target:
         return size
     return size - kid.span + _divide(plan, kid)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.regions import Region
-from lexic.parsing.parallel.partition import Division, Unit
+from lexic.parsing.parallel.discovery.partition import Division, Unit
 from lexic.parsing.parallel.stitch.merge import MergeRequest, assign_witnesses
 from lexic.parsing.parallel.stitch.plan import RegionWork, derive_plan
 from lexic.parsing.parallel.stitch.safety import owner_excludes
@@ -18,7 +18,7 @@ def region_works[M](
 ) -> list[RegionWork]:
     """Bind divided regions to safe, exact model-stitch plans.
 
-    The cuts are the ones :func:`~lexic.parsing.parallel.partition.partition`
+    The cuts are the ones :func:`~lexic.parsing.parallel.discovery.partition.partition`
     made — never re-derived here, where another count would aim at other
     marks and the stitch would rebuild separators the pieces never lost. A
     region without a safe plan is left undivided: its text stays with
