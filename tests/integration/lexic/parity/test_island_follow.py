@@ -15,7 +15,7 @@ import pytest
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import _model_product, earley_model, pda_model
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -89,3 +89,45 @@ def test_the_ground_truth_grammar_with_repeating_islands_keeps_its_answers() -> 
         assert compiled.parse(text).dump() == want.dump()
         checked += 1
     assert checked == 8
+
+
+# ── two characters deep: a space that no continuation follows the same way ──
+
+_SPACED = 'root ::= x " ;"\nx ::= x " a" | x " b" | "c"\n'
+"""After a shorter ``x`` comes a space, which the caller's `` ;`` also starts
+with, so one character says the shorter end could compose. The second
+character (``a`` against ``;``) says it cannot."""
+
+
+@pytest.mark.parametrize("text", ["c a ;", "c a b ;", "c ;"])
+def test_a_second_character_settles_what_one_could_not(text: str) -> None:
+    """The PDA, asked directly, answers with Earley's model."""
+    compiled = compile_text(_SPACED, cache_key="island-window-spaced")
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    got = pda_model(product.pda, text, compiled.product.executor)
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    assert got.dump() == want.dump()
+
+
+# ── per site: another site's continuation does not follow this one ──────────
+
+_TWO_PLACES = (
+    'doc ::= x? "a" rest x? "#a"\nrest ::= [b-z]*\nx ::= x "#" | x "~" | "~"\n'
+)
+"""A shorter ``x`` at the start is followed by ``#a``, which only ever follows
+``x`` at the later site. The two sites never stand at one position, so that
+continuation is not this one's, and the longer ``x`` is the answer."""
+
+
+@pytest.mark.parametrize("text", ["~#abc#a", "~~#a#a", "a#a"])
+def test_a_site_ignores_what_follows_a_site_it_can_never_be(text: str) -> None:
+    """The PDA, asked directly, answers with Earley's model."""
+    compiled = compile_text(_TWO_PLACES, cache_key="island-two-places")
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    got = pda_model(product.pda, text, compiled.product.executor)
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    assert got.dump() == want.dump()

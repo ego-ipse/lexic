@@ -736,7 +736,7 @@ def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
-    name, cont, exact = arm.payloads[0]
+    name, cont, exact, _windows = arm.payloads[0]
     assert name == "x"
     assert not cont.has("a"), "the island's own recursion is not the caller's"
     assert exact, "root puts only the end of input after it, which bounds it"

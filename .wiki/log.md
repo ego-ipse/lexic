@@ -1,5 +1,12 @@
 # Log
 
+## An island's end is judged two characters deep, per site (2026-09-23)
+
+The two-ends refusal now reads the continuation two characters deep, and only
+from reference sites that can share the island's position. That keeps
+gbnf-meta and abnf-meta on the PDA once the attempt licence is narrowed.
+`decisions.md` records the rule and the bug the differential caught.
+
 ## What follows an island is what follows one occurrence of it (2026-09-23)
 
 A repeating island reference left its next occurrence out of the follow set,

@@ -16,8 +16,9 @@ vocabulary, and a second reader had to duplicate one to avoid a private import.
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
-:class:`~lexic.parsing.product.RuleRoutine`, and
-:class:`~lexic.parsing.pda.core.scanner.ScanGate`.
+:class:`~lexic.parsing.product.RuleRoutine`,
+:class:`~lexic.parsing.pda.core.scanner.ScanGate`, and the
+:data:`~lexic.parsing.pda.analysis.gates.windows.Pref` window type.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from typing import NamedTuple, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrItem, IrNoneType, IrSelf
+from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 from lexic.parsing.product import RegularProof, RuleRoutine
@@ -88,12 +90,21 @@ class IslandRef(NamedTuple):
         distance and one sub-parse at it settles the island. False keeps the
         doubling climb, which is what an island whose own alphabet meets its
         continuation needs.
+    :ivar windows: The same continuation a few characters deep, which the
+        two-ends check asks only where :attr:`cont` admits the next character.
+        Empty is no deeper evidence: one character decides.
     """
 
     name: str
     fail: bool = False
     cont: CharSet = CharSet.EMPTY
     exact: bool = False
+    windows: tuple[Pref, ...] = ()
+
+
+IslandPayload = tuple[str, CharSet, bool, tuple[Pref, ...]]
+"""An island reference as the runtime reads it: ``(name, cont, exact,
+windows)`` — :class:`IslandRef` without the fail flag, which the opcode says."""
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────

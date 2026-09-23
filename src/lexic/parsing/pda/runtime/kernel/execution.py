@@ -20,6 +20,7 @@ from typing import Any, cast
 
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -42,6 +43,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
@@ -217,7 +219,7 @@ class KernelExecutionMixin[Carry]:
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, ref: tuple[str, CharSet, bool], sink: list[Carry]) -> None:
+    def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
@@ -234,20 +236,21 @@ class KernelExecutionMixin[Carry]:
         it rather than the value.
 
         :param ref: ``(island rule name, this occurrence's continuation, whether
-            that continuation bounds the island's extent)``.
+            that continuation bounds the island's extent, the continuation's
+            windows)``.
         :param sink: The enclosing sink the value splices into.
         :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
             product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        name, cont, exact = ref
+        name, cont, exact, windows = ref
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end, built = self._island_subparse(name, cont, exact)
+        tree, end, built = self._island_subparse(name, cont, exact, windows)
         # The settle step builds the value to answer the ambiguity question
         # and retains it for exactly this reason; splicing the same tree again
         # would build the same value twice.
@@ -261,7 +264,7 @@ class KernelExecutionMixin[Carry]:
         self.pos += end
 
     def _island_subparse(
-        self, name: str, cont: CharSet, exact: bool
+        self, name: str, cont: CharSet, exact: bool, windows: tuple[Pref, ...]
     ) -> tuple[Any, int, Any]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
@@ -274,6 +277,8 @@ class KernelExecutionMixin[Carry]:
             takes plain longest-match.
         :param exact: That same set bounds the island's extent, so the window
             is one scan away and one sub-parse settles it.
+        :param windows: The continuation a few characters deep, for the ends
+            ``cont`` alone would refuse.
         :returns: ``(tree, consumed length, the value the settle step built)``
             — the value is ``None`` where none was built.
         """
@@ -286,6 +291,7 @@ class KernelExecutionMixin[Carry]:
                 self._delegates(name),
                 None if cont.is_empty() else cont,
                 bounded_window(self.text, self.pos, cont) if exact else None,
+                windows,
             ),
         )
 

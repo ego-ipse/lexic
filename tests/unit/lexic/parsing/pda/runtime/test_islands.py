@@ -38,6 +38,7 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, Pref
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
@@ -716,3 +717,40 @@ def test_an_executor_less_island_hands_back_no_value(digit_grammar: IrAst) -> No
     assert isinstance(tree, ParseTree)
     assert end == 1
     assert value is None
+
+
+# ── continues: the continuation a few characters deep ──────────────────────
+
+
+def _window(chars: str, state: str) -> Pref:
+    """One window over single-character sets, spelled as a string."""
+    return (tuple(CharSet.from_chars(c) for c in chars), state)
+
+
+def test_no_windows_is_no_evidence_and_admits():
+    """Without windows the one-character test decides alone."""
+    assert islands.continues((), "ab", 0)
+
+
+def test_a_window_must_match_every_character_it_names():
+    """Two characters named, two characters checked."""
+    windows = (_window("+a", MORE),)
+    assert islands.continues(windows, "x+a", 1)
+    assert not islands.continues(windows, "x+b", 1)
+
+
+def test_a_window_past_the_end_of_the_text_cannot_match():
+    """Text too short for the window is not a continuation of it."""
+    assert not islands.continues((_window("+a", MORE),), "x+", 1)
+
+
+def test_a_complete_window_matches_only_where_the_input_ends():
+    """END is the whole continuation, so anything after it disagrees."""
+    windows = (_window(";", END),)
+    assert islands.continues(windows, "x;", 1)
+    assert not islands.continues(windows, "x;y", 1)
+
+
+def test_unknown_past_its_characters_matches_on_them_alone():
+    """UNK says nothing beyond what it spells."""
+    assert islands.continues((_window(" ", UNK),), "x y", 1)

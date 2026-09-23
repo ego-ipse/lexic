@@ -17,10 +17,19 @@ the first occurrence of one says nothing about where the island ends.
 
 from __future__ import annotations
 
+import math
+
 from lexic.compile import compile_text
+from lexic.ir import IrAst
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.continuation import IslandContinuations
+from lexic.parsing.pda.analysis.gates.windows import END, MORE
+from lexic.parsing.pda.compiler.continuation import (
+    WINDOW,
+    IslandContinuations,
+    site_positions,
+)
+from lexic.parsing.pda.compiler.specs import arm_items
 from lexic.parsing.pda.core.charsets import CharSet
 
 _LEFT_RECURSIVE = 'root ::= item "e"\nitem ::= item "d" | "a"\n'
@@ -172,3 +181,120 @@ def test_the_next_occurrence_unbounds_the_window() -> None:
     repeated = continuations(f'doc ::= sec+ "."\n{_SEC}')
     assert alone.bounds("sec", alone.follow("sec"))
     assert not repeated.bounds("sec", repeated.follow("sec"))
+
+
+# ── windows: the occurrence continuation a few characters deep ─────────────
+
+
+def test_the_windows_carry_each_sites_continuation_two_deep() -> None:
+    """``+`` then a term at one site; a newline, then the end, at the other."""
+    got = continuations(_TWO_SITES).windows("expr")
+    plus = [w for w in got if len(w[0]) == 2 and w[0][0].has("+")]
+    assert plus and all(w[0][1].has("a") and w[1] == MORE for w in plus)
+    assert any(len(w[0]) == 1 and w[0][0].has("\n") and w[1] == END for w in got)
+
+
+def test_a_full_width_window_is_never_taken_as_complete() -> None:
+    """``"+" term nl`` goes on past two characters: MORE, not END."""
+    got = continuations(_TWO_SITES).windows("expr")
+    assert all(state != END for chars, state in got if len(chars) == WINDOW)
+    assert any(state == END for chars, state in got if len(chars) < WINDOW)
+
+
+# ── per-site: only the sites that can stand where this one does ────────────
+
+_TWO_PLACES = (
+    'doc ::= x? "a" rest x? "#a"\nrest ::= [b-z]*\nx ::= x "#" | x "~" | "~"\n'
+)
+"""``x`` opens the document at one site and follows ``a`` at the other: the
+first can only be at position 0, the second never is."""
+
+
+def sites_of_x(
+    source: str, delegated: bool = False
+) -> tuple[IslandContinuations, list]:
+    """The continuations of ``source``, and ``doc``'s references to ``x``."""
+    compiled = compile_text(source, cache_key=f"sites-{hash(source)}-{delegated}")
+    grammar = lift_optional_nullables(compiled.codegen_grammar)
+    analysis = GrammarAnalysis(IrAst(grammar.rules, grammar.start), delegated=delegated)
+    items = arm_items(analysis.rules["doc"].body[0])
+    refs = [item for item in items if str(item.atom) == "x"]
+    return IslandContinuations(analysis, analysis.islands), refs
+
+
+def test_a_site_at_the_start_is_placed_at_zero_and_a_later_one_is_not() -> None:
+    """The start rule begins at 0; a site after ``"a"`` never does."""
+    conts, (first, later) = sites_of_x(_TWO_PLACES)
+    places = site_positions(conts.analysis.rules, conts.analysis.start)
+    assert places[id(first)] == (0.0, 0.0)
+    assert places[id(later)][0] >= 1.0
+
+
+def test_a_site_is_followed_only_by_what_can_follow_it_where_it_stands() -> None:
+    """``#a`` follows the later site, which never shares the first's place."""
+    conts, (first, later) = sites_of_x(_TWO_PLACES)
+    assert conts.follow("x").has("#")
+    assert not conts.follow("x", first).has("#")
+    assert conts.follow("x", later).has("#")
+
+
+def test_a_delegates_analysis_never_narrows() -> None:
+    """A delegate's window rebases positions: every site stays in the union."""
+    conts, (first, _later) = sites_of_x(_TWO_PLACES, delegated=True)
+    assert conts.follow("x", first) == conts.follow("x")
+
+
+def test_a_nullable_prefix_pulls_a_site_to_the_start() -> None:
+    """``y? x``: ``x`` may open the document when ``y`` is absent."""
+    source = 'doc ::= y? x "a"\ny ::= "b"\nx ::= x "#" | x "~" | "~"\n'
+    conts, (only,) = sites_of_x(source)
+    places = site_positions(conts.analysis.rules, conts.analysis.start)
+    assert places[id(only)] == (0.0, 1.0)
+
+
+def test_what_follows_the_next_occurrence_is_the_rest_of_the_arm() -> None:
+    """In ``x+ "z"``, a one-character ``x`` may be the last, so ``z`` can be
+    the second character after the current one ends — not only what follows
+    the rule."""
+    source = 'doc ::= sec+\nsec ::= x+ "z"\nx ::= x "#" | x "~" | "~"\n'
+    compiled = compile_text(source, cache_key="windows-next-occurrence")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    conts = IslandContinuations(analysis, analysis.islands)
+    got = conts.windows("x")
+    assert any(
+        len(chars) == 2 and chars[0].has("~") and chars[1].has("z") for chars, _ in got
+    )
+
+
+def test_a_cycle_of_references_places_every_site_anywhere_past_its_start() -> None:
+    """``a → b → c → a``, each after an ``x``: every reference can begin
+    arbitrarily deep, however the rounds happen to order them."""
+    source = 'doc ::= a\na ::= "x" b | "y"\nb ::= "x" c | "y"\nc ::= "x" a | "y"\n'
+    compiled = compile_text(source, cache_key="positions-cycle")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    places = site_positions(analysis.rules, analysis.start)
+    refs = [
+        item
+        for name, rule in analysis.rules.items()
+        if name != "doc"
+        for arm in rule.body
+        for item in arm_items(arm)
+        if id(item) in places
+    ]
+    assert len(refs) >= 6, "the cycle's references, arms included, were not found"
+    assert all(places[id(item)][1] == math.inf for item in refs)
+
+
+def test_a_reference_inside_an_inline_group_is_a_site() -> None:
+    """``x`` is reached only through ``("q" | x) ";"``, a group the lift keeps.
+    What follows the group, ``;``, follows ``x`` there; skipping the group
+    left ``x`` with no site at all, which reads as no evidence and lets
+    longest-match stand unchecked."""
+    source = (
+        'doc ::= item+\nitem ::= ("q" | x) ";"\nx ::= x "a" | x ";" "c" | "b" | "c"\n'
+    )
+    compiled = compile_text(source, cache_key="site-in-group")
+    analysis = GrammarAnalysis(lift_optional_nullables(compiled.codegen_grammar))
+    conts = IslandContinuations(analysis, analysis.islands)
+    assert conts.follow("x").has(";")
+    assert any(chars[0].has(";") for chars, _ in conts.windows("x"))
