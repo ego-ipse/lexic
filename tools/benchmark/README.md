@@ -47,7 +47,8 @@ copy keeps only its native reference and neither `src` tree is touched.
 
 `compare.py` is acceptance. It runs alternating base/head process pairs against
 a byte-identical control whose order flips independently, then compares the
-candidate's paired log-ratio interval to the control's envelope. There is no
+candidate's paired log-ratio interval to the control's envelope, by the
+arithmetic in `judging/arithmetic.py` that every judging tier shares. There is no
 fixed percentage allowance: what counts as noise is what this machine produced,
 this session, under the identical protocol. A row that will not settle within
 the pair bound is reported unresolved rather than forced into a median.

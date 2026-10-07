@@ -67,9 +67,9 @@ def takes_the_fold(source: str, key: str) -> bool:
     """
     grammar = compiled(source, key).codegen_grammar
     rules = {str(rule.name): rule for rule in grammar.rules}
-    nullable = GrammarAnalysis(grammar).item_nullable
+    analysis = GrammarAnalysis(grammar)
     return any(
-        foldable(name, rule, rules, nullable) is not None
+        foldable(name, rule, rules, analysis) is not None
         for name, rule in rules.items()
     )
 
@@ -192,7 +192,7 @@ REFUSALS = {
         "a",
     ),
     "no-excludable-core": (
-        'root ::= expr\nexpr ::= expr op term | term\nterm ::= [a-z]+\nop ::= "and"\n',
+        'root ::= expr\nexpr ::= expr op term | term\nterm ::= [a-z]\nop ::= "and"\n',
         "and",
         "a",
     ),
@@ -202,6 +202,9 @@ REFUSALS = {
 ``later-character`` is the one that matters most: ``"+"`` IS excluded, so a
 first-character-only proof would license it — and ``"a+ab"`` holds ``"+a"`` at
 offset 1, which is not a separator.
+
+``no-excludable-core``'s term is ONE letter: a run of letters could itself hold
+``and``, which makes the rule ambiguous and the fold refuse it upstream.
 """
 
 

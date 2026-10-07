@@ -24,8 +24,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
+from lexic.exceptions import EngineInvariantError
+from lexic.parsing.earley.kernel.tables.decider import Decider, LeftmostLongest
+
 if TYPE_CHECKING:  # `atoms` imports this module, so the link type flows one way
-    from lexic.parsing.earley.kernel.tables.atoms import KLink
+    from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, KLink
 
 
 class ChainSpec(NamedTuple):
@@ -34,11 +37,16 @@ class ChainSpec(NamedTuple):
     :ivar base: The arm's dot-0 code — every descent stops here.
     :ivar bits: The tables' packing tier.
     :ivar code_choice: Completed code → authored choice identity.
+    :ivar code_arm: Code → its arm; with :attr:`arm_base`, where a CHILD's
+        chain stops, for comparing two children's carvings.
+    :ivar arm_base: Arm → its dot-0 code.
     """
 
     base: int
     bits: int
     code_choice: tuple[int, ...]
+    code_arm: tuple[int, ...]
+    arm_base: tuple[int, ...]
 
 
 _Level = dict[int, list[tuple[int, int, "KLink"]]]
@@ -46,12 +54,17 @@ _Level = dict[int, list[tuple[int, int, "KLink"]]]
 
 
 def leftmost_chain(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
     choices: dict[int, int],
+    decide: Decider,
 ) -> list[KLink] | None:
     """The chain whose split vector is lexicographically maximal from the left.
+
+    The boundaries are the level DAG's own, maximised bottom-up; where several
+    families at a key reach the same boundary, ``decide`` ranks their children
+    (:func:`_settle`).
 
     :param links: The parse's SPPF family table.
     :param handle: The packed ``(item << bits) | end`` to resolve.
@@ -60,13 +73,14 @@ def leftmost_chain(
         that key, which is how the ambiguity check flips a single point. A pin
         is CONSUMED at its first use (the map is mutated), so on a cyclic chart
         it names the one-lap unroll rather than a non-terminating constraint.
+    :param decide: The split decider whose carving is kept.
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
     """
     levels = _descend(links, handle, spec, choices)
     if levels is None:
         return None
-    return _choose(levels)
+    return _choose(links, levels, spec, decide)
 
 
 def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainSpec:
@@ -81,12 +95,16 @@ def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainS
     :param key: The packed ``(item << bits) | end`` being read.
     """
     return ChainSpec(
-        codes.arm_base[codes.code_arm[key >> bits >> bits]], bits, code_choice
+        codes.arm_base[codes.code_arm[key >> bits >> bits]],
+        bits,
+        code_choice,
+        codes.code_arm,
+        codes.arm_base,
     )
 
 
 def canonical_indices(
-    links: dict[int, list[KLink]], bucket: list[KLink], spec: ChainSpec
+    links: FamilyReader, bucket: list[KLink], spec: ChainSpec, decide: Decider
 ) -> list[int]:
     """One family index per ARM — that arm's maximum, in arm-first-seen order.
 
@@ -104,22 +122,24 @@ def canonical_indices(
     :param links: The parse's SPPF family table.
     :param bucket: The key's families.
     :param spec: The chain constants for that key.
+    :param decide: The split decider whose carving is kept.
     :returns: Indices into ``bucket``, one per arm, ascending.
     """
     best: dict[object, int] = {}
     for index, link in enumerate(bucket):
         arm = arm_of(link[2], spec.bits, spec.code_choice)
         held = best.get(arm)
-        if held is None or dominant(links, bucket[held], link, spec) is link:
+        if held is None or dominant(links, bucket[held], link, spec, decide) is link:
             best[arm] = index
     return sorted(best.values())
 
 
 def dominant(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     first: KLink,
     second: KLink,
     spec: ChainSpec,
+    decide: Decider,
 ) -> KLink:
     """Which of two same-arm families at ONE key the split rule keeps.
 
@@ -139,34 +159,39 @@ def dominant(
     crown the wrong carving.
 
     A dead chain loses to a live one; an exact tie goes to the larger
-    predecessor key, the tie :func:`_choose` takes by maximising the key.
+    predecessor key, the tie :func:`_choose` takes by maximising the key; and
+    two families from ONE predecessor are settled by their children, as
+    :func:`_settle` settles them in a chain.
 
     :param links: The parse's SPPF family table.
     :param first: The family in hand.
     :param second: The family contesting it.
     :param spec: The chain constants for the key they both sit at.
+    :param decide: The split decider ranking the two vectors.
     :returns: ``first`` or ``second`` — never a new object.
     """
     bits = spec.bits
     mask = (1 << bits) - 1
     a = (first[0] << bits) | first[1]
     b = (second[0] << bits) | second[1]
-    if a == b:
-        return first
-    va = _vector(links, a, spec, mask)
-    vb = _vector(links, b, spec, mask)
+    if a == b:  # one predecessor: the children decide, as the chain reader's do
+        return _settle(links, [first, second], spec, decide)
+    va = _vector(links, a, spec, mask, decide)
+    vb = _vector(links, b, spec, mask, decide)
     if va is None or vb is None:
         if va is not None:
             return first
         if vb is not None:
             return second
-    elif va != vb:
-        return first if va > vb else second
+    else:
+        ra, rb = decide.rank(va), decide.rank(vb)
+        if ra != rb:
+            return first if ra > rb else second
     return first if a >= b else second
 
 
 def _vector(
-    links: dict[int, list[KLink]], key: int, spec: ChainSpec, mask: int
+    links: FamilyReader, key: int, spec: ChainSpec, mask: int, decide: Decider
 ) -> tuple[int, ...] | None:
     """``V(key)`` — its chain's boundaries from dot 1 up, deepest first.
 
@@ -176,14 +201,14 @@ def _vector(
     """
     if key >> spec.bits >> spec.bits == spec.base:
         return (key & mask,)
-    chain = leftmost_chain(links, key, spec, {})
+    chain = leftmost_chain(links, key, spec, {}, decide)
     if chain is None:
         return None
     return tuple(link[1] for link in chain[1:]) + (key & mask,)
 
 
 def _descend(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
     choices: dict[int, int],
@@ -207,7 +232,7 @@ def _descend(
 
 
 def _edges_at(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     key: int,
     spec: ChainSpec,
     choices: dict[int, int],
@@ -222,7 +247,7 @@ def _edges_at(
     # the point once, default policy after.
     edges = [
         ((link[0] << spec.bits) | link[1], index, link)
-        for index, link in _candidates(links, bucket, choices.pop(key, None), spec)
+        for index, link in _candidates(bucket, choices.pop(key, None))
     ]
     return edges or None
 
@@ -240,26 +265,25 @@ def is_arm_choice(bucket: list[KLink], bits: int, code_choice: tuple[int, ...]) 
     return len({arm_of(link[2], bits, code_choice) for link in bucket}) > 1
 
 
-def _candidates(
-    links: dict[int, list[KLink]],
-    bucket: list[KLink],
-    pinned: int | None,
-    spec: ChainSpec,
-) -> list[tuple[int, KLink]]:
+def _candidates(bucket: list[KLink], pinned: int | None) -> list[tuple[int, KLink]]:
     """The families this policy may choose between at one key.
 
-    A pinned key contributes only what it was pinned to. Families naming more
-    than one child arm are a structural choice, not a split, so the policy does
-    not choose between them — but WHICH carving stands for the default arm is
-    still a split, and :func:`canonical_indices` answers it, so what is read is
-    that arm's own carving rather than the first one the chart recorded.
+    A pinned key contributes only what it was pinned to. Otherwise every
+    family competes, whatever arm its child names: the SPLIT is decided before
+    the arm. The boundary the decider keeps is chosen first, and only the
+    families that reach it can be an arm choice — the ambiguity check's
+    business, asked of the decided derivation alone. Reading the first arm's
+    own carving instead picked a boundary the decider rejects wherever another
+    arm reaches further.
     """
     if pinned is not None:
         return [(pinned, bucket[pinned])]
-    if is_arm_choice(bucket, spec.bits, spec.code_choice):
-        index = canonical_indices(links, bucket, spec)[0]
-        return [(index, bucket[index])]
     return list(enumerate(bucket))
+
+
+def _is_handle(child: object) -> bool:
+    """Whether a family child is a completed handle rather than a scan."""
+    return isinstance(child, int) and not isinstance(child, bool)
 
 
 def arm_of(child: object, bits: int, code_choice: tuple[int, ...]) -> object:
@@ -273,25 +297,96 @@ def arm_of(child: object, bits: int, code_choice: tuple[int, ...]) -> object:
     return type(child)
 
 
-def _choose(levels: list[_Level]) -> list[KLink]:
+def _choose(
+    links: FamilyReader, levels: list[_Level], spec: ChainSpec, decide: Decider
+) -> list[KLink]:
     """Choose bottom-up: the deepest level's end is ``s₁``, then feed it upward.
 
     Keys within one level share item code and origin, so the packed key is
     monotone in the end column and ``max`` on the key IS ``max`` on the end.
+    Raw ``max`` is leftmost-longest's order and no other's, so another decider
+    is refused here, and in :func:`_bounds`'s caller, until one is ranked.
     """
+    if not isinstance(decide, LeftmostLongest):
+        raise EngineInvariantError(f"splits: {decide!r} needs its level keys ranked")
     if not levels:
         return []
     _prune(levels)
-    # Every dot-0 predecessor is the same key — the origin is chain-invariant.
-    below = max(pkey for edges in levels[-1].values() for pkey, _, _ in edges)
+    below = _floor(levels)
     chain: list[KLink] = []
     for level in reversed(levels):  # deepest first, so this is already source order
         key = max(
             k for k, edges in level.items() if any(p == below for p, _, _ in edges)
         )
-        chain.append(next(link for p, _, link in level[key] if p == below))
+        tied = [link for p, _, link in level[key] if p == below]
+        chain.append(_settle(links, tied, spec, decide))
         below = key
     return chain
+
+
+def _floor(levels: list[_Level]) -> int:
+    """The dot-0 predecessor every chain starts from — the origin is
+    chain-invariant, so it is one key."""
+    return max(pkey for edges in levels[-1].values() for pkey, _, _ in edges)
+
+
+def _settle(
+    links: FamilyReader, tied: list[KLink], spec: ChainSpec, decide: Decider
+) -> KLink:
+    """Among a key's families from ONE predecessor, the one the decider keeps.
+
+    They share the boundary, so they differ only in the child completing this
+    slot. Children naming DIFFERENT authored choices are an arm choice, which
+    no length decides: the first recorded stands, and the ambiguity check asks
+    about the others. Children naming ONE choice are that choice carved two
+    ways — a repetition's ``X`` against ``X __rep``, which chart order used to
+    settle — and the decider ranks their own carvings: the boundaries inside
+    each child, a zero-width step dropped, so ``X`` over the whole span beats
+    ``X`` then more, and fewer iterations win a tie.
+    """
+    if len(tied) == 1:
+        return tied[0]
+    bits = spec.bits
+    if len({arm_of(link[2], bits, spec.code_choice) for link in tied}) > 1:
+        return tied[0]
+    if not all(_is_handle(link[2]) for link in tied):
+        return tied[0]
+    return max(tied, key=lambda link: _child_rank(links, link[2], spec, decide))
+
+
+def _child_rank(
+    links: FamilyReader, child: object, spec: ChainSpec, decide: Decider
+) -> tuple[bool, object, int]:
+    """Where a child's own carving stands: live before dead, then the decider's
+    rank of its boundaries, then fewer steps."""
+    if not isinstance(child, int):
+        return False, (), 0
+    if not isinstance(decide, LeftmostLongest):  # `_bounds` keys by raw `max`
+        raise EngineInvariantError(f"splits: {decide!r} needs its level keys ranked")
+    bits = spec.bits
+    own = spec.arm_base[spec.code_arm[child >> bits >> bits]]
+    levels = _descend(links, child, spec._replace(base=own), {})
+    if levels is None:
+        return False, (), 0
+    bounds = _bounds(levels, (1 << bits) - 1)
+    steps = [end for i, end in enumerate(bounds) if i == 0 or end != bounds[i - 1]]
+    return True, decide.rank(tuple(steps)), -len(bounds)
+
+
+def _bounds(levels: list[_Level], mask: int) -> tuple[int, ...]:
+    """The chain's boundaries, deepest first, as the level maxima give them —
+    the same keys :func:`_choose` takes, without reading their links."""
+    if not levels:
+        return ()
+    _prune(levels)
+    below = _floor(levels)
+    out: list[int] = []
+    for level in reversed(levels):
+        below = max(
+            k for k, edges in level.items() if any(p == below for p, _, _ in edges)
+        )
+        out.append(below & mask)
+    return tuple(out)
 
 
 def _prune(levels: list[_Level]) -> None:

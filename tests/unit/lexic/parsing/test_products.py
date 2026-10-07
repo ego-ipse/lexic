@@ -36,7 +36,7 @@ from lexic.ir import (
     Reducer,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelExecutable
+from lexic.parsing import ModelExecutable, ParseConfig
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
@@ -553,14 +553,14 @@ def test_token_model_result_is_unaffected_by_pre_owning_the_text():
         text,
         token_grammar.product,
         bounds,
-        resolve=lambda first, _other: first,
+        ParseConfig(resolve=lambda first, _other: first),
     )
     pre_owned = token_model(
         token_grammar.codegen_grammar,
         _owned_text(text),
         token_grammar.product,
         bounds,
-        resolve=lambda first, _other: first,
+        ParseConfig(resolve=lambda first, _other: first),
     )
     assert direct.semantic_dump() == pre_owned.semantic_dump()
     assert direct.to_text() == pre_owned.to_text() == text

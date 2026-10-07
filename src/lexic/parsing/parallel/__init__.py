@@ -16,6 +16,8 @@ orchestrator's own vocabulary, public for composition and tests.
   owns the threading, callers just map.
 - :mod:`.replicas` — each worker's private tables; sharing one set is what
   caps concurrent scaling, and this is the measured fix.
+- :mod:`.planner` — which split plans a grammar admits, and which a safety
+  proof licenses; per grammar, memoised, reading no document.
 - :mod:`.orchestrate` — ONE document split either at its start-rule repetition
   or at eligible nested bracketed regions, stitched to the exact sequential
   model; everything unsupported falls back to the sequential product.
@@ -24,8 +26,9 @@ orchestrator's own vocabulary, public for composition and tests.
 
 from lexic.parsing.parallel.discovery.anchors import SITE_EMITS, anchor_sites, anchors
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
-from lexic.parsing.parallel.orchestrate import split_model, split_plan
+from lexic.parsing.parallel.orchestrate import split_model
 from lexic.parsing.parallel.plan.split import SplitPlan
+from lexic.parsing.parallel.planner import split_plan
 from lexic.parsing.parallel.policy import (
     AUTO,
     MIN_CHUNK,

@@ -60,8 +60,10 @@ from lexic.parsing.earley.kernel.forest.fasttree import FastTree as FastTreeDire
 from lexic.parsing.earley.kernel.forest.forest import BUILD_TREE as BUILD_TREE_DIRECT
 from lexic.parsing.earley.kernel.forest.forest import ParseTree as ParseTreeDirect
 from lexic.parsing.earley.kernel.forest.forest import SppfNode as SppfNodeDirect
+from lexic.parsing.earley.kernel.forest.support import ambiguity as ambiguity_module
 from lexic.parsing.earley.kernel.forest.support import readout
 from lexic.parsing.earley.kernel.loop.kernel import Kernel as KernelDirect
+from lexic.parsing.earley.kernel.tables import decider as decider_module
 from lexic.parsing.earley.kernel.tables.builder import (
     compile_tables as compile_tables_direct,
 )
@@ -227,6 +229,22 @@ def test_pda_tables_function_re_exported_from_package():
     """pda_tables (the products function) is re-exported from the package
     top-level, the same object products.pda_tables is."""
     assert pda_tables is products_direct.pda_tables
+
+
+def test_the_split_decider_is_re_exported_from_package():
+    """The decider is public beside ``Resolver``: a caller names which carving
+    a parse keeps with a value, the same object the tables module defines."""
+    for name in ("Decider", "LEFTMOST_LONGEST"):
+        assert name in parsing.__all__, name
+        assert getattr(parsing, name) is getattr(decider_module, name), name
+
+
+def test_the_parse_config_is_re_exported_from_package():
+    """The resolver and the decider travel as one public value, the same object
+    the ambiguity module defines."""
+    for name in ("ParseConfig", "DEFAULT_CONFIG"):
+        assert name in parsing.__all__, name
+        assert getattr(parsing, name) is getattr(ambiguity_module, name), name
 
 
 def test_readout_seam_re_exported_from_package():

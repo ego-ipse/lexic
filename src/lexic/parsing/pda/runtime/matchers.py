@@ -34,7 +34,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT,
     OP_LIT1,
 )
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
 from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
 
 
@@ -67,7 +67,10 @@ def chase_dispatch[Carry](
         arm — the caller then consumes nothing.
     :raises PdaFail: When no selector matches and there is no default.
     """
-    char = text[pos] if pos < len(text) else ""
+    try:  # the lookahead: indexing, and end of input as the rare exception
+        char = text[pos]
+    except IndexError:
+        char = ""
     while clone.mode == BUILD_DISPATCH:
         wide = clone.wide_selectors
         if wide is None:
@@ -151,9 +154,11 @@ def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
     :raises PdaFail: On a mismatch, end of input included.
     """
     chars, negated = payload
-    if pos >= len(text) or (
-        (text[pos] in chars) if negated else text[pos] not in chars
-    ):
+    try:
+        char = text[pos]
+    except IndexError:
+        raise PdaFail(f"char class miss at {pos}", pos) from None
+    if (char in chars) if negated else char not in chars:
         raise PdaFail(f"char class miss at {pos}", pos)
     return pos + 1
 
@@ -266,9 +271,11 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
             pos += len(lit)
         elif k == OP_CC1:
             chars, negated = arm.payloads[j]
-            if pos >= len(text) or (
-                (text[pos] in chars) if negated else text[pos] not in chars
-            ):
+            try:  # inline: a call per exactly-once class is the cost here
+                char = text[pos]
+            except IndexError:
+                raise PdaFail(f"char class miss at {pos}", pos) from None
+            if (char in chars) if negated else char not in chars:
                 raise PdaFail(f"char class miss at {pos}", pos)
             pos += 1
         elif k == OP_LIT:
@@ -305,10 +312,12 @@ def match_chartable[Carry](
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
     gk, gate = arm.gate_kinds[i], arm.gate_data[i]
-    limit = len(text)  # `table_miss` moves `pos`, never the text
     count = 0
     while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-        model = get(text[pos] if pos < limit else "")
+        try:  # end of input is the rare exception, not a test per character
+            model = get(text[pos])
+        except IndexError:
+            model = get("")
         if model is None:
             pos = table_miss(text, clone, sink, pos)
         else:
@@ -438,7 +447,10 @@ def vstr_once[Carry](
 
     :raises PdaFail: On a terminal mismatch or no viable arm.
     """
-    char = text[pos] if pos < len(text) else ""
+    try:  # the lookahead: indexing, and end of input as the rare exception
+        char = text[pos]
+    except IndexError:
+        char = ""
     table = clone.chartable
     if table is not None:
         if clone.runarm is not None:
@@ -451,6 +463,14 @@ def vstr_once[Carry](
     varm = select_arm(clone, char, pos)
     if varm.n != 1:  # the rare multi-item arm — cold, off the hot path
         end = match_arm(text, varm, pos)
+        take = clone.longest
+        if take is not None and (
+            take.exit_at.search(text, pos + take.lead, end)
+            or (take.extends_at is not None and take.extends_at.match(text, end))
+        ):
+            # A shorter end this reference could continue from, or a longer
+            # match: the span is not the island's answer, so ask the island.
+            raise IslandEscape(take.island, pos)
         sink.append(build_vstr(clone, text[pos:end], intern))
         return end
     kj = varm.kinds[0]  # the common single-item arm — no item loop, no slice

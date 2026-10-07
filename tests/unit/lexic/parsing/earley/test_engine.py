@@ -44,6 +44,8 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrSequence,
+    IrStr,
+    IrTuple,
 )
 from lexic.parsing import (
     EarleyParser,
@@ -69,6 +71,7 @@ from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tab
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
+from tests.unit.lexic.conftest import DeciderSpy
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
 # ── Grammar builders ──────────────────────────────────────────────────
@@ -654,6 +657,25 @@ def test_parse_first_returns_one_tree_where_parse_raises_expr_plus(
         parse(expr_plus_grammar, "a+a+a")
     tree = parse_first(expr_plus_grammar, "a+a+a")
     assert isinstance(tree, ParseTree)
+
+
+def test_parse_first_keeps_the_carving_of_the_callers_decider(
+    expr_plus_grammar: IrAst, decider_spy: DeciderSpy
+):
+    """The resolving build behind ``parse_first`` asks the decider the caller
+    passed, as ``parse`` does: every fast tree it builds holds that decider."""
+    tree = parse_first(expr_plus_grammar, "a+a+a", decide=decider_spy.decider)
+    assert isinstance(tree, ParseTree)
+    assert decider_spy.reached_every_tree(), decider_spy.seen
+
+
+def test_parse_first_refuses_a_call_without_a_decider(expr_plus_grammar: IrAst):
+    """The dispatcher is handed its decider by the public edge; an ``nc`` without
+    one is refused rather than defaulted."""
+    with pytest.raises(UnsupportedConstructError, match="decider"):
+        PARSE_FIRST.eval(
+            EarleyParser(), expr_plus_grammar, IrTuple(IrStr("a"), IrNone, IrNone)
+        )
 
 
 def test_parse_first_is_deterministic_across_calls(sss_grammar: IrAst):

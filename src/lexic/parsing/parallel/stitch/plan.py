@@ -49,12 +49,17 @@ class RegionPlan(NamedTuple):
 
 
 class RegionWork(NamedTuple):
-    """One chosen region, its balanced source pieces, and stitch plan."""
+    """One divided region, the separators between its pieces, and stitch plan."""
 
     region: Region
-    parts: list[str]
-    cuts: list[int]
+    cuts: tuple[int, ...]
     plan: RegionPlan
+    witness: str = ""
+    """The head text standing in for the region where it is held — assigned,
+    with its uniqueness checked, before any piece is parsed."""
+    needle: GrammarModel | None = None
+    """The items node the witness parses to in the region's brackets — what
+    finds the stand-in in its holder's model."""
 
 
 def model_type(routine: RuleRoutine | None) -> type[GrammarModel] | None:

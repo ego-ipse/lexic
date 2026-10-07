@@ -107,7 +107,7 @@ def test_pretokenizer_sequence_is_flattened_in_order() -> None:
             '{"type": "ByteLevel"}]}'
         )
     )
-    assert tok.pipeline.pretokens == (IrDigits(False), IrByteLevel())
+    assert tok.pipeline.pretokens == IrTuple(IrDigits(False), IrByteLevel())
 
 
 def test_a_bytelevel_pretokenizer_selects_the_remap() -> None:
@@ -130,8 +130,8 @@ def test_bytelevel_use_regex_false_contributes_no_split() -> None:
     """
     off = _load(_document(pre_tokenizer='{"type": "ByteLevel", "use_regex": false}'))
     on = _load(_document(pre_tokenizer='{"type": "ByteLevel"}'))
-    assert off.pipeline.pretokens == ()  # mapping only, no split
-    assert on.pipeline.pretokens == (IrByteLevel(),)  # absent ⇒ true
+    assert off.pipeline.pretokens == IrTuple()  # mapping only, no split
+    assert on.pipeline.pretokens == IrTuple(IrByteLevel())  # absent ⇒ true
     assert len(off.pipeline.remap) == 256  # remap follows presence, not the flag
 
 
@@ -142,7 +142,7 @@ def test_a_replace_normalizer_becomes_an_ordered_dyad() -> None:
             normalizer='{"type": "Replace", "pattern": {"String": " "}, "content": "_"}'
         )
     )
-    assert tok.pipeline.normalize == (IrReplace(" ", "_"),)
+    assert tok.pipeline.normalize == IrTuple(IrReplace(" ", "_"))
 
 
 def test_split_merged_with_previous_reads_its_pattern() -> None:
@@ -153,7 +153,7 @@ def test_split_merged_with_previous_reads_its_pattern() -> None:
             '"behavior": "MergedWithPrevious"}'
         )
     )
-    assert tok.pipeline.pretokens == (IrSplitMerged("-"),)
+    assert tok.pipeline.pretokens == IrTuple(IrSplitMerged("-"))
 
 
 def test_byte_fallback_supplies_this_formats_byte_spelling() -> None:
@@ -175,8 +175,8 @@ def test_byte_fallback_supplies_this_formats_byte_spelling() -> None:
 def test_an_absent_or_null_section_is_simply_empty() -> None:
     """``"normalizer": null`` (smollm2's actual shape) is not a shape error."""
     tok = _load(_document(normalizer="null"))
-    assert tok.pipeline.normalize == ()
-    assert tok.pipeline.pretokens == ()
+    assert tok.pipeline.normalize == IrTuple()
+    assert tok.pipeline.pretokens == IrTuple()
 
 
 # --- added tokens ----------------------------------------------------------
@@ -189,7 +189,7 @@ def test_added_tokens_become_specials_and_extend_the_vocab() -> None:
     in both. Extending only what is missing serves both without a family flag.
     """
     tok = _load(_document(added_tokens='[{"id": 9, "content": "<|end|>"}]'))
-    assert tok.pipeline.specials == (IrStr("<|end|>"),)
+    assert tok.pipeline.specials == IrTuple(IrStr("<|end|>"))
     assert tok.tokenize("hello<|end|>") == [6, 3, 9]
 
 
@@ -286,7 +286,7 @@ def test_the_cl100k_pattern_is_recognised_by_name() -> None:
             + '}, "behavior": "Isolated"}'
         )
     )
-    assert tok.pipeline.pretokens == (IrQwenSplit(),)
+    assert tok.pipeline.pretokens == IrTuple(IrQwenSplit())
 
 
 def test_an_unimplemented_split_regex_refuses() -> None:
@@ -308,7 +308,7 @@ def test_a_unicode_form_normalizer_is_read() -> None:
     marks.
     """
     tok = _load(_document(normalizer='{"type": "NFD"}'))
-    assert tok.pipeline.normalize == (IrUnicodeForm("NFD"),)
+    assert tok.pipeline.normalize == IrTuple(IrUnicodeForm("NFD"))
 
 
 @pytest.mark.parametrize(

@@ -39,6 +39,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
@@ -80,7 +81,10 @@ class Frame[Carry]:
     :ivar arm: The selected arm's flat item arrays.
     :ivar i: The current item index.
     :ivar count: Iterations completed for the current item, which is what
-        resumes a descending loop across sub-frame pushes.
+        resumes a descending loop across sub-frame pushes. A FOLD frame keeps
+        it past its last item's close (:meth:`close_loop`): the rewrite's
+        ``(β)*`` is that item, and a β that captures nothing leaves its depth
+        nowhere else.
     :ivar out: The parent sink list — where a clone frame's model appends, or
         a transparent frame's children funnel.
     :ivar clone: The frame's clone (its constructor, build plan and mode).
@@ -147,7 +151,8 @@ class Frame[Carry]:
 
         :returns: The next item index.
         """
-        self.count = 0
+        if i + 1 < self.arm.n or self.clone.mode != BUILD_FOLD:
+            self.count = 0  # a fold's last loop keeps its count: the fold's depth
         self.i = i + 1
         ends = self.ends
         if ends is not None:

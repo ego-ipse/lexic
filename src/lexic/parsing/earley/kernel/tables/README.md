@@ -17,3 +17,11 @@ Three files, in dependency order:
 `records` names `TableBuilder` in annotations only — a record is *constructed
 from* a builder, so the runtime import would close a loop that the arrows
 otherwise keep open.
+
+Two more read a finished chart through the tables rather than build them:
+
+- `splits` — each family's CARVING, its boundary vector over one span, and
+  the walk that resolves a binarised chain from the left.
+- `decider` — which carving a parse keeps: the `Decider` value's one question,
+  `rank`, and the licences a predictive shortcut needs to commit the same
+  answer without asking. `LEFTMOST_LONGEST` is the one configuration.

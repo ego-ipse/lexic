@@ -20,7 +20,7 @@ from types import MappingProxyType
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver, same_value
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig, same_value
 from lexic.parsing.product import (
     LoweringOwned,
     MeaningOp,
@@ -38,7 +38,7 @@ from lexic.parsing.product import (
 __all__ = ["ModelExecutable", "ModelParse"]
 
 
-type ModelParse[M] = Callable[[IrAst, str, ModelExecutable[M], Resolver | None], M]
+type ModelParse[M] = Callable[[IrAst, str, ModelExecutable[M], ParseConfig], M]
 """A model parse entry, as the callers that INJECT one see it.
 
 One product parses every grammar, and it is the ``binding`` handed in that says

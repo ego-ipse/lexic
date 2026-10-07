@@ -8,7 +8,7 @@ this module only answers what is VISIBLE, never what to do about it.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Iterator, Mapping, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -371,8 +371,8 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
     own loop-back folded in) END-extended by :attr:`follow`\\ ``[P]``. Inline
     groups recurse — a ref inside a group inherits the group's continuation.
 
-    Built lazily by the caller — only the nullable-greedy arm demotion asks for
-    it, so a grammar that never hits that branch never runs this fixpoint.
+    Built by the caller, and only where a gate asks for it, so a grammar that
+    never reaches one never runs this fixpoint.
 
     :ivar rules: The rule table (name → :class:`~lexic.ir.grammar.nodes.IrRule`).
     :ivar start: The start rule name (the EOF seed site).
@@ -415,23 +415,54 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
     def _feed_arm(self, items: Sequence[IrItem], tail: set[Pref]) -> bool:
         """Feed FOLLOW\\ :sub:`k` contributions of one arm continued by ``tail``."""
         changed = False
+        for name, rest in self._arm_sites(items, tail):
+            if self._grow(name, rest):
+                changed = True
+        return changed
+
+    def _arm_sites(
+        self, items: Sequence[IrItem], tail: set[Pref]
+    ) -> Iterator[tuple[str, set[Pref]]]:
+        """Every reference in one arm continued by ``tail``, inline groups
+        entered: the rule it names and the windows that follow it there."""
         for i, item in enumerate(items):
-            rest = self._rest_windows(items, i, tail)
             atom = item.atom
             if isinstance(atom, IrRuleRef):
-                if self._grow(str(atom), rest):
-                    changed = True
+                yield str(atom), self._rest_windows(items, i, tail)
             elif isinstance(atom, IrAlternation):
+                rest = self._rest_windows(items, i, tail)
                 for sub in atom:
-                    if self._feed_arm(_items(sub), rest):
-                        changed = True
-        return changed
+                    yield from self._arm_sites(_items(sub), rest)
+
+    def site_windows(self, name: str) -> list[set[Pref]]:
+        """What follows rule ``name`` at each of its reference sites, one window
+        set per site, each END-extended by its own rule's FOLLOW\\ :sub:`k`;
+        the start rule's end of input is a site too. :attr:`follow` is their
+        union.
+
+        :param name: The rule name.
+        :returns: One window set per site.
+        """
+        eof: set[Pref] = {((), END)}
+        found = [eof] if name == self.start else []
+        for rule, body in self.rules.items():
+            for arm in body.body:
+                sites = self._arm_sites(_items(arm), self.follow[rule])
+                found.extend(rest for ref, rest in sites if ref == name)
+        return found
 
     def _rest_windows(
         self, items: Sequence[IrItem], i: int, tail: set[Pref]
     ) -> set[Pref]:
         """Windows following item ``i``: the remainder's prefixes (item ``i``'s
-        loop-back folded in) END-extended by ``tail``."""
+        loop-back folded in) END-extended by ``tail``.
+
+        An empty ``tail`` is the fixpoint's bottom, not "no evidence": nothing
+        is known to follow yet, so a short END prefix contributes nothing until
+        the tail grows. Passing it through would claim the input may end there,
+        and a union never takes that back. The start rule's real end of input
+        is its own seed.
+        """
         item = items[i]
         hi = item.quantifier.hi
         if isinstance(hi, IrNoneType) or int(hi) > 1:
@@ -440,6 +471,8 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         else:
             rest_items = list(items[i + 1 :])
         prefs = self.solver.arm_prefixes(rest_items, self.k)
+        if not tail:
+            return {pref for pref in prefs if pref[1] != END or len(pref[0]) >= self.k}
         return extend_follow(prefs, tail, self.k)
 
     def _grow(self, name: str, windows: set[Pref]) -> bool:

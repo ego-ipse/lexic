@@ -6,6 +6,10 @@ predictive descent can run, and the BUILD folds the iterations back through the
 rule's own arms so the model is unchanged. A caller that took the rewrite
 without the build would parse the same language into a different model, so
 there is one door and it hands back both.
+
+The SHAPE includes the boundary proof: a rule whose pieces the text does not
+carve one way is not folded, because the loop would settle an arm choice
+greedily and return one of two models.
 """
 
 from __future__ import annotations
@@ -50,7 +54,7 @@ def folded_grammar(
     shapes = {}
     builds: dict[str, FoldBuild] = {}
     for name, rule in rules.items():
-        shape = foldable(name, rule, rules, analysis.item_nullable)
+        shape = foldable(name, rule, rules, analysis)
         if shape is None:
             continue
         build = fold_build(shape, binding.routines)

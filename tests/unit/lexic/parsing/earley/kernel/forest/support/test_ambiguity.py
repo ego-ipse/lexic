@@ -16,22 +16,35 @@ import math
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrStr
+from lexic.ir import IrNone, IrStr
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support import ambiguity
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
     MeaningBuilder,
     MeaningPair,
+    ParseConfig,
     ambiguity_points,
     chosen_meaning,
     different_meaning,
     same_value,
 )
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
 )
 
 AMBIGUOUS_EXPR = 'e ::= e "+" e | "n"\n'
+"""Every grouping is one production carved at different boundaries: a split,
+which the decider settles."""
+
+SAME_BOUNDARY = 'e ::= p | q\np ::= "n"\nq ::= "n"\n'
+"""Two arms over the same text, at the same boundaries: an arm choice."""
+
+THREE_ARMS = 'root ::= e\ne ::= p | q | r\np ::= "n"\nq ::= "n"\nr ::= "n"\n'
+"""Three arms of ``e`` over one text at one predecessor: two alternates to the
+base, inside the root rather than at it, so they are flips, not siblings."""
 
 
 def test_same_value_is_type_aware_an_ir_leaf_and_its_bare_text_differ():
@@ -80,12 +93,12 @@ def _builder(build) -> MeaningBuilder:
     return MeaningBuilder(build, lambda tree, _values: build(tree))
 
 
-def _settled(text: str, build, name: str) -> MeaningPair:
+def _settled(text: str, build, name: str, grammar: str = SAME_BOUNDARY) -> MeaningPair:
     """What the span means, under one interpretation of its derivations."""
-    kernel, handle = kernel_and_handle(text, AMBIGUOUS_EXPR, name)
-    tree = FastTree(kernel, {}).build(handle)
+    kernel, handle = kernel_and_handle(text, grammar, name)
+    tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
     assert isinstance(tree, ParseTree)
-    return different_meaning(kernel, handle, _builder(build), tree)
+    return different_meaning(kernel, handle, _builder(build), tree, LEFTMOST_LONGEST)
 
 
 def test_no_witness_when_every_grouping_builds_the_same_value():
@@ -98,38 +111,79 @@ def test_no_witness_when_every_grouping_builds_the_same_value():
         del tree
         return len("n+n+n")
 
-    pair = _settled("n+n+n", build_span_length, "meaning-none")
+    pair = _settled("n+n+n", build_span_length, "meaning-none", AMBIGUOUS_EXPR)
 
     assert pair.witness is None
-    assert chosen_meaning(pair, _builder(build_span_length), None) == 5
+    assert chosen_meaning(pair, _builder(build_span_length), DEFAULT_CONFIG) == 5
+
+
+def test_a_grouping_is_decided_not_offered_as_a_second_meaning():
+    """Left- and right-associative grouping differ in where ``+`` splits the
+    span, so the decider keeps one — the first slot longest — and the other is
+    a carving it rejected, not a second meaning, even to a build that sees
+    shape."""
+    pair = _settled("n+n+n", repr, "meaning-grouping", AMBIGUOUS_EXPR)
+
+    assert pair.witness is None
+    assert chosen_meaning(pair, _builder(repr), DEFAULT_CONFIG) == pair.first.value
 
 
 def test_a_differing_derivation_is_found_when_the_build_sees_shape():
     """A build function sensitive to the tree's own shape (its ``repr``) DOES
-    see left- vs right-associative grouping as a different meaning."""
-    pair = _settled("n+n+n", repr, "meaning-found")
+    see two arms over the same boundaries as a different meaning."""
+    pair = _settled("n", repr, "meaning-found")
 
     assert pair.witness is not None
     assert pair.witness.value != pair.first.value
     assert repr(pair.witness.tree) != repr(pair.first.tree)
 
 
+def test_every_other_arm_is_asked_not_only_the_first(monkeypatch):
+    """An alternate that does not build says nothing about the next one: with
+    the first alternate's replay failing, the third arm still differs from
+    the base, so the span still means two things."""
+    real = ambiguity.replayed
+    calls: list[int] = []
+
+    def first_fails(run, point, family, memo):
+        calls.append(family)
+        return None if len(calls) == 1 else real(run, point, family, memo)
+
+    monkeypatch.setattr(ambiguity, "replayed", first_fails)
+    pair = _settled("n", repr, "meaning-three-arms", THREE_ARMS)
+
+    assert len(calls) == 2, calls
+    assert pair.witness is not None
+    assert pair.witness.value != pair.first.value
+
+
 def test_two_meanings_refuse_without_a_resolver():
     """The default answer to a span that means two things is a refusal."""
-    pair = _settled("n+n+n", repr, "meaning-refused")
+    pair = _settled("n", repr, "meaning-refused")
 
     with pytest.raises(UnsupportedConstructError, match="ambiguous input"):
-        chosen_meaning(pair, _builder(repr), None)
+        chosen_meaning(pair, _builder(repr), DEFAULT_CONFIG)
 
 
 def test_a_resolver_settles_which_meaning_is_kept():
     """The opt-out is the caller's deterministic choice between the two."""
-    pair = _settled("n+n+n", repr, "meaning-resolved")
+    pair = _settled("n", repr, "meaning-resolved")
     assert pair.witness is not None
 
-    first = chosen_meaning(pair, _builder(repr), lambda one, _other: one)
-    other = chosen_meaning(pair, _builder(repr), lambda _one, other: other)
+    keep_first = ParseConfig(resolve=lambda one, _other: one)
+    keep_other = ParseConfig(resolve=lambda _one, other: other)
+    first = chosen_meaning(pair, _builder(repr), keep_first)
+    other = chosen_meaning(pair, _builder(repr), keep_other)
 
     assert first == pair.first.value
     assert other == pair.witness.value
     assert first != other
+
+
+def test_the_default_config_refuses_and_keeps_the_leftmost_longest_carving():
+    """No resolver means refusal, spelled ``IrNone``; the decider defaults to
+    the one configuration, and a config naming only a resolver keeps it."""
+    assert DEFAULT_CONFIG.resolve is IrNone
+    assert DEFAULT_CONFIG.decide is LEFTMOST_LONGEST
+    assert ParseConfig(resolve=lambda one, _other: one).decide is LEFTMOST_LONGEST
+    assert DEFAULT_CONFIG == ParseConfig()

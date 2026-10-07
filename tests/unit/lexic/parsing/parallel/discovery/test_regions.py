@@ -29,16 +29,11 @@ from lexic.parsing.parallel.discovery.regions import (
     _sweep,
     _vocabulary,
     _walk,
-    choose,
     find,
     merge_windows,
     pair_rules,
     par_find,
-    piece_marks,
-    pieces,
     separators,
-    shell,
-    stub,
 )
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
@@ -143,110 +138,6 @@ def test_find_can_drop_regions_below_the_callers_work_floor():
 def test_a_closer_with_no_matching_opener_is_ignored():
     """The stack walk never pops what it did not push."""
     assert find(JSON_GRAMMAR, ']}{"a": 1, "b": 2}') == [Region(2, 17, "object", (9,))]
-
-
-# ── pieces, stub, shell ───────────────────────────────────────────────────
-
-
-def test_each_piece_carries_its_own_brackets():
-    """A piece is a document under its region's rule — that is the difference
-    that decides whether splitting pays."""
-    doc = "[" + _run(6) + "]"
-    region = _one_region(doc)
-    assert pieces(doc, region, 2) == ["[0,1,2]", "[3,4,5]"]
-
-
-def test_piece_marks_are_the_source_offsets_removed_by_pieces():
-    """The stitch's cut metadata is exactly the separators pieces remove."""
-    doc = "[" + _run(6) + "]"
-    region = _one_region(doc)
-    cuts = piece_marks(region, 2)
-    assert cuts == [doc.index(",", doc.index("2"))]
-    assert list(pieces(doc, region, 2) or ()) == [
-        "[0,1,2]",
-        "[3,4,5]",
-    ]
-
-
-def test_stubs_can_keep_equal_leading_items_distinct_and_shell_keeps_brackets():
-    """Each region gets a distinct stand-in while its shell punctuation stays."""
-    doc = '{"a": [0,1,2], "b": [0,1,2]}'
-    arrays = [region for region in find(JSON_GRAMMAR, doc) if region.rule == "array"]
-    assert len(arrays) == 2
-    kept = [stub(doc, region, index) for index, region in enumerate(arrays)]
-    assert kept == ["0", "1"]
-    assert shell(doc, arrays, kept) == '{"a": [0], "b": [1]}'
-
-
-def test_cuts_aim_at_equal_positions_not_at_equal_counts():
-    """Dividing the separator COUNT divides the work only when the items are
-    evenly spread; the nearest separator to the position is taken instead."""
-    doc = '["aaaaaaaaaaaaaaaaaaaa","b","c","d"]'
-    region = _one_region(doc)
-    assert pieces(doc, region, 2) == ['["aaaaaaaaaaaaaaaaaaaa"]', '["b","c","d"]']
-
-
-def test_a_run_that_will_not_divide_evenly_returns_none():
-    """One enormous item beside a small one cannot be cut four ways, so the
-    region declines rather than handing one worker most of the document."""
-    doc = '["' + "a" * 400 + '","b"]'
-    region = _one_region(doc)
-    assert pieces(doc, region, 4) is None
-    assert pieces(doc, region, 2) is not None  # two ways it does divide
-
-
-def test_a_run_below_the_floor_is_not_worth_dividing():
-    """Overhead outweighs a small run, so nothing is picked."""
-    doc = "[" + _run(20) + "]"
-    assert not choose(doc, find(JSON_GRAMMAR, doc), 4)
-
-
-def test_each_requested_worker_must_receive_one_full_chunk():
-    """A useful region is clamped to its available pieces, not declined."""
-    doc = "[" + _run(BIG) + "]"
-    assert choose(doc, find(JSON_GRAMMAR, doc), 4)
-    picked = choose(doc, find(JSON_GRAMMAR, doc), 8)
-    assert len(picked) == 1
-    assert len(picked[0][1]) == 4
-
-
-def test_a_big_run_that_cannot_divide_steps_aside_for_the_runs_inside_it():
-    """An outer run that cannot divide steps aside for its balanced child."""
-    doc = '{"a": [' + _run(BIG) + '], "b": 1}'
-    picked = choose(doc, find(JSON_GRAMMAR, doc), 4)
-    assert [region.rule for region, _parts in picked] == ["array"]
-
-
-def test_runner_count_prefers_an_eight_way_child_over_a_three_way_outer():
-    """Ownership ranking chooses the nested plan that fills more workers."""
-    items = ['"' + "x" * 2200 + '"' for _ in range(8)]
-    doc = (
-        '{"head":"'
-        + "h" * 17000
-        + '","items":['
-        + ",".join(items)
-        + '],"tail":"'
-        + "t" * 17000
-        + '"}'
-    )
-    found = find(JSON_GRAMMAR, doc)
-    outer = max(found, key=lambda region: region.span)
-    nested = next(region for region in found if region.rule == "array")
-
-    assert outer.rule == "object"
-    assert len(pieces(doc, outer, 3) or ()) == 3
-    assert len(pieces(doc, nested, 8) or ()) == 8
-    picked = choose(doc, found, 8)
-    assert [(region.rule, len(parts)) for region, parts in picked] == [("array", 8)]
-
-
-def test_picked_runs_never_overlap_and_come_in_document_order():
-    """Otherwise the same text would be divided twice — and the ordered route
-    search downstream depends on this order being the document's."""
-    doc = '{"a": [' + _run(BIG) + '], "b": 1, "c": [' + _run(BIG) + "]}"
-    picked = [region for region, _parts in choose(doc, find(JSON_GRAMMAR, doc), 4)]
-    assert picked
-    assert all(a.closer < b.opener for a, b in zip(picked, picked[1:], strict=False))
 
 
 # ── _bounds ───────────────────────────────────────────────────────────────

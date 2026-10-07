@@ -15,6 +15,16 @@ from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_FOLD,
+    OP_CC,
+    OP_CC1,
+    OP_FAIL,
+    OP_ISLAND,
+    OP_LIT,
+    OP_LIT1,
+)
 from lexic.parsing.pda.runtime.build import (
     Frame,
     InternMemo,
@@ -30,6 +40,14 @@ __all__ = [
     "values_agree",
     "KernelCaches",
     "admits",
+    "item_admits",
+    "clone_admits",
+    "arm_rest_scan",
+    "composes",
+    "REST_DEAD",
+    "REST_ASCEND",
+    "REST_ADMITS",
+    "REST_ADMITS_HARD",
     "frames_copy",
     "sole_admitted",
 ]
@@ -85,6 +103,76 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
             return None
         sole = sub
     return sole
+
+
+REST_DEAD, REST_ASCEND, REST_ADMITS, REST_ADMITS_HARD = 0, 1, 2, 3
+"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
+stop side; a fully-skippable rest defers to the enclosing frame; an
+admitting OPTIONAL item is same-arm chain viability (the greedy split);
+an admitting MANDATORY item is the terminator-theft shape — a possessive
+take would steal the char the arm's own continuation requires, so the
+probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
+
+
+def item_admits(arm: FlatArm, j: int, char: str) -> bool:
+    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
+    if char == "":
+        return False
+    k = arm.kinds[j]
+    payload = arm.payloads[j]
+    if k in (OP_LIT, OP_LIT1):
+        return payload[0] == char
+    if k in (OP_CC, OP_CC1):
+        chars, negated = payload
+        return (char not in chars) if negated else char in chars
+    if k in (OP_FAIL, OP_ISLAND):
+        return True  # no FIRST at hand — MAY (a spurious probe is safe)
+    return clone_admits(payload, char)
+
+
+def clone_admits(clone: FlatClone, char: str) -> bool:
+    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
+    if clone.attempt is not None:
+        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
+    if clone.wide_selectors is not None:
+        return True  # windowed selection — MAY
+    if clone.default is not None:
+        return True  # a nullable default may defer admission further down
+    for chars, negated, _arm in clone.selectors:
+        if (char not in chars) if negated else char in chars:
+            return True
+    return False
+
+
+def arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
+    """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
+
+    An optional admitting item does NOT settle the walk (both the chain and
+    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
+    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
+    mandatory item settles it either way (admits → the terminator class;
+    refuses → the char cannot flow past, the stop side is dead).
+    """
+    opt = False
+    for j in range(i + 1, arm.n):
+        if item_admits(arm, j, char):
+            if arm.los[j] > 0:
+                return REST_ADMITS_HARD, opt
+            opt = True
+        elif arm.los[j] > 0:
+            return REST_DEAD, opt
+    return REST_ASCEND, opt
+
+
+def composes(follow: Any, text: str, end: int) -> bool:
+    """Whether an arm ending at ``end`` can be extended in ANY context.
+
+    The rule's soft FOLLOW over-approximates what may come next, so a next
+    character outside it proves this reading dead wherever the rule is used.
+    End of input composes: nothing follows, and a rule that may end the parse
+    carries the sentinel rather than a character.
+    """
+    return end >= len(text) or follow.has(text[end : end + 1])
 
 
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
@@ -348,12 +436,20 @@ def _count_key(frame: Frame) -> int:
     Past ``lo`` on an unbounded item every further iteration is permitted, so
     the exact number is not part of the state — and collapsing it is what lets
     a side that took one more iteration converge with one that did not.
+
+    Except where the count IS a value: a capture-free fold (one synthetic slot,
+    no per-iteration values in any sink) keeps its depth in the count through
+    its last loop and past it, so two sides differing there built different
+    models and must not merge as one state.
     """
     arm = frame.arm
     i = frame.i
+    count = frame.count
+    clone = frame.clone
+    if i + 1 >= arm.n and clone.mode == BUILD_FOLD and clone.n_items == 1:
+        return count
     if i >= arm.n:
         return _COUNT_FREE
-    count = frame.count
     if arm.his[i] >= 0 or count < arm.los[i]:
         return count
     return _COUNT_FREE

@@ -19,7 +19,7 @@ from lexic.api.json_tokenizer import tokenizer_of
 from lexic.api.pretokens import IrByteLevel, IrDigits
 from lexic.compile import compile_ast
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrInt, IrMap, IrNone, IrStr, IrTokenizer
+from lexic.ir import IrInt, IrMap, IrNone, IrStr, IrTokenizer, IrTuple
 from tests.integration.lexic.tokens.tokenizer_corpus import SHARED_CORPUS
 
 SMOLLM2 = cache.path("smollm2")
@@ -92,9 +92,9 @@ def test_pipeline_is_derived_from_the_documents_sections(
     specs in order, the byte-level remap on, no replaces, and no byte
     fallback — a mis-read of any section moves one of them.
     """
-    assert tokenizer.pipeline.pretokens == (IrDigits(True), IrByteLevel())
+    assert tokenizer.pipeline.pretokens == IrTuple(IrDigits(True), IrByteLevel())
     assert len(tokenizer.pipeline.remap) == 256  # ByteLevel ⇒ the remap is on
-    assert tokenizer.pipeline.normalize == ()
+    assert tokenizer.pipeline.normalize == IrTuple()
     assert not tokenizer.pipeline.byte_fallback
 
 

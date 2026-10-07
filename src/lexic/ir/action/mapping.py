@@ -73,6 +73,23 @@ def _indexed(cls: type, pairs: Iterable[tuple[Any, Any]]) -> dict[Any, Any]:
     return table
 
 
+_ABSENT = object()
+"""A miss in :meth:`IrMapping.get`, told apart from any stored value."""
+
+
+def spine_key(key: object) -> object:
+    """The key a map holds for ``key``: a plain tuple becomes the
+    :class:`IrTuple` of the same items, and anything else is itself.
+
+    A record never EQUALS a plain tuple (records are class-aware), so a caller
+    subscripting a map keyed by ``IrTuple`` paths with a plain ``("a", "b")``
+    is converted here, once, at the map — never by equality interop.
+    """
+    if isinstance(key, tuple) and key.__class__ is tuple:  # plain, not a record
+        return IrTuple(*key)
+    return key
+
+
 class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
     """Common ancestor of the map family — the **container** surface over ``_table``.
 
@@ -130,25 +147,41 @@ class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
     def __getitem__(self, key: object) -> R:
         """Value bound to ``key`` (the mapping default — raise on miss).
 
+        A plain-tuple key that misses is read again as the record it spells
+        (:func:`spine_key`); any other key's miss costs nothing extra.
         :class:`IrMultiMap` overrides this to return a live bucket.
+
         :raises IrKeyError: On a miss.
         """
+        table = self._table
         try:
-            return self._table[key]
+            return table[key]
         except KeyError:
+            spelled = spine_key(key) if key.__class__ is tuple else _ABSENT
+            if spelled in table:
+                return table[spelled]
             raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}") from None
 
     def __contains__(self, key: object) -> bool:
-        """Whether ``key`` has an entry (key-based, not dyad membership)."""
-        return key in self._table
+        """Whether ``key`` has an entry (key-based, not dyad membership); a
+        plain-tuple key as the record it spells."""
+        table = self._table
+        return key in table or (key.__class__ is tuple and spine_key(key) in table)
 
     def __len__(self) -> int:
         """Number of entries."""
         return len(self._table)
 
     def get(self, key: object, default: R | None = None) -> R | None:
-        """Read under ``key``, or ``default`` on a miss (never raises)."""
-        return self._table.get(key, default)
+        """Read under ``key``, or ``default`` on a miss (never raises); a
+        plain-tuple key as the record it spells."""
+        table = self._table
+        found = table.get(key, _ABSENT)
+        if found is not _ABSENT:
+            return found
+        if key.__class__ is tuple:
+            return table.get(spine_key(key), default)
+        return default
 
     def keys(self) -> KeysView[K]:
         """Key view over ``_table`` (canonical order for :class:`IrMap`)."""

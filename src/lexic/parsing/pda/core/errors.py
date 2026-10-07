@@ -8,7 +8,7 @@ still resolves.
 
 from __future__ import annotations
 
-__all__ = ["PdaFail", "ProbeFork"]
+__all__ = ["IslandEscape", "PdaFail", "ProbeFork"]
 
 
 class PdaFail(Exception):
@@ -76,3 +76,26 @@ class ProbeFork(PdaFail):
     viable (over-approximation — every uncertain answer lands on bail, never
     on a silent commit).
     """
+
+
+class IslandEscape[Payload](ProbeFork):
+    """A greedy match that cannot answer for its rule here: ask the island.
+
+    Raised by a rule compiled to take its longest match where the matched span
+    holds a character its reference can continue with, so a shorter end might
+    be the answer. The kernel site that entered the match catches it and runs
+    the island with :attr:`payload`, the same question the rule's reference
+    would have asked as an island. A site that does not catch it meets a
+    :class:`ProbeFork`: the parse bails, and the gated engine answers.
+
+    :ivar payload: The island reference, ``(name, cont, exact, windows)``.
+    """
+
+    __slots__ = ("payload",)
+
+    payload: Payload
+
+    def __init__(self, payload: Payload, pos: int) -> None:
+        """Bind the island question to ask at ``pos``."""
+        super().__init__(f"a longest take at {pos} holds a follower: its island", pos)
+        self.payload = payload

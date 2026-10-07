@@ -16,8 +16,9 @@ vocabulary, and a second reader had to duplicate one to avoid a private import.
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
-:class:`~lexic.parsing.product.RuleRoutine`, and
-:class:`~lexic.parsing.pda.core.scanner.ScanGate`.
+:class:`~lexic.parsing.product.RuleRoutine`,
+:class:`~lexic.parsing.pda.core.scanner.ScanGate`, and the
+:data:`~lexic.parsing.pda.analysis.gates.windows.Pref` window type.
 """
 
 from __future__ import annotations
@@ -26,8 +27,9 @@ from typing import NamedTuple, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrItem, IrNoneType, IrSelf
+from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.pda.core.scanner import ArmGate, Pattern, ScanGate
 from lexic.parsing.product import RegularProof, RuleRoutine
 
 LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
@@ -48,6 +50,7 @@ __all__ = [
     "ArmSpec",
     "GroupSpec",
     "CloneSpec",
+    "LongestTake",
 ]
 
 
@@ -88,12 +91,55 @@ class IslandRef(NamedTuple):
         distance and one sub-parse at it settles the island. False keeps the
         doubling climb, which is what an island whose own alphabet meets its
         continuation needs.
+    :ivar windows: The same continuation a few characters deep, which the
+        two-ends check asks only where :attr:`cont` admits the next character.
+        Empty is no deeper evidence: one character decides.
     """
 
     name: str
     fail: bool = False
     cont: CharSet = CharSet.EMPTY
     exact: bool = False
+    windows: tuple[Pref, ...] = ()
+
+
+IslandPayload = tuple[str, CharSet, bool, tuple[Pref, ...]]
+"""An island reference as the runtime reads it: ``(name, cont, exact,
+windows)`` — :class:`IslandRef` without the fail flag, which the opcode says."""
+
+
+class LongestTake(NamedTuple):
+    """A text-only rule's clone for one continuation: its longest match, which
+    answers for the rule's island unless the span holds a follower.
+
+    The island takes the longest completion and refuses only where a shorter
+    end is followed by a character this reference can continue with. A
+    shorter end of a match lies before a character in EXTEND, so the match is
+    the island's answer when no character of the span after its first is in
+    :attr:`exits`, and the character after the match is outside
+    :attr:`extend` (the match cannot be lengthened). Otherwise the runtime asks
+    :attr:`island`, the question this reference's island would have asked.
+
+    :ivar exits: This reference's followers the rule can extend over:
+        its continuation ∩ EXTEND, the end of input left out.
+    :ivar extend: The rule's EXTEND.
+    :ivar island: The island reference ``(name, cont, exact, windows)``.
+    :ivar lead: Where in the span a shorter end can first sit: ``0`` for a
+        nullable rule, whose empty match is one, else ``1``.
+    :ivar exit_at: :attr:`exits` as a one-character pattern, searched over the
+        span from :attr:`lead` in one call.
+    :ivar extends_at: :attr:`extend` as a one-character pattern, matched at the
+        character after the span; ``None`` where every arm ends in an unbounded
+        run over a class holding all of EXTEND, since the greedy run already
+        stopped at a character outside it.
+    """
+
+    exits: CharSet
+    extend: CharSet
+    island: IslandPayload
+    lead: int
+    exit_at: Pattern
+    extends_at: Pattern | None
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────
@@ -305,6 +351,8 @@ class CloneSpec(NamedTuple):
         follow, because a consult that could run past its terminator would
         answer a different question than the per-character program it
         replaces.
+    :ivar longest: The rule's longest-take plan (:class:`LongestTake`), else
+        ``None``.
     """
 
     name: str
@@ -315,6 +363,7 @@ class CloneSpec(NamedTuple):
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None
     consult: RegularProof | None = None
+    longest: LongestTake | None = None
 
 
 # ── arm helpers ────────────────────────────────────────────────────────────

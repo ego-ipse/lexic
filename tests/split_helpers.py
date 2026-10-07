@@ -43,7 +43,7 @@ def engages(compiled: CompiledGrammar, text: str, cores: int = WORKERS) -> bool:
     found = split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.product, None),
+        Request(text, compiled.product),
         cores,
         analysis=compiled.split_analysis or compiled.grammar,
     )

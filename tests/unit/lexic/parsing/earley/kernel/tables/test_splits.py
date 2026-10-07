@@ -10,8 +10,12 @@ real compiled grammar with two adjacent nullable slots.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.tables.atoms import KLink
+from lexic.exceptions import EngineInvariantError
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
     canonical_indices,
@@ -68,8 +72,9 @@ def _key(code: int, origin: int, end: int) -> int:
 
 
 def _spec(code_choice: tuple[int, ...] = ()) -> ChainSpec:
-    """A chain spec over a hand-built link table, with dot 0 as the bottom."""
-    return ChainSpec(0, BITS, code_choice)
+    """A chain spec over a hand-built link table, with dot 0 as the bottom:
+    every code belongs to arm 0, whose dot-0 code is 0."""
+    return ChainSpec(0, BITS, code_choice, (0,) * (1 << BITS), (0,))
 
 
 def _bottomed(*keys: int) -> dict[int, list[KLink]]:
@@ -84,8 +89,8 @@ def test_dominant_takes_the_larger_end_when_the_chains_meet_at_once():
     near: KLink = (_item(1, 0), 2, "y")
     links = _bottomed(_key(1, 0, 6), _key(1, 0, 2))
 
-    assert dominant(links, near, far, spec) is far
-    assert dominant(links, far, near, spec) is far
+    assert dominant(links, near, far, spec, LEFTMOST_LONGEST) is far
+    assert dominant(links, far, near, spec, LEFTMOST_LONGEST) is far
 
 
 def test_dominant_decides_at_the_deepest_difference_not_the_shallowest():
@@ -104,8 +109,8 @@ def test_dominant_decides_at_the_deepest_difference_not_the_shallowest():
         **_bottomed(_key(1, 0, 1), _key(1, 0, 3)),
     }
 
-    assert dominant(links, wide, deep, spec) is deep
-    assert dominant(links, deep, wide, spec) is deep
+    assert dominant(links, wide, deep, spec, LEFTMOST_LONGEST) is deep
+    assert dominant(links, deep, wide, spec, LEFTMOST_LONGEST) is deep
 
 
 def test_dominant_reads_a_multi_family_predecessor_as_the_reader_does():
@@ -130,8 +135,8 @@ def test_dominant_reads_a_multi_family_predecessor_as_the_reader_does():
         **_bottomed(_key(1, 0, 2), _key(1, 0, 6), _key(1, 0, 3)),
     }
 
-    assert dominant(links, through_p1, through_p2, spec) is through_p1
-    assert dominant(links, through_p2, through_p1, spec) is through_p1
+    assert dominant(links, through_p1, through_p2, spec, LEFTMOST_LONGEST) is through_p1
+    assert dominant(links, through_p2, through_p1, spec, LEFTMOST_LONGEST) is through_p1
 
 
 def test_dominant_prefers_a_live_chain_over_a_dead_one():
@@ -141,8 +146,8 @@ def test_dominant_prefers_a_live_chain_over_a_dead_one():
     dead: KLink = (_item(1, 0), 7, "y")
     links = _bottomed(_key(1, 0, 4))  # nothing recorded under the 7 chain
 
-    assert dominant(links, dead, live, spec) is live
-    assert dominant(links, live, dead, spec) is live
+    assert dominant(links, dead, live, spec, LEFTMOST_LONGEST) is live
+    assert dominant(links, live, dead, spec, LEFTMOST_LONGEST) is live
 
 
 def test_canonical_indices_keeps_one_family_per_arm_in_arm_order():
@@ -161,7 +166,7 @@ def test_canonical_indices_keeps_one_family_per_arm_in_arm_order():
     ]
     links = _bottomed(_key(1, 0, 2), _key(1, 0, 6), _key(1, 0, 3))
 
-    assert canonical_indices(links, bucket, spec) == [0, 1]
+    assert canonical_indices(links, bucket, spec, LEFTMOST_LONGEST) == [0, 1]
 
 
 def test_canonical_indices_leaves_a_single_arm_bucket_with_its_maximum():
@@ -175,4 +180,25 @@ def test_canonical_indices_leaves_a_single_arm_bucket_with_its_maximum():
     ]
     links = _bottomed(_key(1, 0, 2), _key(1, 0, 9), _key(1, 0, 5))
 
-    assert canonical_indices(links, bucket, spec) == [1]
+    assert canonical_indices(links, bucket, spec, LEFTMOST_LONGEST) == [1]
+
+
+class _Shortest(Decider):
+    """A decider whose order is not the raw boundary order."""
+
+    def rank(self, carving: tuple[int, ...]) -> tuple[int, ...]:
+        """The carving negated: the earliest boundary first."""
+        return tuple(-end for end in carving)
+
+
+def test_a_decider_the_level_keys_do_not_rank_is_refused():
+    """The chain reader keys each level by raw ``max``, which is leftmost-
+    longest's order alone; any other decider is refused rather than read in
+    an order it did not choose."""
+    spec = _spec()
+    far: KLink = (_item(1, 0), 6, "x")
+    near: KLink = (_item(1, 0), 2, "y")
+    links = _bottomed(_key(1, 0, 6), _key(1, 0, 2))
+
+    with pytest.raises(EngineInvariantError, match="needs its level keys ranked"):
+        dominant(links, near, far, spec, _Shortest(frozenset()))

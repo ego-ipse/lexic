@@ -33,8 +33,9 @@ from lexic.parsing.earley.kernel.forest.forest import (
     ParseTree,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
     MeaningBuilder,
-    Resolver,
+    ParseConfig,
     chosen_meaning,
     different_meaning,
 )
@@ -49,6 +50,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.lexruns import recognition_tables
 
@@ -97,7 +99,7 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     """
     handle = accept_handle(kernel)
     if not root_ambiguous(kernel):
-        tree = FastTree(kernel).build(handle)
+        tree = FastTree(kernel, None, LEFTMOST_LONGEST).build(handle)
         if isinstance(tree, ParseTree):
             return tree
     built = BUILD_TREE.eval(d, accept_node(kernel), IrTuple(to_chart(kernel)))
@@ -110,7 +112,8 @@ def first_meaning(
     d: IrSelf,
     n: IrSelf,
     text: str,
-    tables: ParserTables | None = None,
+    tables: ParserTables | None,
+    decide: Decider,
 ) -> ParseTree:
     """The first derivation of ``text`` — deterministic under ambiguity.
 
@@ -118,16 +121,18 @@ def first_meaning(
     about values, so it is asked where the values are built
     (:func:`first_built_meaning`, and :func:`~lexic.parsing.earley.kernel.forest
     .support.ambiguity.chosen_meaning` under it); a tree consumer has nothing to
-    compare and takes the deterministic first.
+    compare and takes the deterministic first — of the carvings ``decide``
+    keeps, as the value route does.
 
     :param d: The dispatcher seam the forest readers thread.
     :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
     :param text: The input string.
     :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :param decide: The split decider whose carving the derivation keeps.
     :returns: The first derivation.
     :raises UnsupportedConstructError: If ``text`` does not parse.
     """
-    return _first_derivation(d, n, text, tables)[2]
+    return _first_derivation(d, n, text, tables, decide)[2]
 
 
 def _accepting_handles(kernel: Kernel) -> list[int]:
@@ -147,6 +152,7 @@ def _first_derivation(
     n: IrSelf,
     text: str,
     tables: ParserTables | None,
+    decide: Decider,
 ) -> tuple[Kernel, int, ParseTree]:
     """Run Earley and return its kernel, accepting handle, and first tree."""
     if not isinstance(n, IrAst):
@@ -174,7 +180,7 @@ def _first_derivation(
     # whose first is CHART ORDER, so a resolver supplied to settle the ARM
     # choice silently answered that span's SPLITS by chart order too.
     for candidate in _accepting_handles(kernel):
-        built = FastTree(kernel, {}).build(candidate)
+        built = FastTree(kernel, {}, decide).build(candidate)
         if isinstance(built, ParseTree):
             first, handle = built, candidate
             break
@@ -197,7 +203,7 @@ def first_built_meaning[Value, NodeValue](
     text: str,
     builder: MeaningBuilder[Value, NodeValue],
     tables: ParserTables | None = None,
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> Value:
     """Return the chosen value, constructing each considered meaning once.
 
@@ -211,14 +217,15 @@ def first_built_meaning[Value, NodeValue](
     :param text: The input string.
     :param builder: The interpretation's fresh and seeded entry points.
     :param tables: Optional pre-built (run-collapsed) tables for ``n``.
-    :param resolve: The caller's resolver, or ``None`` to refuse an ambiguity.
+    :param config: The caller's resolver and split decider.
     :returns: The chosen meaning's value.
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
     """
-    kernel, handle, first = _first_derivation(EARLEY_PARSER, n, text, tables)
+    decide = config.decide
+    kernel, handle, first = _first_derivation(EARLEY_PARSER, n, text, tables, decide)
     return chosen_meaning(
-        different_meaning(kernel, handle, builder, first), builder, resolve
+        different_meaning(kernel, handle, builder, first, decide), builder, config
     )
 
 
@@ -287,14 +294,20 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> ParseTree:
-        """:param n: grammar; :param nc: ``(IrStr(text)[, ParserTables])``.
+        """:param n: grammar; :param nc: ``(IrStr(text), ParserTables | IrNone,
+            Decider)``.
 
         :returns: a derivation.
-        :raises UnsupportedConstructError: If ``text`` does not parse.
+        :raises UnsupportedConstructError: If ``text`` does not parse, or
+            ``nc`` carries no decider.
         """
-        text = str(nc[0])
-        collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
-        return first_meaning(d, n, text, collapsed)
+        text, tables, decide = str(nc[0]), nc[1], nc[2]
+        if not isinstance(decide, Decider):
+            raise UnsupportedConstructError(
+                f"parsing: parse_first needs a decider, got {type(decide).__name__}"
+            )
+        collapsed = tables if isinstance(tables, ParserTables) else None
+        return first_meaning(d, n, text, collapsed, decide)
 
 
 class ParseForest(IrLeaf[IrSelf, IrSelf]):

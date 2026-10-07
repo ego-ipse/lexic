@@ -6,6 +6,9 @@ a single atom accepts. Nothing here knows what a table is.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Protocol
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlphabet,
@@ -18,6 +21,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec, leftmost_chain
 
 _MAX_CHARSET = 4096
@@ -31,6 +35,27 @@ KLink = tuple[int, int, int | str | PayloadLeaf]
 ``child`` is a packed handle (completed sub-derivation), the scanned char, or a
 delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` (island-interior
 delegation — a pre-folded child spliced onto the waiter it advances)."""
+
+
+class FamilyReader(Protocol):
+    """What a chain walker needs of the family table: one key's families.
+
+    A Protocol rather than the concrete mapping because a chart that factored
+    reads through :class:`~lexic.parsing.earley.kernel.forest.families.FamilyTable`,
+    while one that did not reads the link ``dict`` itself.
+    """
+
+    def get(self, key: int, /) -> list[KLink] | None:
+        """This key's families, or ``None`` when it names none."""
+        raise NotImplementedError
+
+    def __getitem__(self, key: int, /) -> list[KLink]:
+        """This key's families; raises :class:`KeyError` when it names none."""
+        raise NotImplementedError
+
+    def items(self) -> Iterable[tuple[int, list[KLink]]]:
+        """Every key with its families — the decode path's whole-table read."""
+        raise NotImplementedError
 
 
 def tier_for(length: int) -> int:
@@ -70,10 +95,11 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
 
 
 def predecessor_chain(
-    links: dict[int, list[KLink]],
+    links: FamilyReader,
     handle: int,
     spec: ChainSpec,
-    choices: dict[int, int] | None = None,
+    choices: dict[int, int] | None,
+    decide: Decider,
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
@@ -90,13 +116,14 @@ def predecessor_chain(
         take it, and a pinned entry overrides it at that key (which is how the
         ambiguity check flips one point). When ``None`` a packed key bails,
         which is the fast path's contract.
+    :param decide: The split decider the resolving read keeps the carving of.
     :returns: The chain's ``(predecessor_item, predecessor_end, child)``
         triples in source order, or ``None`` when a key is missing, or packs
         more than one family and no choice was supplied — the caller's cue to
         bail (no build, or fall back to the ambiguity-aware path).
     """
     if choices is not None:
-        return leftmost_chain(links, handle, spec, choices)
+        return leftmost_chain(links, handle, spec, choices, decide)
     base, bits = spec.base, spec.bits
     chain: list[KLink] = []
     item, end = handle >> bits, handle & ((1 << bits) - 1)

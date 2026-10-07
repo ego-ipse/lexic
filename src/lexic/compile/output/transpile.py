@@ -256,7 +256,7 @@ class _Grown(IrNamedTuple[type, type, IrSelf]):
         if flat is None or flat is IrNone or not tuple(flat):
             return IrNone
         items = tuple(flat)
-        names = _slot_names(self.head)
+        names = [name for name, _mode in _slot_binds(self.head)]
         rest = [self.item(x) for x in items[1:]]
         return self.head(**dict(zip(names, (items[0], rest))))
 
@@ -480,17 +480,24 @@ class Transpiler(IrNamedTuple[CompiledGrammar, CompiledGrammar, IrBottomUp]):
 # ── the bake: rule names → classes, list Makes → grown chains ───────────
 
 
-def _slot_names(cls: type) -> list[str]:
-    """A model class's field names in ITEM SLOT order — the channel's order.
+def _as_field(mode: str, value: object) -> object:
+    """A spine value as the model field of ``mode`` holds it: a run is a bare
+    ``tuple``, everything else is itself."""
+    return tuple(value) if mode == "models" and isinstance(value, tuple) else value
+
+
+def _slot_binds(cls: type) -> list[tuple[str, str]]:
+    """A model class's ``(field name, bind mode)`` in ITEM SLOT order — the
+    channel's order.
 
     Empty for a class with no binds (a ``value_str``'s implicit ``value``
     constructs positionally).
 
     :param cls: The target model class.
-    :returns: Field names ordered by their bound item slots.
+    :returns: Field names and modes ordered by their bound item slots.
     """
     binds = getattr(cls, "__binds__", {})
-    return [name for _slot, (name, _bind) in sorted(binds.items())]
+    return [(name, bind.mode) for _slot, (name, bind) in sorted(binds.items())]
 
 
 def _by_rule(compiled: CompiledGrammar) -> dict[str, type]:
@@ -573,13 +580,17 @@ class _Construct(IrNamedTuple[type, IrSelf]):
         through the binds table, because a class DECLARES defaults-last and
         the two orders differ whenever an optional slot precedes a required
         one. Spine absence (``IrNone``) bridges to the model layer's own
-        (``None``) per part, so an optional slot stays an absent optional.
+        (``None``) per part, so an optional slot stays an absent optional,
+        and a run arrives as the spine's ``IrTuple`` and is handed over as the
+        model layer's run shape, a bare ``tuple``: a record never equals the
+        bare tuple the parse builds for the same run.
         """
         parts = nc if self.args is IrNone else tuple(self.args.eval(d, n, nc))
         values = [None if p is IrNone else p for p in parts]
-        names = _slot_names(self.target)
-        if names:
-            return self.target(**dict(zip(names, values)))
+        binds = _slot_binds(self.target)
+        if binds:
+            fields = zip(binds, values)
+            return self.target(**{n: _as_field(m, v) for (n, m), v in fields})
         return self.target(*values)
 
 

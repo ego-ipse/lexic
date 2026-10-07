@@ -23,7 +23,7 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrTuple
+from lexic.ir import IrNoneType, IrTuple
 from lexic.parsing.earley.engine import EarleyParser
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
@@ -32,8 +32,9 @@ from lexic.parsing.earley.kernel.forest.forest import (
     SppfNode,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
     MeaningBuilder,
-    Resolver,
+    ParseConfig,
     different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
@@ -42,9 +43,11 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.pda.analysis.gates.windows import END, Pref
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.product import ProductExecutor
 from lexic.parsing.product.tree import CompletionResult
 
@@ -135,29 +138,36 @@ class IslandPolicy[M](NamedTuple):
     :data:`ISLAND_WINDOW` by doubling. ``None`` rather than ``0`` because a
     bound of zero is a real answer — a continuation character sitting AT the
     cursor bounds a nullable island to an empty window — and spelling it the
-    same as "no bound" sent that island climbing instead.
+    same as "no bound" sent that island climbing instead. ``config`` is the
+    caller's resolver and split decider.
     """
 
     delegates: dict[int, Delegate] | None = None
-    resolve: Resolver | None = None
+    config: ParseConfig = DEFAULT_CONFIG
     executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
     window: int | None = None
+    windows: tuple[Pref, ...] = ()
 
     def for_island(
         self,
         delegates: dict[int, Delegate] | None,
         follow: CharSet | None,
         window: int | None = None,
+        windows: tuple[Pref, ...] = (),
     ) -> IslandPolicy[M]:
         """This policy with the per-reference parts filled in — what one island
         reference hands to its sub-parse. The delegates, the continuation and
-        the window belong to the reference; the executor and the resolver
+        the window belong to the reference; the configuration and the executor
         belong to the whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.executor, follow, window)
+        return IslandPolicy(
+            delegates, self.config, self.executor, follow, window, windows
+        )
 
 
-def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet) -> int:
+def _unsettled_end[M](
+    kern: Kernel, end: int, text: str, pos: int, policy: IslandPolicy[M]
+) -> int:
     """A shorter completion end this window cannot settle against, or ``-1``.
 
     Asked after every window rather than only after the climb, and that is
@@ -177,14 +187,44 @@ def _unsettled_end(kern: Kernel, end: int, text: str, pos: int, follow: CharSet)
     :param end: The longest completion's end over this window.
     :param text: The full input.
     :param pos: Where the island opened.
-    :param follow: The island rule's continuation charset.
+    :param policy: Carries the occurrence continuation, one character deep
+        (``follow``) and a few deep (``windows``); the deeper one is asked only
+        where the first admits the next character.
     :returns: The shorter end, or ``-1`` when every one of them is refused by
         the continuation and longest-match is still a defined answer.
     """
+    follow = policy.follow
+    if follow is None:
+        return -1  # no continuation evidence: plain longest-match
     for alt in start_completion_ends(kern):
-        if alt < end and follow.has(text[pos + alt]):
+        at = pos + alt
+        if alt < end and follow.has(text[at]) and continues(policy.windows, text, at):
             return alt
     return -1
+
+
+def continues(windows: tuple[Pref, ...], text: str, at: int) -> bool:
+    """Whether some continuation window matches ``text`` from ``at``.
+
+    A window that runs past the end of ``text`` cannot match. One marked
+    complete (END) is a whole continuation through to the end of the input
+    (the compiler marks a full-width one MORE, since it may go on), so it
+    matches only where the input ends. MORE and UNK say nothing past
+    their characters, so matching those is enough. No windows is no
+    evidence, and admits.
+    """
+    if not windows:
+        return True
+    for chars, state in windows:
+        piece = text[at : at + len(chars)]
+        if len(piece) < len(chars):
+            continue
+        if not all(one.has(char) for one, char in zip(chars, piece)):
+            continue
+        if state == END and at + len(chars) != len(text):
+            continue
+        return True
+    return False
 
 
 def bounded_window(text: str, pos: int, cont: CharSet) -> int:
@@ -234,8 +274,10 @@ def island_parse(
     Longest-match is only a DEFINED answer while no shorter completion could
     also compose: with ``policy.follow`` set, a second completion end whose
     next character the continuation accepts is a cross-span arm choice this
-    seam cannot settle — it raises :class:`PdaFail`, and the engine's gated
-    completion over the whole input refuses or answers with the full picture.
+    seam cannot settle — it raises :class:`ProbeFork`, undecidable rather than a
+    miss, so no enclosing attempt reads it as this island failing; the engine's
+    gated completion over the whole input refuses or answers with the full
+    picture.
 
     :param tables: The island rule's :class:`~lexic.parsing.earley.kernel.tables.ParserTables`.
     :param text: The full input.
@@ -256,6 +298,7 @@ def island_parse(
         and the completed value when the settle step already built one
         (``None`` when it did not, and the caller completes the tree itself).
     :raises PdaFail: When the island completes over no window.
+    :raises ProbeFork: When a shorter completion could compose with the caller.
     :raises UnsupportedConstructError: On an ambiguous island with no resolver.
         The round-trip invariant cannot catch a wrong choice here:
         ``to_text()`` reproduces the input for whichever derivation was taken.
@@ -266,9 +309,9 @@ def island_parse(
     while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
         if best is not None and policy.follow is not None:
-            alt = _unsettled_end(kern, best[1], text, pos, policy.follow)
+            alt = _unsettled_end(kern, best[1], text, pos, policy)
             if alt >= 0:
-                raise PdaFail(
+                raise ProbeFork(
                     f"island {name!r} at {pos}: arm choice spans two ends "
                     f"({alt}, {best[1]}) and the shorter could compose",
                     pos,
@@ -299,7 +342,7 @@ def _decoded(
     """
     item, end = best
     handle = (item << kern.tables.packing.bits) | end
-    tree = FastTree(kern).build(handle)
+    tree = FastTree(kern, None, policy.config.decide).build(handle)
     if not isinstance(tree, ParseTree):
         # The fast path declining is NOT ambiguity — it also declines when a key
         # packs more than one family or the root has many productions.
@@ -346,15 +389,17 @@ def _settle_two_meanings(
         handle,
         MeaningBuilder(executor.splice, executor.splice_replay),
         tree,
+        policy.config.decide,
     )
     if pair.witness is None:
         return tree, pair.first.value
-    if policy.resolve is None:
+    resolve = policy.config.resolve
+    if isinstance(resolve, IrNoneType):
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — supply a resolver to choose between them"
         )
-    chosen = policy.resolve(tree, pair.witness.tree)
+    chosen = resolve(tree, pair.witness.tree)
     # Both candidates arrive built, so a resolver that returns one of them
     # returns a value too. One that returns some third tree is answering a
     # question this seam did not ask, and is completed the ordinary way.
@@ -421,16 +466,20 @@ def island_derivation(
     """
     handle = (item << kern.tables.packing.bits) | end
     if policy.executor is None:
-        return _one_derivation(kern, handle, name), None
-    tree = _one_derivation(kern, handle, name, {})
+        return _one_derivation(kern, handle, name, None, policy.config.decide), None
+    tree = _one_derivation(kern, handle, name, {}, policy.config.decide)
     return _settle_two_meanings(kern, handle, tree, name, policy)
 
 
 def _one_derivation(
-    kern: Kernel, handle: int, name: str, choices: dict[int, int] | None = None
+    kern: Kernel,
+    handle: int,
+    name: str,
+    choices: dict[int, int] | None,
+    decide: Decider,
 ) -> ParseTree:
     """The derivation ``choices`` names, or the fast path's when it is ``None``."""
-    tree = FastTree(kern, choices).build(handle)
+    tree = FastTree(kern, choices, decide).build(handle)
     if isinstance(tree, ParseTree):
         return tree
     node = SppfNode(

@@ -28,6 +28,7 @@ from lexic.ir import (
     IrAst,
     IrEncoding,
     IrMap,
+    IrNone,
     IrSelf,
     IrStr,
     IrTokenizer,
@@ -40,6 +41,8 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing import (
+    LEFTMOST_LONGEST,
+    Decider,
     ModelExecutable,
     PdaTables,
     ProductExecutor,
@@ -49,7 +52,11 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.caches import memo, reset_caches, track
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+    Resolver,
+)
 from lexic.parsing.parallel import (
     AUTO,
     anchors,
@@ -227,7 +234,11 @@ class CompiledGrammar:
         return anchors(self.codegen_grammar)
 
     def parse(
-        self, text: str, resolve: Resolver | None = None, cores: int = AUTO
+        self,
+        text: str,
+        resolve: Resolver | None = None,
+        cores: int = AUTO,
+        decide: Decider = LEFTMOST_LONGEST,
     ) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
@@ -260,10 +271,16 @@ class CompiledGrammar:
         whichever route the grammar selects, so the promise does not depend on
         whether the terminals happen to name an encoding.
 
+        ``decide`` is the split decider: which carving of a span the parse
+        keeps, where one production carves it more than one way. It reaches
+        every route the resolver does.
+
         :param text: The input to parse.
         :param resolve: The caller's resolver, or ``None`` to refuse ambiguity.
         :param cores: 0 (default) = split across as many workers as this
             machine allows, 1 = parse sequentially, N = at most N workers.
+        :param decide: The split decider; :data:`~lexic.parsing.LEFTMOST_LONGEST`
+            unless the caller passes another.
         :raises UnsupportedConstructError: If ``text`` does not parse, the fold
             produced no model for the start rule, or the input means two things
             and no resolver was supplied.
@@ -280,6 +297,11 @@ class CompiledGrammar:
         # artefact's: it is the split plan's identity and every analysis is
         # memoised on it, so replicating it would re-derive them per thread.
         product = document_view(self.codegen_grammar, self.product)
+        config = (
+            DEFAULT_CONFIG
+            if resolve is None and decide is LEFTMOST_LONGEST
+            else ParseConfig(IrNone if resolve is None else resolve, decide)
+        )
         # Splitting is asked FIRST and of the grammar alone: whether the
         # input is split has nothing to do with which route reads it. A
         # segmented grammar simply never yields a plan (its terminals are
@@ -288,7 +310,7 @@ class CompiledGrammar:
         split = split_model(
             parse_model,
             self.codegen_grammar,
-            Request(text, product, resolve),
+            Request(text, product, config),
             cores,
             analysis=self.split_analysis or self.grammar,
         )
@@ -299,11 +321,11 @@ class CompiledGrammar:
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
             }
             return GrammarModel.ensure(
-                token_model(self.codegen_grammar, text, product, bounds, resolve),
+                token_model(self.codegen_grammar, text, product, bounds, config),
                 "compile: the start rule's fold",
             )
         return GrammarModel.ensure(
-            parse_model(self.codegen_grammar, text, product, resolve),
+            parse_model(self.codegen_grammar, text, product, config),
             "compile: the start rule's fold",
         )
 

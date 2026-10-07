@@ -131,12 +131,16 @@ def test_flatclone_declares_exactly_the_selector_and_build_fields():
     of them — the left-recursion fold's per-clone state briefly lived here, a
     slot on every clone of every grammar to serve the few rules that fold. It
     is carried in the fields its own build mode frees up instead.
+
+    ``longest`` is the exception stated: a ``value_str`` clone's build reads
+    every field its mode leaves, and the check it holds decides whether a span
+    is the island's answer at all, so it cannot ride in one of them.
     """
     expected = {"name", "selectors", "wide_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends"}
+    expected |= {"runarm", "needs_ends", "longest"}
     assert set(FlatClone.__slots__) == expected
 
 

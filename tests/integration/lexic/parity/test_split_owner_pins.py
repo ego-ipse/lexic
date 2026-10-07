@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.parsing.parallel import orchestrate, replicas
-from lexic.parsing.parallel.orchestrate import split_plan
+from lexic.parsing.parallel.planner import split_plan
 from lexic.parsing.parallel.stitch import interior, tasks
 from tools.benchmark.cases.grammars import BENCHES
 

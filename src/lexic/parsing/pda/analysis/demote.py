@@ -149,7 +149,7 @@ def demote_loop(
     greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
     if greedy is not None:
         analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
-        notes.soft.append(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
+        notes.picks_extent(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
         return True
     return False
 

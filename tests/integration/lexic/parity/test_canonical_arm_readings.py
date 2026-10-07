@@ -22,8 +22,10 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig
 from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.splits import (
     dominant,
     is_arm_choice,
@@ -48,7 +50,9 @@ def _built(source: str, key: str):
     return compiled, _model_product(compiled.codegen_grammar, compiled.product)
 
 
-def _answer(source: str, key: str, text: str, resolve=None) -> str:
+def _answer(
+    source: str, key: str, text: str, config: ParseConfig = DEFAULT_CONFIG
+) -> str:
     """``text``'s model through the Earley model route, or ``"REFUSED"``."""
     compiled, product = _built(source, key)
     try:
@@ -58,7 +62,7 @@ def _answer(source: str, key: str, text: str, resolve=None) -> str:
                 text,
                 compiled.product,
                 product.tables,
-                resolve,
+                config,
             )
         )
     except UnsupportedConstructError:
@@ -78,35 +82,30 @@ def test_a_rejected_carving_no_longer_makes_a_span_ambiguous() -> None:
     )
 
 
-def test_a_real_arm_choice_still_refuses() -> None:
-    """The fix may not be "refuse less" — it must refuse the same spans.
+def test_a_choice_of_boundaries_is_decided_before_the_arms() -> None:
+    """``"aaa"``: ``u`` can end after one ``a`` or two, and the arms each
+    reading uses follow from where it ends. The decider settles the boundary —
+    the first slot longest, ``u = aa`` — and at that boundary no arm is left to
+    choose, so the span answers, as the public parse does."""
+    want = "Doc(U('aa'), T('a'), Tail(''))"
+    assert _answer(MIXED, "canonical-mixed", "aaa") == want
+    compiled, _product = _built(MIXED, "canonical-mixed")
+    assert repr(compiled.parse("aaa", cores=1)) == want
 
-    ``"aaa"`` has a genuine choice: ``u`` can take either of its arms and the
-    rest still derives, with different values. Nothing about lengths settles a
-    choice between arms, so the span still refuses.
-    """
-    assert _answer(MIXED, "canonical-mixed", "aaa") == "REFUSED"
 
-
-def test_the_resolver_is_offered_exactly_one_pair_on_that_span() -> None:
-    """And what it is offered are two readings covering the same text.
-
-    One pair, not two: the carvings of a single arm have been settled by the
-    rule that owns them, so what is left to ask about is the arm.
-    """
+def test_the_resolver_is_not_asked_about_a_decided_boundary() -> None:
+    """A resolver answers arm choices at one boundary; a boundary the decider
+    settled is never put to it."""
     seen: list[tuple[ParseTree, ParseTree]] = []
 
     def spy(first: ParseTree, other: ParseTree) -> ParseTree:
         seen.append((first, other))
         return first
 
-    got = _answer(MIXED, "canonical-mixed", "aaa", spy)
+    got = _answer(MIXED, "canonical-mixed", "aaa", ParseConfig(resolve=spy))
 
-    assert len(seen) == 1, f"expected one pair, got {len(seen)}"
-    first, other = seen[0]
-    assert first != other
-    assert _spelling(first) == _spelling(other) == "aaa"
-    assert got == "Doc(U('a'), T('aa'), Tail(''))"
+    assert not seen
+    assert got == "Doc(U('aa'), T('a'), Tail(''))"
 
 
 @pytest.mark.parametrize(
@@ -174,21 +173,25 @@ def test_the_primitive_answers_what_the_chain_reader_answers(
 
 def _agreeing_keys(kernel: Kernel, tables) -> int:
     """Assert the two entry points agree at every packed split key; count them."""
-    links = kernel.st.links
+    links = kernel.family_reader()
     codes, bits = tables.codes, tables.packing.bits
     checked = 0
     for handle, bucket in links.items():
         if len(bucket) < 2 or is_arm_choice(bucket, bits, tables.code_choice):
             continue
         spec = spec_for(codes, bits, tables.code_choice, handle)
-        chain = leftmost_chain(links, handle, spec, {})
+        chain = leftmost_chain(links, handle, spec, {}, LEFTMOST_LONGEST)
         if chain is None:
             continue
         best = bucket[0]
         for rival in bucket[1:]:
-            best = dominant(links, best, rival, spec)
+            best = dominant(links, best, rival, spec, LEFTMOST_LONGEST)
         checked += 1
-        assert best is chain[-1], (
+        # Compared by VALUE, not identity: a family IS its
+        # ``(waiter, origin, child)`` triple — the same triple names the same
+        # family however it was obtained — and a promoted key's families are
+        # rebuilt per read rather than being one shared object.
+        assert best == chain[-1], (
             f"at key {handle} the primitive keeps {best[:2]} where the chain "
             f"reader descends into {chain[-1][:2]}"
         )

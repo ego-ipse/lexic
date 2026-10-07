@@ -38,7 +38,7 @@ from weakref import finalize
 
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, release
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
 
@@ -394,7 +394,7 @@ def worker_parse[M](
     grammar: IrAst,
     text: str,
     binding: ModelExecutable[M],
-    resolve: Resolver | None,
+    config: ParseConfig,
 ) -> M:
     """Parse ``text`` against the CALLING worker thread's own view of ``grammar``.
 
@@ -406,11 +406,11 @@ def worker_parse[M](
     :param grammar: The grammar this chunk is parsed against.
     :param text: This worker's chunk, not the whole document.
     :param binding: The bound product producing ``M``.
-    :param resolve: The caller's ambiguity resolver, or ``None``.
+    :param config: The caller's resolver and split decider.
     :returns: The chunk's model.
     """
     view_grammar, view_binding = worker_replica(grammar, binding)
-    return parse(view_grammar, text, view_binding, resolve)
+    return parse(view_grammar, text, view_binding, config)
 
 
 def claim_census() -> tuple[int, int]:

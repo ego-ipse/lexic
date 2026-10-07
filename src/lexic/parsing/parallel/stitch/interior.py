@@ -26,7 +26,7 @@ from typing import Any, cast
 from lexic.exceptions import EngineInvariantError, LexicError
 from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.folded import FoldedPlan, Pieces
@@ -45,6 +45,10 @@ from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.stitch.model import ModelStep, is_run, splice
 from lexic.parsing.parallel.stitch.plan import field_slot, model_type
+
+type Ask[M] = tuple[str, ModelExecutable[M], ParseConfig]
+"""One document's split request, as the orchestrator hands it down: the text,
+its bound product and the caller's configuration."""
 
 
 def interior_route[M: IrNamedTuple](
@@ -190,7 +194,7 @@ def _merged_run(pieces: list[GrammarModel], child: int) -> tuple[IrSelf, ...] | 
 def routed_split[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    ask: Ask[M],
     pool: WorkPool,
 ) -> M | None:
     """Split a routed interior across the pool, or ``None`` for sequential.
@@ -200,7 +204,7 @@ def routed_split[M: IrNamedTuple](
     concatenation. Anything unproven — no route, no balanced division, a piece
     that will not parse — declines to the caller's sequential parse.
     """
-    text, binding, resolve = ask
+    text, binding, *_ = ask
     plan = routed_plan(grammar)
     if plan is None:
         return None
@@ -211,9 +215,7 @@ def routed_split[M: IrNamedTuple](
     route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
     if route is None:
         return None
-    parsed = _parsed(
-        parse, grammar, (text, binding, resolve), (plan, region, parts), pool
-    )
+    parsed = _parsed(parse, grammar, ask, (plan, region, parts), pool)
     if parsed is None:
         return None
     shell, pieces = parsed
@@ -225,7 +227,7 @@ def routed_split[M: IrNamedTuple](
 def _parsed[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    ask: Ask[M],
     work: tuple[RoutedPlan, Region, list[str]],
     pool: WorkPool,
 ) -> tuple[M, list[GrammarModel]] | None:
@@ -234,12 +236,12 @@ def _parsed[M: IrNamedTuple](
     The shell keeps the product's own type; whether it is a model at all is
     the caller's question, asked where the answer is needed.
     """
-    text, binding, resolve = ask
+    text, binding, config = ask
     plan, region, parts = work
     try:
-        shell = parse(grammar, _stand_in(text, region), binding, resolve)
+        shell = parse(grammar, _stand_in(text, region), binding, config)
         pieces = pool.map(
-            lambda k: worker_parse(parse, plan.rooted, parts[k], binding, resolve),
+            lambda k: worker_parse(parse, plan.rooted, parts[k], binding, config),
             list(range(len(parts))),
         )
     except LexicError:
@@ -370,7 +372,7 @@ def _regraft(
 def folded_split[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    ask: Ask[M],
     pool: WorkPool,
 ) -> M | None:
     """Split a folded left recursion across the pool, or ``None`` = sequential.
@@ -379,7 +381,7 @@ def folded_split[M: IrNamedTuple](
     out — so the concurrent work is the spine and nothing else, and what comes
     back is stitched through the step rule's own generated class.
     """
-    text, binding, resolve = ask
+    text, binding, *_ = ask
     plan = folded_plan(grammar)
     if plan is None:
         return None
@@ -391,9 +393,7 @@ def folded_split[M: IrNamedTuple](
     step = model_type(binding.routines.get(plan.step))
     if pieces is None or route is None or step is None:
         return None
-    parsed = _folded_models(
-        parse, grammar, (text, binding, resolve), (plan, pieces), pool
-    )
+    parsed = _folded_models(parse, grammar, ask, (plan, pieces), pool)
     if parsed is None:
         return None
     return _folded_stitch(parsed, route, step)
@@ -428,20 +428,20 @@ def _folded_stitch[M: IrNamedTuple](
 def _folded_models[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    ask: Ask[M],
     work: tuple[FoldedPlan, Pieces],
     pool: WorkPool,
 ) -> tuple[list[M], tuple[GrammarModel, ...]] | None:
     """Every piece's document model and every removed mark's, or decline."""
-    _text, binding, resolve = ask
+    _text, binding, config = ask
     plan, pieces = work
     try:
         parts = pool.map(
-            lambda k: worker_parse(parse, grammar, pieces.parts[k], binding, resolve),
+            lambda k: worker_parse(parse, grammar, pieces.parts[k], binding, config),
             list(range(len(pieces.parts))),
         )
         leads = [
-            parse(plan.lead_grammar, mark, binding, resolve) for mark in pieces.leads
+            parse(plan.lead_grammar, mark, binding, config) for mark in pieces.leads
         ]
     except LexicError:
         return None
@@ -464,7 +464,7 @@ a source that declines declines for a stated reason, and the next is asked.
 def source_split[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], Resolver | None],
+    ask: Ask[M],
     pool: WorkPool,
 ) -> M | None:
     """The first source that takes this document, or ``None`` for sequential."""

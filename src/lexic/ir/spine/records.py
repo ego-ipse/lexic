@@ -123,6 +123,28 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
         evaluated = (p.eval(d, n, nc) for p in cast(tuple[IrSelf, ...], self))
         return type(self)(*cast(tuple[*Ts], tuple(evaluated)))
 
+    def __eq__(self, other: object) -> bool:
+        """The same concrete kind with equal fields — never a plain tuple.
+
+        A record's class is its node kind: ``IrAnd(x, y)`` and ``IrEq(x, y)``
+        are different operators, and a plain ``(x, y)`` is neither. Equal to
+        a plain tuple, a record would make ``IrAnd == (x, y) == IrEq`` with
+        ``IrAnd != IrEq``. A mismatch is ``False``, not ``NotImplemented``:
+        ``tuple`` would otherwise answer for the other operand by payload.
+
+        :param other: The value to compare against.
+        :returns: ``True`` when ``other`` is the same class with equal fields.
+        """
+        return type(other) is type(self) and tuple.__eq__(self, other)
+
+    def __ne__(self, other: object) -> bool:
+        """Exactly the negation of :meth:`__eq__` — ``tuple`` has its own."""
+        return not (type(other) is type(self) and tuple.__eq__(self, other))
+
+    __hash__ = tuple.__hash__
+    """The payload hash, as ``tuple``'s own C slot: equal records share it,
+    and two classes with one payload colliding costs nothing but a probe."""
+
     def __repr__(self) -> str:
         """Codegen repr: ``ClassName(elem0, elem1, …)``.
 

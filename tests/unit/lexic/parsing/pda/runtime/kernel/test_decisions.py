@@ -4,105 +4,34 @@ decision half of ``PdaKernel``.
 ``Attempting``'s methods read the live kernel cursor's state (``pos``,
 ``stack``, ``_caches``) and are exercised end to end through real parses in
 ``tests/unit/lexic/parsing/pda/test_group_attempt.py`` and the parity suite;
-this file targets the module's cursor-free pure helpers directly: the
-per-item/per-clone admission tests, the arm-rest walk, FOLLOW composability,
-and the loop-close bookkeeping.
+this file targets the module's cursor-free pure helpers directly — the
+loop-close bookkeeping. The admission predicates it once hosted live in
+:mod:`lexic.parsing.pda.runtime.admission`, and their tests beside it.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.parsing.pda.core.charsets import CharSet
+from lexic.exceptions import LexicError
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.opcodes import OP_ISLAND
+from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.pda.runtime.kernel.decisions import (
-    _ADMITS_HARD,
-    _ASCEND,
-    _DEAD,
     _FORKED,
     _TAKE,
-    _arm_rest_scan,
-    _composes,
-    _item_admits,
+    Attempting,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_and_pda
 from tools.benchmark.cases.corpora import meta_corpus
 from tools.benchmark.cases.grammars import BENCHES
-
-MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
-
-
-def test_item_admits_a_literal_only_its_own_character():
-    """A literal item admits only its exact character."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _item_admits(arm, 0, "a") is True
-    assert _item_admits(arm, 0, "z") is False
-
-
-def test_item_admits_never_admits_the_empty_string():
-    """An empty lookahead character never admits, regardless of item kind."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _item_admits(arm, 0, "") is False
-
-
-def test_item_admits_a_charclass_by_membership():
-    """A char class item admits by set membership."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _item_admits(arm, 2, "5") is True
-    assert _item_admits(arm, 2, "x") is False
-
-
-def test_item_admits_delegates_a_clone_reference_to_clone_admits():
-    """A clone-reference item defers to the target clone's own admission."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _item_admits(arm, 1, "m") is True
-    assert _item_admits(arm, 1, "z") is False
-
-
-def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
-    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
-    settling the walk before item 2 is even reached."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _arm_rest_scan(arm, 0, "m") == (_ADMITS_HARD, False)
-
-
-def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
-    """A mandatory item refusing the char kills the stop side."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _arm_rest_scan(arm, 0, "5") == (_DEAD, False)
-
-
-def test_arm_rest_scan_ascends_past_the_arms_final_item():
-    """Scanning past the arm's own end yields _ASCEND for the enclosing frame."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert _arm_rest_scan(arm, arm.n - 1, "q") == (_ASCEND, False)
-
-
-def test_composes_is_true_at_end_of_input():
-    """End of input always composes — nothing follows to contradict it."""
-    follow = CharSet.from_chars("x")
-    assert _composes(follow, "abc", 3) is True
-
-
-def test_composes_checks_the_next_character_against_follow():
-    """A next character inside FOLLOW composes; one outside it does not."""
-    follow = CharSet.from_chars("x")
-    assert _composes(follow, "axb", 1) is True
-    assert _composes(follow, "ayb", 1) is False
 
 
 def test_close_loop_resets_count_advances_i_and_records_the_end():
@@ -435,3 +364,96 @@ def test_a_converged_boundary_forks_when_the_common_remainder_completes(
     )
     assert (tally["agree"], tally["dead"]) == (0, 0), tally
     assert (tally["other"], tally["nested"]) == (0, 0), tally
+
+
+def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
+    """Values DIFFER and the common remainder REFUSES — the boundary bails.
+
+    The remainder is run once, on the LEFT side's stack, so its completions
+    read the values the left side built. A refusal there is a verdict about
+    those values, not about the right side's: it is neither a death of both
+    sides nor a completion, so ``_converged`` raises :class:`ProbeFork` and
+    the gated engine answers. Read as a death, it would settle :data:`_TAKE`.
+
+    The document is the dead-remainder witness above: its remainder completes
+    ``inline-content`` before it dies, and that completion is made to refuse
+    — only inside ``_converged``'s own drive.
+    """
+    bench = next(one for one in BENCHES if one.name == "vyx")
+    text = "!X:P L2< \U00097f2f \U0003fe58\U0007d18e\U000ed509 \U000deadc >\n"
+    converged = vars(decisions.Attempting)["_converged"]
+    complete = next(
+        vars(c)["_complete"] for c in PdaKernel.__mro__ if "_complete" in vars(c)
+    )
+    inside, refused, answers = [0], [0], []
+
+    def converging(self, *args):
+        inside[0] += 1
+        try:
+            answers.append(converged(self, *args))
+        except ProbeFork as bail:
+            answers.append(str(bail))
+            raise
+        finally:
+            inside[0] -= 1
+        return answers[-1]
+
+    def refusing(self, frame):
+        if inside[0]:
+            refused[0] += 1
+            raise LexicError("refused on a value the left side built")
+        return complete(self, frame)
+
+    monkeypatch.setattr(decisions.Attempting, "_converged", converging)
+    monkeypatch.setattr(PdaKernel, "_complete", refusing)
+    kernel = PdaKernel(bench.compiled.pda_tables(), text, bench.compiled.executor)
+    with pytest.raises(PdaFail):
+        kernel.run()
+    assert refused[0], "no completion refused inside the drive — nothing tested"
+    assert len(answers) == 1 and "shared remainder" in str(answers[0]), answers
+
+
+# ── an attempted island that cannot settle its extent bails ─────────────────
+
+
+class _IslandUndecidable(Attempting[str]):
+    """An attempted island iteration whose sub-parse finds two ends, either
+    of which could compose: the island raises ``ProbeFork``."""
+
+    __slots__ = ("text", "pos", "stack")
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.pos = 0
+        self.stack = []
+
+    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+        return False  # the one-character stop test says nothing here
+
+    def _enter(self, clone: FlatClone[str], out: list[str]) -> bool:
+        raise AssertionError("an island iteration pushes no frame")
+
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
+        raise AssertionError("an island iteration drives nothing")
+
+    def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
+        return []
+
+    def _island(self, ref: IslandPayload, sink: list[str]) -> None:
+        raise ProbeFork("island spans two ends and the shorter could compose", 0)
+
+
+def test_an_attempted_island_that_cannot_settle_bails_instead_of_closing() -> None:
+    """Read as a failed iteration, the refusal closed the loop at the current
+    count and committed a carving the gated engine had been asked to decide."""
+    arm = flat_arm(
+        1,
+        kinds=(OP_ISLAND,),
+        los=(0,),
+        his=(-1,),
+        gate_data=(((frozenset("a"), False), (frozenset(), False)),),
+        payloads=(None,),
+    )
+    frame: Frame[str] = Frame(arm, [], flat_clone(), 0)
+    with pytest.raises(ProbeFork):
+        _IslandUndecidable("a").attempt_iteration(frame, arm, 0, 0)

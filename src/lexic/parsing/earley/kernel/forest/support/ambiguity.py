@@ -23,24 +23,32 @@ from operator import ne
 from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrNamedTuple, IrNone, IrNoneType
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
+    ChainSpec,
+    arm_of,
     canonical_indices,
     is_arm_choice,
+    leftmost_chain,
     spec_for,
 )
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
+    from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, KLink
 
 __all__ = [
+    "DEFAULT_CONFIG",
     "BuiltMeaning",
     "MeaningBuilder",
     "MeaningMemo",
     "MeaningPair",
     "MeaningRun",
+    "ParseConfig",
     "Resolver",
     "ambiguity_points",
     "chosen_meaning",
@@ -62,6 +70,25 @@ take-the-first resolver.
 """
 
 
+class ParseConfig(IrNamedTuple[Resolver | IrNoneType, Decider]):
+    """How a parse chooses between derivations, as the caller configured it.
+
+    The two travel together through every route, so both engines answer the
+    same question the same way.
+
+    :ivar resolve: The caller's answer to an arm choice that means two
+        things; :data:`~lexic.ir.IrNone` refuses one.
+    :ivar decide: The split decider: which carving of a span is kept.
+    """
+
+    resolve: Resolver | IrNoneType = IrNone
+    decide: Decider = LEFTMOST_LONGEST
+
+
+DEFAULT_CONFIG = ParseConfig()
+"""Refuse an ambiguity, and keep the leftmost-longest carving."""
+
+
 def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
     """Every key reachable from ``root`` that packs more than one family.
 
@@ -71,7 +98,7 @@ def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
         exactly one way — proven, not sampled.
     """
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    codes, links = kernel.tables.codes, kernel.st.links
+    codes, links = kernel.tables.codes, kernel.family_reader()
     found: set[int] = set()
     seen: set[int] = set()
     stack = [root]
@@ -163,20 +190,23 @@ class MeaningPair[Value](NamedTuple):
 
 
 class MeaningRun[Value, NodeValue](NamedTuple):
-    """One span's interpretation attempt — the parse, the handle, the builder.
+    """One span's interpretation attempt — the parse, the handle, the builder
+    and the decider.
 
-    The three that are fixed for every alternate of one span. Built ONCE, and
+    The four that are fixed for every alternate of one span. Built ONCE, and
     only after an arm choice has been found, so a span that derives one way
     allocates nothing for a search it never runs.
 
     :ivar kernel: The finished kernel.
     :ivar root: The packed accepting handle.
     :ivar builder: The interpretation's fresh and seeded entry points.
+    :ivar decide: The split decider every derivation's carving answers to.
     """
 
     kernel: Kernel
     root: int
     builder: MeaningBuilder[Value, NodeValue]
+    decide: Decider
 
 
 class MeaningMemo[NodeValue](NamedTuple):
@@ -206,7 +236,7 @@ def remembered[Value, NodeValue](
     :param first: The derivation already in hand, used on a fast-tree miss.
     :returns: The already-built baseline and its reusable node memo.
     """
-    tree = FastTree(run.kernel, {})
+    tree = FastTree(run.kernel, {}, run.decide)
     built = tree.build(run.root)
     if not isinstance(built, ParseTree):
         return BuiltMeaning(first, run.builder.build(first)), MeaningMemo({}, {})
@@ -239,7 +269,7 @@ def replayed[Value, NodeValue](
     """
     cone = dirty_cone(run.kernel, run.root, point)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
-    tree = FastTree(run.kernel, {point: family})
+    tree = FastTree(run.kernel, {point: family}, run.decide)
     tree.memo.update(keep)
     built = tree.build(run.root)
     if not isinstance(built, ParseTree):
@@ -255,7 +285,7 @@ def replayed[Value, NodeValue](
 def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
     """Reverse reachability under ``root`` — handle → the handles containing it."""
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    codes, links = kernel.tables.codes, kernel.st.links
+    codes, links = kernel.tables.codes, kernel.family_reader()
     parents: dict[int, list[int]] = {}
     seen: set[int] = set()
     stack = [root]
@@ -329,6 +359,7 @@ def different_meaning[Value, NodeValue](
     handle: int,
     builder: MeaningBuilder[Value, NodeValue],
     first: ParseTree,
+    decide: Decider,
 ) -> MeaningPair[Value]:
     """Build the baseline once and find the first differently valued derivation.
 
@@ -347,26 +378,29 @@ def different_meaning[Value, NodeValue](
     :param handle: The packed accepting handle.
     :param builder: Fresh and memo-seeded product execution.
     :param first: The derivation already in hand, to compare the rest against.
+    :param decide: The split decider every derivation's carving answers to.
     :returns: The already-built baseline and optional differing witness.
     """
     siblings = _sibling_roots(kernel, handle)
     choices = _arm_choices(kernel, handle)
     if not choices:
         base = BuiltMeaning(first, builder.build(first))
-        return MeaningPair(base, _sibling_witness(kernel, siblings, base, builder))
+        witness = _sibling_witness(kernel, siblings, base, builder, decide)
+        return MeaningPair(base, witness)
     # Only here, where an alternate can exist at all, does the span's fixed
     # trio become worth naming; a one-derivation parse never reaches it.
-    run = MeaningRun(kernel, handle, builder)
+    run = MeaningRun(kernel, handle, builder, decide)
     base, memo = remembered(run, first)
-    witness = _sibling_witness(kernel, siblings, base, builder)
+    witness = _sibling_witness(kernel, siblings, base, builder, decide)
     if witness is not None:
         return MeaningPair(base, witness)
-    return MeaningPair(base, _flipped_witness(run, choices, base, memo))
+    flips = _decided_flips(run, memo) if memo.nodes else _canonical_flips(run, choices)
+    return MeaningPair(base, _flipped_witness(run, flips, base, memo))
 
 
 def _flipped_witness[Value, NodeValue](
     run: MeaningRun[Value, NodeValue],
-    choices: list[int],
+    flips: list[tuple[int, int]],
     base: BuiltMeaning[Value],
     memo: MeaningMemo[NodeValue],
 ) -> BuiltMeaning[Value] | None:
@@ -376,25 +410,76 @@ def _flipped_witness[Value, NodeValue](
     stops at the first difference, so a span whose first alternate settles the
     question never enumerates the rest.
 
-    **One alternate per ARM.** The walk used to visit every family at the
-    point, carvings the split rule had already rejected included, and a
-    difference found against one of those refuses a span over a derivation this
-    engine cannot produce. What the grammar left open here is the choice of
-    arm, so that is what is offered:
-    :func:`~lexic.parsing.earley.kernel.tables.splits.canonical_indices` names
-    each arm's own carving and the walk flips between those.
+    :param flips: ``(point, family)`` pairs, each one alternative to try.
     """
-    kernel = run.kernel
-    codes = kernel.tables.codes
-    bits = kernel.tables.packing.bits
-    for point in choices:
-        bucket = kernel.st.links[point]
-        spec = spec_for(codes, bits, kernel.tables.code_choice, point)
-        for family in canonical_indices(kernel.st.links, bucket, spec)[1:]:
-            built = replayed(run, point, family, memo)
-            if built is not None and not same_value(base.value, built.value):
-                return built
+    for point, family in flips:
+        built = replayed(run, point, family, memo)
+        if built is not None and not same_value(base.value, built.value):
+            return built
     return None
+
+
+def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
+    """The arm alternatives of the DECIDED derivation, and no others.
+
+    The decider fixed every boundary the derivation has. An arm choice left
+    open is a family at one of its keys that reaches the SAME predecessor —
+    the same boundary and the same chain below — with a child of a different
+    authored choice. A family reaching another predecessor is a carving the
+    decider rejected, and a derivation this engine never produces cannot make
+    the span mean two things.
+
+    :param memo: The decided build, whose handles are the derivation's nodes.
+    :returns: ``(point, family)`` pairs, by point then family.
+    """
+    kernel, decide = run.kernel, run.decide
+    tables = kernel.tables
+    bits = tables.packing.bits
+    links = kernel.family_reader()
+    found: set[tuple[int, int]] = set()
+    for handle in memo.nodes:
+        spec = spec_for(tables.codes, bits, tables.code_choice, handle)
+        chain = leftmost_chain(links, handle, spec, {}, decide)
+        key = handle
+        for link in reversed(chain or ()):
+            found.update(
+                (key, family) for family in _other_arms(links, key, link, spec)
+            )
+            key = (link[0] << bits) | link[1]
+    return sorted(found)
+
+
+def _other_arms(
+    links: FamilyReader, key: int, link: KLink, spec: ChainSpec
+) -> list[int]:
+    """The families at ``key`` from ``link``'s predecessor naming another arm."""
+    bucket = links.get(key)
+    if bucket is None or len(bucket) < 2:
+        return []
+    bits, choice = spec.bits, spec.code_choice
+    arm = arm_of(link[2], bits, choice)
+    return [
+        family
+        for family, other in enumerate(bucket)
+        if other[0] == link[0]
+        and other[1] == link[1]
+        and arm_of(other[2], bits, choice) != arm
+    ]
+
+
+def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int]]:
+    """One alternative per arm at every reachable arm choice — the reading when
+    no decided build exists to judge (a chart only the stream could read)."""
+    kernel = run.kernel
+    tables = kernel.tables
+    bits = tables.packing.bits
+    links = kernel.family_reader()
+    flips: list[tuple[int, int]] = []
+    for point in choices:
+        spec = spec_for(tables.codes, bits, tables.code_choice, point)
+        indices = canonical_indices(links, links[point], spec, run.decide)
+        flips.extend((point, family) for family in indices[1:])
+    return flips
 
 
 def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
@@ -404,10 +489,11 @@ def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
     never a candidate; only a choice between arms can mean two things.
     """
     bits = kernel.tables.packing.bits
+    links = kernel.family_reader()
     return [
         key
         for key in ambiguity_points(kernel, handle)
-        if is_arm_choice(kernel.st.links[key], bits, kernel.tables.code_choice)
+        if is_arm_choice(links[key], bits, kernel.tables.code_choice)
     ]
 
 
@@ -416,10 +502,11 @@ def _sibling_witness[Value, NodeValue](
     siblings: list[int],
     base: BuiltMeaning[Value],
     builder: MeaningBuilder[Value, NodeValue],
+    decide: Decider,
 ) -> BuiltMeaning[Value] | None:
     """The first sibling root that means something other than ``base``."""
     for alternate in siblings:
-        other = FastTree(kernel, {}).build(alternate)
+        other = FastTree(kernel, {}, decide).build(alternate)
         if not isinstance(other, ParseTree):
             continue
         built = BuiltMeaning(other, builder.build(other))
@@ -431,7 +518,7 @@ def _sibling_witness[Value, NodeValue](
 def chosen_meaning[Value, NodeValue](
     pair: MeaningPair[Value],
     builder: MeaningBuilder[Value, NodeValue],
-    resolve: Resolver | None,
+    config: ParseConfig,
 ) -> Value:
     """The value a possibly-ambiguous pair settles to, built at most once.
 
@@ -442,7 +529,8 @@ def chosen_meaning[Value, NodeValue](
 
     :param pair: What :func:`different_meaning` found for the span.
     :param builder: The same interpretation the pair was built through.
-    :param resolve: The caller's resolver, or ``None`` to refuse.
+    :param config: The caller's configuration; its resolver answers, or its
+        absence refuses.
     :returns: The chosen meaning's value.
     :raises UnsupportedConstructError: When the span means two things and no
         resolver was supplied.
@@ -450,7 +538,8 @@ def chosen_meaning[Value, NodeValue](
     witness = pair.witness
     if witness is None:
         return pair.first.value
-    if resolve is None:
+    resolve = config.resolve
+    if isinstance(resolve, IrNoneType):
         raise UnsupportedConstructError(
             "parsing: ambiguous input — two derivations that mean different "
             "things; supply a resolver to choose between them"

@@ -15,6 +15,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 
@@ -47,12 +48,15 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
         if accept_item(kernel) < 0:
             continue
         handle = (accept_item(kernel) << kernel.tables.packing.bits) | len(text)
-        tree = FastTree(kernel, {}).build(handle)
+        tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
         if not isinstance(tree, ParseTree):
             continue
         if ambiguity_points(kernel, handle):
             with_points += 1
-        if different_meaning(kernel, handle, builder, tree).witness is not None:
+        if (
+            different_meaning(kernel, handle, builder, tree, LEFTMOST_LONGEST).witness
+            is not None
+        ):
             flagged += 1
     assert with_points, "no ambiguous json input generated — the test proves nothing"
     assert not flagged, (

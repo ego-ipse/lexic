@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lexic.compile import CompiledGrammar, canonical_grammar, compile_from_path
+from lexic.compile import (
+    CompiledGrammar,
+    canonical_grammar,
+    compile_from_path,
+    compile_text,
+)
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import flavour_for_extension
 from lexic.model import GrammarModel
+from lexic.parsing import products
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
@@ -49,3 +55,18 @@ def assert_parity(
     by the integration raw-parity test)."""
     assert pda_model.semantic_dump() == engine_model.semantic_dump()
     assert pda_model.to_text() == text
+
+
+def pda_and_earley(source: str, text: str, key: str) -> tuple[object, object]:
+    """``text``'s model from the PDA asked DIRECTLY, and from Earley, as dumps.
+
+    Direct, so a PDA failure raises here instead of hiding behind the product's
+    fallback to the very engine it is being compared with.
+    """
+    compiled = compile_text(source, cache_key=key)
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    pda = products.pda_model(product.pda, text, compiled.product.executor)
+    earley = products.earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    return pda.dump(), earley.dump()

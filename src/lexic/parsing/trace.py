@@ -41,7 +41,10 @@ from __future__ import annotations
 from typing import ClassVar, Self
 
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
-from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    DEFAULT_CONFIG,
+    ParseConfig,
+)
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
@@ -157,7 +160,7 @@ class WatchedKernel[M](PdaKernel[M]):
         text: str,
         executor: ProductExecutor[M] | None = None,
         *,
-        resolve: Resolver | None = None,
+        config: ParseConfig = DEFAULT_CONFIG,
     ) -> None:
         """Prepare a watched parse — the base's construction, unchanged.
 
@@ -170,9 +173,9 @@ class WatchedKernel[M](PdaKernel[M]):
         :param text: The input to parse.
         :param executor: The full-grammar product completion, for island
             splicing.
-        :param resolve: The caller's answer to an ambiguous island.
+        :param config: The caller's resolver and split decider.
         """
-        super().__init__(tables, text, executor, resolve=resolve)
+        super().__init__(tables, text, executor, config=config)
         self.events = []
         self.cap = TRACE_CAP
         self.capped = False
@@ -318,7 +321,7 @@ def watch[M](
     executor: ProductExecutor[M] | None = None,
     *,
     cap: int = TRACE_CAP,
-    resolve: Resolver | None = None,
+    config: ParseConfig = DEFAULT_CONFIG,
 ) -> WatchedRun:
     """Parse ``text`` again, watched, and hand back what the machine did.
 
@@ -331,12 +334,12 @@ def watch[M](
     :param text: The input to parse.
     :param executor: The full-grammar product completion, for island splicing.
     :param cap: How many events to record before the account stops.
-    :param resolve: The caller's answer to an ambiguous island.
+    :param config: The caller's resolver and split decider.
     :returns: The stream and the run's own facts. A refusal is an event, not
         an exception: the predictive machine failing is what the compile seam
         retries on the gated engine, and it is the run most worth watching.
     """
-    kernel = WatchedKernel(tables, text, executor, resolve=resolve)
+    kernel = WatchedKernel(tables, text, executor, config=config)
     kernel.cap = cap
     derived = kernel.watched_run()
     return WatchedRun(Trace(*kernel.events), cap, kernel.capped, derived)

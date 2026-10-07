@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, NamedTuple
+
+import pytest
 
 from lexic.compile import parse_grammar
 from lexic.ir import (
@@ -22,6 +24,8 @@ from lexic.ir import (
     IrSequence,
     canonicalize,
 )
+from lexic.parsing import FastTree
+from lexic.parsing.earley.kernel.tables.decider import Decider, LeftmostLongest
 
 # Canonical set of all grammar-AST IR types that every flavour must cover.
 GRAMMAR_AST_TYPES: frozenset[type] = frozenset(
@@ -108,3 +112,33 @@ def assert_wide_rule_wraps_and_round_trips(
     root_line = flat.splitlines()[0]
     assert "\n" not in root_line
     assert root_line == flat_text
+
+
+class DeciderSpy(NamedTuple):
+    """A decider no default stands in for, and the decider every fast tree built
+    while the spy is installed was handed.
+
+    :ivar decider: Equal in rank to the default, but granting nothing.
+    :ivar seen: Each built tree's decider, in build order.
+    """
+
+    decider: Decider
+    seen: list[Decider]
+
+    def reached_every_tree(self) -> bool:
+        """Whether a tree was built at all, and each one held :attr:`decider`."""
+        return bool(self.seen) and all(one is self.decider for one in self.seen)
+
+
+@pytest.fixture
+def decider_spy(monkeypatch: pytest.MonkeyPatch) -> DeciderSpy:
+    """Record the decider of every :class:`FastTree` the test builds."""
+    spy = DeciderSpy(LeftmostLongest(frozenset()), [])
+    build = FastTree.build
+
+    def recording(tree: FastTree, handle: int) -> IrSelf:
+        spy.seen.append(tree.decide)
+        return build(tree, handle)
+
+    monkeypatch.setattr(FastTree, "build", recording)
+    return spy

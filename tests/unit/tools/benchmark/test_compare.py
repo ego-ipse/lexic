@@ -9,6 +9,7 @@ against a measured control envelope.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -16,6 +17,7 @@ import pytest
 
 from tools.benchmark import compare
 from tools.benchmark.execution.isolation import Job
+from tools.benchmark.judging import arithmetic
 from tools.benchmark.measurement.contract import (
     CLOCKS,
     PROTOCOL,
@@ -59,18 +61,23 @@ def _arm(label: str, **fields: object) -> compare.Arm:
     return compare.Arm(label, CONTRACT, OBSERVED._replace(**fields))
 
 
+def _read(job: Job, reading: float) -> compare.Arm:
+    """The arm a fake pair hands back for ``job``: both clocks at ``reading``."""
+    return _arm(job.label, wall=reading, cpu=reading)
+
+
 def _pairing(
     candidate: list[float], control: list[float], slots: list[float] | None = None
-) -> compare.Pairing:
+) -> arithmetic.Pairing:
     """A row's paired log ratios; the slot readings default to the control's."""
-    return compare.Pairing(
+    return arithmetic.Pairing(
         tuple(candidate), tuple(control), tuple(control if slots is None else slots)
     )
 
 
-def _verdict(row: str, status: str) -> compare.Verdict:
+def _verdict(row: str, status: str) -> arithmetic.Verdict:
     """One decided row, for judging the gate's exit code."""
-    return compare.Verdict(row, status, 1.0, 0.99, 1.01, 1.02, 5, "cpu")
+    return arithmetic.Verdict(row, status, 1.0, 0.99, 1.01, 1.02, 5, "cpu")
 
 
 def test_pairs_alternate_which_tree_runs_first(
@@ -122,14 +129,16 @@ def test_control_order_flips_on_its_own_schedule(
         assert head_first is not control_a_first
 
 
-def _slot_reading(_first: Job, _second: Job, _row: str) -> tuple[float, float]:
+def _slot_reading(
+    first: Job, second: Job, _row: str
+) -> tuple[compare.Arm, compare.Arm]:
     """A machine whose FIRST process always reads twice the second's.
 
     Slot-dependent and nothing else: the two jobs are byte-identical code, so
     every non-zero control ratio this produces is the slot, and its sign says
     which way the pair was run.
     """
-    return (2.0, 1.0)
+    return _read(first, 2.0), _read(second, 1.0)
 
 
 def test_a_slot_penalty_reverses_in_the_control_instead_of_accumulating(
@@ -254,9 +263,12 @@ def test_the_control_reversal_survives_an_offset_growth_round(
 def _cost_under_a_slot_penalty(slot: float, head_cost: float):
     """A reading function: head costs ``head_cost``, the first process ``slot``."""
 
-    def reading(first: Job, second: Job, _row: str) -> tuple[float, float]:
-        """Both readings, with the first process paying the slot penalty."""
-        return (_tree_cost(first, head_cost) * slot, _tree_cost(second, head_cost))
+    def reading(first: Job, second: Job, _row: str) -> tuple[compare.Arm, compare.Arm]:
+        """Both arms, with the first process paying the slot penalty."""
+        return (
+            _read(first, _tree_cost(first, head_cost) * slot),
+            _read(second, _tree_cost(second, head_cost)),
+        )
 
     return reading
 
@@ -279,7 +291,7 @@ def test_a_true_regression_is_not_swallowed_by_a_permanent_slot_penalty(
     monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.10, 1.03))
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
-    verdict = compare.decide("json/lexic-pda", pairing, "cpu")
+    verdict = arithmetic.decide("json/lexic-pda", pairing, "cpu")
 
     assert verdict.status != "ok", "a real regression passed inside the envelope"
     assert verdict.envelope < 1.10, "the envelope is still the slot penalty itself"
@@ -296,7 +308,7 @@ def test_a_machine_with_no_slot_penalty_still_calls_an_equal_pair_ok(
     monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.0, 1.0))
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
-    verdict = compare.decide("json/lexic-pda", pairing, "cpu")
+    verdict = arithmetic.decide("json/lexic-pda", pairing, "cpu")
 
     assert verdict.status == "ok"
     assert all(value == 0.0 for value in pairing.control)
@@ -340,7 +352,7 @@ def test_a_refused_row_stops_the_run_rather_than_scoring_zero() -> None:
 
 def test_a_row_slower_than_the_envelope_is_called_slower() -> None:
     """A candidate interval entirely above the control envelope fails."""
-    verdict = compare.decide("json/lexic-pda", _pairing([0.1] * 5, [0.0] * 5), "cpu")
+    verdict = arithmetic.decide("json/lexic-pda", _pairing([0.1] * 5, [0.0] * 5), "cpu")
 
     assert verdict.status == "slower"
     assert verdict.ratio == pytest.approx(math.exp(0.1))
@@ -348,21 +360,23 @@ def test_a_row_slower_than_the_envelope_is_called_slower() -> None:
 
 def test_a_row_faster_than_the_envelope_is_called_faster() -> None:
     """A candidate interval entirely below the envelope is a real win."""
-    verdict = compare.decide("json/lexic-pda", _pairing([-0.1] * 5, [0.0] * 5), "cpu")
+    verdict = arithmetic.decide(
+        "json/lexic-pda", _pairing([-0.1] * 5, [0.0] * 5), "cpu"
+    )
 
     assert verdict.status == "faster"
 
 
 def test_a_row_inside_the_envelope_is_called_ok() -> None:
     """A change smaller than this machine's own noise is not a result."""
-    verdict = compare.decide(
+    verdict = arithmetic.decide(
         "json/lexic-pda", _pairing([0.001] * 5, [0.05, -0.05] * 3), "cpu"
     )
 
     assert verdict.status == "ok"
 
 
-def _interval_of(low: float, high: float, envelope: float) -> compare.Verdict:
+def _interval_of(low: float, high: float, envelope: float) -> arithmetic.Verdict:
     """One row decided from a stated interval and a stated noise envelope.
 
     The candidate pairs are chosen to reproduce the interval exactly, so a row
@@ -371,12 +385,14 @@ def _interval_of(low: float, high: float, envelope: float) -> compare.Verdict:
     middle = (math.log(low) + math.log(high)) / 2
     spread = (math.log(high) - math.log(low)) / 2
     # Five pairs whose mean is `middle` and whose 95% half-width is `spread`.
-    error = spread / compare.CONFIDENCE_Z
+    error = spread / arithmetic.CONFIDENCE_Z
     deviation = error * math.sqrt(5) * math.sqrt(4) / 2
     candidate = [middle - deviation, middle + deviation, middle, middle, middle]
     edge = math.log(envelope)
-    control = [edge / compare.CONFIDENCE_Z * math.sqrt(5) * x for x in (-1, 1, 0, 0, 0)]
-    return compare.decide("row", _pairing(candidate, control), "cpu")
+    control = [
+        edge / arithmetic.CONFIDENCE_Z * math.sqrt(5) * x for x in (-1, 1, 0, 0, 0)
+    ]
+    return arithmetic.decide("row", _pairing(candidate, control), "cpu")
 
 
 def test_an_interval_wholly_below_the_envelope_is_not_unresolved() -> None:
@@ -402,7 +418,7 @@ def test_a_clear_win_wider_than_the_envelope_is_still_not_unresolved() -> None:
 
 def test_an_interval_overlapping_the_envelope_is_unresolved() -> None:
     """Straddling the boundary earns more pairs; it does not pick a side."""
-    verdict = compare.decide(
+    verdict = arithmetic.decide(
         "json/lexic-pda", _pairing([-0.1, 0.1, -0.1, 0.1, 0.0], [0.0] * 5), "cpu"
     )
 
@@ -411,8 +427,8 @@ def test_an_interval_overlapping_the_envelope_is_unresolved() -> None:
 
 def test_the_envelope_widens_with_a_noisy_control() -> None:
     """A noisy machine is honest about being noisy rather than strict."""
-    quiet = compare.decide("row", _pairing([0.02] * 5, [0.0] * 5), "cpu")
-    noisy = compare.decide(
+    quiet = arithmetic.decide("row", _pairing([0.02] * 5, [0.0] * 5), "cpu")
+    noisy = arithmetic.decide(
         "row", _pairing([0.02] * 5, [0.2, -0.2, 0.2, -0.2, 0.0]), "cpu"
     )
 
@@ -429,7 +445,7 @@ def test_an_unresolved_row_earns_more_pairs_up_to_the_bound(
 
     def sample(
         _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
-    ) -> compare.Pairing:
+    ) -> arithmetic.Pairing:
         asked.append(pairs)
         return _pairing([-0.1, 0.1] * pairs, [0.0] * (2 * pairs))
 
@@ -463,15 +479,15 @@ def _settling_at_seven():
     """
     calls = [0]
 
-    def reading(first: Job, second: Job, _row: str) -> tuple[float, float]:
-        """Both readings, the first process paying a constant slot cost."""
+    def reading(first: Job, second: Job, _row: str) -> tuple[compare.Arm, compare.Arm]:
+        """Both arms, the first process paying a constant slot cost."""
         calls[0] += 1
         head = math.exp(0.01) if (calls[0] - 1) // 2 < 6 else math.exp(-0.20)
         costs = [
             1.0 if job.label.endswith("/base") or "control" in job.label else head
             for job in (first, second)
         ]
-        return costs[0] * math.exp(0.10), costs[1]
+        return _read(first, costs[0] * math.exp(0.10)), _read(second, costs[1])
 
     return reading, lambda: calls.__setitem__(0, 0)
 
@@ -492,11 +508,11 @@ def test_a_row_that_settles_mid_block_is_published_at_the_block_boundary(
     arms = compare.Arms(BASE, HEAD, 4)
 
     reset()
-    at_six = compare.decide("json/x", compare.sample(arms, "json", "x", 6, 0), "cpu")
+    at_six = arithmetic.decide("json/x", compare.sample(arms, "json", "x", 6, 0), "cpu")
     reset()
     seven = compare.sample(arms, "json", "x", 7, 0)
     assert at_six.status in compare.GROWS, "the fixture must have to grow"
-    assert compare.decide("json/x", seven, "cpu").status == "ok", (
+    assert arithmetic.decide("json/x", seven, "cpu").status == "ok", (
         "the fixture must settle on the first pair of a block"
     )
     assert sum(seven.control) == pytest.approx(-0.10), "the bias it would publish"
@@ -517,7 +533,7 @@ def test_an_already_balanced_result_is_not_grown(
 
     def sample(
         _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
-    ) -> compare.Pairing:
+    ) -> arithmetic.Pairing:
         asked.append(pairs)
         return _pairing([0.0] * pairs, [0.01, -0.01] * (pairs // 2))
 
@@ -532,8 +548,8 @@ def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
     observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, "plan", 4)
 
-    assert compare.primary_reading(observation, "lexic-mt") == 2.0
-    assert compare.primary_reading(observation, "lexic-pda") == 9.0
+    assert arithmetic.primary_reading(observation, "lexic-mt") == 2.0
+    assert arithmetic.primary_reading(observation, "lexic-pda") == 9.0
 
 
 def _gate(monkeypatch: pytest.MonkeyPatch, statuses: list[str]) -> int:
@@ -612,7 +628,7 @@ def test_a_slower_verdict_must_survive_the_whole_pair_budget(
 
     def sample(
         _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
-    ) -> compare.Pairing:
+    ) -> arithmetic.Pairing:
         asked.append(pairs)
         return _pairing([0.1] * pairs, [0.0] * pairs)
 
@@ -632,7 +648,7 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
 
     def sample(
         _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
-    ) -> compare.Pairing:
+    ) -> arithmetic.Pairing:
         calls["n"] += pairs
         if calls["n"] <= compare.MIN_PAIRS:
             return _pairing([0.05] * pairs, [0.0] * pairs)
@@ -830,3 +846,121 @@ def test_the_controls_own_schedule_also_survives_growth(
     assert controls == expected
     # Pair eight is a growth round, and its phase says control-b leads there.
     assert controls[16:18] == ["control-b", "control-a"]
+
+
+# ── the head arm's absolute cost: beside the verdict, never judged ──────
+
+
+def _costed(per_byte: dict[str, float]):
+    """A worker whose head arm costs ``per_byte[side]`` seconds per byte.
+
+    Wall is twice the process clock, so a test can tell which clock landed
+    where; the document is CONTRACT's.
+    """
+
+    def run(job: Job) -> RowResult:
+        side = job.label.rsplit("/", 1)[1]
+        cpu = per_byte.get(side, per_byte["base"]) * CONTRACT.document_bytes
+        return RowResult(CONTRACT, (OBSERVED._replace(wall=2 * cpu, cpu=cpu),), None)
+
+    return run
+
+
+def test_sample_records_the_head_arm_per_byte_on_both_clocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One reading per candidate pair, from the HEAD arm, over the contract's bytes."""
+    monkeypatch.setattr(compare, "run_job", _costed({"head": 3e-8, "base": 1e-8}))
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 4, 0)
+
+    assert pairing.document_bytes == CONTRACT.document_bytes
+    assert list(pairing.head_cpu) == pytest.approx([30.0] * 4)
+    assert list(pairing.head_wall) == pytest.approx([60.0] * 4)
+
+
+def test_the_absolute_figures_cannot_move_a_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same pairs decide the same way with the readings present or stripped.
+
+    Stripping is the counterfactual of the tree before this record existed, so
+    equality here is the statement that the gate's decision did not change.
+    """
+    monkeypatch.setattr(compare, "run_job", _costed({"head": 3e-8, "base": 1e-8}))
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 6, 0)
+    stripped = arithmetic.Pairing(pairing.candidate, pairing.control, pairing.slots)
+
+    assert pairing.head_wall, "the fixture must carry readings to strip"
+    assert arithmetic.decide("json/x", pairing, "cpu") == arithmetic.decide(
+        "json/x", stripped, "cpu"
+    )
+
+
+def test_growth_keeps_one_head_reading_per_candidate_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every growth round appends its readings, so none are lost to the bound."""
+    reading, _reset = _settling_at_seven()
+    monkeypatch.setattr(compare, "_pair", reading)
+    _verdict_out, pairing = compare.grow(compare.Arms(BASE, HEAD, 4), "json", "x")
+
+    assert len(pairing.candidate) > compare.MIN_PAIRS, "the fixture must have grown"
+    assert len(pairing.head_wall) == len(pairing.candidate)
+    assert len(pairing.head_cpu) == len(pairing.candidate)
+
+
+def test_the_absolute_summary_uses_the_verdicts_own_arithmetic() -> None:
+    """Mean of the logs and its interval, returned as ratios of nanoseconds."""
+    pairing = arithmetic.Pairing((0.0,), (0.0,), (0.0,), (10.0, 40.0), (5.0, 5.0), 100)
+    summary = compare.absolute(pairing)
+
+    assert summary is not None
+    assert summary.document_bytes == 100
+    assert summary.pairs == 2
+    assert summary.wall_ns_per_byte[0] == pytest.approx(20.0)  # geometric mean
+    assert summary.wall_ns_per_byte[1] < 20.0 < summary.wall_ns_per_byte[2]
+    assert summary.cpu_ns_per_byte == pytest.approx((5.0, 5.0, 5.0))
+    assert compare.absolute(arithmetic.Pairing((0.0,), (0.0,), (0.0,))) is None
+
+
+def test_main_writes_the_absolute_record_beside_unchanged_verdicts(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """The artifact gains ``absolute``; ``verdicts`` and the exit code do not move.
+
+    The job log carries the same figures under a heading that says they are
+    not judged, AFTER the verdict table rather than inside it.
+    """
+    monkeypatch.setattr(
+        compare, "rosters", lambda _base, _head: (("json", "lexic-pda"),)
+    )
+    monkeypatch.setattr(compare, "run_job", _costed({"head": 3e-8, "base": 1e-8}))
+    out = tmp_path / "ab.json"
+
+    code = compare.main(
+        ["--base-root", str(BASE), "--head-root", str(HEAD), "--json", str(out)]
+    )
+    printed = capsys.readouterr().out
+    payload = json.loads(out.read_text())
+
+    assert code == 1  # three times slower, and the gate still says so
+    assert [v["status"] for v in payload["verdicts"]] == ["slower"]
+    assert set(payload) == {"verdicts", "log_ratios", "absolute"}
+    row = payload["absolute"]["json/lexic-pda"]
+    assert row["document_bytes"] == CONTRACT.document_bytes
+    assert row["cpu_ns_per_byte"][0] == pytest.approx(30.0)
+    assert row["wall_ns_per_byte"][0] == pytest.approx(60.0)
+    table, _sep, absolute = printed.partition("head, absolute")
+    assert "json/lexic-pda" in table and "never judged" in absolute
+    assert "30.00" in absolute
+
+
+def test_a_run_without_readings_prints_no_absolute_table(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pairing that carries no head readings adds nothing to the log."""
+    _gate(monkeypatch, ["ok"])
+
+    assert "head, absolute" not in capsys.readouterr().out
