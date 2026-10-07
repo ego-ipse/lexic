@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import OP_ISLAND
 from lexic.parsing.pda.compiler.specs import IslandPayload
@@ -363,6 +364,53 @@ def test_a_converged_boundary_forks_when_the_common_remainder_completes(
     )
     assert (tally["agree"], tally["dead"]) == (0, 0), tally
     assert (tally["other"], tally["nested"]) == (0, 0), tally
+
+
+def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
+    """Values DIFFER and the common remainder REFUSES — the boundary bails.
+
+    The remainder is run once, on the LEFT side's stack, so its completions
+    read the values the left side built. A refusal there is a verdict about
+    those values, not about the right side's: it is neither a death of both
+    sides nor a completion, so ``_converged`` raises :class:`ProbeFork` and
+    the gated engine answers. Read as a death, it would settle :data:`_TAKE`.
+
+    The document is the dead-remainder witness above: its remainder completes
+    ``inline-content`` before it dies, and that completion is made to refuse
+    — only inside ``_converged``'s own drive.
+    """
+    bench = next(one for one in BENCHES if one.name == "vyx")
+    text = "!X:P L2< \U00097f2f \U0003fe58\U0007d18e\U000ed509 \U000deadc >\n"
+    converged = vars(decisions.Attempting)["_converged"]
+    complete = next(
+        vars(c)["_complete"] for c in PdaKernel.__mro__ if "_complete" in vars(c)
+    )
+    inside, refused, answers = [0], [0], []
+
+    def converging(self, *args):
+        inside[0] += 1
+        try:
+            answers.append(converged(self, *args))
+        except ProbeFork as bail:
+            answers.append(str(bail))
+            raise
+        finally:
+            inside[0] -= 1
+        return answers[-1]
+
+    def refusing(self, frame):
+        if inside[0]:
+            refused[0] += 1
+            raise LexicError("refused on a value the left side built")
+        return complete(self, frame)
+
+    monkeypatch.setattr(decisions.Attempting, "_converged", converging)
+    monkeypatch.setattr(PdaKernel, "_complete", refusing)
+    kernel = PdaKernel(bench.compiled.pda_tables(), text, bench.compiled.executor)
+    with pytest.raises(PdaFail):
+        kernel.run()
+    assert refused[0], "no completion refused inside the drive — nothing tested"
+    assert len(answers) == 1 and "shared remainder" in str(answers[0]), answers
 
 
 # ── an attempted island that cannot settle its extent bails ─────────────────
