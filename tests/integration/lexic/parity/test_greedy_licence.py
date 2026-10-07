@@ -17,6 +17,7 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.products import (
     _model_product,
@@ -291,13 +292,13 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     crash — it would build a model with holes in it — so the assertion is
     `dump()` equality against Earley, not that the parse succeeds.
 
-    `vyx` is the witness because it is the roster's forker: its full sample
-    forks at boundaries the lockstep settles. (`gbnf-meta` forked hundreds of
-    times until the exactly-once continuation read the item after a
-    reference; it forks no more.) A grammar that never forks would pass this
-    test without exercising anything.
+    `gbnf-meta`'s full sample is the witness: it forks at 92 boundaries and
+    the lockstep settles each one exactly, so the PDA finishes the document on
+    the fork path. (`vyx`'s one fork is now sampled and goes
+    to the gated engine; the test below pins that.) A grammar that never forks
+    would pass this test without exercising anything.
     """
-    bench = next(one for one in BENCHES if one.name == "vyx")
+    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     seen = [0]
     real = decisions.frames_copy
@@ -319,3 +320,25 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     assert seen[0] > 0, "the witness stopped forking — this test proves nothing"
     assert folded.dump() == reference.dump()
     assert folded.to_text() == reference.to_text() == bench.full
+
+
+def test_a_fork_decided_only_by_sampling_builds_earley_s_model_publicly() -> None:
+    """A fork whose answer was sampled is the gated engine's, end to end.
+
+    `vyx`'s full sample forks once, at a boundary whose probe resolved a
+    nested boundary by class rather than deciding it. The kernel must refuse
+    to settle there — it raises rather than commit — and the public parse,
+    which hands that refusal to Earley, must build exactly Earley's model.
+    """
+    bench = next(one for one in BENCHES if one.name == "vyx")
+    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+
+    with pytest.raises(ProbeFork, match="sampled, not decided"):
+        pda_model(product.pda, bench.full, bench.compiled.product.executor)
+    public = bench.compiled.parse(bench.full, cores=1)
+    reference = earley_model(
+        product.instance_grammar, bench.full, bench.compiled.product, product.tables
+    )
+
+    assert public.dump() == reference.dump()
+    assert public.to_text() == bench.full

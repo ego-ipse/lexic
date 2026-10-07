@@ -157,8 +157,12 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     too: ``_lockstep_verdict`` settles through ``_converged`` or through the
     branch this commit adds, and nothing else, so the difference IS that
     branch and a non-zero difference is the evidence it ran.
+
+    `gbnf-meta`'s full sample is the document: every one of its forks is
+    settled by an exact STOP-side death. (`vyx`'s one fork is sampled now, so
+    it settles nowhere and would leave the branch unexercised.)
     """
-    bench = next(one for one in BENCHES if one.name == "vyx")
+    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     counted = {"copies": 0, "verdicts": 0, "settled": 0, "converged": 0}
     copy = decisions.frames_copy
     defined = vars(decisions.Attempting)  # what the class DEFINES
@@ -194,7 +198,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     monkeypatch.setattr(decisions.Attempting, "_fork_verdict", counting_verdict)
     monkeypatch.setattr(decisions.Attempting, "_lockstep_verdict", counting_lockstep)
     monkeypatch.setattr(decisions.Attempting, "_converged", counting_converged)
-    bench.compiled.parse(bench.corpus, cores=1)
+    bench.compiled.parse(bench.full, cores=1)
 
     assert counted["verdicts"], (
         "this document no longer forks — the test proves nothing"
