@@ -303,7 +303,11 @@ class Attempting[Carry]:
         - **converged, values differ** — the remainder is COMMON, so it is run
           ONCE (not twice) to see whether it completes at all: completing makes
           the difference real (a fork); dying means neither side completes, and
-          a dead stop side is :data:`_TAKE` exactly as before.
+          a dead stop side is :data:`_TAKE` exactly as before. A REFUSAL there
+          is the exception: a completion that refuses reads the values it
+          gathered, which differ between the sides, so running the left side's
+          remainder says nothing about the right's, and the boundary is
+          undecidable (:meth:`_advance` raises :class:`ProbeFork`).
         - **the STOP side dies** — :data:`_TAKE`, since the caller tests
           ``stop is None`` first regardless; a dead TAKE side does not settle
           it, turning on the stop side reaching end-of-input, unestablished.
@@ -404,7 +408,13 @@ class Attempting[Carry]:
             return self.stack, self.pos, self._routes
         except ProbeFork:
             raise  # undecidable is not death: it is the gated engine's
-        except PdaFail, LexicError:
+        except LexicError as refusal:
+            if limit < 0:  # the common remainder, run once for both sides
+                raise ProbeFork(
+                    f"lockstep: refusal on the shared remainder: {refusal}", self.pos
+                ) from None
+            return None
+        except PdaFail:
             return None
         finally:
             caches.probing -= 1
