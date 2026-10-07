@@ -9,6 +9,7 @@ from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.compiler.program.opcodes import OP_LIT, OP_LIT1, OP_REF1
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
+    EXACT,
     REST_ADMITS_HARD,
     REST_ASCEND,
     REST_DEAD,
@@ -54,7 +55,7 @@ def test_kernel_caches_seed_empty_with_probe_depth_zero():
     assert not caches.deleg
     assert not caches.intern
     assert caches.probing == 0
-    assert caches.uncertain is False
+    assert caches.sampled == EXACT
 
 
 # ── frames_copy — the aliasing-true structural copy ───────────────────

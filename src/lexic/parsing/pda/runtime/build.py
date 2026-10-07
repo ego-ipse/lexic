@@ -147,7 +147,10 @@ class Frame[Carry]:
         counted, the walk reads from :attr:`i` with that item optional: a true
         over-approximation under either reading — the loop's next iteration
         may follow, and its mandatory bound may already be met — and never a
-        false dead end. No lane on the paid path tells them apart.
+        false dead end. No lane on the paid path tells them apart. The price is
+        paid inside probes: after an exactly-once descent, a mandatory item at
+        :attr:`i` reads as optional there, so a boundary that is the
+        terminator class (HARD) can read as chain-viable (ADMITS) instead.
         """
         i = self.i
         if i == 0 or self.count or self.arm.kinds[i - 1] != OP_REF1:

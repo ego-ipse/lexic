@@ -18,11 +18,12 @@ from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import OP_ISLAND
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
-from lexic.parsing.pda.runtime.admission import Side
+from lexic.parsing.pda.runtime.admission import EXACT, Sampled, Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.pda.runtime.kernel.decisions import (
     _FORKED,
+    _STOP_FORCED,
     _TAKE,
     Attempting,
 )
@@ -76,15 +77,15 @@ def _side(kern: PdaKernel) -> Side:
     return kern.stack, kern.pos, kern._routes  # pylint: disable=protected-access
 
 
-def _cursor(kern: PdaKernel) -> tuple[Side, int, bool]:
+def _cursor(kern: PdaKernel) -> tuple[Side, int, Sampled]:
     """Everything ``_advance``'s ``finally`` promises to put back."""
     caches = kern._caches  # pylint: disable=protected-access  # the seam — see `_side`
-    return _side(kern), caches.probing, caches.uncertain
+    return _side(kern), caches.probing, caches.sampled
 
 
 def _advance(kern: PdaKernel, side: Side) -> Side | None:
     """Drive one side to exhaustion — the method whose contract is under test."""
-    return kern._advance(side, -1)  # pylint: disable=protected-access  # see `_side`
+    return kern._advance(side, -1)[0]  # pylint: disable=protected-access  # see `_side`
 
 
 def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
@@ -460,3 +461,113 @@ def test_an_attempted_island_that_cannot_settle_bails_instead_of_closing() -> No
     frame: Frame[str] = Frame(arm, [], flat_clone(), 0)
     with pytest.raises(ProbeFork):
         _IslandUndecidable("a").attempt_iteration(frame, arm, 0, 0)
+
+
+# ── a sampled side decides only what a sample can say ──────────────────────
+
+
+class _Sampled(Attempting[str]):
+    """A boundary whose lockstep does not settle, and whose two probes answer
+    as told — ``(values or None, sampled)`` per side."""
+
+    __slots__ = ("sides",)
+
+    def __init__(self, stop: tuple, take: tuple) -> None:
+        self.sides = {"stop": stop, "take": take}
+
+    def _lockstep_verdict(self, arm, i, pos, taken):
+        return None
+
+    def _probe(self, arm, i, pos, taken):
+        return self.sides["stop" if taken is None else "take"]
+
+    def _enter(self, clone: FlatClone[str], out: list[str]) -> bool:
+        raise AssertionError("a probe stand-in enters nothing")
+
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
+        raise AssertionError("a probe stand-in drives nothing")
+
+    def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
+        raise AssertionError("a probe stand-in sinks nothing")
+
+    def _island(self, ref: IslandPayload, sink: list[str]) -> None:
+        raise AssertionError("a probe stand-in splices nothing")
+
+
+_TOOK = Sampled(take=True, stop=False)
+_STOPPED = Sampled(take=False, stop=True)
+
+
+def _verdict(stop: tuple, take: tuple) -> int:
+    """The fork verdict over those two probe answers."""
+    verdict = vars(decisions.Attempting)["_fork_verdict"]
+    return verdict(_Sampled(stop, take), flat_arm(0), 0, 0, (1, ["t"]))
+
+
+def test_a_sampled_take_failure_never_forces_the_stop() -> None:
+    """The take side died, but only on a path it sampled — by taking or by
+    stopping: another path may complete, so stopping is not forced and the
+    boundary is the gated engine's. Exact, the same death does force it."""
+    for sampled in (_TOOK, _STOPPED):
+        with pytest.raises(ProbeFork, match="sampled"):
+            _verdict((["s"], EXACT), (None, sampled))
+    assert _verdict((["s"], EXACT), (None, EXACT)) == _STOP_FORCED
+
+
+def test_a_sampled_stop_failure_never_forces_the_take() -> None:
+    """The stop side died on a sampled path: not a dead stop side."""
+    for sampled in (_TOOK, _STOPPED):
+        with pytest.raises(ProbeFork, match="sampled"):
+            _verdict((None, sampled), (["t"], EXACT))
+    assert _verdict((None, EXACT), (["t"], EXACT)) == _TAKE
+
+
+def test_an_agreement_is_exact_unless_a_side_stopped_a_boundary() -> None:
+    """Two completions that agree, where a side TOOK a nested boundary: the
+    decider keeps the longer carving wherever it completes, so that side
+    built the decider's value, and the split is benign. Where a side STOPPED
+    one, another path may build another value, so agreement proves nothing.
+    Differing values fork either way."""
+    assert _verdict((["v"], _TOOK), (["v"], _TOOK)) == _TAKE
+    with pytest.raises(ProbeFork, match="sampled"):
+        _verdict((["v"], _STOPPED), (["v"], EXACT))
+    assert _verdict((["v"], _STOPPED), (["w"], EXACT)) == _FORKED
+
+
+def test_a_nested_boundary_settled_by_taking_still_answers_for_itself() -> None:
+    """The duck's case: an outer agreement after a TAKEN nested boundary
+    commits, and the nested boundary is not thereby settled — the parse
+    reaches it as a boundary of its own, where a stop that also completes
+    with a different value forks, and one that completes with the same value
+    after a stopped boundary of its own bails."""
+    assert _verdict((["v"], _TOOK), (["v"], EXACT)) == _TAKE
+    assert _verdict((["x"], EXACT), (["y"], EXACT)) == _FORKED
+    with pytest.raises(ProbeFork, match="sampled"):
+        _verdict((["x"], _STOPPED), (["x"], EXACT))
+
+
+def _lockstep_after_one_round(monkeypatch, stop_sampled: Sampled) -> int | None:
+    """The lockstep over a stop side and a take side apart in position, whose
+    first round kills the stop side — after a drive sampled or not."""
+    kern = _live_kernel("{}")
+    stop, take = ([], 0, None), ([], 1, None)
+    rounds = {id(stop): (None, stop_sampled), id(take): (take, EXACT)}
+    monkeypatch.setattr(
+        PdaKernel,
+        "_side",
+        lambda self, arm, i, pos, taken: stop if taken is None else take,
+    )
+    monkeypatch.setattr(
+        PdaKernel, "_advance", lambda self, side, limit: rounds[id(side)]
+    )
+    lockstep = vars(decisions.Attempting)["_lockstep_verdict"]
+    return lockstep(kern, flat_arm(0), 0, 0, (1, []))
+
+
+def test_a_lockstep_side_sampled_on_the_way_settles_nothing(monkeypatch) -> None:
+    """The lockstep's stop side dies after its drive sampled a nested
+    boundary: not a dead stop side, so the long way answers. The same death
+    after an exact drive settles as the take."""
+    assert _lockstep_after_one_round(monkeypatch, _TOOK) is None
+    assert _lockstep_after_one_round(monkeypatch, _STOPPED) is None
+    assert _lockstep_after_one_round(monkeypatch, EXACT) == _TAKE

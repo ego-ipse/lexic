@@ -48,6 +48,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.admission import Sampled
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.product import ProductExecutor
@@ -277,18 +278,18 @@ class WatchedKernel[M](PdaKernel[M]):
         i: int,
         pos: int,
         taken: tuple[int, list[M]] | None,
-    ) -> tuple[list[M] | None, bool]:
+    ) -> tuple[list[M] | None, Sampled]:
         """One side of a boundary, run to end-of-input on a copied stack."""
         self._flush()
         side = "stop side" if taken is None else "take side"
         rule = self._here()
         self._note(PROBE, rule, side, IrSpan(pos, pos))
         scanned = self._scanned
-        done, uncertain = super()._probe(arm, i, pos, taken)
+        done, sampled = super()._probe(arm, i, pos, taken)
         self._scanned = scanned
         if done is None:
             self._note(ROLLBACK, rule, f"{side} did not derive", IrSpan(pos, pos))
-        return done, uncertain
+        return done, sampled
 
 
 def _gate_of(clone: FlatClone) -> str:

@@ -235,6 +235,10 @@ class PdaKernel[M](
         :meth:`_island` path (the shared cursor's ``policy`` / ``tables`` are
         untouched).
 
+        It opens no scan account of its own: inside a parse it charges the
+        parse's. Run with no parse around it, an arm read by its language
+        bails, every time — safe, and slow.
+
         :param clone: The delegable clone to run (never an island rule).
         :param pos: The start cursor position in :attr:`text`.
         :returns: ``(end, payload)`` — the position just past the clone's match

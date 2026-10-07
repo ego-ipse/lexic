@@ -31,6 +31,8 @@ from lexic.parsing.pda.runtime.build import (
 )
 
 __all__ = [
+    "EXACT",
+    "Sampled",
     "NO_ROUTE",
     "RouteLane",
     "Side",
@@ -180,6 +182,36 @@ def composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
+class Sampled(NamedTuple):
+    """How a drive resolved the both-viable boundaries it met, greedily.
+
+    A side's DEATH after either sample is not a death of every path it could
+    have taken. A side's COMPLETION, or two sides' agreement, after only
+    TAKEN boundaries is the decider's own: leftmost-longest keeps the longer
+    carving wherever it completes, and a nested boundary is a later slot it
+    fixes after the outer one. A STOP sample leaves even that open.
+
+    :ivar take: A boundary was resolved by taking (the chain class).
+    :ivar stop: A boundary was resolved by stopping (the terminator class).
+    """
+
+    take: bool
+    stop: bool
+
+    def __or__(self, other: Sampled) -> Sampled:
+        """Both drives' samples, as one drive's."""
+        return Sampled(self.take or other.take, self.stop or other.stop)
+
+    @property
+    def any(self) -> bool:
+        """Whether anything was sampled — what a death must rule out."""
+        return self.take or self.stop
+
+
+EXACT = Sampled(False, False)
+"""A drive that sampled nothing."""
+
+
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     """One kernel run's scratch — the memos and the stop-probe depth.
 
@@ -190,28 +222,26 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         resolved GREEDILY by class rather than by forking again, which is what
         makes probes never nest. A counter rather than a flag because
         :meth:`_advance` counts its own drive too.
-    :ivar uncertain: Set when a probe's drive resolved a both-viable
-        boundary GREEDILY (probes never nest — the exponential chain of a
-        rules-list grammar probing every later line is cut to one linear
-        drive); the probe's outcome is then a SAMPLED path, and the outer
-        verdict treats it conservatively — an uncertain outcome on a
-        decisive side reads as a fork, which is a fallback, never a wrong
-        commit.
+    :ivar sampled: How the drive running now resolved the both-viable
+        boundaries it met GREEDILY (probes never nest — the exponential chain
+        of a rules-list grammar probing every later line is cut to one linear
+        drive): by taking, by stopping, or neither. The outer verdict reads
+        it (:class:`Sampled`).
     """
 
-    __slots__ = ("deleg", "intern", "probing", "uncertain")
+    __slots__ = ("deleg", "intern", "probing", "sampled")
 
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
     probing: int
-    uncertain: bool
+    sampled: Sampled
 
     def __init__(self) -> None:
         """Seed the memos empty, the probe depth zero, certainty clean."""
         self.deleg = {}
         self.intern = {}
         self.probing = 0
-        self.uncertain = False
+        self.sampled = EXACT
 
 
 def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:

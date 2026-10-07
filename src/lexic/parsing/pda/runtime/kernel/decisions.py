@@ -28,12 +28,14 @@ from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
+    EXACT,
     REST_ADMITS,
     REST_ADMITS_HARD,
     REST_ASCEND,
     REST_DEAD,
     KernelCaches,
     RouteLane,
+    Sampled,
     Side,
     admits,
     arm_rest_scan,
@@ -62,6 +64,17 @@ away and every character driven past it is wasted."""
 
 _TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Attempting._fork_verdict`)."""
+
+
+def _exact_only(sampled: bool, pos: int) -> None:
+    """Let a verdict stand only where the side it reads was decided exactly.
+
+    :raises ProbeFork: When the side was sampled.
+    """
+    if sampled:
+        raise ProbeFork(
+            f"attempt loop at {pos}: a side's answer was sampled, not decided", pos
+        )
 
 
 class Attempting[Carry]:
@@ -175,13 +188,14 @@ class Attempting[Carry]:
             # Inside a probe boundaries resolve GREEDILY by class — probes
             # never nest. The terminator class (a MANDATORY item anywhere up
             # the live chain wants the char) prefers stop; the chain class
-            # takes. Either way the probe's outcome becomes a SAMPLED path
-            # (uncertain).
+            # takes. Either way the probe's outcome becomes a SAMPLED path,
+            # and which way it went is what the verdict reads (`Sampled`).
+            caches = self._caches
             if cls == REST_ADMITS_HARD:
-                self._caches.uncertain = True
+                caches.sampled = caches.sampled._replace(stop=True)
                 return False
             if cls == REST_ADMITS:
-                self._caches.uncertain = True
+                caches.sampled = caches.sampled._replace(take=True)
         elif cls in (REST_ADMITS, REST_ADMITS_HARD):
             verdict = self._fork_verdict(arm, i, pos, got)
             if verdict == _STOP_FORCED:
@@ -260,22 +274,33 @@ class Attempting[Carry]:
         values are a benign split (committed as the take), different values
         are the gated engine's question.
 
+        A side driven through a nested boundary it resolved by sampling —
+        greedily, by class — reports which way it went (:class:`Sampled`). A
+        death after any sample says nothing about the paths not taken, so it
+        is UNKNOWN, never dead. A completion or an agreement after only taken
+        boundaries is the decider's own; after a stopped one it is not. Where
+        the verdict needs what a sample cannot say, it raises.
+
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
+        :raises ProbeFork: Where a sampled side leaves the verdict undecided.
         :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
         """
         settled = self._lockstep_verdict(arm, i, pos, taken)
         if settled is not None:
             return settled
-        stop, _stop_unc = self._probe(arm, i, pos, None)
+        stop, stop_sampled = self._probe(arm, i, pos, None)
         if stop is None:
+            _exact_only(stop_sampled.any, pos)  # a death after any sample
             return _TAKE
-        take, _take_unc = self._probe(arm, i, pos, taken)
+        take, take_sampled = self._probe(arm, i, pos, taken)
         if take is None:
+            _exact_only(take_sampled.any, pos)
             return _STOP_FORCED
         if len(take) != len(stop) or any(
             not same_value(a, b) for a, b in zip(take, stop)
         ):
             return _FORKED
+        _exact_only((stop_sampled | take_sampled).stop, pos)  # an agreement
         return _TAKE
 
     def _lockstep_verdict(
@@ -315,45 +340,56 @@ class Attempting[Carry]:
 
         No convergence in the budget returns ``None``: the caller runs today's
         comparison. A :class:`ProbeFork` PROPAGATES — undecidable is not death.
+        A side driven through a boundary it resolved by sampling settles
+        nothing it could only settle by being exact: its death is not a dead
+        stop side, and its values are not the only values it could have built,
+        so those answers fall to the long way instead.
 
         :returns: The verdict, or ``None`` when the long way must decide.
         """
         shape = value_shape(self.stack)
         left = self._side(arm, i, pos, None)
         right = self._side(arm, i, pos, taken)
+        sampled = EXACT
         for _round in range(_LOCKSTEP_ROUNDS):
             if left is None or right is None:
-                return _TAKE if left is None else None
+                return _TAKE if left is None and not sampled.any else None
             target = max(left[1], right[1])
             if left[1] == right[1]:
                 if control_signature(left[0], left[1]) == control_signature(
                     right[0], right[1]
                 ):
-                    return self._converged(left, right, shape)
+                    return self._converged(left, right, (shape, sampled))
                 target += _LOCKSTEP_STEP
-            left = self._advance(left, target)
-            right = self._advance(right, target)
+            left, left_sampled = self._advance(left, target)
+            right, right_sampled = self._advance(right, target)
+            sampled = sampled | left_sampled | right_sampled
         return None
 
     def _converged(
         self,
         left: Side,
         right: Side,
-        shape: tuple[Any, ...],
+        drove: tuple[tuple[Any, ...], Sampled],
     ) -> int | None:
         """The verdict once both sides share a position and a control state.
 
-        Only the values built SINCE the boundary are compared — ``shape`` is
-        the watermark taken there, and both sides inherited everything below it
-        from one stack.
+        Only the values built SINCE the boundary are compared — ``drove``'s
+        shape is the watermark taken there, and both sides inherited everything
+        below it from one stack. Its :class:`Sampled` says how driving the
+        sides here resolved nested boundaries: values agreeing after a stopped
+        one, or a remainder dying after any, decide nothing, and the long way
+        answers.
         """
+        shape, sampled = drove
         if values_agree(
             pending_values(left[0], shape), pending_values(right[0], shape)
         ):
-            return _TAKE
-        done = self._advance(left, -1)
+            return None if sampled.stop else _TAKE
+        done, remainder_sampled = self._advance(left, -1)
         if done is None or done[1] != len(self.text):
-            return _TAKE  # the common remainder does not complete on either side
+            # the common remainder does not complete on either side
+            return None if (sampled | remainder_sampled).any else _TAKE
         return _FORKED
 
     def _side(
@@ -386,27 +422,25 @@ class Attempting[Carry]:
             self.stack = saved
         return forked, taken[0], routes
 
-    def _advance(self, side: Side, limit: int) -> Side | None:
-        """Drive one side to ``limit`` (``-1`` = to the end), or ``None`` if it dies.
+    def _advance(self, side: Side, limit: int) -> tuple[Side | None, Sampled]:
+        """Drive one side to ``limit`` (``-1`` = to the end).
 
         Swapped in and out under the same discipline :meth:`_probe` uses, and
         counted as probing so nested boundaries resolve greedily rather than
-        recursing — including the greedy resolution of nested boundaries, whose
-        ``uncertain`` flag is treated exactly as the end-of-input comparison
-        treats it: as information the verdict does not use. (It is read and
-        discarded there too — ``_stop_unc``/``_take_unc``.) Disqualifying on it
-        was tried and made every pipe-heavy boundary take the slow path, which
-        is the whole population this exists for.
+        recursing.
+
+        :returns: The side, or ``None`` if it dies; and how the drive resolved
+            the nested boundaries it sampled, which the verdict reads.
         """
         caches = self._caches
         saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
         self.stack, self.pos, self._routes = side[0], side[1], side[2]
         caches.probing += 1
-        saved_unc = caches.uncertain
-        caches.uncertain = False
+        saved = caches.sampled
+        caches.sampled = EXACT
         try:
             self._drive(limit=limit)
-            return self.stack, self.pos, self._routes
+            return (self.stack, self.pos, self._routes), caches.sampled
         except ProbeFork:
             raise  # undecidable is not death: it is the gated engine's
         except LexicError as refusal:
@@ -414,12 +448,12 @@ class Attempting[Carry]:
                 raise ProbeFork(
                     f"lockstep: refusal on the shared remainder: {refusal}", self.pos
                 ) from None
-            return None
+            return None, caches.sampled
         except PdaFail:
-            return None
+            return None, caches.sampled
         finally:
             caches.probing -= 1
-            caches.uncertain = saved_unc
+            caches.sampled = saved
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
 
@@ -586,7 +620,7 @@ class Attempting[Carry]:
         i: int,
         pos: int,
         taken: tuple[int, list[Carry]] | None,
-    ) -> tuple[list[Carry] | None, bool]:
+    ) -> tuple[list[Carry] | None, Sampled]:
         """One side of a boundary, run to end-of-input on a copied stack.
 
         The continuation from a boundary is runnable because the live stack
@@ -599,9 +633,9 @@ class Attempting[Carry]:
 
         :param taken: ``None`` for the stop side; the iteration's
             ``(end, values)`` for the take side.
-        :returns: ``(values | None, uncertain)`` — the root output on a
-            full-input completion, and whether the drive greedily sampled any
-            both-viable boundary on the way (the caller's conservatism).
+        :returns: ``(values | None, sampled)`` — the root output on a
+            full-input completion, and how the drive resolved the both-viable
+            boundaries it sampled on the way (:class:`Sampled`).
         :raises ProbeFork: An undecidable boundary past the depth cap — the
             caller bails (undecidable never reads as "this side failed").
         """
@@ -626,20 +660,20 @@ class Attempting[Carry]:
         self.stack = forked
         self.pos = start
         caches.probing += 1
-        saved_unc = caches.uncertain
-        caches.uncertain = False
+        saved = caches.sampled
+        caches.sampled = EXACT
         try:
             if taken is not None:
                 self._sink_for(top, arm, i).extend(taken[1])
             self._drive()
             done = root_out if self.pos == len(self.text) else None
-            return done, caches.uncertain
+            return done, caches.sampled
         except ProbeFork:
             raise
         except PdaFail, LexicError:
-            return None, caches.uncertain
+            return None, caches.sampled
         finally:
             caches.probing -= 1
-            caches.uncertain = saved_unc
+            caches.sampled = saved
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
