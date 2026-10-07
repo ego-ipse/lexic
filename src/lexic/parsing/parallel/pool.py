@@ -23,6 +23,12 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.policy import AUTO, doc_workers
 
 
+def _cancel[M](futures: dict[Future[M], int]) -> None:
+    """Cancel every future that has not started; running ones finish."""
+    for future in futures:
+        future.cancel()
+
+
 def _drained[M](
     futures: dict[Future[M], int],
     results: list[M | None],
@@ -81,7 +87,13 @@ class WorkPool:
         self._slots = local()
         self._taken = count()
         self._slot_lock = Lock()
-        self._failed = False
+        self._retired = ""
+
+    @property
+    def retired(self) -> bool:
+        """Whether this pool must not be lent again: it failed, or a phase
+        abandoned work that may still be running in it."""
+        return bool(self._retired)
 
     def slot(self) -> int:
         """The calling WORKER thread's own index in ``range(self.workers)``.
@@ -107,7 +119,7 @@ class WorkPool:
         self,
         work: Callable[[T], M],
         items: Sequence[T],
-        beside: Callable[[], None] | None = None,
+        beside: Callable[[Callable[[Sequence[T]], None]], bool | None] | None = None,
     ) -> list[M]:
         """Keep a bounded ready queue, return in order, and isolate failure.
 
@@ -127,17 +139,25 @@ class WorkPool:
         ``beside`` is the CALLING thread's own share, run once the first items
         are submitted and before it waits on them — work that belongs on this
         thread (its grammar view is already built here) and would otherwise
-        idle it. Its refusal drains the phase like an item's.
+        idle it. Its refusal drains the phase like an item's. It is handed a
+        ``submit``: items it learns of there go to the pool at once, and their
+        results follow ``items``' in the order submitted — so work that needs
+        what the calling thread decides still overlaps what did not.
+        Should it return ``False``, the phase is ABANDONED: nothing submitted
+        will be read, so the queued items are cancelled, the running ones are
+        left to finish unread, the pool is retired rather than lent again, and
+        ``[]`` comes back at once — a caller that declines never waits on work
+        it no longer wants.
 
         :param work: The per-item callable.
         :param items: The work items, in the order results are wanted.
-        :param beside: The calling thread's own work, or ``None``.
+        :param beside: The calling thread's own work, given ``submit``, or ``None``.
         :returns: One result per item, in input order.
         :raises LexicError: The earliest failing item's own refusal, or
             ``beside``'s.
         :raises RuntimeError: If the pool already failed and is unusable.
         """
-        if self._failed:
+        if self.retired:
             # Not a LexicError: a caller catches that family to fall back to a
             # sequential parse, and reusing a broken pool must not read as a
             # chunk that would not parse. RuntimeError is what the executor
@@ -147,6 +167,12 @@ class WorkPool:
         futures: dict[Future[M], int] = {}
         failures: dict[int, LexicError] = {}
         next_item = 0
+
+        def submit(more: Sequence[T]) -> None:
+            for item in more:
+                futures[self._pool.submit(work, item)] = len(results)
+                results.append(None)
+
         try:
             while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
@@ -154,8 +180,10 @@ class WorkPool:
                     futures[future] = next_item
                     next_item += 1
                 own, beside = beside, None
-                if own is not None:
-                    own()
+                if own is not None and own(submit) is False:
+                    _cancel(futures)
+                    self._retired = "abandoned"
+                    return []
                 if not futures:
                     continue
                 completed = wait(futures, return_when=FIRST_COMPLETED)[0]
@@ -171,8 +199,7 @@ class WorkPool:
             # A refusal drains its phase: cancel what never started, wait out
             # what is running — nothing is, unless the refusal was the calling
             # thread's own — and let the verdict go up with the pool whole.
-            for future in futures:
-                future.cancel()
+            _cancel(futures)
             wait(futures)
             raise
         except BaseException:
@@ -180,21 +207,21 @@ class WorkPool:
             # is retired, but the running siblings are NOT waited on — they are
             # unrelated to the error, and one of them may be waiting on the
             # caller that is waiting on this.
-            self._failed = True
-            for future in futures:
-                future.cancel()
+            self._retired = "failed"
+            _cancel(futures)
             raise
         return cast(list[M], results)
 
     def close(self) -> None:
         """Shut the executor down after every submitted phase completes.
 
-        A pool that failed does not wait: whatever is still running there is
-        unrelated to the error that retired it, and blocking a caller's unwind
+        A retired pool does not wait: whatever is still running there is
+        unrelated to the error that retired it, or abandoned and never read,
+        and blocking a caller's unwind
         on it is the deadlock this exists to avoid. The threads are left to
         finish on their own — nothing here kills one.
         """
-        self._pool.shutdown(wait=not self._failed, cancel_futures=self._failed)
+        self._pool.shutdown(wait=not self.retired, cancel_futures=self.retired)
 
     def __enter__(self) -> Self:
         """Return this pool for a bounded multi-phase lifetime."""
@@ -281,9 +308,10 @@ _IDLE_LOCK = Lock()
 class PoolLease:
     """A pool borrowed from the warm cache for one split, then returned.
 
-    Returned only on a clean exit. A phase that raised may have left work in
-    flight that :meth:`WorkPool.map` is still draining, and a pool of unknown
-    state is not worth the microseconds it saves — that one is closed.
+    Returned only on a clean exit from a pool still fit to lend. A phase that
+    raised may have left work in flight that :meth:`WorkPool.map` is still
+    draining, and one that abandoned its work left it running; a pool of
+    unknown state is not worth the microseconds it saves — that one is closed.
 
     Ownership is explicit: every pool is either lent to exactly one caller or
     idle in :data:`_IDLE`, and :func:`reset_pools` empties the cache.
@@ -313,7 +341,7 @@ class PoolLease:
         pool, self._pool = self._pool, None
         if pool is None:
             return
-        if exc_type is not None:
+        if exc_type is not None or pool.retired:
             pool.close()
             return
         with _IDLE_LOCK:
