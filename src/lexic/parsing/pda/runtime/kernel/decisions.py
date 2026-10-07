@@ -145,16 +145,33 @@ class Attempting[Carry]:
                     pos,
                 )
             return self._attempt_island(frame, arm, i, pos)
-        got = self._attempt_run(arm.payloads[i], pos)
-        if got is None or got[0] == pos:
-            return frame.close_loop(i, pos)
-        if not self._attempt_choice(arm, i, pos, got):
+        got = self._iteration(frame, arm, i, pos)
+        if got is None:
             return frame.close_loop(i, pos)
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
         frame.count += 1
         self.pos = end
         return i
+
+    def _iteration(
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
+    ) -> tuple[int, list[Carry]] | None:
+        """One tentative iteration of item ``i`` that may commit, or ``None``.
+
+        While it runs — its sub-run, and the choice's probes over copies of
+        this stack — the frame is listed as iterating, so a walk up the chain
+        reads it as descending INTO item ``i`` (:meth:`Frame.rest_after`).
+        """
+        iterating = self._caches.iterating
+        iterating.append(frame)
+        try:
+            got = self._attempt_run(arm.payloads[i], pos)
+            if got is None or got[0] == pos:
+                return None
+            return got if self._attempt_choice(arm, i, pos, got) else None
+        finally:
+            iterating.pop()
 
     def _attempt_choice(
         self,
@@ -206,7 +223,9 @@ class Attempting[Carry]:
         verdict, opt = arm_rest_scan(arm, i, char)
         if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = arm_rest_scan(frame.arm, frame.i, char)
+                verdict, o = arm_rest_scan(
+                    frame.arm, frame.rest_after(self._caches.iterating), char
+                )
                 opt = opt or o
                 if verdict != REST_ASCEND:
                     break

@@ -30,7 +30,6 @@ from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_and_pda
-from tools.benchmark.cases.corpora import meta_corpus
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -158,7 +157,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     branch this commit adds, and nothing else, so the difference IS that
     branch and a non-zero difference is the evidence it ran.
     """
-    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
+    bench = next(one for one in BENCHES if one.name == "vyx")
     counted = {"copies": 0, "verdicts": 0, "settled": 0, "converged": 0}
     copy = decisions.frames_copy
     defined = vars(decisions.Attempting)  # what the class DEFINES
@@ -194,7 +193,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     monkeypatch.setattr(decisions.Attempting, "_fork_verdict", counting_verdict)
     monkeypatch.setattr(decisions.Attempting, "_lockstep_verdict", counting_lockstep)
     monkeypatch.setattr(decisions.Attempting, "_converged", counting_converged)
-    bench.compiled.parse(meta_corpus("json.gbnf", 2), cores=1)
+    bench.compiled.parse(bench.corpus, cores=1)
 
     assert counted["verdicts"], (
         "this document no longer forks — the test proves nothing"
@@ -253,7 +252,10 @@ def _converged_tally(compiled, text: str, monkeypatch) -> dict[str, int]:
 
     monkeypatch.setattr(decisions.Attempting, "_converged", counting_converged)
     monkeypatch.setattr(decisions.Attempting, "_advance", counting_advance)
-    compiled.parse(text, cores=1)
+    try:
+        compiled.parse(text, cores=1)
+    except LexicError:
+        pass  # a document the language refuses still has the PDA's answers counted
     assert (
         sum(tally[name] for name in set(classes.values()) | {"other"})
         == tally["converged"]
@@ -306,17 +308,19 @@ def test_a_converged_boundary_takes_when_the_common_remainder_dies(
     neither side completes, and the boundary is :data:`_TAKE` exactly as a
     dead stop side is.
 
-    The document is a vyx packet the property suite generated — a natural
-    witness rather than an injected one, found by tallying this method's
-    answers across the whole test suite and keeping the input that reached
-    this branch.
+    A gbnf-meta document whose trailing comments converge once, with one
+    character after them that nothing parses. Agreement is denied at the one
+    site that asks for it, as the fork witness below does: since the
+    exactly-once continuation reads the parent's next item, no document the
+    roster or 3000 generated ones holds reaches a differing convergence on
+    its own.
     """
-    bench = next(one for one in BENCHES if one.name == "vyx")
-    text = "!X:P L2< \U00097f2f \U0003fe58\U0007d18e\U000ed509 \U000deadc >\n"
-    tally = _converged_tally(bench.compiled, text, monkeypatch)
+    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
+    monkeypatch.setattr(decisions, "values_agree", lambda _left, _right: False)
+    tally = _converged_tally(bench.compiled, "U\t::=.#\n#\n@", monkeypatch)
 
     assert tally["converged"] == 1, (
-        f"this packet no longer converges — it witnesses nothing: {tally}"
+        f"this document no longer converges — it witnesses nothing: {tally}"
     )
     assert tally["dead"] == 1, (
         "a converged boundary here must settle on a remainder that DIES, not "
@@ -375,16 +379,12 @@ def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
     sides nor a completion, so ``_converged`` raises :class:`ProbeFork` and
     the gated engine answers. Read as a death, it would settle :data:`_TAKE`.
 
-    The document is the dead-remainder witness above: its remainder completes
-    ``inline-content`` before it dies, and that completion is made to refuse
-    — only inside ``_converged``'s own drive.
+    The dead-remainder document above, agreement denied, and the remainder's
+    own drive made to refuse — only that drive, inside ``_converged``.
     """
-    bench = next(one for one in BENCHES if one.name == "vyx")
-    text = "!X:P L2< \U00097f2f \U0003fe58\U0007d18e\U000ed509 \U000deadc >\n"
+    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     converged = vars(decisions.Attempting)["_converged"]
-    complete = next(
-        vars(c)["_complete"] for c in PdaKernel.__mro__ if "_complete" in vars(c)
-    )
+    drive = vars(PdaKernel)["_drive"]
     inside, refused, answers = [0], [0], []
 
     def converging(self, *args):
@@ -398,18 +398,21 @@ def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
             inside[0] -= 1
         return answers[-1]
 
-    def refusing(self, frame):
-        if inside[0]:
+    def refusing(self, floor=0, limit=-1):
+        if inside[0] and limit < 0:
             refused[0] += 1
             raise LexicError("refused on a value the left side built")
-        return complete(self, frame)
+        return drive(self, floor, limit)
 
+    monkeypatch.setattr(decisions, "values_agree", lambda _left, _right: False)
     monkeypatch.setattr(decisions.Attempting, "_converged", converging)
-    monkeypatch.setattr(PdaKernel, "_complete", refusing)
-    kernel = PdaKernel(bench.compiled.pda_tables(), text, bench.compiled.executor)
+    monkeypatch.setattr(PdaKernel, "_drive", refusing)
+    kernel = PdaKernel(
+        bench.compiled.pda_tables(), "U\t::=.#\n#\n@", bench.compiled.executor
+    )
     with pytest.raises(PdaFail):
         kernel.run()
-    assert refused[0], "no completion refused inside the drive — nothing tested"
+    assert refused[0], "no drive refused inside the remainder — nothing tested"
     assert len(answers) == 1 and "shared remainder" in str(answers[0]), answers
 
 

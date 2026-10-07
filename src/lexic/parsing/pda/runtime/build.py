@@ -45,6 +45,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -131,6 +132,29 @@ class Frame[Carry]:
         self.ends = [start] * (arm.n + 1) if clone.needs_ends else None
         self.sinks = None
         self.inherited = None
+
+    def rest_after(self, iterating: list[Frame[Carry]]) -> int:
+        """The item the rest of this frame's arm follows, seen from its child.
+
+        The child is the item being parsed. An exactly-once reference advances
+        :attr:`i` past itself BEFORE it descends, so a frame suspended in one
+        has :attr:`i` on the item after its child; every other descent leaves
+        :attr:`i` on the item being parsed. They are told apart without a
+        lane on the paid path: an ordinary loop descent counted an iteration
+        before it went down, and a frame running an attempted iteration is in
+        ``iterating`` (or is a probe's copy of one). What remains, with an
+        exactly-once item behind :attr:`i` and nothing counted, is that item's
+        descent.
+
+        :param iterating: The parse's frames whose attempted iteration is running.
+        """
+        i = self.i
+        if i == 0 or self.count or self.arm.kinds[i - 1] != OP_REF1:
+            return i
+        origin = self.inherited
+        if any(frame is self or frame is origin for frame in iterating):
+            return i
+        return i - 1
 
     def span_start(self) -> int:
         """Where the frame began, or ``-1`` when it keeps no boundaries.

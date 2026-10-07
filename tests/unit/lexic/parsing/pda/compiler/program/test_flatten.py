@@ -160,9 +160,10 @@ def test_an_inline_group_clone_has_an_empty_name():
     assert group.name == ""
 
 
-def test_pdaprogram_declares_start_and_delegates_slots():
-    """PdaProgram carries the entry clone (or island opt-out) + delegate source."""
-    assert PdaProgram.__slots__ == ("start", "delegates")
+def test_pdaprogram_declares_start_delegates_and_scans_slots():
+    """PdaProgram carries the entry clone (or island opt-out), the delegate
+    source, and whether a parse of it opens a scan account."""
+    assert PdaProgram.__slots__ == ("start", "delegates", "scans")
 
 
 def test_pdaprogram_init_binds_start_verbatim():
@@ -171,3 +172,4 @@ def test_pdaprogram_init_binds_start_verbatim():
     program = PdaProgram(sentinel)
     assert program.start is sentinel
     assert program.delegates is None  # default; the artifact attaches the source
+    assert program.scans is False  # default; lowering sets it

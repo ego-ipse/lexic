@@ -56,6 +56,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
+from lexic.parsing.pda.compiler.program.language import ScanTally
 from lexic.parsing.pda.compiler.program.gating import (
     gate_take,
     select_gated,
@@ -200,8 +201,13 @@ class PdaKernel[M](
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
         holder: list[M] = []
-        self._enter(start, holder)
-        self._drive()
+        if self.tables.program.scans:
+            with ScanTally(len(self.text)):  # the parse's account for language scans
+                self._enter(start, holder)
+                self._drive()
+        else:
+            self._enter(start, holder)
+            self._drive()
         if self.pos != len(self.text):
             raise PdaFail(f"trailing input at {self.pos}", self.pos)
         if not holder:

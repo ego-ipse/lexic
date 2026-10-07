@@ -192,14 +192,17 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         verdict treats it conservatively — an uncertain outcome on a
         decisive side reads as a fork, which is a fallback, never a wrong
         commit.
+    :ivar iterating: The frames whose attempted iteration is running, outermost
+        first (:meth:`~lexic.parsing.pda.runtime.build.Frame.rest_after`).
     """
 
-    __slots__ = ("deleg", "intern", "probing", "uncertain")
+    __slots__ = ("deleg", "intern", "probing", "uncertain", "iterating")
 
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
     probing: int
     uncertain: bool
+    iterating: list[Frame[Carry]]
 
     def __init__(self) -> None:
         """Seed the memos empty, the probe depth zero, certainty clean."""
@@ -207,6 +210,7 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         self.intern = {}
         self.probing = 0
         self.uncertain = False
+        self.iterating = []
 
 
 def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:

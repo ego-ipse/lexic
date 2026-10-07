@@ -29,6 +29,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_TEXT,
     M_VALUE,
+    OP_LIT,
+    OP_REF,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
@@ -88,6 +91,24 @@ def test_a_frame_admits_no_attribute_outside_its_slots():
     frame = Frame(flat_arm(0), [], flat_clone(), 0)
     with pytest.raises(AttributeError):
         setattr(frame, "sink", [])
+
+
+def test_the_rest_follows_the_item_being_parsed() -> None:
+    """Behind an exactly-once item with nothing counted, the frame is
+    suspended in that item's descent, which advanced ``i`` first; a counted
+    loop descent, or an attempted iteration — the frame itself or a probe's
+    copy of it — is a descent into ``i`` itself."""
+    ref_then_loop = flat_arm(3, kinds=(OP_REF1, OP_REF, OP_LIT))
+    frame = make_frame({"arm": ref_then_loop, "i": 1})
+    assert frame.rest_after([]) == 0  # suspended in item 0's exactly-once descent
+    assert frame.rest_after([frame]) == 1  # an attempted iteration of item 1
+    copy = make_frame({"arm": ref_then_loop, "i": 1, "inherited": frame})
+    assert copy.rest_after([frame]) == 1  # a probe's copy of that frame
+    frame.count = 1
+    assert frame.rest_after([]) == 1  # a counted descent into item 1
+    plain = make_frame({"arm": flat_arm(3, kinds=(OP_REF, OP_REF, OP_LIT)), "i": 1})
+    assert plain.rest_after([]) == 1  # no exactly-once item behind ``i``
+    assert make_frame({"arm": ref_then_loop, "i": 0}).rest_after([]) == 0
 
 
 # ── finish_delegate ──────────────────────────────────────────────────────────
