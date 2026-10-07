@@ -85,7 +85,9 @@ def spine_key(key: object) -> object:
     subscripting a map keyed by ``IrTuple`` paths with a plain ``("a", "b")``
     is converted here, once, at the map — never by equality interop.
     """
-    return IrTuple(*key) if type(key) is tuple else key
+    if isinstance(key, tuple) and key.__class__ is tuple:  # plain, not a record
+        return IrTuple(*key)
+    return key
 
 
 class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
@@ -155,18 +157,16 @@ class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
         try:
             return table[key]
         except KeyError:
-            found = (
-                table.get(spine_key(key), _ABSENT) if type(key) is tuple else _ABSENT
-            )
-            if found is not _ABSENT:
-                return found
+            spelled = spine_key(key) if key.__class__ is tuple else _ABSENT
+            if spelled in table:
+                return table[spelled]
             raise IrKeyError(f"{type(self).__name__}: no entry for {key!r}") from None
 
     def __contains__(self, key: object) -> bool:
         """Whether ``key`` has an entry (key-based, not dyad membership); a
         plain-tuple key as the record it spells."""
         table = self._table
-        return key in table or (type(key) is tuple and spine_key(key) in table)
+        return key in table or (key.__class__ is tuple and spine_key(key) in table)
 
     def __len__(self) -> int:
         """Number of entries."""
@@ -179,7 +179,7 @@ class IrMapping[K, V, R](IrLeaf[IrSelf, IrSelf]):
         found = table.get(key, _ABSENT)
         if found is not _ABSENT:
             return found
-        if type(key) is tuple:
+        if key.__class__ is tuple:
             return table.get(spine_key(key), default)
         return default
 

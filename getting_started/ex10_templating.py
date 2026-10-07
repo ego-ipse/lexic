@@ -58,7 +58,8 @@ def main() -> None:
     print("model.type:", model_type.to_text(), f"({type(model_type).__name__})")
     assert model_type.to_text() == '"BPE"'
     # Absent spec keys are simply absent — "padding"/"decoder" never parsed.
-    assert set(out.keys()) == {('"version"',), ('"model"', '"type"')}
+    # A key is an IrTuple path; its parts spell the plain tuple a caller looks up.
+    assert {tuple(key) for key in out.keys()} == {('"version"',), ('"model"', '"type"')}
 
 
 if __name__ == "__main__":
