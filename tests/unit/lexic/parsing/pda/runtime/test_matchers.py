@@ -27,13 +27,17 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     OP_CC,
     OP_CONSULT,
+    OP_ISLAND,
     OP_LIT,
+    OP_LIT1,
+    OP_REF,
     OP_VSTR,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
     consult_extent,
+    stop_side_dead,
     match_arm,
     match_cc,
     match_chartable,
@@ -43,6 +47,7 @@ from lexic.parsing.pda.runtime.matchers import (
 )
 from lexic.parsing.products import _model_product
 from tests.clone_walk import walk_program_clones
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 
 def pda_for(text: str):
@@ -416,3 +421,83 @@ def test_a_lead_char_miss_keeps_the_words_it_always_had():
         pda_model(product.pda, "9", compiled.product.executor)
 
     assert str(refusal.value).startswith("no arm at 0")
+
+
+# ── the stop side's literal continuation ───────────────────────────────────
+
+_ONE, _MANY = 1, -1
+"""Upper bounds: exactly or at most once, and unbounded."""
+
+
+def rest_arm(*items: tuple[int, object, int, int]):
+    """An arm whose item 0 is the stopped loop and whose rest is ``items``,
+    each ``(kind, payload, lo, hi)``."""
+    loop = (OP_LIT, "z", 0, _MANY)
+    kinds, payloads, los, his = zip(loop, *items, strict=True)
+    return flat_arm(len(kinds), kinds=kinds, payloads=payloads, los=los, his=his)
+
+
+def dead(arm, text: str, rooted: bool = True) -> bool:
+    """The walk from the stopped loop at item 0, at the start of ``text``."""
+    return stop_side_dead([], arm, 0, text, (0, rooted))
+
+
+def test_a_mandatory_literal_the_text_cannot_match_kills_the_stop_side() -> None:
+    """`" >"` against `" n"`: no continuation begins with this text."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " n:7")
+
+
+def test_a_mandatory_empty_literal_matches_everywhere_and_never_kills() -> None:
+    """`""` then `" >"` against `" >"`: the empty literal consumes nothing."""
+    assert not dead(rest_arm((OP_LIT1, "", 1, _ONE), (OP_LIT1, " >", 1, _ONE)), " >")
+
+
+def test_a_continuation_that_spends_the_text_at_the_root_lives() -> None:
+    """`" >"` against `" >"`, then the end of the document: viable."""
+    assert not dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " >")
+
+
+def test_text_left_past_the_document_s_root_is_dead() -> None:
+    """The rest matches, but the document goes on where nothing may follow."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " > more")
+
+
+def test_past_a_prefix_run_s_root_nothing_is_known() -> None:
+    """A prefix run's root may end anywhere: text left there proves nothing."""
+    assert not dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " > more", rooted=False)
+
+
+def test_skipping_a_matching_optional_item_can_be_the_reading_that_lives() -> None:
+    """`"a"? "ab"` on `ab`: taking the optional `a` leaves `b` against `ab`
+    and dies; skipping it matches. A walk that skips an optional item only on
+    a mismatch takes `a`, dies, and calls a live stop side DEAD."""
+    arm = rest_arm((OP_LIT, "a", 0, _ONE), (OP_LIT1, "ab", 1, _ONE))
+    assert not dead(arm, "ab")
+    assert dead(arm, "ac")  # and DEAD where both readings die
+
+
+def test_a_variable_width_item_stops_the_walk_undecided() -> None:
+    """`"x"+ "!"`: after a matching first `x`, the walk cannot know where the
+    run ends, so the `y` that kills `"!"` two characters later proves nothing."""
+    arm = rest_arm((OP_LIT, "x", 1, _MANY), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "xxy")
+    assert dead(arm, "y")  # a mandatory run that cannot even start kills
+
+
+def test_a_mandatory_item_that_may_derive_empty_does_not_kill_at_the_end() -> None:
+    """A mandatory reference to a clone with a nullable default, at the end of
+    input: skipped as possibly empty, so the stop side reaches the root with
+    the text spent. A mandatory literal there kills."""
+    nullable = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=flat_arm(0),
+    )
+    assert not dead(rest_arm((OP_REF, nullable, 1, _ONE)), "")
+    assert dead(rest_arm((OP_LIT1, "q", 1, _ONE)), "")
+
+
+def test_an_item_with_no_first_set_stops_the_walk_undecided() -> None:
+    """An island carries no first set the walk reads: never DEAD past it."""
+    assert not dead(rest_arm((OP_ISLAND, None, 1, _ONE), (OP_LIT1, "!", 1, _ONE)), "?")

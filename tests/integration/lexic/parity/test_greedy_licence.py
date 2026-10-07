@@ -17,7 +17,6 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel import decisions
 from lexic.parsing.products import (
     _model_product,
@@ -294,9 +293,8 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
 
     `gbnf-meta`'s full sample is the witness: it forks at 92 boundaries and
     the lockstep settles each one exactly, so the PDA finishes the document on
-    the fork path. (`vyx`'s one fork is now sampled and goes
-    to the gated engine; the test below pins that.) A grammar that never forks
-    would pass this test without exercising anything.
+    the fork path. A grammar that never forks would pass this test without
+    exercising anything.
     """
     bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
@@ -322,23 +320,36 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     assert folded.to_text() == reference.to_text() == bench.full
 
 
-def test_a_fork_decided_only_by_sampling_builds_earley_s_model_publicly() -> None:
-    """A fork whose answer was sampled is the gated engine's, end to end.
+def test_a_stop_side_its_continuation_refutes_settles_without_a_sample(
+    monkeypatch,
+) -> None:
+    """A nested boundary whose stop side the text refutes is a forced take.
 
-    `vyx`'s full sample forks once, at a boundary whose probe resolved a
-    nested boundary by class rather than deciding it. The kernel must refuse
-    to settle there — it raises rather than commit — and the public parse,
-    which hands that refusal to Earley, must build exactly Earley's model.
+    `vyx`'s full sample forks at 33, where `envelope`'s optional template use
+    can close. Its stop side reads the rest of the line as an inline body,
+    whose `nl-text` word loop meets both-viable boundaries at 36 and 40; each
+    one's stop side needs the body's closing `" >"` where the text has `" n"`
+    and `" L"`. The walk proves those stops dead, so the loop's takes are not
+    samples, the stop side's death is exact, and 33 settles as a take with
+    the PDA finishing the document — Earley's model, value for value.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
     product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    verdicts: dict[int, int] = {}
+    real = vars(decisions.Attempting)["_fork_verdict"]
 
-    with pytest.raises(ProbeFork, match="sampled, not decided"):
-        pda_model(product.pda, bench.full, bench.compiled.product.executor)
-    public = bench.compiled.parse(bench.full, cores=1)
+    def recorded(self, arm, i, pos, taken):
+        """`_fork_verdict`, its answer kept by position."""
+        verdicts[pos] = real(self, arm, i, pos, taken)
+        return verdicts[pos]
+
+    monkeypatch.setattr(decisions.Attempting, "_fork_verdict", recorded)
+    folded = pda_model(product.pda, bench.full, bench.compiled.product.executor)
+    monkeypatch.undo()
     reference = earley_model(
         product.instance_grammar, bench.full, bench.compiled.product, product.tables
     )
 
-    assert public.dump() == reference.dump()
-    assert public.to_text() == bench.full
+    assert verdicts.get(33) == vars(decisions)["_TAKE"]
+    assert folded.dump() == reference.dump()
+    assert folded.to_text() == bench.full

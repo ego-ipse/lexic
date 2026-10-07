@@ -13,7 +13,7 @@ a function of the clone and the char, not of the cursor.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
@@ -31,11 +31,14 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
     OP_CC,
     OP_CC1,
+    OP_FAIL,
+    OP_ISLAND,
     OP_LIT,
     OP_LIT1,
 )
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
-from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
+from lexic.parsing.pda.runtime.admission import admits, clone_admits
+from lexic.parsing.pda.runtime.build import Frame, InternMemo, build_vstr
 
 
 def chase_dispatch[Carry](
@@ -494,3 +497,137 @@ def vstr_once[Carry](
     )
     sink.append(build_vstr(clone, text[pos:end], intern))
     return end
+
+
+STOP_DEAD, STOP_MAYBE, STOP_VIABLE = 0, 1, 2
+"""What a stop side's literal continuation proves: it cannot match the text,
+it might, or it reaches the end of the document exactly."""
+
+_SKIP, _KILL, _MAYBE = -1, -2, -3
+"""One item's step when it is not a match of known width (:func:`_item_step`)."""
+
+type _Link = tuple[FlatArm, int, int, int]
+"""One frame of the stop side: its arm, the item its rest starts at, the item
+read as optional (or ``-1``), and the item that may iterate again (or ``-1``)."""
+
+
+class _Rest(NamedTuple):
+    """One stop side's walk: its frames innermost first, the text, and whether
+    the outermost frame is the document's root (a prefix run's is not)."""
+
+    chain: list[_Link]
+    text: str
+    rooted: bool
+
+
+def stop_side_dead(
+    stack: list[Frame], arm: FlatArm, i: int, text: str, at: tuple[int, bool]
+) -> bool:
+    """Whether stopping the loop at item ``i`` of the top frame provably dies.
+
+    The stop side's continuation is walked against the TEXT, not one character:
+    the rest of the top arm after ``i``, then each enclosing frame's rest (from
+    :meth:`~lexic.parsing.pda.runtime.build.Frame.rest_after`, the item it is in
+    counted as a further iteration where it can repeat). Only a literal or an
+    exactly-once class is checked and advanced; anything wider stops the walk
+    undecided once its first character could match, and an item with no first
+    set the walk reads stops it at once. An optional or relaxed item that
+    matches is tried both ways; only a non-nullable mandatory item that cannot
+    match kills. Past the document's root the text must be spent; past a prefix
+    run's root nothing is known. So DEAD is a proof: no string any stop
+    continuation derives begins with the text at ``pos``.
+
+    :param at: ``(pos, rooted)`` — where the boundary is, and whether the
+        stack's outermost frame is the document's root.
+    :returns: ``True`` only when the stop side is dead: taking is then the only
+        resolution, and nothing was sampled.
+    """
+    pos, rooted = at
+    chain: list[_Link] = [(arm, i + 1, -1, -1)]
+    for frame in stack[-2::-1]:
+        start, relax = frame.rest_after()
+        again = frame.i if relax == -1 and _may_repeat(frame) else -1
+        chain.append((frame.arm, start + 1, relax, again))
+    return _walk(_Rest(chain, text, rooted), 0, i + 1, pos) == STOP_DEAD
+
+
+def _may_repeat(frame: Frame) -> bool:
+    """Whether the item a frame is in can take a further iteration."""
+    return frame.i < frame.arm.n and frame.arm.his[frame.i] != 1
+
+
+def _walk(rest: _Rest, f: int, j: int, pos: int) -> int:
+    """The stop side from item ``j`` of link ``f`` at ``pos``: DEAD, MAYBE or VIABLE."""
+    chain, text = rest.chain, rest.text
+    while f < len(chain):
+        arm, _start, relax, again = chain[f]
+        if (
+            again != -1
+            and j == again + 1
+            and _item_step(arm, again, again, text, pos) != _SKIP
+        ):
+            return STOP_MAYBE  # a further iteration of the item it is in
+        while j < arm.n:
+            step = _item_step(arm, j, relax, text, pos)
+            if step in (_KILL, _MAYBE):
+                return STOP_DEAD if step == _KILL else STOP_MAYBE
+            if step == _SKIP:
+                j += 1
+            elif arm.los[j] > 0 and j != relax:
+                pos, j = pos + step, j + 1
+            else:
+                return _both_ways(rest, (f, j + 1), pos, step)
+        f += 1
+        j = chain[f][1] if f < len(chain) else 0
+    if not rest.rooted:
+        return STOP_MAYBE
+    return STOP_VIABLE if pos == len(text) else STOP_DEAD
+
+
+def _both_ways(rest: _Rest, at: tuple[int, int], pos: int, width: int) -> int:
+    """An optional exactly-once item that matches: taken, then skipped.
+
+    DEAD only when both readings die — taking alone and dying later would be a
+    false DEAD wherever skipping lives.
+    """
+    f, j = at
+    taken = _walk(rest, f, j, pos + width)
+    return taken if taken != STOP_DEAD else _walk(rest, f, j, pos)
+
+
+def _item_step(arm: FlatArm, j: int, relax: int, text: str, pos: int) -> int:
+    """One rest item at ``pos``: a matched width, or SKIP / KILL / MAYBE.
+
+    A width is returned only for a literal or class item that occurs at most
+    once and matches; the caller advances (mandatory) or branches (optional).
+    """
+    if arm.kinds[j] not in _TERMINAL:
+        return _clone_step(arm.kinds[j], arm.payloads[j], text, pos)
+    if arm.payloads[j] == "":
+        return _SKIP  # an empty literal matches everywhere and consumes nothing
+    width = _terminal_width(arm, j, text, pos)
+    if width == 0:
+        return _KILL if arm.los[j] > 0 and j != relax else _SKIP
+    return width if arm.his[j] == 1 else _MAYBE
+
+
+def _clone_step(kind: int, payload: Any, text: str, pos: int) -> int:
+    """A clone, island or fail item: MAYBE when it could start here or carries no
+    first-character set the walk reads; otherwise skipped as possibly empty."""
+    if kind in (OP_ISLAND, OP_FAIL) or not isinstance(payload, FlatClone):
+        return _MAYBE
+    if payload.attempt is not None or payload.wide_selectors is not None:
+        return _MAYBE
+    return _MAYBE if clone_admits(payload, text[pos : pos + 1]) else _SKIP
+
+
+def _terminal_width(arm: FlatArm, j: int, text: str, pos: int) -> int:
+    """How many characters one occurrence of a literal or class item matches here."""
+    payload = arm.payloads[j]
+    if arm.kinds[j] in (OP_LIT, OP_LIT1):
+        return len(payload) if text.startswith(payload, pos) else 0
+    return 1 if pos < len(text) and admits(text[pos], *payload) else 0
+
+
+_TERMINAL = frozenset((OP_LIT, OP_LIT1, OP_CC, OP_CC1))
+"""The item kinds that consume text themselves, which the walk can check."""

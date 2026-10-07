@@ -227,21 +227,25 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         of a rules-list grammar probing every later line is cut to one linear
         drive): by taking, by stopping, or neither. The outer verdict reads
         it (:class:`Sampled`).
+    :ivar anchored: Whether the drive is a prefix run, whose outermost frame
+        may end anywhere in the text rather than at its end.
     """
 
-    __slots__ = ("deleg", "intern", "probing", "sampled")
+    __slots__ = ("deleg", "intern", "probing", "sampled", "anchored")
 
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
     probing: int
     sampled: Sampled
+    anchored: bool
 
     def __init__(self) -> None:
-        """Seed the memos empty, the probe depth zero, certainty clean."""
+        """Seed the memos empty, the probe depth zero, certainty clean, unanchored."""
         self.deleg = {}
         self.intern = {}
         self.probing = 0
         self.sampled = EXACT
+        self.anchored = False
 
 
 def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:

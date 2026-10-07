@@ -248,6 +248,7 @@ class PdaKernel[M](
             the delegate wrapper catches it and falls through to prediction.
         """
         saved_stack, saved_pos = self.stack, self.pos
+        saved_anchor, self._caches.anchored = self._caches.anchored, True
         self.stack = []
         self.pos = pos
         try:
@@ -257,6 +258,7 @@ class PdaKernel[M](
             end = self.pos
         finally:
             self.stack, self.pos = saved_stack, saved_pos
+            self._caches.anchored = saved_anchor
         return end, (holder[0] if holder else None)
 
     def _drive(self, floor: int = 0, limit: int = -1) -> None:

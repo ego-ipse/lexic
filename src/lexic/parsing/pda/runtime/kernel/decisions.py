@@ -50,6 +50,7 @@ from lexic.parsing.pda.runtime.admission import (
 from lexic.parsing.pda.runtime.build import (
     Frame,
 )
+from lexic.parsing.pda.runtime.matchers import stop_side_dead
 
 __all__ = ["Attempting", "sole_admitted"]
 
@@ -191,6 +192,10 @@ class Attempting[Carry]:
             # takes. Either way the probe's outcome becomes a SAMPLED path,
             # and which way it went is what the verdict reads (`Sampled`).
             caches = self._caches
+            if cls != REST_DEAD and stop_side_dead(
+                self.stack, arm, i, self.text, (pos, not caches.anchored)
+            ):
+                return True  # stopping provably dies: taking is forced, not sampled
             if cls == REST_ADMITS_HARD:
                 caches.sampled = caches.sampled._replace(stop=True)
                 return False
