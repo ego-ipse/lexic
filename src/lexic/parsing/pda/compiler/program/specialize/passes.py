@@ -26,6 +26,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_fast_construction,
     vstr_model,
 )
+from lexic.parsing.pda.compiler.program.language import ForcedEnd
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     BUILD_SEQ,
@@ -208,8 +209,9 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
     return clone.default
 
 
-def _pattern_arm(pattern: Pattern) -> FlatArm:
-    """One compiled pattern as the arm that matches a clone's whole extent.
+def pattern_arm(pattern: Pattern | ForcedEnd) -> FlatArm:
+    """One whole-extent matcher as the arm that matches a clone's whole extent:
+    a proved clone's compiled pattern, or a marked text arm's forced end.
 
     A :class:`FlatArm` because that is what :attr:`FlatClone.runarm` IS: the
     runtime reaches it through the ``chartable``/``runarm`` pair it already
@@ -259,7 +261,7 @@ def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
         return None
     if vstr_inlinable(clone) and all(arm.n == 1 for arm in arms):
         return None
-    return _pattern_arm(pattern)
+    return pattern_arm(pattern)
 
 
 def bake_consults(clones: list[FlatClone], consults: Mapping[int, Pattern]) -> None:

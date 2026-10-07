@@ -29,6 +29,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_TEXT,
     M_VALUE,
+    OP_LIT,
+    OP_REF,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
@@ -88,6 +91,20 @@ def test_a_frame_admits_no_attribute_outside_its_slots():
     frame = Frame(flat_arm(0), [], flat_clone(), 0)
     with pytest.raises(AttributeError):
         setattr(frame, "sink", [])
+
+
+def test_the_rest_follows_the_item_being_parsed() -> None:
+    """Behind an exactly-once item with nothing counted, the rest starts at
+    ``i`` with item ``i`` read as optional; a counted loop descent is a
+    descent into ``i`` itself, and its rest follows ``i``."""
+    ref_then_loop = flat_arm(3, kinds=(OP_REF1, OP_REF, OP_LIT))
+    frame = make_frame({"arm": ref_then_loop, "i": 1})
+    assert frame.rest_after() == (0, 1)  # item 0's exactly-once descent, or i's
+    frame.count = 1
+    assert frame.rest_after() == (1, -1)  # a counted descent into item 1
+    plain = make_frame({"arm": flat_arm(3, kinds=(OP_REF, OP_REF, OP_LIT)), "i": 1})
+    assert plain.rest_after() == (1, -1)  # no exactly-once item behind ``i``
+    assert make_frame({"arm": ref_then_loop, "i": 0}).rest_after() == (0, -1)
 
 
 # ── finish_delegate ──────────────────────────────────────────────────────────

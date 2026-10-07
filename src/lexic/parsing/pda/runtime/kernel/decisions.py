@@ -206,7 +206,8 @@ class Attempting[Carry]:
         verdict, opt = arm_rest_scan(arm, i, char)
         if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = arm_rest_scan(frame.arm, frame.i, char)
+                at, relax = frame.rest_after()
+                verdict, o = arm_rest_scan(frame.arm, at, char, relax)
                 opt = opt or o
                 if verdict != REST_ASCEND:
                     break

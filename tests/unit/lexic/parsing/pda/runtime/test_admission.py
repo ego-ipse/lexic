@@ -6,6 +6,7 @@ import pytest
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
+from lexic.parsing.pda.compiler.program.opcodes import OP_LIT, OP_LIT1, OP_REF1
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
     REST_ADMITS_HARD,
@@ -325,3 +326,20 @@ def test_composes_checks_the_next_character_against_follow():
     follow = CharSet.from_chars("x")
     assert composes(follow, "axb", 1) is True
     assert composes(follow, "ayb", 1) is False
+
+
+def test_an_item_the_walk_cannot_tell_is_due_never_reads_dead() -> None:
+    """``p X+ c`` with ``p`` exactly-once, suspended where it cannot be told
+    whether ``p`` or the first ``X`` is being parsed. Read from ``X`` with its
+    bound, ``X`` refusing ``c`` would close the walk DEAD — but if ``X+``'s
+    first iteration is what runs, ``c`` is the next mandatory item and the
+    boundary is the terminator class. Relaxed, the walk reaches ``c``."""
+    arm = flat_arm(
+        3,
+        kinds=(OP_REF1, OP_LIT, OP_LIT1),
+        payloads=(None, "x", "c"),
+        los=(1, 1, 1),
+        his=(1, -1, 1),
+    )
+    assert arm_rest_scan(arm, 0, "c", relax=1) == (REST_ADMITS_HARD, False)
+    assert arm_rest_scan(arm, 0, "c") == (REST_DEAD, False)  # the false dead end

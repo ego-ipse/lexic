@@ -1065,3 +1065,45 @@ The per-class copies of the rule (`IrBounds`, `Decider`, `GrammarModel`) are
 gone. `IrRule` keeps its structural rule (`semantic` excluded, for the
 self-hosting fixpoint) with the same kind test. Code that compared a record
 with a tuple literal builds the record it means.
+
+## A text arm the item-wise match can lose is read by its language
+
+The PDA matches a text-only arm item by item, and a quantified item takes while
+its gate admits. Where an item can go on with a character the rest of its arm
+needs, it takes that character: `[a]* [a;]` on `a`, or `";"? [a;]` on `;`. The
+arm then reports no match on text in its language, the loop around it closes,
+and the PDA builds a model Earley does not. These were every wrong answer the
+random stress family found against the licence.
+
+Such an arm is marked at compile time (`needs_language`, in
+`compiler/program/language.py`): a loop that is not fixed-count and not
+`k`-window gated, whose take set meets the FIRST of a rest of its own arm that
+cannot be empty, at any depth through referenced text clones. Its attempt entry
+becomes a frame-less consult whose matcher is a `ForcedEnd`: the arm's
+automaton, run in one pass, and the one end something may follow (the rule's
+soft FOLLOW and the occurrence's own tail). Exactly one such end is taken; none
+is a miss; more than one bails to the gated engine, as does an arm with no
+automaton. Every other arm keeps the item-wise matcher, so no roster arm is
+marked and no seat pays for it. A rest that can be empty is the attempt gate's:
+its stored continuation bails where taking and stopping are both viable.
+
+Scans are bounded per parse: re-read characters are charged to an account the
+parse opens (only when its program has a marked arm), and past four times the
+document's length the parse bails.
+
+## The rest after an exactly-once descent starts at the item it advanced to
+
+An exactly-once reference advances its frame's item index past itself before
+it descends. The walk up the chain that asks what follows a child read "the
+rest after the current item", so for such a frame it skipped the item that
+actually follows: on vyx's inline body the mandatory close `" "` was skipped,
+the boundary read DEAD, and a loop took the close.
+
+With an exactly-once item behind the index and nothing counted, the walk reads
+from the index with that item optional. An ordinary loop descent counts its
+iteration first, so it is told apart; an attempted iteration of the item at the
+index is not, and reading that item as optional is a true over-approximation
+under both readings — never a false dead end. No lane and no store on the paid
+path: a frame lane measured slower on arithmetic, a list of iterating frames
+slower on vyx. Inside a probe, the over-approximation can read a mandatory next
+item as optional (ADMITS where it is HARD).

@@ -25,8 +25,15 @@ from lexic.parsing.pda.compiler.program.gating import (
     KWindowSelect,
     NoiseSkipSelect,
 )
+from lexic.parsing.pda.compiler.program.language import (
+    ForcedEnd,
+    language_of,
+    needs_language,
+    reads_language,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    BUILD_VALUE_STR,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
@@ -54,6 +61,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
     optimize_program,
+    pattern_arm,
 )
 from lexic.parsing.pda.compiler.specs import (
     CC,
@@ -481,7 +489,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
 
 
 def _attempt_entries(
-    clone: FlatClone, arms: "tuple[ArmSpec, ...]"
+    clone: FlatClone, arms: "tuple[ArmSpec, ...]", follow: CharSet
 ) -> tuple[tuple[Any, Any, Any, Any, FlatClone], ...]:
     """An attempt clone's ordered entry list — one single-arm sub-clone each,
     with a leading-terminal prefix regex as its C-speed admission
@@ -493,13 +501,16 @@ def _attempt_entries(
     a sub-run builds exactly the model the rule would. ``arms`` is the spec's
     arm list — 1:1 with ``clone.selectors``, the single-char lowering — so
     the window rides its own arm. The nullable default, when present, is the
-    last entry, always admitted (``chars is None``).
+    last entry, always admitted (``chars is None``). ``follow`` is what may
+    follow this occurrence, which a text arm read by its language judges its
+    ends by.
     """
     entries: list[tuple[Any, Any, Any, Any, FlatClone]] = []
     for (chars, negated, arm), spec in zip(clone.selectors, arms):
         sub = _attempt_sub(clone)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
+        _read_by_language(sub, arm, follow)
         window = (
             compile_admission(_flat_windows(spec.attempt_window))
             if spec.attempt_window is not None
@@ -510,8 +521,29 @@ def _attempt_entries(
         sub = _attempt_sub(clone)
         sub.selectors = ()
         sub.default = clone.default
+        _read_by_language(sub, clone.default, follow)
         entries.append((None, None, None, None, sub))
     return tuple(entries)
+
+
+def _read_by_language(sub: FlatClone, arm: FlatArm, follow: CharSet) -> None:
+    """Make a text rule's entry match by its arm's language, where matching
+    the arm item by item can miss text it derives.
+
+    The entry becomes a frame-less consult: its whole extent is the one end
+    :class:`~lexic.parsing.pda.compiler.program.language.ForcedEnd` certifies,
+    reached through the same leaf path a proved clone takes. Every way the
+    runtime enters an entry — the attempt's sub-run, its audit, or a sole
+    admitted entry pushed as a plain clone — reaches it there, so nothing
+    else at run time asks whether an entry is marked. A marked arm whose
+    automaton cannot be built is still made a consult: one that bails, never
+    the item-wise match it was marked to replace.
+    """
+    if sub.mode != BUILD_VALUE_STR or not needs_language(arm):
+        return
+    sub.leaf = True
+    sub.chartable = {}
+    sub.runarm = pattern_arm(ForcedEnd(language_of(arm), follow))
 
 
 def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
@@ -569,14 +601,19 @@ def flatten_clones(
         clone.longest = spec.longest
     optimize_program(list(low.shells.values()), _consults(clones, low))
     _require_checked_takes(low.shells.values())
+    # A language entry judges its ends against everything that may follow
+    # this occurrence: the rule's soft FOLLOW and the clone's own tail, which
+    # carries a repetition's loopback. A group's follow already holds both.
     attempting = [
-        (low.shells[key], spec.arms, spec.attempt_follow)
+        (low.shells[key], spec.arms, spec.attempt_follow, key.tail)
         for key, spec in clones.items()
         if spec.attempt_follow is not None
     ]
-    attempting += [(clone, arms, clone.attempt[0]) for clone, arms in low.groups]
-    for clone, arms, follow in attempting:
-        entries = _attempt_entries(clone, arms)
+    attempting += [
+        (clone, arms, clone.attempt[0], CharSet.EMPTY) for clone, arms in low.groups
+    ]
+    for clone, arms, follow, tail in attempting:
+        entries = _attempt_entries(clone, arms, follow.union(tail))
         _optimize_entries(entries)
         clone.attempt = (follow, entries)
     return low.shells
@@ -621,4 +658,5 @@ def flatten_program(
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )
-    return PdaProgram(start)
+    scans = any(reads_language(clone) for clone in shells.values())
+    return PdaProgram(start, scans=scans)

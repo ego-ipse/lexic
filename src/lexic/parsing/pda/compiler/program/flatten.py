@@ -294,17 +294,22 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
         or ``None`` — the lazy per-island delegate-clone table the island
         Earley sub-parses thread in. Homed here (not on ``PdaTables``) so the
         artifact's attribute count is untouched.
+    :ivar scans: Whether some attempt entry is read by its arm's language —
+        what makes a parse open its scan account; a program without one pays
+        nothing for it.
     """
 
-    __slots__ = ("start", "delegates")
+    __slots__ = ("start", "delegates", "scans")
 
     start: Any  # FlatClone | IslandRef — the island marker lives in pda_tables
     delegates: Any  # DelegateSource | None — the delegate_compile leaf
+    scans: bool
 
-    def __init__(self, start: Any, delegates: Any = None) -> None:
+    def __init__(self, start: Any, delegates: Any = None, scans: bool = False) -> None:
         """Bind the entry clone (or island opt-out marker) and delegate source."""
         self.start = start
         self.delegates = delegates
+        self.scans = scans
 
 
 def clear_build[Carry](clone: FlatClone[Carry]) -> None:

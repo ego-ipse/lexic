@@ -291,12 +291,13 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     crash — it would build a model with holes in it — so the assertion is
     `dump()` equality against Earley, not that the parse succeeds.
 
-    `gbnf-meta` is the witness because it is the roster's only heavy forker:
-    276 forks on its full sample, where every other row forks 18 times or
-    none. A grammar that never forks would pass this test without exercising
-    anything.
+    `vyx` is the witness because it is the roster's forker: its full sample
+    forks at boundaries the lockstep settles. (`gbnf-meta` forked hundreds of
+    times until the exactly-once continuation read the item after a
+    reference; it forks no more.) A grammar that never forks would pass this
+    test without exercising anything.
     """
-    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
+    bench = next(one for one in BENCHES if one.name == "vyx")
     product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     seen = [0]
     real = decisions.frames_copy

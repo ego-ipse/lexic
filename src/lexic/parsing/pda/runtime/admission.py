@@ -144,7 +144,7 @@ def clone_admits(clone: FlatClone, char: str) -> bool:
     return False
 
 
-def arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
+def arm_rest_scan(arm: FlatArm, i: int, char: str, relax: int = -1) -> tuple[int, bool]:
     """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
 
     An optional admitting item does NOT settle the walk (both the chain and
@@ -152,14 +152,19 @@ def arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
     the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
     mandatory item settles it either way (admits → the terminator class;
     refuses → the char cannot flow past, the stop side is dead).
+
+    :param relax: An item read as optional whatever its lower bound — one the
+        walk cannot tell whether it is still due (:meth:`~lexic.parsing.pda
+        .runtime.build.Frame.rest_after`), or ``-1``.
     """
     opt = False
     for j in range(i + 1, arm.n):
+        due = arm.los[j] > 0 and j != relax
         if item_admits(arm, j, char):
-            if arm.los[j] > 0:
+            if due:
                 return REST_ADMITS_HARD, opt
             opt = True
-        elif arm.los[j] > 0:
+        elif due:
             return REST_DEAD, opt
     return REST_ASCEND, opt
 

@@ -45,6 +45,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -131,6 +132,27 @@ class Frame[Carry]:
         self.ends = [start] * (arm.n + 1) if clone.needs_ends else None
         self.sinks = None
         self.inherited = None
+
+    def rest_after(self) -> tuple[int, int]:
+        """Where the rest of this frame's arm starts, seen from its child: the
+        item it follows, and an item to read as optional, or ``-1``.
+
+        An exactly-once reference advances :attr:`i` past itself BEFORE it
+        descends, so a frame suspended in one has :attr:`i` on the item after
+        its child, and the rest starts AT :attr:`i`. Every other descent leaves
+        :attr:`i` on the item being parsed, and the rest follows it; an
+        ordinary loop descent counted an iteration before it went down, which
+        tells it apart. An attempted iteration of a loop at :attr:`i` may not
+        have, so with an exactly-once item behind :attr:`i` and nothing
+        counted, the walk reads from :attr:`i` with that item optional: a true
+        over-approximation under either reading — the loop's next iteration
+        may follow, and its mandatory bound may already be met — and never a
+        false dead end. No lane on the paid path tells them apart.
+        """
+        i = self.i
+        if i == 0 or self.count or self.arm.kinds[i - 1] != OP_REF1:
+            return i, -1
+        return i - 1, i
 
     def span_start(self) -> int:
         """Where the frame began, or ``-1`` when it keeps no boundaries.

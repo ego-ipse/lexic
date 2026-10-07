@@ -358,6 +358,7 @@ src/lexic/
           __init__.py              Flat-program package marker
           flatten.py               The flat int-coded records a compiled PDA IS
           gating.py                What admits the next character — the gates and the selection over them
+          language.py              A text arm matched by its language — where matching item by item is not exact
           lower.py                 Clone-set lowering
           opcodes.py               Runtime program vocabulary
           bake/

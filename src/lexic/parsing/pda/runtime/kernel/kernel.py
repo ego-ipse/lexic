@@ -47,6 +47,8 @@ user-facing diagnostics. It never surfaces to the caller.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
@@ -56,6 +58,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
+from lexic.parsing.pda.compiler.program.language import ScanTally
 from lexic.parsing.pda.compiler.program.gating import (
     gate_take,
     select_gated,
@@ -103,6 +106,10 @@ from lexic.parsing.pda.runtime.matchers import (
 from lexic.parsing.product import ProductExecutor
 
 __all__ = ["PdaFail", "PdaKernel", "pda_model"]
+
+
+_NO_TALLY = nullcontext()
+"""What a parse whose program reads no arm by its language opens instead."""
 
 
 class PdaKernel[M](
@@ -200,8 +207,11 @@ class PdaKernel[M](
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
         holder: list[M] = []
-        self._enter(start, holder)
-        self._drive()
+        # The parse's account for language scans — only a program that has
+        # one opens it.
+        with ScanTally(len(self.text)) if self.tables.program.scans else _NO_TALLY:
+            self._enter(start, holder)
+            self._drive()
         if self.pos != len(self.text):
             raise PdaFail(f"trailing input at {self.pos}", self.pos)
         if not holder:

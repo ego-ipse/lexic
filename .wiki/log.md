@@ -2329,3 +2329,10 @@ derivation alone.
 `ir-shapes.md`'s `IrTuple` entry and a `decisions.md` entry: class-aware
 record equality with no plain-tuple interop, the payload hash kept, and the
 per-class copies of the rule removed.
+
+## Text arms read by their language; the rest after an exactly-once descent
+
+Two `decisions.md` entries: text arms the item-wise match can lose are matched
+by their language with a forced end, a parse-owned scan budget and no cost to
+unmarked programs; and the rest-of-arm walk reads a frame suspended in an
+exactly-once descent from the item it advanced to, with that item optional.
