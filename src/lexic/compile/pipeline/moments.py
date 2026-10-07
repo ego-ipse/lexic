@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Self
 
+from lexic.compile.pipeline.naming import ruleref_memo
 from lexic.compile.pipeline.passes import hoist_arms, hoist_groups, relax_non_semantic
 from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
@@ -81,9 +82,10 @@ class GrammarMoments(IrNamedTuple[IrAst, IrAst, IrAst, IrAst, IrAst]):
             for a plain char grammar (then ``resolved`` is ``relaxed``).
         :returns: The five moments.
         """
-        grouped = hoist_groups(ast)
-        armed = hoist_arms(grouped)
-        relaxed = relax_non_semantic(armed)
+        with ruleref_memo():
+            grouped = hoist_groups(ast)
+            armed = hoist_arms(grouped)
+            relaxed = relax_non_semantic(armed)
         resolved = relaxed if registry is None else concretize(relaxed, registry)
         return cls(ast, grouped, armed, relaxed, resolved)
 
@@ -138,9 +140,11 @@ class CompileMoments(IrNamedTuple[GrammarMoments, list[RuleMap], dict[str, type]
             module name the classes carry.
         :returns: The moments, classes last.
         """
-        grammar = GrammarMoments.of(ast, registry)
-        binding = compute_binding(grammar.resolved)
-        return cls(grammar, binding, synthesize(grammar.relaxed, binding, identity))
+        with ruleref_memo():  # one compile: its passes share has_ruleref's answers
+            grammar = GrammarMoments.of(ast, registry)
+            binding = compute_binding(grammar.resolved)
+            classes = synthesize(grammar.relaxed, binding, identity)
+        return cls(grammar, binding, classes)
 
 
 def build_codegen_grammar(ast: IrAst) -> IrAst:

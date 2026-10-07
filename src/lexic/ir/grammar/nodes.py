@@ -197,20 +197,6 @@ class IrBounds(IrLeaf, IrNamedTuple[int, int | IrNoneType]):
     lo: int
     hi: int | IrNoneType
 
-    def __eq__(self, other: object) -> bool:
-        """Equal only to the same bounds subtype with equal endpoints."""
-        if type(self) is not type(other):
-            return False
-        return super().__eq__(other)
-
-    def __ne__(self, other: object) -> bool:
-        """Negation of :meth:`__eq__` (``tuple`` supplies its own ``__ne__``)."""
-        return not self == other
-
-    def __hash__(self) -> int:
-        """Hash by endpoint tuple (defining ``__eq__`` nulls the inherited hash)."""
-        return super().__hash__()
-
     def __contains__(self, value: object) -> bool:
         """``lo <= value <= hi``; ``hi=IrNone`` means unbounded above."""
         if not isinstance(value, int):
@@ -612,9 +598,10 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
         fixpoint holds (see the class docstring).
 
         :param other: The value to compare against.
-        :returns: ``True`` when ``other`` is an ``IrRule`` with equal name and body.
+        :returns: ``True`` when ``other`` is the same rule class with equal
+            name and body — the record rule's kind test, ``semantic`` aside.
         """
-        if not isinstance(other, IrRule):
+        if type(other) is not type(self):
             return False
         return self.name == other.name and self.body == other.body
 

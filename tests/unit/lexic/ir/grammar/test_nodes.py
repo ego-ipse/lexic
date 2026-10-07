@@ -157,7 +157,7 @@ def test_ir_ast_holds_rules_and_start():
     rule = IrRule("root", body=body)
     ast = IrAst(IrSeq(rule), "root")
     assert ast.start == "root"
-    assert ast.rules == (rule,)
+    assert ast.rules == IrSeq(rule)
 
 
 def test_ir_ast_is_frozen():
@@ -221,7 +221,7 @@ def test_irnode_default_children_is_empty_tuple():
     assert not IrRuleRef("foo").children()
     assert not IrQuantifier().children()
     # IrCharClass is a variadic IrSeq — its elements are its children
-    assert IrCharClass(IrRange(IrChr("a"), IrChr("z"))).children() == (
+    assert tuple(IrCharClass(IrRange(IrChr("a"), IrChr("z"))).children()) == (
         IrRange(IrChr("a"), IrChr("z")),
     )
 
@@ -295,7 +295,7 @@ def test_irast_children_returns_rules_tuple():
     r = IrRule("x", IrAlternation())
     ast = IrAst(IrSeq(r), "x")
     assert tuple(ast.children()) == (IrSeq(r),)
-    assert ast.rules == (r,)
+    assert ast.rules == IrSeq(r)
 
 
 def test_irast_rebuild_replaces_rules_preserves_start():

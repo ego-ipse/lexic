@@ -251,9 +251,9 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
             elif isinstance(node, IrSelf):
                 rebuilt = node.rebuild(new)
             else:
-                # the model layer's plain-tuple field — rebuilt onto the
-                # spine (an IrTuple IS a tuple, so the field contract holds)
-                rebuilt = IrTuple(*new)
+                # the model layer's plain-tuple field keeps its shape: a run
+                # IS a bare tuple, and a record would compare unequal to it
+                rebuilt = new
             if not isinstance(rebuilt, IrSelf):
                 # a payload leaf (None, a string, a class) is never offered
                 # to the table — it is the model layer's payload, not a node

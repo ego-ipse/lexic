@@ -26,7 +26,7 @@ from lexic.compile import (
 from lexic.compile.output.templating import skip_rules
 from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir import IrMap, IrSelf, refs_in_order
+from lexic.ir import IrMap, IrSelf, IrStr, IrTuple, refs_in_order
 from lexic.model import GrammarModel
 from lexic.parsing import parse_model
 from tests.paths import GROUND_TRUTH
@@ -260,9 +260,12 @@ def test_run_returns_an_ir_map() -> None:
 
 
 def test_run_keys_match_plain_strings() -> None:
-    """IrStr keys hash-match plain str, so a caller subscripts natively."""
+    """A key is the ``IrTuple`` path of ``IrStr`` parts, and a caller still
+    subscripts natively with a plain tuple of plain strings: the map reads it
+    as the path it spells."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP}).run(_TOY_DOC)
-    assert set(out.keys()) == {("f",)}
+    assert set(out.keys()) == {IrTuple(IrStr("f"))}
+    assert out[("f",)] is out[IrTuple(IrStr("f"))]
 
 
 def test_kept_leaf_is_a_grammar_model_not_a_wrapper() -> None:
@@ -275,7 +278,7 @@ def test_nested_spec_flattens_to_a_path_key() -> None:
     """A nested spec yields a PATH key, not a nested map — so the value type
     stays GrammarModel and a read never has to narrow."""
     out = template(_TOY_COMPILED, _SHAPE, {"b": {"c": KEEP}}).run(_TOY_DOC)
-    assert set(out.keys()) == {("b", "c")}
+    assert set(out.keys()) == {IrTuple(IrStr("b"), IrStr("c"))}
     assert isinstance(out[("b", "c")], GrammarModel)
 
 
@@ -301,7 +304,7 @@ def test_spec_key_absent_from_document_is_silently_omitted() -> None:
     """A spec key the document does not carry is simply absent — extraction is
     a projection, not a schema check, so a partial document is not an error."""
     out = template(_TOY_COMPILED, _SHAPE, {"f": KEEP, "nope": KEEP}).run(_TOY_DOC)
-    assert set(out.keys()) == {("f",)}
+    assert set(out.keys()) == {IrTuple(IrStr("f"))}
 
 
 def test_every_spec_key_absent_yields_an_empty_map() -> None:

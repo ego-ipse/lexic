@@ -7,14 +7,18 @@ against real grammars; this file targets naming.py's own pure functions.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from lexic.compile import compile_text
+from lexic.compile.pipeline import naming, passes, rulemap
 from lexic.compile.pipeline.naming import (
     CHARCLASS_NAMES,
     RESERVED_FIELD_NAMES,
     class_name_for,
     has_ruleref,
+    ruleref_memo,
 )
 from lexic.ir import IrAlternation, IrLiteral, IrRuleRef, IrSequence
 
@@ -55,6 +59,60 @@ def test_has_ruleref_false_for_a_ruleref_free_subtree():
     """A subtree with no IrRuleRef at all reports False."""
     body = IrAlternation(IrSequence(IrLiteral("a"), IrLiteral("b")))
     assert has_ruleref(body) is False
+
+
+def _counted(monkeypatch) -> list[int]:
+    """Count ``has_ruleref``'s walks: the returned one-cell list holds them."""
+    real = vars(naming)["_HAS_RULEREF"]
+    walks = [0]
+
+    def apply(node):
+        walks[0] += 1
+        return real.apply(node)
+
+    monkeypatch.setattr(naming, "_HAS_RULEREF", SimpleNamespace(apply=apply))
+    return walks
+
+
+def test_one_compile_walks_a_subtree_once(monkeypatch) -> None:
+    """Inside one compile's scope the second question about the same subtree
+    is answered from the memo; outside any compile, every question walks."""
+    walks = _counted(monkeypatch)
+    body = IrAlternation(IrSequence(IrLiteral("a"), IrRuleRef("other")))
+    with ruleref_memo():
+        assert has_ruleref(body) is True and has_ruleref(body) is True
+    assert walks[0] == 1
+    has_ruleref(body)
+    has_ruleref(body)
+    assert walks[0] == 3
+
+
+def test_an_equal_subtree_is_not_a_hit(monkeypatch) -> None:
+    """The memo is by identity: an equal but distinct subtree walks again."""
+    walks = _counted(monkeypatch)
+    with ruleref_memo():
+        has_ruleref(IrAlternation(IrSequence(IrRuleRef("x"))))
+        has_ruleref(IrAlternation(IrSequence(IrRuleRef("x"))))
+    assert walks[0] == 2
+
+
+def test_the_memo_dies_with_the_compile(monkeypatch) -> None:
+    """A real compile asks about the same bodies more than once and walks
+    each fewer times than it asks; afterwards no memo remains."""
+    walks = _counted(monkeypatch)
+    asked = [0]
+    real = naming.has_ruleref
+
+    def counting(node):
+        asked[0] += 1
+        return real(node)
+
+    monkeypatch.setattr(naming, "has_ruleref", counting)
+    for module in (rulemap, passes):
+        monkeypatch.setattr(module, "has_ruleref", counting)
+    compile_text('root ::= a b | b\na ::= "x" b\nb ::= [y]+\n', cache_key="memo-scope")
+    assert 0 < walks[0] < asked[0], (walks[0], asked[0])
+    assert vars(naming)["_RULEREF_MEMO"].get() is None
 
 
 def test_charclass_names_cover_the_documented_library_entries():

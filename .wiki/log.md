@@ -2323,3 +2323,9 @@ the boundaries the decider keeps refuses. `decisions.md` records how
 `splits.py` decides the boundary before the arm and ranks a repetition's tied
 arms by their own carvings, and how the ambiguity check judges the decided
 derivation alone.
+
+## Records compare by class and fields
+
+`ir-shapes.md`'s `IrTuple` entry and a `decisions.md` entry: class-aware
+record equality with no plain-tuple interop, the payload hash kept, and the
+per-class copies of the rule removed.

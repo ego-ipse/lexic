@@ -65,19 +65,6 @@ class Decider(IrNamedTuple[frozenset[str]]):
         natural order is a total preorder over carvings, maximum kept."""
         raise NotImplementedError
 
-    def __eq__(self, other: object) -> bool:
-        """The same kind of decider, with every field equal."""
-        return type(other) is type(self) and tuple.__eq__(self, other)
-
-    def __ne__(self, other: object) -> bool:
-        """Stated, not inherited: ``tuple`` defines its own, which would
-        compare the fields alone."""
-        return not self == other
-
-    def __hash__(self) -> int:
-        """Consistent with :meth:`__eq__`: the kind and every field."""
-        return hash((type(self), tuple(self)))
-
 
 class LeftmostLongest(Decider):
     """The first slot takes as much as it can, then the next, and so on.

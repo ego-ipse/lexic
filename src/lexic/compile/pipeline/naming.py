@@ -9,8 +9,9 @@ importing nothing back."""
 from __future__ import annotations
 
 import keyword
-from collections.abc import Sequence
-from functools import cache
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from lexic.ir import (
     IrAction,
@@ -258,18 +259,53 @@ def _alphabet_field(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
     return IrStr("tok")
 
 
-@cache
 def has_ruleref(node: IrNode) -> bool:
     """True if any :class:`IrRuleRef` exists in the node subtree.
 
     Short-circuits on first hit: the singleton :class:`IrVisitor` carries an
     :class:`IrReturn` body for :class:`IrRuleRef`, which raises a control-flow
-    exception caught by :meth:`IrDispatch.apply`. Cached on node identity.
+    exception caught by :meth:`IrDispatch.apply`.
+
+    Inside one compile (:func:`ruleref_memo`) the answer is remembered by node
+    IDENTITY, beside the node, for that compile only: the passes ask about the
+    same rule bodies several times. Never on equality, which hashed the whole
+    subtree per call and compared it level by level on a hit.
 
     :param node: Root of the subtree to scan.
     :returns: ``True`` if an :class:`IrRuleRef` was found, else ``False``.
     """
-    return _HAS_RULEREF.apply(node) is not IrNone
+    memo = _RULEREF_MEMO.get()
+    if memo is None:
+        return _HAS_RULEREF.apply(node) is not IrNone
+    held = memo.get(id(node))
+    if held is not None and held[0] is node:
+        return held[1]
+    found = _HAS_RULEREF.apply(node) is not IrNone
+    memo[id(node)] = (node, found)
+    return found
+
+
+@contextmanager
+def ruleref_memo() -> Iterator[None]:
+    """Remember :func:`has_ruleref`'s answers for the compile this scope is.
+
+    Nested scopes share the outermost one's memo; it is dropped when the
+    outermost scope ends, so nothing outlives the compile.
+    """
+    if _RULEREF_MEMO.get() is not None:
+        yield
+        return
+    token = _RULEREF_MEMO.set({})
+    try:
+        yield
+    finally:
+        _RULEREF_MEMO.reset(token)
+
+
+_RULEREF_MEMO: ContextVar[dict[int, tuple[IrNode, bool]] | None] = ContextVar(
+    "ruleref_memo", default=None
+)
+"""The running compile's :func:`has_ruleref` answers, or ``None`` outside one."""
 
 
 def _group_hint(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:

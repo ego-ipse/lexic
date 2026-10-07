@@ -109,11 +109,13 @@ def test_deciders_are_values() -> None:
 
 
 def test_another_kind_with_the_same_fields_is_another_decider() -> None:
-    """Records compare as tuples; a decider must not, or two orders granting
-    the same licences would share one cached product."""
+    """Two orders granting the same licences are two deciders, so they never
+    share one cached product. Records are class-aware; their hashes may
+    coincide, which a cache tolerates, so the hash is not asserted apart."""
     other = _ShortestFirst(LEFTMOST_LONGEST.grants)
     assert other != LEFTMOST_LONGEST
-    assert hash(other) != hash(LEFTMOST_LONGEST)
+    assert LEFTMOST_LONGEST != other
+    assert len({other: 1, LEFTMOST_LONGEST: 2}) == 2
 
 
 class _Windowed(LeftmostLongest):

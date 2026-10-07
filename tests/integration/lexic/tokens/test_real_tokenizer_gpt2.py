@@ -28,7 +28,7 @@ from ext.API import cache
 from lexic.api.json_tokenizer import read_from_path
 from lexic.api.pretokens import IrByteLevel
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrTokenizer
+from lexic.ir import IrTokenizer, IrTuple
 from tests.integration.lexic.tokens.tokenizer_corpus import SHARED_CORPUS
 
 GPT2 = cache.path("gpt2")
@@ -78,9 +78,9 @@ def test_pipeline_is_derived_from_the_documents_sections(
     tokenizer: IrTokenizer,
 ) -> None:
     """A bare ByteLevel — the only fixture that pins it without ``Digits``."""
-    assert tokenizer.pipeline.pretokens == (IrByteLevel(),)
+    assert tokenizer.pipeline.pretokens == IrTuple(IrByteLevel())
     assert len(tokenizer.pipeline.remap) == 256
-    assert tokenizer.pipeline.normalize == ()
+    assert tokenizer.pipeline.normalize == IrTuple()
     assert not tokenizer.pipeline.byte_fallback
 
 

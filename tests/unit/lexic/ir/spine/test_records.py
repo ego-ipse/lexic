@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+from operator import eq, ne
 import types
 from typing import ClassVar
 
@@ -9,6 +11,7 @@ import pytest
 
 from lexic.ir.action.access import IrArgs
 from lexic.ir.action.flow.compute import IrJoin
+from lexic.ir.grammar.operators import IrAnd, IrEq
 from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrItem,
@@ -256,3 +259,77 @@ def test_a_subclass_that_adds_fields_still_replaces_the_shape():
         b: IrStr
 
     assert Narrower._fields == ("b",)
+
+
+# ── record equality: the same concrete kind and equal fields ─────────────
+
+
+def _laws_cases():
+    """Records two classes share one payload of, a subclass, and the tuple."""
+    x, y = IrInt(1), IrInt(2)
+    return IrAnd(x, y), IrEq(x, y), (x, y)
+
+
+def test_two_record_classes_with_one_payload_are_unequal_both_ways() -> None:
+    """``IrAnd`` and ``IrEq`` are different operators over the same operands."""
+    conj, other, _plain = _laws_cases()
+    assert ne(conj, other) and ne(other, conj)
+    assert eq(conj, other) is False and eq(other, conj) is False
+
+
+def test_a_record_never_equals_its_plain_tuple_in_either_order() -> None:
+    """With a plain tuple on the LEFT, the record's reflected ``__eq__`` runs
+    first (a ``tuple`` subclass that overrides it), so both orders agree."""
+    conj, _other, plain = _laws_cases()
+    assert ne(conj, plain) and ne(plain, conj)
+    assert eq(conj, plain) is False and eq(plain, conj) is False
+
+
+def test_equality_is_transitive_through_a_plain_tuple() -> None:
+    """The interop the contract refuses: were a record equal to its plain
+    tuple, ``IrAnd == plain == IrEq`` would hold while ``IrAnd != IrEq``."""
+    conj, other, plain = _laws_cases()
+    assert not (eq(conj, plain) and eq(plain, other))
+
+
+def test_ne_is_exactly_not_eq() -> None:
+    """Over every pair, records and the tuple included."""
+    cases = (*_laws_cases(), IrAnd(IrInt(1), IrInt(2)))
+    for left in cases:
+        for right in cases:
+            assert ne(left, right) is (not eq(left, right)), (left, right)
+
+
+def test_equal_records_hash_equal_and_are_reflexive() -> None:
+    """Equal by class and fields, so one hash; a record equals itself."""
+    conj, _other, _plain = _laws_cases()
+    twin = IrAnd(IrInt(1), IrInt(2))
+    assert eq(conj, conj) and conj == twin and hash(conj) == hash(twin)
+
+
+def test_a_subclass_instance_is_another_kind() -> None:
+    """Equality asks for the SAME concrete class, not an ``isinstance``."""
+
+    class Derived(IrTuple):
+        """A record kind of its own."""
+
+    assert Derived(IrInt(1)) != IrTuple(IrInt(1))
+    assert IrTuple(IrInt(1)) != Derived(IrInt(1))
+
+
+def test_containers_keep_one_entry_per_kind() -> None:
+    """Every insertion order of a record, its twin class and the plain tuple
+    keeps three keys, and each lookup finds its own."""
+    conj, other, plain = _laws_cases()
+    for order in itertools.permutations((conj, other, plain)):
+        table = {key: type(key).__name__ for key in order}
+        assert len(table) == 3 and len(set(order)) == 3
+        assert table[conj] == "IrAnd" and table[other] == "IrEq"
+        assert table[plain] == "tuple"
+
+
+def test_nested_records_compare_by_kind_at_every_depth() -> None:
+    """A record holding records of two classes with one payload is unequal."""
+    x, y = IrInt(1), IrInt(2)
+    assert IrTuple(IrAnd(x, y)) != IrTuple(IrEq(x, y))
+    assert IrTuple(IrAnd(x, y)) == IrTuple(IrAnd(x, y))
