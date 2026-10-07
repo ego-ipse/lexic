@@ -8,13 +8,19 @@ supplies the spans here; the partition itself never reads a bracket.
 
 from __future__ import annotations
 
+import random
+
+import pytest
+
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
 from lexic.parsing.parallel.discovery.regions import Region, find
 from lexic.parsing.parallel.discovery.partition import (
     Division,
+    Weights,
     partition,
     render,
+    runs,
     units,
 )
 
@@ -160,3 +166,54 @@ def test_a_division_carries_the_cuts_its_pieces_were_cut_at():
     inner = [len(part) - 2 for part in parts]
     starts = [region.opener + 1 + sum(inner[:k]) + k for k in range(1, len(inner))]
     assert [start - 1 for start in starts] == list(division.cuts)
+
+
+# ── runs by bisection, against the item-by-item greedy ───────────────────
+
+
+def _greedy(target: float, sizes: list[int], marks: tuple[int, ...]) -> tuple[int, ...]:
+    """The reference: walk every item, close a run before the item that would
+    carry a run of at least MIN_CHUNK past ``target``; a short last run rejoins."""
+    cuts: list[int] = []
+    run = 0
+    for at, size in enumerate(sizes):
+        if run >= MIN_CHUNK and run + size > target:
+            cuts.append(marks[at - 1])
+            run = 0
+        run += size
+    if cuts and run < MIN_CHUNK:
+        cuts.pop()
+    return tuple(cuts)
+
+
+def _random_region(rng: random.Random) -> tuple[Weights, list[int]]:
+    """A region of random items, some descended with a random weight left —
+    as :class:`Weights` and as the per-item weights the reference walks."""
+    opener = rng.randrange(0, 50)
+    sizes = [
+        rng.choice((1, 2, 40, 900, 3000, 9000)) for _ in range(rng.randrange(1, 60))
+    ]
+    ends = [opener + sum(sizes[: i + 1]) for i in range(len(sizes))]
+    marks, closer = tuple(ends[:-1]), ends[-1]
+    down = sorted(
+        rng.sample(range(len(sizes)), rng.randrange(0, min(4, len(sizes)) + 1))
+    )
+    weights = list(sizes)
+    shed = [0]
+    for item in down:
+        weights[item] = rng.randrange(1, sizes[item] + 1)
+        shed.append(shed[-1] + sizes[item] - weights[item])
+    return Weights(opener, closer, marks, down, shed), weights
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_runs_by_bisection_cut_where_the_item_walk_cuts(seed: int) -> None:
+    """Cutting by bisection over the separators, with descended items' weights
+    shed, picks exactly the separators the item-by-item walk picks."""
+    rng = random.Random(seed)
+    region, weights = _random_region(rng)
+    target = rng.choice(
+        (MIN_CHUNK / 2, MIN_CHUNK, 1.5 * MIN_CHUNK, 4000.5, 9000.0, 25000.0)
+    )
+    assert runs(target, region) == _greedy(target, weights, region.marks)
+    assert region.before(len(region.marks) + 1) == sum(weights)

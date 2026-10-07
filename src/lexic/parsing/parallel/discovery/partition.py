@@ -14,6 +14,7 @@ plan that can state its spans this way can hand them to the same partition.
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
+from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
 from lexic.parsing.parallel.policy import MIN_CHUNK
@@ -140,51 +141,98 @@ def _divide[S: Span](plan: _Partition[S], region: S) -> int:
     is divided too — as one piece holding that value's stand-in — unless what
     is left of it is under :data:`MIN_CHUNK`: then its holder keeps that text,
     and finding the stand-in in so little costs less than a unit of its own.
+
+    Never one step per item: a region of thousands of items is cut by
+    bisection over its separators, and only the items holding a child larger
+    than a share — few, and found from the children — change weight.
     """
     if region.span <= plan.target:
         return region.span
-    starts = [region.opener + 1, *[mark + 1 for mark in region.marks]]
-    ends = [*region.marks, region.closer]
-    sizes = [hi + 1 - lo for lo, hi in zip(starts, ends, strict=True)]
-    whole = sum(sizes)
-    kids = plan.nest.children.get(region, [])
-    for at in [at for at, size in enumerate(sizes) if size > plan.target]:
-        sizes[at] = _item(plan, kids, starts[at], ends[at])
-    cuts = _runs(plan.target, sizes, region.marks)
-    left = region.span - whole + sum(sizes)
+    marks = region.marks
+    down: list[int] = []
+    shed = [0]
+    item = -1
+    for kid in plan.nest.children.get(region, []):
+        held, item = item, bisect_left(marks, kid.opener)
+        # An oversized item descends into its FIRST child only, and only
+        # when that child is itself larger than a share.
+        if held != item and kid.span > plan.target:
+            down.append(item)
+            shed.append(shed[-1] + kid.span - _divide(plan, kid))
+    weights = Weights(region.opener, region.closer, marks, down, shed)
+    cuts = runs(plan.target, weights)
+    left = (
+        region.span - (region.closer - region.opener) + weights.before(len(marks) + 1)
+    )
     if cuts or MIN_CHUNK <= left < region.span:
         plan.out.append(Division(region, cuts))
         return 0
     return left
 
 
-def _item[S: Span](plan: _Partition[S], kids: list[S], lo: int, hi: int) -> int:
-    """An oversized item's weight in its region's runs: its text and the
-    separator after it, less whatever of a descended value no longer travels
-    with it."""
-    size = hi + 1 - lo
-    kid = next((k for k in kids if lo <= k.opener and k.closer < hi), None)
-    if kid is None or kid.span <= plan.target:
-        return size
-    return size - kid.span + _divide(plan, kid)
+class Weights(NamedTuple):
+    """A region's items as weights, read by position: an item's text and the
+    separator after it, less what a descended child no longer carries.
+
+    :ivar opener: Offset of the region's opener.
+    :ivar closer: Offset of its closer.
+    :ivar marks: Its separators; item ``i`` ends at ``marks[i]``, the last at
+        the closer.
+    :ivar down: The descended items, ascending.
+    :ivar shed: ``shed[j]``: the weight the first ``j`` of them shed.
+    """
+
+    opener: int
+    closer: int
+    marks: tuple[int, ...]
+    down: list[int]
+    shed: list[int]
+
+    def before(self, item: int) -> int:
+        """The weight of the items before ``item`` (``0 <= item <= items``)."""
+        if item == 0:
+            return 0
+        end = self.marks[item - 1] if item <= len(self.marks) else self.closer
+        return end - self.opener - self.shed[bisect_left(self.down, item)]
 
 
-def _runs(target: float, sizes: list[int], marks: tuple[int, ...]) -> tuple[int, ...]:
+def runs(target: float, weights: Weights) -> tuple[int, ...]:
     """Separators between greedy runs of adjacent items of at most ``target``.
 
     A run is closed only once it clears :data:`MIN_CHUNK`, and a last run
-    under it rejoins the one before, so no piece falls below the floor.
+    under it rejoins the one before, so no piece falls below the floor. The
+    run from item ``j`` closes before the first item ``i`` that both starts
+    :data:`MIN_CHUNK` in and would carry it past ``target``; both tests only
+    ever turn true as ``i`` grows, so each cut is two bisections.
     """
+    items = len(weights.marks) + 1
+    before = weights.before
     cuts: list[int] = []
-    run = 0
-    for at, size in enumerate(sizes):
-        if run >= MIN_CHUNK and run + size > target:
-            cuts.append(marks[at - 1])
-            run = 0
-        run += size
-    if cuts and run < MIN_CHUNK:
+    start = 0
+    while True:
+        base = before(start)
+        floor = _first(lambda i: before(i) - base >= MIN_CHUNK, start + 1, items)
+        over = _first(lambda i: before(i + 1) - base > target, start + 1, items)
+        at = max(floor, over)
+        if at >= items:
+            break
+        cuts.append(weights.marks[at - 1])
+        start = at
+    if cuts and before(items) - before(start) < MIN_CHUNK:
         cuts.pop()
     return tuple(cuts)
+
+
+def _first(test: Callable[[int], bool], lo: int, hi: int) -> int:
+    """The least ``i`` in ``[lo, hi)`` passing a test that, once passed, stays
+    passed; ``hi`` when none does."""
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if test(mid):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
 
 
 def render[S: Span](
