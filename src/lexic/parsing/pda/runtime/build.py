@@ -152,7 +152,7 @@ class Frame[Carry]:
         :attr:`i` reads as optional there, so a boundary that is the
         terminator class (HARD) can read as chain-viable (ADMITS) instead.
         """
-        i = self.i
+        i = self.i  # `Attempting._beyond_class` reads this test in place
         if i == 0 or self.count or self.arm.kinds[i - 1] != OP_REF1:
             return i, -1
         return i - 1, i

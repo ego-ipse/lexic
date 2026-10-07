@@ -550,12 +550,14 @@ def test_a_nested_boundary_settled_by_taking_still_answers_for_itself() -> None:
         _verdict((["x"], _STOPPED), (["x"], EXACT))
 
 
-def _lockstep_after_one_round(monkeypatch, stop_sampled: Sampled) -> int | None:
+def _lockstep_after_one_round(
+    monkeypatch, stop_sampled: Sampled, take_sampled: Sampled = EXACT
+) -> int | None:
     """The lockstep over a stop side and a take side apart in position, whose
-    first round kills the stop side — after a drive sampled or not."""
+    first round kills the stop side — after drives sampled or not."""
     kern = _live_kernel("{}")
     stop, take = ([], 0, None), ([], 1, None)
-    rounds = {id(stop): (None, stop_sampled), id(take): (take, EXACT)}
+    rounds = {id(stop): (None, stop_sampled), id(take): (take, take_sampled)}
     monkeypatch.setattr(
         PdaKernel,
         "_side",
@@ -575,3 +577,44 @@ def test_a_lockstep_side_sampled_on_the_way_settles_nothing(monkeypatch) -> None
     assert _lockstep_after_one_round(monkeypatch, _TOOK) is None
     assert _lockstep_after_one_round(monkeypatch, _STOPPED) is None
     assert _lockstep_after_one_round(monkeypatch, EXACT) == _TAKE
+
+
+def test_a_stop_side_dead_on_its_own_exact_path_settles_whatever_the_take_sampled(
+    monkeypatch,
+) -> None:
+    """The take side sampled on its way; the stop side died exact. The stop
+    side is dead on every path it had, so the boundary is the take — samples
+    are read per side. Reading both sides' samples as one leaves it to the
+    long way, which is the sabotage this fails."""
+    assert _lockstep_after_one_round(monkeypatch, EXACT, _TOOK) == _TAKE
+    assert _lockstep_after_one_round(monkeypatch, EXACT, _STOPPED) == _TAKE
+
+
+def test_vyx_s_dead_stop_side_settles_in_the_lockstep_with_no_probe(
+    monkeypatch,
+) -> None:
+    """Counted on a real document: `vyx`'s fork at 33 has a take side that
+    samples a nested boundary its text cannot refute and a stop side whose
+    death is exact. The lockstep settles it as the take, and no probe runs
+    anywhere in the parse."""
+    bench = next(one for one in BENCHES if one.name == "vyx")
+    defined = vars(decisions.Attempting)
+    lockstep, probe = defined["_lockstep_verdict"], defined["_probe"]
+    seen = {"probes": 0, "settled": {}}
+
+    def counting_lockstep(self, arm, i, pos, taken):
+        """`_lockstep_verdict`, its answer kept by position."""
+        seen["settled"][pos] = lockstep(self, arm, i, pos, taken)
+        return seen["settled"][pos]
+
+    def counting_probe(self, *args, **kwargs):
+        """`_probe`, counted."""
+        seen["probes"] += 1
+        return probe(self, *args, **kwargs)
+
+    monkeypatch.setattr(decisions.Attempting, "_lockstep_verdict", counting_lockstep)
+    monkeypatch.setattr(decisions.Attempting, "_probe", counting_probe)
+    bench.compiled.parse(bench.full, cores=1)
+
+    assert seen["settled"].get(33) == _TAKE
+    assert seen["probes"] == 0

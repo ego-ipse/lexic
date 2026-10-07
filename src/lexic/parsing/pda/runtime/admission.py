@@ -16,6 +16,7 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,
     OP_CC,
@@ -32,6 +33,7 @@ from lexic.parsing.pda.runtime.build import (
 
 __all__ = [
     "EXACT",
+    "exact_only",
     "Sampled",
     "NO_ROUTE",
     "RouteLane",
@@ -159,6 +161,23 @@ def arm_rest_scan(arm: FlatArm, i: int, char: str, relax: int = -1) -> tuple[int
         walk cannot tell whether it is still due (:meth:`~lexic.parsing.pda
         .runtime.build.Frame.rest_after`), or ``-1``.
     """
+    if relax != -1:
+        return _relaxed_rest_scan(arm, i, char, relax)
+    opt = False
+    los = arm.los
+    for j in range(i + 1, arm.n):
+        if item_admits(arm, j, char):
+            if los[j] > 0:
+                return REST_ADMITS_HARD, opt
+            opt = True
+        elif los[j] > 0:
+            return REST_DEAD, opt
+    return REST_ASCEND, opt
+
+
+def _relaxed_rest_scan(arm: FlatArm, i: int, char: str, relax: int) -> tuple[int, bool]:
+    """:func:`arm_rest_scan` with item ``relax`` read as optional — kept apart
+    so the plain walk, which nearly every frame takes, tests no relaxed item."""
     opt = False
     for j in range(i + 1, arm.n):
         due = arm.los[j] > 0 and j != relax
@@ -210,6 +229,17 @@ class Sampled(NamedTuple):
 
 EXACT = Sampled(False, False)
 """A drive that sampled nothing."""
+
+
+def exact_only(sampled: bool, pos: int) -> None:
+    """Let a verdict stand only where the side it reads was decided exactly.
+
+    :raises ProbeFork: When the side was sampled.
+    """
+    if sampled:
+        raise ProbeFork(
+            f"attempt loop at {pos}: a side's answer was sampled, not decided", pos
+        )
 
 
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):

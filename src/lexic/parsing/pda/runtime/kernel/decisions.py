@@ -24,7 +24,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
-from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND
+from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND, OP_REF1
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
@@ -41,6 +41,7 @@ from lexic.parsing.pda.runtime.admission import (
     arm_rest_scan,
     composes,
     control_signature,
+    exact_only,
     frames_copy,
     pending_values,
     sole_admitted,
@@ -65,17 +66,6 @@ away and every character driven past it is wasted."""
 
 _TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Attempting._fork_verdict`)."""
-
-
-def _exact_only(sampled: bool, pos: int) -> None:
-    """Let a verdict stand only where the side it reads was decided exactly.
-
-    :raises ProbeFork: When the side was sampled.
-    """
-    if sampled:
-        raise ProbeFork(
-            f"attempt loop at {pos}: a side's answer was sampled, not decided", pos
-        )
 
 
 class Attempting[Carry]:
@@ -225,8 +215,12 @@ class Attempting[Carry]:
         verdict, opt = arm_rest_scan(arm, i, char)
         if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                at, relax = frame.rest_after()
-                verdict, o = arm_rest_scan(frame.arm, at, char, relax)
+                # `Frame.rest_after` in place: no call or tuple per frame
+                at = frame.i
+                if at == 0 or frame.count or frame.arm.kinds[at - 1] != OP_REF1:
+                    verdict, o = arm_rest_scan(frame.arm, at, char)
+                else:
+                    verdict, o = arm_rest_scan(frame.arm, at - 1, char, at)
                 opt = opt or o
                 if verdict != REST_ASCEND:
                     break
@@ -295,17 +289,17 @@ class Attempting[Carry]:
             return settled
         stop, stop_sampled = self._probe(arm, i, pos, None)
         if stop is None:
-            _exact_only(stop_sampled.any, pos)  # a death after any sample
+            exact_only(stop_sampled.any, pos)  # a death after any sample
             return _TAKE
         take, take_sampled = self._probe(arm, i, pos, taken)
         if take is None:
-            _exact_only(take_sampled.any, pos)
+            exact_only(take_sampled.any, pos)
             return _STOP_FORCED
         if len(take) != len(stop) or any(
             not same_value(a, b) for a, b in zip(take, stop)
         ):
             return _FORKED
-        _exact_only((stop_sampled | take_sampled).stop, pos)  # an agreement
+        exact_only((stop_sampled | take_sampled).stop, pos)  # an agreement
         return _TAKE
 
     def _lockstep_verdict(
@@ -348,27 +342,30 @@ class Attempting[Carry]:
         A side driven through a boundary it resolved by sampling settles
         nothing it could only settle by being exact: its death is not a dead
         stop side, and its values are not the only values it could have built,
-        so those answers fall to the long way instead.
+        so those answers fall to the long way instead. Samples are read per
+        side: a stop side dead on its own exact path is dead.
 
         :returns: The verdict, or ``None`` when the long way must decide.
         """
         shape = value_shape(self.stack)
         left = self._side(arm, i, pos, None)
         right = self._side(arm, i, pos, taken)
-        sampled = EXACT
+        stop_sampled = take_sampled = EXACT  # per side: a death reads its own
         for _round in range(_LOCKSTEP_ROUNDS):
             if left is None or right is None:
-                return _TAKE if left is None and not sampled.any else None
+                return _TAKE if left is None and not stop_sampled.any else None
             target = max(left[1], right[1])
             if left[1] == right[1]:
                 if control_signature(left[0], left[1]) == control_signature(
                     right[0], right[1]
                 ):
-                    return self._converged(left, right, (shape, sampled))
+                    drove = (shape, stop_sampled | take_sampled)
+                    return self._converged(left, right, drove)
                 target += _LOCKSTEP_STEP
-            left, left_sampled = self._advance(left, target)
-            right, right_sampled = self._advance(right, target)
-            sampled = sampled | left_sampled | right_sampled
+            left, sampled = self._advance(left, target)
+            stop_sampled = stop_sampled | sampled
+            right, sampled = self._advance(right, target)
+            take_sampled = take_sampled | sampled
         return None
 
     def _converged(
