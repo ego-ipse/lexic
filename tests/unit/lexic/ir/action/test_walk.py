@@ -621,7 +621,7 @@ def test_bottom_up_keeps_a_changed_models_field_a_bare_tuple() -> None:
     )
     out = censor.apply(compiled.parse("[1, 2]"))
     items = getattr(getattr(out, "value"), "array_item2")
-    assert type(getattr(items, "array_item")) is tuple
+    assert getattr(items, "array_item").__class__ is tuple
     assert out.to_text() == "[null, null]"
     assert out == compiled.parse("[null, null]")
 
@@ -636,7 +636,7 @@ def test_a_rebuilt_run_is_not_offered_to_the_action_table() -> None:
     runs: list[object] = []
 
     def seen(_d, n, _nc):
-        if type(n) is IrTuple or type(n) is tuple:
+        if n.__class__ in (IrTuple, tuple):
             runs.append(n)
         return n
 
