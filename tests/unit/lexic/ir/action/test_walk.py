@@ -67,7 +67,7 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.spine.records import IrCachingTuple, IrSeq
+from lexic.ir.spine.records import IrCachingTuple, IrSeq, IrTuple
 from lexic.ir.spine.spine import IrLambda, IrLeaf, IrNode, IrNone, IrSelf
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -605,9 +605,10 @@ def test_bottom_up_transforms_across_model_classes() -> None:
     assert out.to_text() == '{"a": null, "b": [null, null]}'
 
 
-def test_bottom_up_rebuilds_a_changed_models_field_onto_the_spine() -> None:
-    """A changed plain-tuple field comes back as ``IrTuple`` — which IS a
-    tuple, so the model contract holds and the output is IR-strict."""
+def test_bottom_up_keeps_a_changed_models_field_a_bare_tuple() -> None:
+    """A changed run comes back in the run's own shape, a bare ``tuple``, so
+    the transformed model equals the one a parse of its text builds: a record
+    never equals the bare tuple the parse holds for the same run."""
     compiled = _json_compiled()
     null_cls = compiled.classes["Null"]
     censor = IrBottomUp(
@@ -620,8 +621,36 @@ def test_bottom_up_rebuilds_a_changed_models_field_onto_the_spine() -> None:
     )
     out = censor.apply(compiled.parse("[1, 2]"))
     items = getattr(getattr(out, "value"), "array_item2")
-    assert isinstance(getattr(items, "array_item"), tuple)
+    assert type(getattr(items, "array_item")) is tuple
     assert out.to_text() == "[null, null]"
+    assert out == compiled.parse("[null, null]")
+
+
+def test_a_rebuilt_run_is_not_offered_to_the_action_table() -> None:
+    """A run is model payload, never a node: an unchanged run was never
+    dispatched, and a rebuilt one is not either. A table carrying an
+    ``IrTuple`` action sees records (models reach it through the MRO) but no
+    run, rebuilt or not."""
+    compiled = _json_compiled()
+    null_cls = compiled.classes["Null"]
+    runs: list[object] = []
+
+    def seen(_d, n, _nc):
+        if type(n) is IrTuple or type(n) is tuple:
+            runs.append(n)
+        return n
+
+    censor = IrBottomUp(
+        actions=IrTypeMap(
+            IrAction(
+                compiled.classes["Number"], IrLambda(lambda *_a: null_cls("null"))
+            ),
+            IrAction(IrTuple, IrLambda(seen)),
+        )
+    )
+    out = censor.apply(compiled.parse("[1, 2]"))
+    assert out.to_text() == "[null, null]"
+    assert not runs, runs
 
 
 def test_bottom_up_walks_a_dispatch_table_like_any_value() -> None:

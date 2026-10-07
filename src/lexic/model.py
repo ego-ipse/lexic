@@ -322,38 +322,6 @@ class GrammarModel(IrNamedTuple):
                 f"field 'value': {value!r} is not one of {sorted(allowed)}"
             )
 
-    def __eq__(self, other: object) -> bool:
-        """Type-aware equality: same concrete class AND equal payload.
-
-        Plain tuple equality is cross-class (``A('x') == B('x')``), which
-        would collide distinct rules' models in dicts/sets and weaken
-        round-trip determinism assertions — the ``IrBounds`` precedent.
-
-        :param other: The value to compare against.
-        :returns: ``True`` when ``other`` is the same class with equal fields.
-        """
-        if type(self) is not type(other):
-            return False
-        return tuple.__eq__(self, other)
-
-    def __ne__(self, other: object) -> bool:
-        """Negation of :meth:`__eq__`, kept consistent with it.
-
-        :param other: The value to compare against.
-        :returns: ``True`` when not equal under :meth:`__eq__`.
-        """
-        return not self == other
-
-    def __hash__(self) -> int:
-        """Hash by tuple payload — consistent with :meth:`__eq__`.
-
-        Distinct classes with equal payloads may collide (harmless); equal
-        models always share a hash.
-
-        :returns: The native tuple hash.
-        """
-        return tuple.__hash__(self)
-
     @classmethod
     def bound_fields(cls) -> dict[int, tuple[str, IrBind]]:
         """Item slot → ``(field name, bind)`` — the class's binds table.

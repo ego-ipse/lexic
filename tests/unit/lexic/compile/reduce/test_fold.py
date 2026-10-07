@@ -142,7 +142,7 @@ def test_reduce_refuses_a_no_body_default_of_a_dispatch_miss_the_same_way_as_par
     raising — DROP is a legal terminal policy, not an error."""
     reducer = Reducer(actions=IrMap(), default=DROP)
     result = compile_ast(_chain_grammar()).reduce("x", reducer)
-    assert result == () or not str(result)
+    assert result == IrTuple() or not str(result)
 
 
 # ── Obligation B — a fold worker's sub-parse can never contend the fold pool

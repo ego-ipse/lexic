@@ -463,3 +463,23 @@ def test_multimap_stays_a_leaf_under_the_walk() -> None:
     """The mutable exception is never walked — its children stay empty."""
     multi = IrMultiMap.from_table([(IrStr("k"), [1])])
     assert not multi.children()
+
+
+def test_a_plain_tuple_key_reads_the_record_entry_it_spells() -> None:
+    """A map keyed by ``IrTuple`` paths answers a plain ``(...)`` subscript:
+    the map converts the key to its own shape before the lookup, while the
+    record and the plain tuple stay unequal."""
+    path = IrTuple(IrStr("b"), IrStr("c"))
+    table = IrMap(IrTuple(path, IrInt(7)))
+    assert table[("b", "c")] is table[path]
+    assert ("b", "c") in table and path in table
+    assert table.get(("b", "c")) is table.get(path)
+    assert IrTuple(IrInt(1)) != (IrInt(1),)
+
+
+def test_a_plain_tuple_key_that_spells_nothing_still_misses() -> None:
+    """The conversion finds only an entry that is there."""
+    table = IrMap(IrTuple(IrTuple(IrStr("a")), IrInt(7)))
+    with pytest.raises(IrKeyError):
+        _ = table[("z",)]
+    assert ("z",) not in table and table.get(("z",)) is None

@@ -1043,3 +1043,25 @@ it. Census on the built code: no roster or ground-truth document changes; on
 the random stress family every changed answer equals the PDA's or is where
 the PDA bails, no new refusal, and the texts that exhausted the recursion in
 the emulation run to an answer.
+
+## Records compare by class and fields, never as plain tuples
+
+`IrTuple.__eq__` is `type(other) is type(self) and tuple.__eq__(self, other)`:
+two records of different classes with equal fields were equal and hashed
+equal, so `IrAnd(x, y) == IrEq(x, y)` was a live collision between different
+operators. A record is never equal to a plain tuple either. The scalar tier's
+plain-primitive interop is not extended to records, because with it
+`IrAnd == (x, y) == IrEq` while `IrAnd != IrEq`: equality stops being
+transitive, and a dict holding both kinds of key answers by insertion order.
+
+A mismatch answers `False`, not `NotImplemented`, so `tuple` never answers for
+the other operand by payload; a plain tuple on the left reaches the record's
+reflected `__eq__` first anyway, as a `tuple` subclass that overrides it. The
+hash stays the payload hash, as `tuple`'s C slot: equal records share it, and
+the collision between two classes with one payload costs a probe. Hashing the
+class too would change no answer; the payload hash is a performance choice.
+
+The per-class copies of the rule (`IrBounds`, `Decider`, `GrammarModel`) are
+gone. `IrRule` keeps its structural rule (`semantic` excluded, for the
+self-hosting fixpoint) with the same kind test. Code that compared a record
+with a tuple literal builds the record it means.
