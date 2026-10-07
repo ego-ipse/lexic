@@ -67,7 +67,10 @@ def chase_dispatch[Carry](
         arm — the caller then consumes nothing.
     :raises PdaFail: When no selector matches and there is no default.
     """
-    char = text[pos] if pos < len(text) else ""
+    try:  # the lookahead: indexing, and end of input as the rare exception
+        char = text[pos]
+    except IndexError:
+        char = ""
     while clone.mode == BUILD_DISPATCH:
         wide = clone.wide_selectors
         if wide is None:
@@ -151,9 +154,11 @@ def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
     :raises PdaFail: On a mismatch, end of input included.
     """
     chars, negated = payload
-    if pos >= len(text) or (
-        (text[pos] in chars) if negated else text[pos] not in chars
-    ):
+    try:
+        char = text[pos]
+    except IndexError:
+        raise PdaFail(f"char class miss at {pos}", pos) from None
+    if (char in chars) if negated else char not in chars:
         raise PdaFail(f"char class miss at {pos}", pos)
     return pos + 1
 
@@ -265,12 +270,7 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
                 raise PdaFail(f"expected {lit!r} at {pos}", pos)
             pos += len(lit)
         elif k == OP_CC1:
-            chars, negated = arm.payloads[j]
-            if pos >= len(text) or (
-                (text[pos] in chars) if negated else text[pos] not in chars
-            ):
-                raise PdaFail(f"char class miss at {pos}", pos)
-            pos += 1
+            pos = match_cc1(text, arm.payloads[j], pos)
         elif k == OP_LIT:
             pos = match_lit(text, arm, j, pos)
         else:
@@ -305,10 +305,12 @@ def match_chartable[Carry](
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
     gk, gate = arm.gate_kinds[i], arm.gate_data[i]
-    limit = len(text)  # `table_miss` moves `pos`, never the text
     count = 0
     while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
-        model = get(text[pos] if pos < limit else "")
+        try:  # end of input is the rare exception, not a test per character
+            model = get(text[pos])
+        except IndexError:
+            model = get("")
         if model is None:
             pos = table_miss(text, clone, sink, pos)
         else:
@@ -438,7 +440,10 @@ def vstr_once[Carry](
 
     :raises PdaFail: On a terminal mismatch or no viable arm.
     """
-    char = text[pos] if pos < len(text) else ""
+    try:  # the lookahead: indexing, and end of input as the rare exception
+        char = text[pos]
+    except IndexError:
+        char = ""
     table = clone.chartable
     if table is not None:
         if clone.runarm is not None:
