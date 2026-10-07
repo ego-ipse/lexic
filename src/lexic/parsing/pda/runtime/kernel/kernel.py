@@ -361,15 +361,15 @@ class PdaKernel[M](
                 else:
                     need = gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
+            i += 1
             # A fold's LAST loop keeps its count — a capture-free fold's depth.
-            frame.count = (
-                0 if i + 1 < arm.n or frame.clone.mode != BUILD_FOLD else count
-            )
-            frame.i = i + 1
+            # `i < arm.n` decides the plain close first, so it pays one compare.
+            frame.count = 0 if i < arm.n or frame.clone.mode != BUILD_FOLD else count
+            frame.i = i
             if frame.ends is not None:
-                frame.ends[i + 1] = pos
+                frame.ends[i] = pos
             self.pos = pos
-            return i + 1
+            return i
         frame.count = count + 1
         frame.i = i
         self.pos = pos
