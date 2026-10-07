@@ -29,13 +29,17 @@ from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
+    ChainSpec,
+    arm_of,
     canonical_indices,
     is_arm_choice,
+    leftmost_chain,
     spec_for,
 )
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
+    from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, KLink
 
 __all__ = [
     "DEFAULT_CONFIG",
@@ -390,12 +394,13 @@ def different_meaning[Value, NodeValue](
     witness = _sibling_witness(kernel, siblings, base, builder, decide)
     if witness is not None:
         return MeaningPair(base, witness)
-    return MeaningPair(base, _flipped_witness(run, choices, base, memo))
+    flips = _decided_flips(run, memo) if memo.nodes else _canonical_flips(run, choices)
+    return MeaningPair(base, _flipped_witness(run, flips, base, memo))
 
 
 def _flipped_witness[Value, NodeValue](
     run: MeaningRun[Value, NodeValue],
-    choices: list[int],
+    flips: list[tuple[int, int]],
     base: BuiltMeaning[Value],
     memo: MeaningMemo[NodeValue],
 ) -> BuiltMeaning[Value] | None:
@@ -405,26 +410,76 @@ def _flipped_witness[Value, NodeValue](
     stops at the first difference, so a span whose first alternate settles the
     question never enumerates the rest.
 
-    **One alternate per ARM.** The walk used to visit every family at the
-    point, carvings the split rule had already rejected included, and a
-    difference found against one of those refuses a span over a derivation this
-    engine cannot produce. What the grammar left open here is the choice of
-    arm, so that is what is offered:
-    :func:`~lexic.parsing.earley.kernel.tables.splits.canonical_indices` names
-    each arm's own carving and the walk flips between those.
+    :param flips: ``(point, family)`` pairs, each one alternative to try.
     """
-    kernel = run.kernel
-    codes = kernel.tables.codes
-    bits = kernel.tables.packing.bits
-    links = kernel.family_reader()
-    for point in choices:
-        bucket = links[point]
-        spec = spec_for(codes, bits, kernel.tables.code_choice, point)
-        for family in canonical_indices(links, bucket, spec)[1:]:
-            built = replayed(run, point, family, memo)
-            if built is not None and not same_value(base.value, built.value):
-                return built
+    for point, family in flips:
+        built = replayed(run, point, family, memo)
+        if built is not None and not same_value(base.value, built.value):
+            return built
     return None
+
+
+def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
+    """The arm alternatives of the DECIDED derivation, and no others.
+
+    The decider fixed every boundary the derivation has. An arm choice left
+    open is a family at one of its keys that reaches the SAME predecessor —
+    the same boundary and the same chain below — with a child of a different
+    authored choice. A family reaching another predecessor is a carving the
+    decider rejected, and a derivation this engine never produces cannot make
+    the span mean two things.
+
+    :param memo: The decided build, whose handles are the derivation's nodes.
+    :returns: ``(point, family)`` pairs, by point then family.
+    """
+    kernel, decide = run.kernel, run.decide
+    tables = kernel.tables
+    bits = tables.packing.bits
+    links = kernel.family_reader()
+    found: set[tuple[int, int]] = set()
+    for handle in memo.nodes:
+        spec = spec_for(tables.codes, bits, tables.code_choice, handle)
+        chain = leftmost_chain(links, handle, spec, {}, decide)
+        key = handle
+        for link in reversed(chain or ()):
+            found.update(
+                (key, family) for family in _other_arms(links, key, link, spec)
+            )
+            key = (link[0] << bits) | link[1]
+    return sorted(found)
+
+
+def _other_arms(
+    links: FamilyReader, key: int, link: KLink, spec: ChainSpec
+) -> list[int]:
+    """The families at ``key`` from ``link``'s predecessor naming another arm."""
+    bucket = links.get(key)
+    if bucket is None or len(bucket) < 2:
+        return []
+    bits, choice = spec.bits, spec.code_choice
+    arm = arm_of(link[2], bits, choice)
+    return [
+        family
+        for family, other in enumerate(bucket)
+        if other[0] == link[0]
+        and other[1] == link[1]
+        and arm_of(other[2], bits, choice) != arm
+    ]
+
+
+def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int]]:
+    """One alternative per arm at every reachable arm choice — the reading when
+    no decided build exists to judge (a chart only the stream could read)."""
+    kernel = run.kernel
+    tables = kernel.tables
+    bits = tables.packing.bits
+    links = kernel.family_reader()
+    flips: list[tuple[int, int]] = []
+    for point in choices:
+        spec = spec_for(tables.codes, bits, tables.code_choice, point)
+        indices = canonical_indices(links, links[point], spec, run.decide)
+        flips.extend((point, family) for family in indices[1:])
+    return flips
 
 
 def _arm_choices(kernel: Kernel, handle: int) -> list[int]:

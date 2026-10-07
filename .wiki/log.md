@@ -2314,3 +2314,12 @@ nested span is found by item. The stitch lays each span's items and its true edg
 over the stand-in's node, all units parse in one map, and needle uniqueness is per
 holding unit.
 
+
+## Earley follows the decider; only an arm choice at kept boundaries refuses
+
+`invariants.md`'s ambiguity invariant now names the split decider: a choice
+whose boundaries differ is decided, leftmost-longest, and only an arm choice at
+the boundaries the decider keeps refuses. `decisions.md` records how
+`splits.py` decides the boundary before the arm and ranks a repetition's tied
+arms by their own carvings, and how the ambiguity check judges the decided
+derivation alone.

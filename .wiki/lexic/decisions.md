@@ -1009,3 +1009,37 @@ refuse costs Earley time where a real grammar's run can hold its closer.
 Vyx's `nl-escape` and `nl-force` are the case: the third character separates
 the exit from the take there, and `FOLLOW_LOOP_K` is 2 by measurement, not by
 budget. So those runs island rather than widen the window.
+
+## Earley keeps the decider's carving, and judges only that derivation
+
+Earley once settled a tie between a repetition's arms (``X`` against
+``X __rep`` from one predecessor) by chart order, and read an arm-choice key
+through its first-recorded arm's own carving. Both are artefacts: the first
+gave `a;a;a;` two secs where the stated rule gives one, the second refused
+`aaa` over an arm that exists only where ``part+`` ends early.
+
+The decider is leftmost-longest over authored slots, top-down
+(`tables/decider.py`). In `tables/splits.py`:
+- every family at a key competes, whatever arm its child names, so the
+  boundary is decided before the arm;
+- families from ONE predecessor whose children name one authored choice are
+  ranked by `decide.rank` of each child's own boundaries (a zero-width step
+  dropped, fewer steps winning a tie), read off the level DAG without resolving
+  the child's own ties, so it never recurses;
+- `dominant` settles two families from one predecessor the same way, so the
+  pairwise primitive answers what the chain reader answers.
+
+In `forest/support/ambiguity.py` the question of meaning is asked of the
+DECIDED derivation: for each of its handles, a family at a key on its chain
+from the same predecessor, naming another arm. A family reaching another
+predecessor is a carving the decider rejected. The old walk over every
+reachable family is kept only where no decided build exists.
+
+Consequence, ruled with the design: a choice whose boundaries differ is
+decided, not refused. ``e ::= e "+" e`` groups `n+n+n` leftmost-longest;
+``item tail`` over `abc` with `item ::= "a" | "ab"` is `ab` + `c`. Only an arm
+choice at the kept boundaries refuses, and a caller's resolver can resolve
+it. Census on the built code: no roster or ground-truth document changes; on
+the random stress family every changed answer equals the PDA's or is where
+the PDA bails, no new refusal, and the texts that exhausted the recursion in
+the emulation run to an answer.

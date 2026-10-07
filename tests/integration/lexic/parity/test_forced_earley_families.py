@@ -89,7 +89,9 @@ def consumers(kern) -> dict[str, object]:
         for point in points:
             bucket = reader[point]
             spec = spec_for(codes, bits, kern.tables.code_choice, point)
-            out[f"canonical {point}"] = canonical_indices(reader, bucket, spec)
+            out[f"canonical {point}"] = canonical_indices(
+                reader, bucket, spec, LEFTMOST_LONGEST
+            )
             for index in range(min(len(bucket), 3)):
                 out[f"pin {point}={index}"] = FastTree(
                     kern, {point: index}, LEFTMOST_LONGEST

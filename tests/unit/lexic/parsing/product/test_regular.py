@@ -15,7 +15,6 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import canonical_grammar, compile_text
-from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlternation, IrRule, IrRuleRef
 from lexic.parsing.pda.core.charsets import CharSet
@@ -118,13 +117,15 @@ def test_the_long_before_short_decline_prevents_reading_a_as_ab():
     assert licensed != len(meant)
 
 
-def test_declining_an_ambiguous_shape_matches_the_engines_own_refusal():
-    """A document the grammar refuses as ambiguous still has SOME possessive
-    reading — the decline is what keeps a consult from silently picking one."""
+def test_declining_a_shape_the_decider_settles_leaves_it_to_the_engine():
+    """``word`` can end after ``a`` or ``ab``, and the rest derives either way:
+    which one is the decider's call, first slot longest, made where the whole
+    parse is seen. A possessive consult proves nothing about that, so it
+    declines, and the parse answers with the decider's reading."""
     source = 'root ::= word tail\nword ::= ("a" | "ab")\ntail ::= "bc" | "c"\n'
     assert not _proves(source, "word", "bc")
-    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
-        compile_text(source).parse("abc", cores=1)
+    model = compile_text(source).parse("abc", cores=1)
+    assert getattr(model, "word").to_text() == "ab"
     assert _licensed_extent(source, "word", "abc") > 0  # a reading DOES exist
 
 
