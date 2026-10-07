@@ -47,10 +47,8 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
     report,
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
+from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.parsing_helpers import clone_specs, prod
-from tests.unit.lexic.parsing.pda.compiler.program.specialize.test_passes import (
-    ATTEMPT_GATED_VSTR,
-)
 from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
     arithmetic_bench_corpus,
 )

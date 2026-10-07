@@ -16,7 +16,7 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
 from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
 from lexic.parsing.pda.compiler.leftrec.shape import any_candidate, foldable
-from lexic.parsing.pda.compiler.program.lowering import FoldBuild
+from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 
 __all__ = ["folded_grammar"]
 

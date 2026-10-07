@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.compiler.program.product — the flat clone bake.
+"""Tests for lexic.parsing.pda.compiler.program.bake.product — the flat clone bake.
 
 The module's own three claims, each pinned directly: absence is coded on
 ``lo`` (0 when a capture may be absent, 1 otherwise) rather than a quantifier;
@@ -14,12 +14,13 @@ from __future__ import annotations
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.compiler.program.bake.lowering import no_shape_build
+from lexic.parsing.pda.compiler.program.bake.product import bake_product_build
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     no_construction,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_SEQ,
@@ -31,7 +32,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_TEXT,
     M_VALUE,
 )
-from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.product import CaptureRoutine, ConstructionLicence
 from lexic.parsing.product.abi.construction import Construction
 from lexic.parsing.product.abi.records import CaptureMode

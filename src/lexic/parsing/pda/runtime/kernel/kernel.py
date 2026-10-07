@@ -52,6 +52,8 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+)
+from lexic.parsing.pda.compiler.program.gating import (
     gate_take,
     select_gated,
 )

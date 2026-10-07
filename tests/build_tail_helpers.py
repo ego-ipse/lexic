@@ -7,7 +7,7 @@ of the module under test. One copy, because two spellings of "what the plan
 says" would drift until the two suites were pinning different contracts while
 both still looked like this one.
 
-Deliberately NOT imported from `lexic.parsing.pda.compiler.program.lowering`:
+Deliberately NOT imported from `lexic.parsing.pda.compiler.program.bake.lowering`:
 that is the thing being checked. This is a second, independent reading of the
 same plan entries.
 """

@@ -8,9 +8,7 @@ from lexic.compile import Directives, compile_text
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.trace import watch
-from tests.unit.lexic.parsing.pda.compiler.program.specialize.test_passes import (
-    ATTEMPT_GATED_VSTR,
-)
+from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 from tools.benchmark.cases.grammars import BENCHES
 

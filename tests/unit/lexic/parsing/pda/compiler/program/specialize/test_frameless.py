@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
-    KWindowSelect,
     clone_arms,
+)
+from lexic.parsing.pda.compiler.program.gating import (
+    KWindowSelect,
 )
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_DISPATCH
 from lexic.parsing.pda.compiler.program.specialize.frameless import (

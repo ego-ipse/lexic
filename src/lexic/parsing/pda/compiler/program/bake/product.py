@@ -42,16 +42,16 @@ from __future__ import annotations
 from typing import Mapping
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.compiler.program.bake.lowering import (
+    FoldBuild,
+    no_shape_build,
+    shape_build,
+)
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     clear_build,
     no_construction,
     no_fast_construction,
-)
-from lexic.parsing.pda.compiler.program.lowering import (
-    FoldBuild,
-    no_shape_build,
-    shape_build,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
