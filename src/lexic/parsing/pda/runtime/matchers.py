@@ -270,7 +270,14 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
                 raise PdaFail(f"expected {lit!r} at {pos}", pos)
             pos += len(lit)
         elif k == OP_CC1:
-            pos = match_cc1(text, arm.payloads[j], pos)
+            chars, negated = arm.payloads[j]
+            try:  # inline: a call per exactly-once class is the cost here
+                char = text[pos]
+            except IndexError:
+                raise PdaFail(f"char class miss at {pos}", pos) from None
+            if (char in chars) if negated else char not in chars:
+                raise PdaFail(f"char class miss at {pos}", pos)
+            pos += 1
         elif k == OP_LIT:
             pos = match_lit(text, arm, j, pos)
         else:
