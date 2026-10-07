@@ -447,37 +447,31 @@ REFUSED = object()
 """Sentinel for "this engine declined", distinct from any model it could build."""
 
 
-_CROSS_SPAN_AMBIGUOUS = """root ::= item tail
+_CROSS_SPAN = """root ::= item tail
 item ::= "a" | "ab"
 tail ::= "bc" | "c"
 """
-"""An arm choice whose arms span DIFFERENT lengths, so it never presents as
-one span meaning two things to a local gate: over `abc`, `item` is `a` (and
-`tail` its `bc` arm) or `ab` (and `tail` its `c` arm). Not a split — the
-derivations differ by ARMS on both rules, not by a boundary inside one
-production. This is the shape that kept vyx out of raw parity, in four lines
-(there: an unquoted value's tail absorbing `\\n\\#` vs ending so they parse
-as escape items)."""
+"""Two readings whose arms differ because their BOUNDARIES do: over `abc`,
+`item` is `a` (and `tail` its `bc` arm) or `ab` (and `tail` its `c` arm). The
+arms follow from where `item` ends, so the decider settles it — the first slot
+longest — and no arm choice is left at the boundary it keeps. This is the
+shape that kept vyx out of raw parity, in four lines."""
 
 
-def test_earley_refuses_a_cross_span_arm_choice() -> None:
-    """The whole-grammar view sees the full input derived two ways — refused."""
-    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-earley")
+def test_earley_decides_a_cross_span_choice_by_its_boundary() -> None:
+    """The whole-grammar view keeps the first slot longest: ``ab`` then ``c``."""
+    cg = compile_text(_CROSS_SPAN, cache_key="parity-cross-span-earley")
     pr = prod(cg)
-    with pytest.raises(UnsupportedConstructError):
-        earley_model(pr.instance_grammar, "abc", cg.product, pr.tables)
+    model = earley_model(pr.instance_grammar, "abc", cg.product, pr.tables)
+    assert repr(model) == "Root(Item('ab'), Tail('c'))"
 
 
-def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
-    """The PDA must not answer what the other engine refuses as an arm choice.
-
-    The island seam cannot settle a second completion end whose next character
-    the continuation accepts (`item`'s FOLLOW holds `b` via `tail`), so it
-    bails — and the public path completes on the gated engine, which refuses.
-    Longest-match answered `Item('ab')` here before the composition check.
-    """
-    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-pda")
+def test_the_public_parse_answers_a_cross_span_choice_as_earley_does() -> None:
+    """The island seam cannot settle a second completion end whose next
+    character the continuation accepts (`item`'s FOLLOW holds `b` via `tail`),
+    so the PDA bails, and the public path completes on the gated engine, which
+    answers with the decider's reading."""
+    cg = compile_text(_CROSS_SPAN, cache_key="parity-cross-span-pda")
     with pytest.raises((UnsupportedConstructError, PdaFail)):
         pda_model(prod(cg).pda, "abc", cg.executor)
-    with pytest.raises(UnsupportedConstructError):
-        cg.parse("abc")
+    assert repr(cg.parse("abc")) == "Root(Item('ab'), Tail('c'))"

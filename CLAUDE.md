@@ -449,12 +449,14 @@ optional.
 
 - **Grammar is canonical.** Every class has a lossless `to_grammar(flavour)`.
 - **Round-trip fidelity.** `parse(text).to_text() == text` on every valid input.
-- **Ambiguity is refused, by both engines.** A span whose derivations build two
-  different models raises rather than one engine quietly picking — the PDA's
-  "first" and Earley's "first" are not the same first. The question is about
-  VALUES: a *split* (one production carved two ways) has a defined answer and is
-  never refused; only an *arm* choice is. The opt-out is a caller-supplied
-  resolver, not a flag, and it reaches whichever engine chooses.
+- **Ambiguity is refused, by both engines.** Both engines apply the configured
+  split decider top-down to select the preferred carvings, then refuse surviving
+  arm alternatives that produce different model values unless a caller-supplied
+  resolver resolves them. Ties keep their alternatives for the ambiguity check;
+  chart order never breaks a semantic tie. The question is about VALUES, not
+  derivation counts, and the decider is parse configuration both engines
+  consult. The opt-out is the resolver, not a flag, and it reaches whichever
+  engine chooses.
 - **One way per task.** One parse function, one emit method, one round-trip
   method. No alternate APIs, and no sugar channel beside a real one.
 - **No regression.** The suite stays green.

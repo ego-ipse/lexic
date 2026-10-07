@@ -21,6 +21,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec, leftmost_chain
 
 _MAX_CHARSET = 4096
@@ -97,7 +98,8 @@ def predecessor_chain(
     links: FamilyReader,
     handle: int,
     spec: ChainSpec,
-    choices: dict[int, int] | None = None,
+    choices: dict[int, int] | None,
+    decide: Decider,
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
@@ -114,13 +116,14 @@ def predecessor_chain(
         take it, and a pinned entry overrides it at that key (which is how the
         ambiguity check flips one point). When ``None`` a packed key bails,
         which is the fast path's contract.
+    :param decide: The split decider the resolving read keeps the carving of.
     :returns: The chain's ``(predecessor_item, predecessor_end, child)``
         triples in source order, or ``None`` when a key is missing, or packs
         more than one family and no choice was supplied — the caller's cue to
         bail (no build, or fall back to the ambiguity-aware path).
     """
     if choices is not None:
-        return leftmost_chain(links, handle, spec, choices)
+        return leftmost_chain(links, handle, spec, choices, decide)
     base, bits = spec.base, spec.bits
     chain: list[KLink] = []
     item, end = handle >> bits, handle & ((1 << bits) - 1)

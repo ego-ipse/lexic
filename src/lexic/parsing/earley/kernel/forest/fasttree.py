@@ -152,8 +152,9 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         chain = predecessor_chain(
             self._links,
             handle,
-            ChainSpec(base, bits, t.code_choice),
+            ChainSpec(base, bits, t.code_choice, t.codes.code_arm, t.codes.arm_base),
             self.choices,
+            self.decide,
         )
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)

@@ -205,7 +205,12 @@ def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
     assert end == 3
 
 
-def test_island_parse_refuses_derivations_that_mean_different_things(sss_compiled):
+SAME_BOUNDARY = 'root ::= s\ns ::= p | q\np ::= "a"\nq ::= "a"\n'
+"""Two arms of ``s`` over the same text at the same boundaries: an arm choice,
+which no decider settles."""
+
+
+def test_island_parse_refuses_derivations_that_mean_different_things():
     """A silently chosen derivation is a wrong answer where an error is available.
 
     An island is the ONE site where the model path chooses — everywhere else it
@@ -213,11 +218,21 @@ def test_island_parse_refuses_derivations_that_mean_different_things(sss_compile
     is invisible to the round-trip invariant, because ``to_text()`` reproduces
     the input for whichever derivation was taken.
     """
-    tables = compile_tables(sss_compiled.codegen_grammar)
+    compiled = compile_text(SAME_BOUNDARY, cache_key="island-same-boundary")
+    tables = compile_tables(compiled.codegen_grammar)
     with pytest.raises(UnsupportedConstructError, match="mean different things"):
-        island_parse(
-            tables, "aaa", 0, "s", IslandPolicy(executor=sss_compiled.executor)
-        )
+        island_parse(tables, "a", 0, "s", IslandPolicy(executor=compiled.executor))
+
+
+def test_island_parse_decides_a_grouping_rather_than_refusing(sss_compiled):
+    """``s ::= s s`` groups ``aaa`` two ways, split at different boundaries:
+    the decider keeps the first slot longest, so the island answers."""
+    tables = compile_tables(sss_compiled.codegen_grammar)
+    tree, end, _value = island_parse(
+        tables, "aaa", 0, "s", IslandPolicy(executor=sss_compiled.executor)
+    )
+    assert isinstance(tree, ParseTree)
+    assert end == 3
 
 
 def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
@@ -402,16 +417,15 @@ class _CountingExecutor(ProductExecutor):
         return self._next()
 
 
-def test_an_empty_derivation_against_a_real_none_value_refuses_as_ambiguous(
-    sss_grammar: IrAst,
-):
+def test_an_empty_derivation_against_a_real_none_value_refuses_as_ambiguous():
     """EmptyResult and Completed(None) are DIFFERENT types under same_value's
     first check, so a two-derivation span where one means "produced nothing"
     and the other means "produced a real None" refuses — the one behaviour
     change a round-trip corpus cannot observe, because to_text() reproduces
     the input for either derivation."""
-    tables = compile_tables(sss_grammar)
-    kern, best = island_run(tables, "aaa")
+    compiled = compile_text(SAME_BOUNDARY, cache_key="island-same-boundary")
+    tables = compile_tables(compiled.codegen_grammar)
+    kern, best = island_run(tables, "a")
     assert best is not None
     item, end = best
     executor = _CountingExecutor([EMPTY_RESULT, Completed(None)])
