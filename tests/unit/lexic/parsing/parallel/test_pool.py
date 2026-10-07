@@ -726,3 +726,43 @@ def test_a_refusal_still_waits_for_its_siblings_and_reports_the_earliest() -> No
         with pytest.raises(UnsupportedConstructError, match="earliest input"):
             pool.map(work, [0, 1])
         assert pool.map(lambda item: item, [7, 8]) == [7, 8], "a refusal broke the pool"
+
+
+def test_beside_submits_late_items_whose_results_follow_in_order() -> None:
+    """The calling thread's share may hand the pool more work: it runs at
+    once, beside the rest, and its results follow the first items' in the
+    order submitted."""
+    seen: list[str] = []
+
+    def beside(submit) -> None:
+        seen.append("beside")
+        submit([10, 11])
+        submit([12])
+
+    with WorkPool(2) as pool:
+        assert pool.map(lambda item: item * 2, [1, 2, 3], beside) == [
+            2,
+            4,
+            6,
+            20,
+            22,
+            24,
+        ]
+    assert seen == ["beside"]
+
+
+def test_a_late_items_refusal_drains_after_the_earlier_ones() -> None:
+    """A refusal in a late item is reported only when no earlier item
+    refused: the earliest input, late items counting after the first."""
+
+    def work(item: int) -> int:
+        if item in (2, 11):
+            raise TargetRefusalError(f"no {item}")
+        return item
+
+    with WorkPool(2) as pool:
+        with pytest.raises(TargetRefusalError, match="no 2"):
+            pool.map(work, [1, 2], lambda submit: submit([11]))
+    with WorkPool(2) as pool:
+        with pytest.raises(TargetRefusalError, match="no 11"):
+            pool.map(work, [1, 3], lambda submit: submit([11]))

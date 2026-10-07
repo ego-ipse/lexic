@@ -9,6 +9,7 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
 from lexic.exceptions import LexicError
@@ -23,7 +24,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import par_find
-from lexic.parsing.parallel.discovery.partition import Division, partition, units
+from lexic.parsing.parallel.discovery.partition import Division, Unit, partition, units
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
     cut_offsets,
@@ -46,14 +47,19 @@ from lexic.parsing.parallel.policy import (
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.stitch.interior import source_split
-from lexic.parsing.parallel.stitch.merge import MergeRequest, stitch_units
+from lexic.parsing.parallel.stitch.merge import (
+    MergeRequest,
+    assign_witnesses,
+    stitch_units,
+)
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
     stitch_envelope,
     stitch_routed,
     stitch_terminated,
 )
-from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
+from lexic.parsing.parallel.stitch.plan import RegionWork
+from lexic.parsing.parallel.stitch.tasks import bound_works
 
 
 class Request[M: IrNamedTuple](NamedTuple):
@@ -234,36 +240,136 @@ def piece_count(workers: int) -> int:
     return workers - 1 if spare else workers
 
 
+class _Units[M](NamedTuple):
+    """What a region split parsed: the regions kept, their units, each piece's
+    model in unit order, and the shell's."""
+
+    works: list[RegionWork]
+    plan: list[Unit]
+    pieces: list[GrammarModel]
+    whole: M
+
+
+def _leaves(
+    text: str, bound: list[RegionWork]
+) -> dict[tuple[int, int], tuple[IrAst, str]]:
+    """The pieces that hold no other region, keyed by their region's opener
+    and their place in it: their text is final whatever stand-ins are chosen."""
+    early = units(text, [Division(w.region, w.cuts) for w in bound], [""] * len(bound))
+    return {
+        key: (bound[unit.owner].plan.root, unit.text)
+        for key, unit in _keyed(bound, early[:-1])
+        if not unit.held
+    }
+
+
+def _keyed(
+    works: list[RegionWork], pieces: list[Unit]
+) -> list[tuple[tuple[int, int], Unit]]:
+    """Each piece with its key: its region's opener, and its place among that
+    region's pieces — the same in any plan that keeps the region."""
+    seen: dict[int, int] = {}
+    out: list[tuple[tuple[int, int], Unit]] = []
+    for unit in pieces:
+        place = seen.get(unit.owner, 0)
+        seen[unit.owner] = place + 1
+        out.append(((works[unit.owner].region.opener, place), unit))
+    return out
+
+
+class _Overlap[M: IrNamedTuple](NamedTuple):
+    """One region split's units in flight: the tasks sent so far (the leaves
+    first), each leaf's task by key, and what the calling thread chose.
+
+    :ivar grammar: The document's grammar, the shell's.
+    :ivar merge: The parse service and document.
+    :ivar bound: The regions with a safe plan, before stand-ins.
+    :ivar tasks: ``(grammar, text)`` per task, in submission order.
+    :ivar early: Each leaf's key → its task.
+    :ivar chosen: Once chosen: the regions kept, their units, and each piece's
+        task.
+    :ivar shell: The shell's model, once parsed.
+    """
+
+    grammar: IrAst
+    merge: MergeRequest[M]
+    bound: list[RegionWork]
+    tasks: list[tuple[IrAst, str]]
+    early: dict[tuple[int, int], int]
+    chosen: list[tuple[list[RegionWork], list[Unit], list[int]]]
+    shell: list[M]
+
+    def beside(self, submit: Callable[[Sequence[int]], None]) -> bool:
+        """The calling thread's share: choose the stand-ins, send the pieces
+        that hold a region, parse the shell — or decline at once when no
+        region keeps a stand-in, never waiting on the leaves."""
+        merge, tasks = self.merge, self.tasks
+        works = assign_witnesses(merge, self.bound)
+        if not works:
+            return False
+        divided = [Division(work.region, work.cuts) for work in works]
+        plan = units(merge.text, divided, [work.witness for work in works])
+        where: list[int] = []
+        for key, unit in _keyed(works, plan[:-1]):
+            k = self.early.get(key, -1) if not unit.held else -1
+            if k < 0 or tasks[k][1] != unit.text:
+                k = len(tasks)
+                tasks.append((works[unit.owner].plan.root, unit.text))
+                submit([k])
+            where.append(k)
+        self.chosen.append((works, plan, where))
+        self.shell.append(merge.run(self.grammar, plan[-1].text))
+        return True
+
+
 def _parse_units[M: IrNamedTuple](
-    parse: ModelParse[M],
-    tasks: list[tuple[IrAst, str]],
+    grammar: IrAst,
+    merge: MergeRequest[M],
+    bound: list[RegionWork],
     ask: Request[M],
     pool: WorkPool,
-) -> tuple[list[GrammarModel], M] | None:
-    """Parse every piece against per-worker replicas while the calling thread
-    parses the shell, the last task, beside them.
+) -> _Units[M] | None:
+    """Parse the pieces that need no stand-in at once, and choose the
+    stand-ins on the calling thread while they run; then the pieces that hold
+    a region, and the shell beside them.
 
-    The shell stays on this thread because it is parsed under the whole
-    grammar, whose view this thread already holds: in the pool, whichever
-    worker drew it would build a replica of the whole grammar for one small
-    parse.
+    A leaf piece's text is the same whichever stand-ins are chosen, so it is
+    parsed before they are. A region left without one has its leaves parsed
+    for nothing and its text returned to its holder — rendered only after the
+    choice, so exactly as if it had never divided. A piece's refusal is
+    therefore only an answer once its region is kept: each piece answers
+    ``None`` rather than raising, a kept piece's ``None`` declines the split
+    as before, and a dropped region's is never read. The shell stays on this
+    thread because it is parsed under the whole grammar, whose view this
+    thread already holds: in the pool, whichever worker drew it would build a
+    replica of the whole grammar for one small parse.
     """
-    shell: list[M] = []
-    grammar, text = tasks[-1]
+    leaves = _leaves(ask.text, bound)
+    run = _Overlap(
+        grammar,
+        merge,
+        bound,
+        list(leaves.values()),
+        {k: i for i, k in enumerate(leaves)},
+        [],
+        [],
+    )
+    tasks = run.tasks
     try:
         parsed = pool.map(
-            lambda k: worker_parse(
-                parse, tasks[k][0], tasks[k][1], ask.binding, ask.config
-            ),
-            list(range(len(tasks) - 1)),
-            lambda: shell.append(parse(grammar, text, ask.binding, ask.config)),
+            lambda k: _piece(merge.parse, tasks[k][0], tasks[k][1], ask),
+            list(range(len(tasks))),
+            run.beside,
         )
     except LexicError:
         return None
-    pieces = [model for model in parsed if isinstance(model, GrammarModel)]
-    if len(pieces) != len(parsed):
+    if not run.chosen:
         return None
-    return pieces, shell[0]
+    works, plan, where = run.chosen[0]
+    pieces = [model for k in where if isinstance(model := parsed[k], GrammarModel)]
+    if len(pieces) != len(where):
+        return None
+    return _Units(works, plan, pieces, run.shell[0])
 
 
 def _split_regions[M: IrNamedTuple](
@@ -309,16 +415,13 @@ def _split_regions[M: IrNamedTuple](
     ]
     divided = partition(ask.text, found, piece_count(workers))
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
-    works = region_works(merge, grammar, divided, analysis or grammar)
-    if not works:
+    bound = bound_works(merge, grammar, divided, analysis or grammar)
+    if not bound:
         return None
-    plan = units(
-        ask.text,
-        [Division(work.region, work.cuts) for work in works],
-        [work.witness for work in works],
-    )
-    parsed = _parse_units(parse, region_tasks(grammar, works, plan), ask, pool)
-    return stitch_units(merge, works, plan, *parsed) if parsed is not None else None
+    done = _parse_units(grammar, merge, bound, ask, pool)
+    if done is None:
+        return None
+    return stitch_units(merge, done.works, done.plan, done.pieces, done.whole)
 
 
 def split_model[M: IrNamedTuple](

@@ -9,11 +9,12 @@ input MEANS never depends on how many workers ran.
 from __future__ import annotations
 
 import string
+from threading import Event, Thread
 
 import pytest
 
 from lexic.compile import CompiledGrammar, compile_text
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
@@ -31,6 +32,7 @@ from lexic.parsing.parallel.planner import _certified, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import roles
+from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     CONTINUATION_SOURCE,
@@ -811,3 +813,120 @@ def test_a_split_spares_a_cpu_only_when_the_pool_claims_a_big_host(
     pays on 16 CPUs and costs a quarter of the pool on 4."""
     monkeypatch.setattr(orchestrate, "available_workers", lambda: cpus)
     assert orchestrate.piece_count(workers) == pieces
+
+
+TWO_RUNS = (
+    '{"a":['
+    + ",".join('"' + "a" * 90 + '"' for _ in range(110))
+    + '],"b":['
+    + ",".join('"' + "b" * 90 + '"' for _ in range(110))
+    + "]}"
+)
+"""Two runs, each larger than a worker's share at four: both divide."""
+
+
+def test_a_region_losing_its_stand_in_after_its_pieces_left_still_parses_exactly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pieces that hold no region are parsed while the stand-ins are
+    chosen. A region left without one has had its pieces parsed for nothing:
+    its text goes back to its holder, and the model is the sequential one."""
+    compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    real_assign, real_worker = orchestrate.assign_witnesses, orchestrate.worker_parse
+    dropped: list[tuple[int, int]] = []
+    parsed: list[str] = []
+
+    def drop_first(request, works):
+        """The first region finds no stand-in; the rest keep theirs."""
+        dropped.append((works[0].region.opener, works[0].region.closer))
+        return real_assign(request, works[1:])
+
+    def recording(parse, view, text, *rest):
+        parsed.append(text)
+        return real_worker(parse, view, text, *rest)
+
+    monkeypatch.setattr(orchestrate, "assign_witnesses", drop_first)
+    monkeypatch.setattr(orchestrate, "worker_parse", recording)
+    split = split_model(parse_model, grammar, Request(TWO_RUNS, binding), 4)
+    assert split is not None
+    assert split == parse_model(grammar, TWO_RUNS, binding)
+    opener, closer = dropped[0]
+    inside = TWO_RUNS[opener + 1 : closer]
+    assert any(text[1:-1] in inside for text in parsed), "its pieces were sent"
+
+
+def test_a_dropped_regions_unparsable_piece_cannot_sink_the_split(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A piece of a region later left without a stand-in may refuse: its
+    answer is never read, the region's text goes back to its holder, and the
+    split still gives the sequential model."""
+    compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    real_assign, real_worker = orchestrate.assign_witnesses, orchestrate.worker_parse
+    dropped: list[str] = []
+    refused: list[str] = []
+
+    def drop_first(request, works):
+        """The first region finds no stand-in; the rest keep theirs."""
+        region = works[0].region
+        dropped.append(TWO_RUNS[region.opener + 1 : region.closer])
+        return real_assign(request, works[1:])
+
+    def refusing(parse, view, text, *rest):
+        """Every piece of the dropped region refuses to parse."""
+        if text[1:-1] in TWO_RUNS[: TWO_RUNS.index('],"b"')]:
+            refused.append(text)
+            raise LexicError("this piece will not parse")
+        return real_worker(parse, view, text, *rest)
+
+    monkeypatch.setattr(orchestrate, "assign_witnesses", drop_first)
+    monkeypatch.setattr(orchestrate, "worker_parse", refusing)
+    split = split_model(parse_model, grammar, Request(TWO_RUNS, binding), 4)
+    assert refused, "no piece of the dropped region was sent"
+    assert dropped and dropped[0].startswith('"a')
+    assert split is not None
+    assert split == parse_model(grammar, TWO_RUNS, binding)
+
+
+def test_a_split_whose_regions_all_lose_their_stand_ins_declines_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pieces are already running when the stand-ins are chosen. If none is
+    found, the split declines AT ONCE: it never waits on pieces nothing will
+    read. Here every piece blocks until released, and the decline comes back
+    while they are still blocked."""
+    compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    release, started = Event(), Event()
+    real_worker = orchestrate.worker_parse
+
+    def blocking(*args):
+        """A piece that cannot finish until the test lets it."""
+        started.set()
+        release.wait()
+        return real_worker(*args)
+
+    def none_found(_request, _works):
+        """No stand-in anywhere — decided once a piece is surely running."""
+        started.wait(timeout=60)
+        return []
+
+    monkeypatch.setattr(orchestrate, "assign_witnesses", none_found)
+    monkeypatch.setattr(orchestrate, "worker_parse", blocking)
+    answer: list[object] = []
+    caller = Thread(
+        target=lambda: answer.append(
+            split_model(parse_model, grammar, Request(TWO_RUNS, binding), 4)
+        )
+    )
+    try:
+        caller.start()
+        caller.join(timeout=60)
+        assert started.is_set(), "no piece was sent before the stand-ins"
+        assert not caller.is_alive(), "the decline waited on its abandoned pieces"
+        assert answer == [None]
+    finally:
+        release.set()
+        caller.join()
