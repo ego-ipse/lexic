@@ -13,15 +13,20 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.exceptions import EngineInvariantError
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.atoms import KLink
-from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
+from lexic.parsing.earley.kernel.tables.decider import (
+    LEFTMOST_LONGEST,
+    Decider,
+    LeftmostLongest,
+)
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
     canonical_indices,
     dominant,
     is_arm_choice,
 )
+from lexic.parsing.products import _model_product, earley_model
 
 
 def test_is_arm_choice_is_false_when_every_family_names_the_same_arm():
@@ -191,14 +196,53 @@ class _Shortest(Decider):
         return -end
 
 
-def test_a_decider_the_level_keys_do_not_rank_is_refused():
-    """The chain reader keys each level by raw ``max``, which is leftmost-
-    longest's order alone; any other decider is refused rather than read in
-    an order it did not choose."""
+def test_a_decider_the_level_keys_do_not_rank_raw_is_read_by_its_slots():
+    """The chain reader keys each level by the decider's slot where raw ``max``
+    is not its order: the shortest decider keeps the nearer predecessor, where
+    raw ``max`` — and leftmost-longest — keep the farther."""
     spec = _spec()
     far: KLink = (_item(1, 0), 6, "x")
     near: KLink = (_item(1, 0), 2, "y")
     links = _bottomed(_key(1, 0, 6), _key(1, 0, 2))
 
-    with pytest.raises(EngineInvariantError, match="needs its level keys ranked"):
-        dominant(links, near, far, spec, _Shortest(frozenset()))
+    assert dominant(links, near, far, spec, _Shortest(frozenset())) is near
+    assert dominant(links, near, far, spec, LEFTMOST_LONGEST) is far
+
+
+_WITNESSES = (
+    ("root ::= x+\nx ::= [a]+\n", "aaa"),
+    ('root ::= x y\nx ::= "a"*\ny ::= "a"*\n', "aaaa"),
+    ('root ::= x+ "b"\nx ::= [a]+\n', "aaab"),
+    ('root ::= (x ",")* x\nx ::= [a-z]+\n', "ab,cd,e"),
+)
+"""Split witnesses: each span has several carvings a decider chooses among."""
+
+
+def _earley(source: str, text: str, decide: Decider) -> str:
+    """Earley's model of ``text`` under ``decide``, as its repr."""
+    compiled = compile_text(source, cache_key=f"splits-{source}")
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    config = ParseConfig(decide=decide)
+    model = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables, config
+    )
+    return repr(model)
+
+
+def test_earley_keeps_the_shortest_carving_under_a_shortest_decider():
+    """``x+`` over ``aaa``: three one-character ``x`` under the shortest
+    decider, one ``x`` over the whole span under leftmost-longest."""
+    source, text = _WITNESSES[0]
+    assert _earley(source, text, _Shortest(frozenset())) == (
+        "Root((X('a'), X('a'), X('a')))"
+    )
+    assert _earley(source, text, LEFTMOST_LONGEST) == "Root((X('aaa'),))"
+
+
+@pytest.mark.parametrize(("source", "text"), _WITNESSES)
+def test_every_leftmost_longest_instance_reads_as_the_default(source: str, text: str):
+    """A leftmost-longest instance granting nothing is the same order as the
+    default, read by raw maximum: it keeps the same carving."""
+    assert _earley(source, text, LeftmostLongest(frozenset())) == _earley(
+        source, text, LEFTMOST_LONGEST
+    )

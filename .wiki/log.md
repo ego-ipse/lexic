@@ -2335,3 +2335,8 @@ per-class copies of the rule removed.
 `decisions.md` entry: a decider states `slot(end)`; the rank is its slots left
 to right and final; redefining it, or leftmost-longest's slot, is refused at
 class definition; one `carving()`.
+
+## Earley reads any decider by its slots
+
+`decisions.md`'s slot entry: a decider other than leftmost-longest is no longer
+refused by the chain reader; each level's key is chosen by the decider's slot.

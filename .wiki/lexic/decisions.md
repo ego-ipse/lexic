@@ -1083,4 +1083,8 @@ class check while the chain levels were still read by raw maximum and the
 children by the new order: `root ::= x+` / `x ::= [a]+` on `aaa` came out
 `Root((X('aa'), X('a')))`, which neither order gives. With the slot final, every
 `LeftmostLongest` instance IS that order, so `splits.py` reads it by raw
-maximum (the default by identity first) and refuses any other decider.
+maximum (the default by identity first). Any other decider is read by its
+slots: each chain level's key is the one whose end its slot ranks highest
+(`_choose_slots` / `_slot_max`), greedy from the left being the whole rank since
+every key a level holds reaches the bottom. The raw loop is kept apart from
+the slot loop on purpose, so the default decider pays no call per level.

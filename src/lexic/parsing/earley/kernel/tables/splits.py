@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
-from lexic.exceptions import EngineInvariantError
 from lexic.parsing.earley.kernel.tables.decider import (
     LEFTMOST_LONGEST,
     Decider,
@@ -310,12 +309,13 @@ def _choose(
     Keys within one level share item code and origin, so the packed key is
     monotone in the end column and ``max`` on the key IS ``max`` on the end.
     Raw ``max`` is leftmost-longest's order and no other's — its slot is final,
-    so no subclass can mean another — and any other decider is refused here,
-    and in :func:`_bounds`'s caller, until one is ranked. The default is tested
-    by identity first, the cheap answer for nearly every parse.
+    so no subclass can mean another — and any other decider is read by its
+    slots (:func:`_choose_slots`). The default is tested by identity first, the
+    cheap answer for nearly every parse, and the loop is kept twice on purpose:
+    asking once per call keeps the default's paid loop free of a call per level.
     """
     if not (decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)):
-        raise EngineInvariantError(f"splits: {decide!r} needs its level keys ranked")
+        return _choose_slots(links, levels, spec, decide)
     if not levels:
         return []
     _prune(levels)
@@ -329,6 +329,37 @@ def _choose(
         chain.append(_settle(links, tied, spec, decide))
         below = key
     return chain
+
+
+def _choose_slots(
+    links: FamilyReader, levels: list[_Level], spec: ChainSpec, decide: Decider
+) -> list[KLink]:
+    """:func:`_choose` for a decider whose order is not the raw key order: each
+    level's key is the one its slots rank highest (:func:`_slot_max`)."""
+    if not levels:
+        return []
+    _prune(levels)
+    below = _floor(levels)
+    mask = (1 << spec.bits) - 1
+    chain: list[KLink] = []
+    for level in reversed(levels):  # deepest first, so this is already source order
+        key = _slot_max(level, below, decide, mask)
+        tied = [link for p, _, link in level[key] if p == below]
+        chain.append(_settle(links, tied, spec, decide))
+        below = key
+    return chain
+
+
+def _slot_max(level: _Level, below: int, decide: Decider, mask: int) -> int:
+    """The key of ``level`` reaching ``below`` whose end the decider's slot
+    ranks highest, the key settling only a tie of ends.
+
+    Greedy from the left is the whole rank: every key a level holds reaches
+    the bottom and is reached from the top, so the best first slot never
+    strands the slots after it.
+    """
+    keys = [k for k, edges in level.items() if any(p == below for p, _, _ in edges)]
+    return max(keys, key=lambda k: (decide.slot(k & mask), k))
 
 
 def _floor(levels: list[_Level]) -> int:
@@ -368,30 +399,29 @@ def _child_rank(
     rank of its boundaries, then fewer steps."""
     if not isinstance(child, int):
         return False, (), 0
-    if not (decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)):
-        raise EngineInvariantError(  # `_bounds` keys by raw `max`
-            f"splits: {decide!r} needs its level keys ranked"
-        )
     bits = spec.bits
     own = spec.arm_base[spec.code_arm[child >> bits >> bits]]
     levels = _descend(links, child, spec._replace(base=own), {})
     if levels is None:
         return False, (), 0
-    bounds = _bounds(levels, (1 << bits) - 1)
+    bounds = _bounds(levels, (1 << bits) - 1, decide)
     return True, decide.rank(carving(bounds)), -len(bounds)
 
 
-def _bounds(levels: list[_Level], mask: int) -> tuple[int, ...]:
-    """The chain's boundaries, deepest first, as the level maxima give them —
-    the same keys :func:`_choose` takes, without reading their links."""
+def _bounds(levels: list[_Level], mask: int, decide: Decider) -> tuple[int, ...]:
+    """The chain's boundaries, deepest first, as the decider's level keys give
+    them — the same keys :func:`_choose` takes, without reading their links."""
     if not levels:
         return ()
     _prune(levels)
     below = _floor(levels)
+    raw = decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)
     out: list[int] = []
     for level in reversed(levels):
-        below = max(
-            k for k, edges in level.items() if any(p == below for p, _, _ in edges)
+        below = (
+            max(k for k, edges in level.items() if any(p == below for p, _, _ in edges))
+            if raw
+            else _slot_max(level, below, decide, mask)
         )
         out.append(below & mask)
     return tuple(out)
