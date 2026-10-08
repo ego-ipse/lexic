@@ -36,6 +36,7 @@ from lexic.parsing.pda.analysis.conflicts import (
     attempt_spec,
     file_attempt_loop,
     greedy_exact,
+    same_ref_extent_split,
     soft_gap_conflict,
     sub_conflict,
 )
@@ -53,13 +54,7 @@ from lexic.parsing.pda.analysis.gates.noise import (
     noise_greedy_licensed,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.analysis.gates.windows import (
-    END,
-    MORE,
-    UNK,
-    FollowWindows,
-    KWindowFirst,
-)
+from lexic.parsing.pda.analysis.gates.windows import FollowWindows
 from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
@@ -571,41 +566,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         for k, item in enumerate(items):
             self._loop_conflict(items, k, scope, notes)
             sub_conflict(self, items, k, scope, notes)
-            if self._same_ref_extent_split(items, k):
+            if same_ref_extent_split(self.rules, items, k):
                 name = str(item.atom)
                 notes.hard.append(
                     f"{scope.rule}[{k}]: adjacent {name!r} references need "
                     "a leftmost extent split"
                 )
-
-    def _same_ref_extent_split(self, items: Sequence[IrItem], k: int) -> bool:
-        """Whether adjacent required refs need extent-aware splitting.
-
-        A variable-width child followed by another required occurrence of the
-        same rule cannot be cut by a one-character stop set: that assigns all
-        shared FIRST text to the right child. The Earley island owns this cold
-        structural case until the PDA has an extent-aware boundary primitive.
-        """
-        if k + 1 >= len(items):
-            return False
-        left, right = items[k], items[k + 1]
-        if not isinstance(left.atom, IrRuleRef) or not isinstance(
-            right.atom, IrRuleRef
-        ):
-            return False
-        if str(left.atom) != str(right.atom):
-            return False
-        if int(left.quantifier.lo) < 1 or int(right.quantifier.lo) < 1:
-            return False
-        prefixes = KWindowFirst(self.rules, 5).rule_prefixes(str(left.atom), 5)
-        complete = [len(prefix) for prefix, state in prefixes if state == END]
-        if not complete:
-            return any(state == UNK for _prefix, state in prefixes)
-        shortest = min(complete)
-        return any(
-            len(prefix) > shortest and state in (END, MORE)
-            for prefix, state in prefixes
-        )
 
     def _loop_conflict(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes

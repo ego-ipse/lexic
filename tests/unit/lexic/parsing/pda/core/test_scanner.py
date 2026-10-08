@@ -365,7 +365,7 @@ compiled spelling has to preserve. ``\\x00`` stands in for nothing; the EOF
 sentinel is the empty string, added by :func:`_with_eof`.
 
 No EMPTY SET here: an attempt arm whose windows are all empty carries no
-filter at all (:meth:`CloneCompiler._attempt_window` returns ``None``), so
+filter at all (:func:`~lexic.parsing.pda.compiler.eligibility.attempt_window` returns ``None``), so
 ``compile_admission(())`` is not a state the lowering can reach and pinning an
 answer for it would pin a shape nothing produces."""
 

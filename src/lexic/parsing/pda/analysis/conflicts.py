@@ -5,9 +5,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Sequence
 
-from lexic.ir import IrCharClass, IrItem, IrLiteral, IrNoneType, IrNot, IrRule
+from lexic.ir import (
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrNoneType,
+    IrNot,
+    IrRule,
+    IrRuleRef,
+)
 from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
     GREEDY_SPLIT,
@@ -16,6 +25,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, KWindowFirst
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 
@@ -173,3 +183,32 @@ def _fixed(item: IrItem) -> bool:
     """Whether the item occurs a fixed number of times."""
     hi = item.quantifier.hi
     return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)
+
+
+def same_ref_extent_split(
+    rules: Mapping[str, IrRule], items: Sequence[IrItem], k: int
+) -> bool:
+    """Whether adjacent required refs need extent-aware splitting.
+
+    A variable-width child followed by another required occurrence of the
+    same rule cannot be cut by a one-character stop set: that assigns all
+    shared FIRST text to the right child. The Earley island owns this cold
+    structural case until the PDA has an extent-aware boundary primitive.
+    """
+    if k + 1 >= len(items):
+        return False
+    left, right = items[k], items[k + 1]
+    if not isinstance(left.atom, IrRuleRef) or not isinstance(right.atom, IrRuleRef):
+        return False
+    if str(left.atom) != str(right.atom):
+        return False
+    if int(left.quantifier.lo) < 1 or int(right.quantifier.lo) < 1:
+        return False
+    prefixes = KWindowFirst(rules, 5).rule_prefixes(str(left.atom), 5)
+    complete = [len(prefix) for prefix, state in prefixes if state == END]
+    if not complete:
+        return any(state == UNK for _prefix, state in prefixes)
+    shortest = min(complete)
+    return any(
+        len(prefix) > shortest and state in (END, MORE) for prefix, state in prefixes
+    )

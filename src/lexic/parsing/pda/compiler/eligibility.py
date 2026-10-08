@@ -12,9 +12,10 @@ drift into the other.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
-from lexic.ir import IrRule
+from lexic.ir import IrItem, IrRule
+from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern
 from lexic.parsing.product import RegularProof, RuleRoutine, prove_regular
@@ -84,3 +85,37 @@ def extent_pattern(proof: RegularProof) -> Pattern:
     :returns: The compiled possessive pattern for ``proof.root``.
     """
     return proof.recognizer.pats[proof.entry]
+
+
+ATTEMPT_WINDOW_K = 5
+"""The attempt-entry admission window width. Measured on the vyx corpus:
+failed trial runs die within 1 char in ~38% of cases, 4 in ~83%, and ~13%
+run 7+ chars deep where no bounded window reaches — 5 is where the
+exclusion curve flattens against the derivation's fan-out cost."""
+
+
+def attempt_window(
+    rules: Mapping[str, IrRule], items: Sequence[IrItem]
+) -> tuple[tuple[CharSet, ...], ...] | None:
+    """An attempt arm's FIRST\\ :sub:`k` admission windows, or ``None``.
+
+    Computed by the full :class:`KWindowFirst` derivation — through refs,
+    alternations and nullables, with cycle/fan-out poisoning to the
+    always-consistent empty window — so exclusion is language-based: a
+    lookahead inconsistent with every window has NO derivation of this
+    arm, and the trial run it skips could only have failed. An END-state
+    prefix yields a short window whose tail admits anything (the
+    continuation's characters are not the arm's to constrain), which is
+    what keeps the filter sound without FOLLOW extension.
+
+    A whole-set poison (every window empty — nothing to test) returns
+    ``None``: no filter. Width costs nothing at consult time — the set
+    compiles to one alternation pattern
+    (:func:`~lexic.parsing.pda.core.scanner.compile_admission`), so a
+    wide set is one C-level match like a narrow one.
+    """
+    solver = KWindowFirst(rules, ATTEMPT_WINDOW_K)
+    windows = windows_of(solver.arm_prefixes(items, ATTEMPT_WINDOW_K))
+    if all(len(window) == 0 for window in windows):
+        return None
+    return windows

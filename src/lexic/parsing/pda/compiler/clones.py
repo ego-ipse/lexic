@@ -62,10 +62,13 @@ from lexic.ir import (
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
-from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
+from lexic.parsing.pda.compiler.eligibility import (
+    attempt_window,
+    extent_consult,
+    matches_own_text,
+)
 from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -142,12 +145,6 @@ is overwritten by the finished :class:`CloneSpec`."""
 _EOF: CharSet = CharSet.from_chars("")
 """The start clone's hard continuation — end-of-input only (the ``""``
 sentinel), mirroring the FOLLOW-set seed in :mod:`lexic.parsing.pda.analysis.analysis`."""
-
-ATTEMPT_WINDOW_K = 5
-"""The attempt-entry admission window width. Measured on the vyx corpus:
-failed trial runs die within 1 char in ~38% of cases, 4 in ~83%, and ~13%
-run 7+ chars deep where no bounded window reaches — 5 is where the
-exclusion curve flattens against the derivation's fan-out cost."""
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -356,32 +353,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.continuations = IslandContinuations(analysis, self.islands)
         self.folds = {}
 
-    def _attempt_window(
-        self, items: Sequence[IrItem]
-    ) -> tuple[tuple[CharSet, ...], ...] | None:
-        """An attempt arm's FIRST\\ :sub:`k` admission windows, or ``None``.
-
-        Computed by the full :class:`KWindowFirst` derivation — through refs,
-        alternations and nullables, with cycle/fan-out poisoning to the
-        always-consistent empty window — so exclusion is language-based: a
-        lookahead inconsistent with every window has NO derivation of this
-        arm, and the trial run it skips could only have failed. An END-state
-        prefix yields a short window whose tail admits anything (the
-        continuation's characters are not the arm's to constrain), which is
-        what keeps the filter sound without FOLLOW extension.
-
-        A whole-set poison (every window empty — nothing to test) returns
-        ``None``: no filter. Width costs nothing at consult time — the set
-        compiles to one alternation pattern
-        (:func:`~lexic.parsing.pda.core.scanner.compile_admission`), so a
-        wide set is one C-level match like a narrow one.
-        """
-        solver = KWindowFirst(self.analysis.rules, ATTEMPT_WINDOW_K)
-        windows = windows_of(solver.arm_prefixes(items, ATTEMPT_WINDOW_K))
-        if all(len(window) == 0 for window in windows):
-            return None
-        return windows
-
     @property
     def islands(self) -> frozenset[str]:
         """The island residue — conflicted rules no attempt can settle, never
@@ -543,7 +514,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         specs,
                         windows[idx] if windows is not None else None,
                         (peeks[0], peeks[1][idx]) if peeks is not None else None,
-                        self._attempt_window(items) if order is not None else None,
+                        attempt_window(self.analysis.rules, items)
+                        if order is not None
+                        else None,
                     )
                 )
         if order is None and windows is None and peeks is None and firsts_overlap(arms):
