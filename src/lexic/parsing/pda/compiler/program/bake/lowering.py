@@ -12,11 +12,19 @@ plan's own entries — mode, item, bound, default — and nothing is keyed on a
 grammar, a rule or a class name. A grammar nobody has written yet gets a
 builder with no new code.
 
-**One selection point**, on arity alone: an unrolled template up to
+**One selection point**, on arity: an unrolled template up to
 :data:`UNROLL_LIMIT`, and above it a builder whose per-field walk is a list
 comprehension. PEP 709 inlines a comprehension into its enclosing function, so
 it pays no frame — the distinction a generator expression does not get, and
 the reason the comprehension is the general answer rather than a fallback.
+
+**Sub-model shapes are fused.** A record of one or two fields that each read a
+sub-model (:data:`M_MODEL`) or a run (:data:`M_MODELS`) — nearly every record a
+structural rule builds — is built by a template that reads its sinks in place
+instead of calling one bound read per field. Those two reads are the same
+expressions :func:`_read_model` and :func:`_read_models` bind; restating them
+here is what removes a call per field, the way the unrolled templates removed
+the plan walk. Any other mode, or a wider record, takes the arity template.
 
 **Why the bindings are closures.** Per-shape binding IS the mechanism here,
 not an implementation of it: the whole saving is that ``item``, ``lo`` and
@@ -74,6 +82,9 @@ touch them test for that — the same test the generic dispatcher paid.
 
 type ShapeBuild[Carry] = Callable[[str, Sequence[int], Sinks[Carry]], Carry]
 """One shape's whole build."""
+
+type Plan[Carry] = Sequence[tuple[int, int, int, ProductValue[Carry]]]
+"""A class-ordered plan: one ``(mode, item, lo, default)`` per field."""
 
 
 class FoldBuild[Carry](NamedTuple):
@@ -364,9 +375,96 @@ Hand-written, never generated. A wider shape takes :func:`_general`.
 """
 
 
-def shape_build[Carry](
-    cls: type[Carry], plan: Sequence[tuple[int, int, int, ProductValue[Carry]]]
-) -> ShapeBuild[Carry]:
+# ── fused sub-model shapes: the field reads written in place ───────────
+
+
+def _fused_m[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """One sub-model field."""
+    ((_m0, i0, _l0, d0),) = plan
+
+    def build(_text, _ends, sinks):
+        a = sinks[i0] if sinks else None
+        return tuple.__new__(cls, (a[0] if a else d0,))
+
+    return build
+
+
+def _fused_r[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """One run field."""
+    ((_m0, i0, _l0, _d0),) = plan
+
+    def build(_text, _ends, sinks):
+        a = sinks[i0] if sinks else None
+        return tuple.__new__(cls, (tuple(a) if a else (),))
+
+    return build
+
+
+def _fused_mm[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """Two sub-model fields."""
+    (_m0, i0, _l0, d0), (_m1, i1, _l1, d1) = plan
+
+    def build(_text, _ends, sinks):
+        if not sinks:
+            return tuple.__new__(cls, (d0, d1))
+        a, b = sinks[i0], sinks[i1]
+        return tuple.__new__(cls, (a[0] if a else d0, b[0] if b else d1))
+
+    return build
+
+
+def _fused_mr[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """A sub-model field, then a run field."""
+    (_m0, i0, _l0, d0), (_m1, i1, _l1, _d1) = plan
+
+    def build(_text, _ends, sinks):
+        if not sinks:
+            return tuple.__new__(cls, (d0, ()))
+        a, b = sinks[i0], sinks[i1]
+        return tuple.__new__(cls, (a[0] if a else d0, tuple(b) if b else ()))
+
+    return build
+
+
+def _fused_rm[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """A run field, then a sub-model field."""
+    (_m0, i0, _l0, _d0), (_m1, i1, _l1, d1) = plan
+
+    def build(_text, _ends, sinks):
+        if not sinks:
+            return tuple.__new__(cls, ((), d1))
+        a, b = sinks[i0], sinks[i1]
+        return tuple.__new__(cls, (tuple(a) if a else (), b[0] if b else d1))
+
+    return build
+
+
+def _fused_rr[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """Two run fields."""
+    (_m0, i0, _l0, _d0), (_m1, i1, _l1, _d1) = plan
+
+    def build(_text, _ends, sinks):
+        if not sinks:
+            return tuple.__new__(cls, ((), ()))
+        a, b = sinks[i0], sinks[i1]
+        return tuple.__new__(cls, (tuple(a) if a else (), tuple(b) if b else ()))
+
+    return build
+
+
+_FUSED: dict[tuple[int, ...], Callable[..., ShapeBuild]] = {
+    (M_MODEL,): _fused_m,
+    (M_MODELS,): _fused_r,
+    (M_MODEL, M_MODEL): _fused_mm,
+    (M_MODEL, M_MODELS): _fused_mr,
+    (M_MODELS, M_MODEL): _fused_rm,
+    (M_MODELS, M_MODELS): _fused_rr,
+}
+"""Every sub-model shape of one or two fields, keyed by its modes in class
+order. Complete for that rule, so no shape is privileged within it."""
+
+
+def shape_build[Carry](cls: type[Carry], plan: Plan[Carry]) -> ShapeBuild[Carry]:
     """Compose one shape's build, once, from its plan alone.
 
     The record is unchanged: this constructs exactly what the class's own
@@ -382,6 +480,9 @@ def shape_build[Carry](
     :returns: ``build(text, ends, sinks)``.
     :raises UnsupportedConstructError: On a mode outside the vocabulary.
     """
+    fused = _FUSED.get(tuple(mode for mode, _item, _lo, _default in plan))
+    if fused is not None:
+        return fused(cls, plan)
     reads = tuple(
         field_read(mode, item, lo, default) for mode, item, lo, default in plan
     )

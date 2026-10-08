@@ -93,6 +93,45 @@ def test_the_unrolled_template_agrees_with_the_general_builder(arity: int) -> No
     assert type(unrolled) is type(general)
 
 
+SUB_MODEL_SHAPES = (
+    (M_MODEL,),
+    (M_MODELS,),
+    (M_MODEL, M_MODEL),
+    (M_MODEL, M_MODELS),
+    (M_MODELS, M_MODEL),
+    (M_MODELS, M_MODELS),
+)
+"""Every shape :func:`shape_build` fuses: one or two sub-model fields."""
+
+SINK_STATES = (
+    None,
+    [[Shape()], [Shape(), Shape()], [Shape()]],
+    [[], [], []],
+    [None, [Shape()], None],
+)
+"""A frame that never descended, full sinks, empty runs, and holes."""
+
+
+@pytest.mark.parametrize("modes", SUB_MODEL_SHAPES)
+@pytest.mark.parametrize("sinks", SINK_STATES)
+def test_a_fused_sub_model_shape_builds_what_the_bound_reads_build(
+    modes: tuple[int, ...], sinks
+) -> None:
+    """The fused template reads its sinks in place; the bound reads it stands
+    in for must give an equal record of the same type in every sink state,
+    defaults included."""
+    plan = tuple((mode, at, 1, f"default-{at}") for at, mode in enumerate(modes))
+    reads = tuple(
+        field_read(mode, item, lo, default) for mode, item, lo, default in plan
+    )
+    build = shape_build(Shape, plan)
+    assert build.__qualname__.startswith("_fused_")  # no bound read per field
+    fused = build("", (), sinks)
+    general = _general(Shape, reads)("", (), sinks)
+    assert fused == general
+    assert type(fused) is type(general)
+
+
 @pytest.mark.parametrize("mode", MODES)
 def test_every_mode_builds_what_it_means(mode: int) -> None:
     """One field, each mode in the vocabulary."""
