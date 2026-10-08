@@ -15,11 +15,11 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, _delegable
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_DISPATCH,
     GATE_ATTEMPT,
     OP_AVDISP,
     OP_AVSTR,
 )
+from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import compiled
 from tools.benchmark.cases.grammars import BENCHES
@@ -194,28 +194,6 @@ ATTEMPT_INTERIOR = (
 analysis can only attempt (G4's shape)."""
 
 
-def _reachable(root: FlatClone) -> list[FlatClone]:
-    """Every clone a delegate can enter: its arms' payloads, dispatch targets
-    and attempt entries' sub-clones, each once."""
-    seen: set[int] = set()
-    found: list[FlatClone] = []
-    work: list[object] = [root]
-    while work:
-        clone = work.pop()
-        if not isinstance(clone, FlatClone) or id(clone) in seen:
-            continue
-        seen.add(id(clone))
-        found.append(clone)
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
-        if clone.mode == BUILD_DISPATCH:
-            work.extend(target for *_gate, target in clone.selectors)
-            work.append(clone.default)
-        for arm in clone_arms(clone):
-            work.extend(arm.payloads)
-    return found
-
-
 def _verdict_sites(clone: FlatClone) -> list[str]:
     """Where ``clone`` could reach a both-viable fork: an attempt clone, an
     attempt-gated loop, or an attempt-aware inline loop."""
@@ -250,7 +228,7 @@ def test_no_delegate_program_holds_a_verdict_site() -> None:
     walked = 0
     for grammar in grammars:
         for delegate in _delegates(grammar):
-            for clone in _reachable(delegate):
+            for clone in walk_program_clones(delegate).values():
                 walked += 1
                 assert not _verdict_sites(clone), (clone.name, _verdict_sites(clone))
     assert walked, "no delegate clone was walked, so the contract proves nothing"
