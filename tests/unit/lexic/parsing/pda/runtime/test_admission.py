@@ -6,6 +6,7 @@ import pytest
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
+from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_REF1
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
     REST_ADMITS_HARD,
@@ -297,21 +298,40 @@ def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
     settling the walk before item 2 is even reached."""
     pda = pda_from_text(MIXED)
     arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "m") == (REST_ADMITS_HARD, False)
+    assert arm_rest_scan(arm, 0, "m", 0) == (REST_ADMITS_HARD, False)
 
 
 def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
     """A mandatory item refusing the char kills the stop side."""
     pda = pda_from_text(MIXED)
     arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "5") == (REST_DEAD, False)
+    assert arm_rest_scan(arm, 0, "5", 0) == (REST_DEAD, False)
 
 
 def test_arm_rest_scan_ascends_past_the_arms_final_item():
     """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
     pda = pda_from_text(MIXED)
     arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, arm.n - 1, "q") == (REST_ASCEND, False)
+    assert arm_rest_scan(arm, arm.n - 1, "q", 0) == (REST_ASCEND, False)
+
+
+def _closing_arm():
+    """``x " " ">"``: an inline body, then its two-literal closer."""
+    return flat_arm(
+        3,
+        kinds=(OP_REF1, OP_LIT1, OP_LIT1),
+        payloads=(None, " ", ">"),
+        los=(1, 1, 1),
+    )
+
+
+def test_a_run_of_exactly_once_literals_is_read_whole():
+    """The stop side after ``x`` must spell ``" >"`` at the boundary: a space
+    followed by anything else is no closer, and the walk is dead there."""
+    arm = _closing_arm()
+    assert arm_rest_scan(arm, 0, "ab >", 2) == (REST_ADMITS_HARD, False)
+    assert arm_rest_scan(arm, 0, "ab c >", 2) == (REST_DEAD, False)
+    assert arm_rest_scan(arm, 0, "ab", 2) == (REST_DEAD, False)
 
 
 def test_composes_is_true_at_end_of_input():

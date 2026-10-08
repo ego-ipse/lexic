@@ -146,7 +146,7 @@ class Verdicts[Carry]:
         cls = (
             REST_DEAD
             if ((char == "" or char in chars) if negated else char not in chars)
-            else self._beyond_class(arm, i, char)
+            else self._beyond_class(arm, i, pos)
         )
         if self._caches.probing:
             # Inside a probe boundaries resolve GREEDILY by class — probes
@@ -170,7 +170,7 @@ class Verdicts[Carry]:
                 )
         return True
 
-    def _beyond_class(self, arm: FlatArm, i: int, char: str) -> int:
+    def _beyond_class(self, arm: FlatArm, i: int, pos: int) -> int:
         """The boundary's viability CLASS over the whole live chain.
 
         :returns: :data:`REST_ADMITS_HARD` when a MANDATORY item anywhere up the
@@ -178,20 +178,29 @@ class Verdicts[Carry]:
             strong prior); :data:`REST_ADMITS` for optional-item viability only
             (the chain class — taking is); :data:`REST_DEAD` when no stop side
             exists. Optional admits never settle the walk — a hard admit
-            deeper up outranks them.
+            deeper up outranks them. Each frame up the chain is read from the
+            item it is suspended in, which after an ``OP_REF1`` is the one before
+            ``frame.i``.
         """
-        verdict, opt = arm_rest_scan(arm, i, char)
+        text = self.text
+        verdict, opt = arm_rest_scan(arm, i, text, pos)
         if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = arm_rest_scan(frame.arm, frame.i, char)
-                opt = opt or o
+                # OP_REF1 advances past itself before descending; such a frame
+                # holds no loop count, a quantified descent always does. An
+                # attempt with none committed reads as the reference: a superset.
+                at, up = frame.i, frame.arm
+                if at and frame.count == 0 and up.kinds[at - 1] == OP_REF1:
+                    at -= 1
+                verdict, seen = arm_rest_scan(up, at, text, pos)
+                opt = opt or seen
                 if verdict != REST_ASCEND:
                     break
         if verdict == REST_ADMITS_HARD:
             return REST_ADMITS_HARD
         if verdict == REST_DEAD:
             return REST_ADMITS if opt else REST_DEAD
-        return REST_ADMITS if (opt or char == "") else REST_DEAD
+        return REST_ADMITS if (opt or pos >= len(text)) else REST_DEAD
 
     def _fork_verdict(
         self,

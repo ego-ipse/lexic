@@ -106,7 +106,7 @@ class Attempting[Carry](Verdicts[Carry]):
             return frame.close_loop(i, pos)
         k = arm.kinds[i]
         if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
-            if self._stop_viable(arm, i, char):
+            if self._stop_viable(arm, i, pos):
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable",
                     pos,
@@ -139,10 +139,10 @@ class Attempting[Carry](Verdicts[Carry]):
         self.pos = end
         return i
 
-    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+    def _stop_viable(self, arm: FlatArm, i: int, pos: int) -> bool:
         """Whether the boundary char is viable BEYOND another iteration —
         the island branch's trigger (:meth:`_beyond_class` in truth form)."""
-        return self._beyond_class(arm, i, char) in (REST_ADMITS, REST_ADMITS_HARD)
+        return self._beyond_class(arm, i, pos) in (REST_ADMITS, REST_ADMITS_HARD)
 
     def _attempt_island(
         self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int

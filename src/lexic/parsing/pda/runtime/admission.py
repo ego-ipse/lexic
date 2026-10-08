@@ -168,24 +168,53 @@ def clone_admits(clone: FlatClone, char: str) -> bool:
     return False
 
 
-def arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
-    """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
+def arm_rest_scan(arm: FlatArm, i: int, text: str, pos: int) -> tuple[int, bool]:
+    """The rest-of-arm walk past item ``i``, at ``pos`` — ``(verdict,
+    optional-admit seen)``.
 
     An optional admitting item does NOT settle the walk (both the chain and
     the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
     the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
     mandatory item settles it either way (admits → the terminator class;
     refuses → the char cannot flow past, the stop side is dead).
+
+    A run of exactly-once literals is read whole, at ``pos``: the stop side
+    must spell all of it there, so ``" " ">"`` closing a body admits a space
+    only where ``" >"`` follows, not at every space inside the body.
     """
+    char = text[pos : pos + 1]
+    kinds, los, n = arm.kinds, arm.los, arm.n
     opt = False
-    for j in range(i + 1, arm.n):
-        if item_admits(arm, j, char):
-            if arm.los[j] > 0:
+    for j in range(i + 1, n):
+        if kinds[j] == OP_LIT1:  # the first literal in place; a run past it rarely
+            lit = arm.payloads[j]
+            admitted = text.startswith(lit, pos) and (
+                j + 1 == n
+                or kinds[j + 1] != OP_LIT1
+                or _spells_run(arm, j + 1, text, pos + len(lit))
+            )
+        else:
+            admitted = item_admits(arm, j, char)
+        if admitted:
+            if los[j] > 0:
                 return REST_ADMITS_HARD, opt
             opt = True
-        elif arm.los[j] > 0:
+        elif los[j] > 0:
             return REST_DEAD, opt
     return REST_ASCEND, opt
+
+
+def _spells_run(arm: FlatArm, j: int, text: str, pos: int) -> bool:
+    """Whether the exactly-once literals from item ``j`` on are spelled at
+    ``pos``, one after another — the first refusal ends it."""
+    kinds, payloads, n = arm.kinds, arm.payloads, arm.n
+    while j < n and kinds[j] == OP_LIT1:
+        literal = payloads[j]
+        if not text.startswith(literal, pos):
+            return False
+        pos += len(literal)
+        j += 1
+    return True
 
 
 def composes(follow: Any, text: str, end: int) -> bool:

@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     OP_GRP,
     OP_REF,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
@@ -43,7 +44,6 @@ from tests import parity_helpers
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_and_pda
-from tools.benchmark.cases.corpora import meta_corpus
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -154,7 +154,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     branch this commit adds, and nothing else, so the difference IS that
     branch and a non-zero difference is the evidence it ran.
     """
-    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
+    bench = next(one for one in BENCHES if one.name == "vyx")
     counted = {"copies": 0, "verdicts": 0, "settled": 0, "converged": 0}
     copy = verdicts.frames_copy
     defined = vars(verdicts.Verdicts)  # what the class DEFINES
@@ -190,7 +190,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     monkeypatch.setattr(verdicts.Verdicts, "_fork_verdict", counting_verdict)
     monkeypatch.setattr(verdicts.Verdicts, "_lockstep_verdict", counting_lockstep)
     monkeypatch.setattr(verdicts.Verdicts, "_converged", counting_converged)
-    bench.compiled.parse(meta_corpus("json.gbnf", 2), cores=1)
+    bench.compiled.parse(bench.corpus, cores=1)
 
     assert counted["verdicts"], (
         "this document no longer forks — the test proves nothing"
@@ -288,9 +288,9 @@ def test_the_lockstep_settles_a_converged_boundary_when_the_values_agree(
     assert (tally["other"], tally["nested"]) == (0, 0), tally
 
 
-VYX_CONVERGES = "!X:P L2< \U00097f2f \U0003fe58\U0007d18e\U000ed509 \U000deadc >\n"
-"""A vyx packet the property suite generated, whose one boundary converges with
-values that differ and a common remainder that dies."""
+VYX_CONVERGES = "!P %P \U000e465b\\n# \\nS:t={y} >\n"
+"""A generated vyx packet (seed 221) whose one boundary converges, unguessed,
+with values that differ and a common remainder that dies."""
 
 
 def test_a_converged_boundary_takes_when_the_common_remainder_dies(
@@ -304,10 +304,11 @@ def test_a_converged_boundary_takes_when_the_common_remainder_dies(
     neither side completes, and the boundary is :data:`_TAKE` exactly as a
     dead stop side is.
 
-    The document is a vyx packet the property suite generated — a natural
-    witness rather than an injected one, found by tallying this method's
-    answers across the whole test suite and keeping the input that reached
-    this branch.
+    The document is a generated vyx packet, a natural witness: neither side
+    guessed on its way to the convergence, so the remainder's death settles
+    it. The packet the property suite once found here reached it only because
+    the stop side misread an ``OP_REF1``-suspended frame's rest; read
+    correctly, its sides guess, and a guess settles nothing.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
     tally = _converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
@@ -329,10 +330,9 @@ def test_a_converged_boundary_forks_when_the_common_remainder_completes(
     """Values DIFFER and the remainder COMPLETES — the difference is real.
 
     Reached by injection on a real convergence: the vyx packet's snapshots are
-    made distinct at the one site that reads them, and its shared remainder —
-    which dies on its own — is reported complete, so the converged boundary
-    must fork rather than settle. No document in the suite converges mid-parse
-    onto a remainder that completes.
+    made distinct at the one site that reads them, and its shared remainder is
+    reported complete, so the converged boundary must fork rather than settle
+    whatever the remainder would have done.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
     distinct = itertools.count()
@@ -369,8 +369,8 @@ def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
     sides nor a completion, so ``_converged`` raises :class:`ProbeFork` and
     the gated engine answers. Read as a death, it would settle :data:`_TAKE`.
 
-    The document is the dead-remainder witness above: its remainder completes
-    ``inline-content`` before it dies, and that completion is made to refuse
+    The document is the convergence witness above: its remainder completes
+    ``inline-content``, and that completion is made to refuse
     — only inside ``_converged``'s own drive.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
@@ -932,8 +932,9 @@ def test_the_recovery_restates_what_the_live_parse_did(monkeypatch) -> None:
     """A fork reads the stack with side-effect-free restatements of what the
     live parse decided, so on every corpus that attempts: each push is the
     clone ``landing`` names, each attempted iteration's frame is one
-    ``iterating`` admits, each descent's item is one ``descending`` names, and
-    each frame a sub-run marked is on a clone flagged ``sub_root`` — audit
+    ``iterating`` admits, each descent's item is one ``descending`` names, each
+    suspended frame is read at an item one of those two names, and each frame a
+    sub-run marked is on a clone flagged ``sub_root`` — audit
     roots included."""
     real_enter = next(
         vars(c)["_enter"] for c in PdaKernel.__mro__ if "_enter" in vars(c)
@@ -942,7 +943,8 @@ def test_the_recovery_restates_what_the_live_parse_did(monkeypatch) -> None:
         vars(c)["_drive"] for c in PdaKernel.__mro__ if "_drive" in vars(c)
     )
     real_iteration = Attempting.attempt_iteration
-    seen = {"pushed": 0, "iterated": 0, "descended": 0, "marked": 0, "audits": 0}
+    names = ("pushed", "iterated", "descended", "suspended", "marked", "audits")
+    seen = dict.fromkeys(names, 0)
 
     def descent_item(frame, clone, out) -> int:
         """The item ``frame`` is descending into with ``clone``, or ``-1``."""
@@ -966,6 +968,13 @@ def test_the_recovery_restates_what_the_live_parse_did(monkeypatch) -> None:
         return pushed
 
     def drive(self, floor: int = 0, limit: int = -1) -> None:
+        for frame in self.stack[:-1]:
+            # `_beyond_class`'s reading of a suspended frame, restated
+            at = frame.i
+            if at and frame.count == 0 and frame.arm.kinds[at - 1] == OP_REF1:
+                at -= 1
+            assert at in descending(frame) or (iterating(frame) and at == frame.i)
+            seen["suspended"] += 1
         for frame in self.stack:
             start = getattr(frame, "start", None)
             if start is not None:

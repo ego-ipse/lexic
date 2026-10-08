@@ -57,7 +57,7 @@ class _IslandUndecidable(Attempting[str]):
         self.pos = 0
         self.stack = []
 
-    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+    def _stop_viable(self, arm: FlatArm, i: int, pos: int) -> bool:
         return False  # the one-character stop test says nothing here
 
     def _enter(self, clone: FlatClone[str], out: list[str]) -> bool:
