@@ -2340,3 +2340,12 @@ class definition; one `carving()`.
 
 `decisions.md`'s slot entry: a decider other than leftmost-longest is no longer
 refused by the chain reader; each level's key is chosen by the decider's slot.
+
+## A boundary's side settles its sub-runs (2026-10-08)
+
+`decisions.md` entry: a side carries one floor per attempt sub-run it stands
+inside and settles each as its caller would, recovered from the stack; the
+marks are written only in a program that can fork; a guess decides nothing; and
+values compare by class and fields.
+`invariants.md`'s probes-never-nest entry counts the one `frames_copy` call
+site left, `_side`.

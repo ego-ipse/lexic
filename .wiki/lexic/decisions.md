@@ -1088,3 +1088,43 @@ slots: each chain level's key is the one whose end its slot ranks highest
 (`_choose_slots` / `_slot_max`), greedy from the left being the whole rank since
 every key a level holds reaches the bottom. The raw loop is kept apart from
 the slot loop on purpose, so the default decider pays no call per level.
+
+## A boundary's side settles the sub-runs it stands inside as their callers would
+
+A both-viable boundary can stand inside attempt sub-runs — an attempted loop
+iteration, an attempt entry, an audit — which the live parse leaves to the
+Python call that started them. A side copied off the stack has no such call, so
+it carries one floor per sub-run and drives to one floor at a time, settling
+there as that call would: the iteration commits or closes its loop, the attempt
+runs its next entry, the audit contests its winner. A failure above a floor
+fails that sub-run, never the side.
+
+The floors are read off the stack. A sub-run's root frame carries its start
+(`Frame.start`), an audit's run is wrapped in a record of the audit on the
+caches, and which caller started the sub-run is read off the frame below it by
+`landing`, `entered`, `iterating` and `descending` — replays of what the live
+parse decided, each a function of clone, text and position. Exactly one reading
+must survive, or the side raises `ProbeFork`; so does a sub-run of a span check,
+which no side settles.
+
+**Marks are paid only where a fork can happen.** A fork is an attempted loop's
+boundary, so a program with no item gated `GATE_ATTEMPT` flags no clone
+`sub_root`: its sub-runs write no start and its audits push no record.
+
+**A guess decides nothing.** A side's own drive resolves nested boundaries
+greedily, and a death or a mid-parse agreement it reached through such a guess
+(`uncertain`) forks instead of settling. The stop side's death is judged by its
+own drive alone. Sides that converge by completing are exempt: both hold empty
+stacks, so they agree, and comparing two completed carvings is the ranked
+verdict's question, not convergence's.
+
+**Values compare by class and fields** (`same_value`), at a convergence and at
+end of input alike. Sides converged mid-parse on one control state cannot build
+values that differ only in class — arm selection is a function of clone,
+position and text — so the class matters only where completed sides' root
+outputs are compared.
+
+**Why:** a side stands for one continuation of the live parse. One that runs
+through a sub-run's root without settling it as the caller would is a different
+parse, and a verdict asked on it answers a different question; the ranked
+verdict compares sides' values, so they must be the values the parse builds.

@@ -33,7 +33,9 @@ def flat_clone[Carry](
     ``needs_ends`` defaults to ``True`` because a frame reads it at
     construction: a clone that binds a field to an item span keeps boundaries,
     so a test that says nothing about spans gets the shape that has them. Pass
-    ``needs_ends=False`` for the boundary-free clone.
+    ``needs_ends=False`` for the boundary-free clone. ``sub_root`` defaults to
+    ``False``: a fork reads it on every frame, and a clone no attempt sub-run
+    can root is the common one.
 
     :param mode: The clone's build mode.
     :param of: A sink whose model type the clone carries, so the caller's frame
@@ -44,6 +46,7 @@ def flat_clone[Carry](
     clone: FlatClone[Carry] = FlatClone()
     clone.mode = mode
     clone.needs_ends = True
+    clone.sub_root = False
     for name, value in lanes.items():
         setattr(clone, name, value)
     return clone

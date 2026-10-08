@@ -136,12 +136,15 @@ def test_flatclone_declares_exactly_the_selector_and_build_fields():
     ``longest`` is the exception stated: a ``value_str`` clone's build reads
     every field its mode leaves, and the check it holds decides whether a span
     is the island's answer at all, so it cannot ride in one of them.
+    ``sub_root`` is the other: a both-viable fork reads it on every frame of
+    the stack, whatever the frame's mode, to find the attempt sub-runs it sits
+    inside without asking each frame for a start it mostly never had.
     """
     expected = {"name", "selectors", "wide_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "longest"}
+    expected |= {"runarm", "needs_ends", "longest", "sub_root"}
     assert set(FlatClone.__slots__) == expected
 
 

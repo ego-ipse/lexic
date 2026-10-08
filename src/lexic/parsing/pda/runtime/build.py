@@ -102,13 +102,29 @@ class Frame[Carry]:
         :func:`~lexic.parsing.pda.runtime.admission.frames_copy` — so its
         build needs the values that were already there, and this names where
         they are. Cleared once they have been taken.
+    :ivar start: Where an attempt sub-run began, set only on a sub-run's root
+        frame (a position for a loop iteration or an attempt entry, ``-1`` for
+        an audit's run, ``-2`` for a span check's) in a program that can fork,
+        and left unset on every other frame, so an ordinary push pays nothing
+        for it. A both-viable
+        fork reads it to settle the sub-run as the live caller would.
     """
 
     # pylint: disable=too-many-instance-attributes
-    # An eighth lane. The alternative that would satisfy the cap is folding
+    # Nine lanes. The alternative that would satisfy the cap is folding
     # `ends` and `sinks` into one per-item record, and that costs an object
     # allocation per frame on the paid path — a worse trade than a slot.
-    __slots__ = ("arm", "i", "count", "out", "clone", "ends", "sinks", "inherited")
+    __slots__ = (
+        "arm",
+        "i",
+        "count",
+        "out",
+        "clone",
+        "ends",
+        "sinks",
+        "inherited",
+        "start",
+    )
 
     arm: FlatArm
     i: int
@@ -118,6 +134,7 @@ class Frame[Carry]:
     ends: list[int] | None
     sinks: list[list[Carry] | None] | None
     inherited: Frame[Carry] | None
+    start: int
 
     def __init__(
         self, arm: FlatArm, out: list[Carry], clone: FlatClone[Carry], start: int

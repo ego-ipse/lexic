@@ -9,10 +9,12 @@ they are pinned here directly rather than only through a parse:
   the same future. It must EXCLUDE values (or the sides never converge) and it
   must normalise the iteration count (or the side that took an extra iteration
   differs forever).
-- :func:`values_agree` — the same question the end-of-input comparison asks,
-  asked earlier. A false "agree" would commit what the engine refuses, so the
-  adversarial case (identical control state, divergent pending values) is the
-  one that matters.
+- :func:`~lexic.parsing.earley.kernel.forest.support.ambiguity.same_value` over
+  the :func:`pending_values` snapshots — the same question the end-of-input
+  comparison asks, asked earlier. A false "agree" would commit what the engine
+  refuses, so the adversarial cases (identical control state, divergent
+  pending values; equal fields under two record classes) are the ones that
+  matter.
 """
 
 from __future__ import annotations
@@ -22,13 +24,14 @@ from typing import Any
 import pytest
 
 from lexic.compile import compile_text
+from lexic.ir import IrNamedTuple, IrStr
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_FOLD
 from lexic.parsing.pda.runtime.admission import (
     control_signature,
     pending_values,
     value_shape,
-    values_agree,
 )
 from lexic.parsing.pda.runtime.build import Frame
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
@@ -123,20 +126,42 @@ def test_divergent_pending_values_do_not_agree():
     """
     stop, take = frames((0,), (-1,), 0, (1, 1))
     stop.out, take.out = ["a"], ["b"]
-    assert not values_agree(pending_values([stop]), pending_values([take]))
+    assert not same_value(pending_values([stop]), pending_values([take]))
 
 
-def test_identical_pending_values_agree():
+def test_identical_pending_same_value():
     """The common case — one production carved two ways to the same value."""
     stop, take = frames((0,), (-1,), 0, (1, 1))
     stop.out, take.out = ["same"], ["same"]
-    assert values_agree(pending_values([stop]), pending_values([take]))
+    assert same_value(pending_values([stop]), pending_values([take]))
 
 
 def test_a_shape_mismatch_reads_as_disagreement_not_an_error():
     """Unequal shapes are a disagreement; the caller's next move is conservative."""
-    assert not values_agree((("a",), ()), (("a", "b"), ()))
-    assert not values_agree(("a",), "a")
+    assert not same_value((("a",), ()), (("a", "b"), ()))
+    assert not same_value(("a",), "a")
+
+
+class _Left(IrNamedTuple[IrStr]):
+    """One record class."""
+
+    w: IrStr
+
+
+class _Right(IrNamedTuple[IrStr]):
+    """Another, with the same field and the same value."""
+
+    w: IrStr
+
+
+def test_equal_fields_under_two_record_classes_do_not_agree():
+    """``_Left('x')`` and ``_Right('x')`` are two meanings with one field
+    tuple. A walk that reads any tuple as a container saw one value."""
+    stop, take = frames((0,), (-1,), 0, (1, 1))
+    stop.out, take.out = [_Left(IrStr("x"))], [_Right(IrStr("x"))]
+    assert not same_value(pending_values([stop]), pending_values([take]))
+    take.out = [_Left(IrStr("x"))]
+    assert same_value(pending_values([stop]), pending_values([take]))
 
 
 def test_a_boundary_heavy_parse_still_round_trips():
@@ -161,7 +186,7 @@ def test_the_watermark_compares_only_what_was_built_after_it():
     stop.out.append("left")
     take.out.append("right")
     assert pending_values([stop], mark) == (("left",), ())
-    assert not values_agree(pending_values([stop], mark), pending_values([take], mark))
+    assert not same_value(pending_values([stop], mark), pending_values([take], mark))
 
 
 def test_a_container_that_shrank_is_compared_whole():

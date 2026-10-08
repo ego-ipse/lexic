@@ -13,7 +13,6 @@ from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -32,12 +31,13 @@ from lexic.parsing.pda.runtime.build import (
 
 __all__ = [
     "NO_ROUTE",
+    "Audit",
+    "Floor",
     "RouteLane",
     "Side",
     "control_signature",
     "pending_values",
     "value_shape",
-    "values_agree",
     "KernelCaches",
     "admits",
     "item_admits",
@@ -56,13 +56,37 @@ NO_ROUTE = -1
 """No route is waiting here. A plain int rather than ``None`` so a routed
 consumer's read stays one comparison against the dense route ids."""
 
-type Side = tuple[list[Any], int, "RouteLane | None"]
-"""One resumable boundary side: its forked stack, its position, its route lane.
+type Floor = tuple[
+    int,
+    int,
+    list[Any],
+    list[Any],
+    "Frame | None",
+    "tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None",
+]
+"""One attempt sub-run a boundary side was forked inside, as the side settles it.
 
-A UNIFORM triple. The lane slot is ``None`` for every program without route
+``(depth, start, holder, live, loop, entry)``: the depth of the sub-run's root
+frame; where it began; the side's list its root reports into; the live list's
+prefix those values follow; and its caller — ``loop``, the side's frame whose
+attempted iteration it is, or ``entry``, the attempt clone, the side's list
+the winner splices into, the entry's index and — for an entry the attempt is
+AUDITING — the winner's ``(end, values)``. Exactly one caller is set."""
+
+type Audit = tuple[int, Any, int, int, tuple[int, list[Any]]]
+"""One audit run in flight, as a fork inside it needs it: ``(depth, clone,
+entry, pos, won)`` — the depth its sub-run roots at, the attempt clone, the
+entry it runs, the attempt position and the winner's ``(end, values)``."""
+
+type Side = tuple[list[Any], int, "RouteLane | None", list[Any], list[Floor]]
+"""One resumable boundary side: its forked stack, its position, its route lane,
+its root output, and the attempt sub-runs it is still inside.
+
+A UNIFORM shape. The lane slot is ``None`` for every program without route
 continuations rather than the tuple changing arity by product, so the
 boundary-decision path stays one shape and one call signature whatever is
-being parsed."""
+being parsed. The root output is held apart from the stack because a side that
+completes has emptied it."""
 
 
 def admits(char: str, chars: Any, negated: Any) -> bool:
@@ -185,6 +209,8 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         resolved GREEDILY by class rather than by forking again, which is what
         makes probes never nest. A counter rather than a flag because
         :meth:`_advance` counts its own drive too.
+    :ivar audits: The audit runs in flight, innermost last — one record per
+        audited entry run, pushed around it, read only by a fork inside one.
     :ivar uncertain: Set when a probe's drive resolved a both-viable
         boundary GREEDILY (probes never nest — the exponential chain of a
         rules-list grammar probing every later line is cut to one linear
@@ -194,8 +220,9 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         commit.
     """
 
-    __slots__ = ("deleg", "intern", "probing", "uncertain")
+    __slots__ = ("audits", "deleg", "intern", "probing", "uncertain")
 
+    audits: list[Audit]
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
     probing: int
@@ -203,6 +230,7 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
 
     def __init__(self) -> None:
         """Seed the memos empty, the probe depth zero, certainty clean."""
+        self.audits = []
         self.deleg = {}
         self.intern = {}
         self.probing = 0
@@ -520,20 +548,3 @@ def pending_values(stack: list[Frame], shape: tuple[Any, ...] = ()) -> tuple[Any
 def _since(container: list[Any], mark: int) -> tuple[Any, ...]:
     """``container``'s tail past ``mark`` — or all of it if it shrank."""
     return tuple(container) if len(container) < mark else tuple(container[mark:])
-
-
-def values_agree(left: Any, right: Any) -> bool:
-    """Whether two :func:`pending_values` snapshots mean the same thing.
-
-    Structural to the leaves, then :func:`~lexic.parsing.earley.kernel.forest
-    .ambiguity.same_value` — the SAME question the end-of-input comparison
-    asks, asked earlier. A shape mismatch is a disagreement, never an error:
-    the caller's next move on "these differ" is always the conservative one.
-    """
-    if isinstance(left, tuple) or isinstance(right, tuple):
-        if not (isinstance(left, tuple) and isinstance(right, tuple)):
-            return False
-        if len(left) != len(right):
-            return False
-        return all(values_agree(a, b) for a, b in zip(left, right))
-    return bool(same_value(left, right))

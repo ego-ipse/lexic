@@ -20,6 +20,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
     WideSelect,
     clone_arms,
+    mark_sub_roots,
 )
 from lexic.parsing.pda.compiler.program.gating import (
     KWindowSelect,
@@ -248,6 +249,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
         _flatten_arm(group.default, low) if group.default is not None else None
     )
     clone.struct_arm = None
+    clone.sub_root = False
     clone.attempt = (
         (group.attempt_follow, ()) if group.attempt_follow is not None else None
     )
@@ -477,6 +479,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.runarm = None
     sub.needs_ends = clone.needs_ends
     sub.longest = None  # an attempt sub-run's rule has a choice to try, no take
+    sub.sub_root = False
     return sub
 
 
@@ -567,6 +570,9 @@ def flatten_clones(
             clone, spec.routine, None if folds is None else folds.get(key.name)
         )
         clone.longest = spec.longest
+        clone.sub_root = False
+    # Before the entries exist: the optimiser walks `all_clones`, which follows
+    # attempt entries, and those are lowered and optimised on their own below.
     optimize_program(list(low.shells.values()), _consults(clones, low))
     _require_checked_takes(low.shells.values())
     attempting = [
@@ -579,6 +585,9 @@ def flatten_clones(
         entries = _attempt_entries(clone, arms)
         _optimize_entries(entries)
         clone.attempt = (follow, entries)
+    # Last, after the optimiser: `all_clones` walks attempt entries, which
+    # exist on the clones only once `_attempt_entries` has lowered them.
+    mark_sub_roots(list(low.shells.values()))
     return low.shells
 
 

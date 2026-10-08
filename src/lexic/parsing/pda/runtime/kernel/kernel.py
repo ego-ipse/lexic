@@ -469,16 +469,6 @@ class PdaKernel[M](
             sinks[i] = sink = []
         return sink
 
-    def _chase_dispatch(self, clone: FlatClone[M]) -> FlatClone[M] | None:
-        """Chase a frame-less dispatch alternation to its concrete target clone.
-
-        :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
-        :returns: The concrete target clone, or ``None`` when the dispatch lands
-            on its empty (nullable) arm (the caller then consumes nothing).
-        :raises PdaFail: When no selector matches and there is no default.
-        """
-        return chase_dispatch(clone, self.text, self.pos)
-
     def _enter(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
@@ -599,7 +589,7 @@ class PdaKernel[M](
         """
         while True:
             if clone.mode == BUILD_DISPATCH:
-                chased = self._chase_dispatch(clone)
+                chased = chase_dispatch(clone, self.text, self.pos)
                 if chased is None:
                     return None  # the empty (nullable) arm — nothing consumed
                 clone = chased

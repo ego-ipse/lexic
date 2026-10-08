@@ -260,12 +260,14 @@ class WatchedKernel[M](PdaKernel[M]):
         self._flush(str(frame.clone.name))
         super()._complete(frame)
 
-    def _attempt_run(self, sub: FlatClone[M], pos: int) -> tuple[int, list[M]] | None:
+    def _attempt_run(
+        self, sub: FlatClone[M], pos: int, mark: int
+    ) -> tuple[int, list[M]] | None:
         """One attempt entry, tried and rolled back by construction."""
         self._flush()
         self._note(PROBE, str(sub.name), "attempt entry", IrSpan(pos, pos))
         scanned = self._scanned
-        got = super()._attempt_run(sub, pos)
+        got = super()._attempt_run(sub, pos, mark)
         self._scanned = scanned
         if got is None:
             self._note(ROLLBACK, str(sub.name), "did not derive", IrSpan(pos, pos))
