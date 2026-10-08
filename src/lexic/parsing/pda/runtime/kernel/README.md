@@ -2,7 +2,8 @@
 
 The kernel is one cursor split by responsibility: `kernel.py` holds
 `PdaKernel`, the paid loop, island splice, and public `pda_model` entry;
-`decisions.py` holds the attempt/probe method group it inherits; and
+`decisions.py` holds the attempt/probe method group it inherits;
+`verdicts.py` holds the boundary verdict that group inherits in turn; and
 `attempt_inline.py` holds frame-less loops for attempt-aware value strings.
 
 ## `kernel.py`
@@ -20,10 +21,18 @@ folded model into the live frame.
 
 ## `decisions.py`
 
-`Attempting` provides ordered speculative entries, watermarked sub-runs, and
-two-sided boundary probes on structural stack copies. A probe compares
-completed model values. An undecidable result is `ProbeFork`, which returns
-control to the ordinary Earley completion.
+`Attempting` provides ordered speculative entries and watermarked sub-runs. An
+attempted iteration whose boundary is both viable asks the verdict. An
+undecidable result is `ProbeFork`, which returns control to the ordinary Earley
+completion.
+
+## `verdicts.py`
+
+`Verdicts` decides a both-viable boundary — take, stop or fork — on two sides,
+structural stack copies with the boundary decided, advanced in lockstep until
+they converge or run to end of input, and compared on their model values. A
+side settles each attempt sub-run it stands inside as the sub-run's caller
+would, recovered from the stack.
 
 ## `attempt_inline.py`
 

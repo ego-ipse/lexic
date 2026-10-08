@@ -2349,3 +2349,9 @@ marks are written only in a program that can fork; a guess decides nothing; and
 values compare by class and fields.
 `invariants.md`'s probes-never-nest entry counts the one `frames_copy` call
 site left, `_side`.
+
+## The boundary verdict has its own module (2026-10-08)
+
+`invariants.md`'s probes-never-nest entry names `verdicts.py`: the verdict, its
+sides and their floors moved there from `decisions.py`, whose `Attempting`
+inherits them.

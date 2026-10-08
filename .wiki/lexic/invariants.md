@@ -120,7 +120,7 @@ origin's sinks at the build. That is the whole prefix only because forks never
 nest: every `inherited` chain is length 1.
 
 Nothing structural prevents nesting. One branch does — `if self._caches.probing:`
-in `decisions.py`, which resolves an interior boundary greedily by class instead
+in `verdicts.py`, which resolves an interior boundary greedily by class instead
 of forking again. `_fork_verdict` is the only entry to the one `frames_copy` call
 site (`_side`), and it sits in that branch's `elif`. `frames_copy` raises if the root frame
 of the stack it is copying already carries `inherited`, so the policy is checked

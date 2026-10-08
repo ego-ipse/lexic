@@ -17,7 +17,7 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.pda.runtime.kernel import decisions
+from lexic.parsing.pda.runtime.kernel import verdicts
 from lexic.parsing.products import (
     _model_product,
     earley_model,
@@ -299,18 +299,18 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     seen = [0]
-    real = decisions.frames_copy
+    real = verdicts.frames_copy
 
     def counted(stack):
         """Count the forks, so a fixture that stops forking is visible."""
         seen[0] += 1
         return real(stack)
 
-    decisions.frames_copy = counted
+    verdicts.frames_copy = counted
     try:
         folded = pda_model(product.pda, bench.full, bench.compiled.product.executor)
     finally:
-        decisions.frames_copy = real
+        verdicts.frames_copy = real
     reference = earley_model(
         product.instance_grammar, bench.full, bench.compiled.product, product.tables
     )
