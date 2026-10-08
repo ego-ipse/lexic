@@ -11,6 +11,7 @@ analysis (and its dispatch bodies) import them back.
 from __future__ import annotations
 
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -81,9 +82,11 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
         stop-set exit) rather than by what the text holds.
     :ivar stop_sets: Stop-set notes awaiting the rule-level check that decides
         whether a first-exit is invisible (:meth:`GrammarAnalysis._settle`).
+    :ivar grants: The licence kinds the parse's decider grants; a decision that
+        picks an extent by a kind outside them is island-worthy instead.
     """
 
-    __slots__ = ("hard", "soft", "f1", "covered", "policy", "stop_sets")
+    __slots__ = ("hard", "soft", "f1", "covered", "policy", "stop_sets", "grants")
 
     hard: list[str]
     soft: list[str]
@@ -91,17 +94,24 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     covered: int
     policy: bool
     stop_sets: list[str]
+    grants: frozenset[str]
 
-    def __init__(self) -> None:
+    def __init__(self, grants: frozenset[str] = LEFTMOST_LONGEST.grants) -> None:
         self.hard = []
         self.soft = []
         self.f1 = False
         self.covered = 0
         self.policy = False
         self.stop_sets = []
+        self.grants = grants
 
-    def picks_extent(self, note: str) -> None:
-        """File a demotion whose decision picks an extent by policy."""
+    def picks_extent(self, note: str, kind: str) -> None:
+        """File a demotion whose decision picks an extent by policy — the
+        licence ``kind`` names — or, where the decider does not grant that
+        kind, the island-worthy conflict the shortcut would have settled."""
+        if kind not in self.grants:
+            self.hard.append(f"{note}: {kind} not granted")
+            return
         self.soft.append(note)
         self.policy = True
 

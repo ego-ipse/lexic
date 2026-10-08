@@ -8,11 +8,28 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrCharClass, IrItem, IrLiteral, IrNoneType, IrNot, IrRule
+from lexic.parsing.earley.kernel.tables.decider import (
+    ATTEMPT,
+    GREEDY_SPLIT,
+    NOISE_GREEDY,
+)
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
+
+
+def file_attempt_loop(
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
+) -> None:
+    """Cover an ungatable loop's conflict note with the attempt licence — a
+    greedy take with rollback, committed as the decider's split answer — where
+    the decider grants it; otherwise the note stands and the rule islands."""
+    if ATTEMPT not in notes.grants:
+        return
+    analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(items, k, scope)
+    notes.covered += 1
 
 
 def soft_gap_conflict(
@@ -33,17 +50,16 @@ def soft_gap_conflict(
         items, k, scope.structural_tail
     ).subtract(analysis.hard_cont_at(items, k, scope.hard_tail))
     if not first.overlaps(structural_gap):
-        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split")
+        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split", GREEDY_SPLIT)
         return
     if noise_greedy_licensed(analysis, items, k, scope):
-        notes.picks_extent(f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)")
+        notes.picks_extent(
+            f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)", NOISE_GREEDY
+        )
         return
     if not demote_loop(analysis, items, k, scope, notes):
         notes.hard.append(f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable")
-        analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(
-            items, k, scope
-        )
-        notes.covered += 1
+        file_attempt_loop(analysis, items, k, scope, notes)
 
 
 def attempt_spec(analysis: Any, arms: Sequence[Sequence[IrItem]]) -> AttemptSpec:

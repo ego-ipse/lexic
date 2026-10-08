@@ -7,6 +7,7 @@ delegating properties; this file constructs each and pins that delegation.
 
 from __future__ import annotations
 
+from lexic.parsing.earley.kernel.tables.decider import STOP_SET
 from lexic.parsing.pda.analysis.cursors import (
     ConflictCtx,
     Cont,
@@ -87,3 +88,25 @@ def test_conflict_ctx_carries_its_notes_cont_rule_and_index():
     assert ctx.cont is cont
     assert ctx.rule == "root"
     assert ctx.index == 2
+
+
+def test_an_extent_the_decider_grants_is_a_policy_demotion():
+    """A shortcut whose licence kind the decider grants files as a soft note
+    and marks the rule's end as policy-picked."""
+    notes = Notes(frozenset({STOP_SET}))
+    notes.picks_extent("r[0]: loop stop-set applied (runs longest)", STOP_SET)
+    assert notes.soft == ["r[0]: loop stop-set applied (runs longest)"]
+    assert notes.policy is True
+    assert not notes.hard
+
+
+def test_an_extent_the_decider_does_not_grant_islands_the_rule():
+    """The same shortcut under a decider that does not grant its kind is the
+    conflict it would have settled: a hard note, and no policy end."""
+    notes = Notes(frozenset())
+    notes.picks_extent("r[0]: loop stop-set applied (runs longest)", STOP_SET)
+    assert notes.hard == [
+        "r[0]: loop stop-set applied (runs longest): stop-set not granted"
+    ]
+    assert not notes.soft
+    assert notes.policy is False

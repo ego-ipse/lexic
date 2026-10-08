@@ -176,3 +176,11 @@ def test_a_carving_drops_a_step_that_ends_where_the_previous_one_did() -> None:
     assert carving((0, 0, 0)) == (0,)
     assert not carving(())
     assert carving((2, 4, 6)) == (2, 4, 6)
+
+
+def test_a_decider_grants_all_of_a_set_only_when_it_grants_each_kind() -> None:
+    """What a program compiled under ``used`` may run for this decider."""
+    assert LEFTMOST_LONGEST.grants_all(frozenset({SPLIT_GREEDY, ATTEMPT}))
+    assert LEFTMOST_LONGEST.grants_all(frozenset())
+    assert not LEFTMOST_LONGEST.grants_all(frozenset({GREEDY_ARM}))
+    assert not _ShortestFirst(frozenset()).grants_all(frozenset({ATTEMPT}))

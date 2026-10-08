@@ -92,6 +92,11 @@ class Decider(IrNamedTuple[frozenset[str]]):
         higher. Strict: two different ends never share a slot."""
         raise NotImplementedError
 
+    def grants_all(self, used: frozenset[str]) -> bool:
+        """Whether this decider grants every licence kind in ``used`` — what a
+        program compiled under those licences may run for it."""
+        return used <= self.grants
+
     @final
     def rank(self, steps: Carving) -> tuple[int, ...]:
         """Where a carving stands in this decider's order: its slots, read left

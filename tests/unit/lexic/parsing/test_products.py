@@ -44,6 +44,7 @@ from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
     _owned_text,
+    _program,
     earley_model,
     parse_model,
     pda_tables,
@@ -585,3 +586,16 @@ def test_parse_model_gives_the_same_result_across_two_threads_sequentially():
     assert first is not None and second is not None
     assert first.semantic_dump() == second.semantic_dump()
     assert first.to_text() == second.to_text() == text
+
+
+def test_a_decider_with_other_grants_gets_its_own_program():
+    """The PDA is compiled for the decider's grants: a leftmost-longest parse
+    drives the product's own program, a decider granting nothing gets a
+    program of its own, memoised in turn, and the Earley half is one."""
+    cg = compile_text("root ::= x+\nx ::= [a]+\n", cache_key="products-grants")
+    product = _model_product(cg.codegen_grammar, cg.product)
+    instance = product.instance_grammar
+    bare = _program(cg.codegen_grammar, cg.product, instance, frozenset())
+    assert bare is not product.pda
+    assert _program(cg.codegen_grammar, cg.product, instance, frozenset()) is bare
+    assert _model_product(cg.codegen_grammar, cg.product) is product

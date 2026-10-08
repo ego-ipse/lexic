@@ -27,6 +27,7 @@ from typing import Any, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrItem
+from lexic.parsing.earley.kernel.tables.decider import SPLIT_GREEDY
 from lexic.parsing.pda.analysis.cursors import Notes, Scope, Site
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.greedy import greedy_loop_gate
@@ -144,12 +145,17 @@ def demote_loop(
     # decline would catch the consequence, but a licence that is not
     # certified against the boundary it will be executed against should not
     # be issued in the first place.
-    if analysis.taxonomy.delegated:
+    #
+    # Withheld too where the parse's decider does not grant it: the split rule
+    # it reproduces is leftmost-longest's, proven for that order alone.
+    if analysis.taxonomy.delegated or SPLIT_GREEDY not in notes.grants:
         return False
     greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
     if greedy is not None:
         analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
-        notes.picks_extent(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
+        notes.picks_extent(
+            f"{scope.rule}[{k}]: loop split-greedy (demoted)", SPLIT_GREEDY
+        )
         return True
     return False
 

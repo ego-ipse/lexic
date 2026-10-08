@@ -193,12 +193,21 @@ class PdaKernel[M](
         :returns: The model instance the start rule folds to, typed ``M``.
         :raises PdaFail: On any deterministic-parse failure — a terminal
             mismatch, no viable arm, an unresolved island reference, trailing
-            input, or a start rule that is itself an island (the whole-grammar
-            opt-out the compile seam reads).
+            input, a start rule that is itself an island (the whole-grammar
+            opt-out the compile seam reads), or a program compiled under
+            licences the configured decider does not grant.
         """
-        start = self.tables.program.start
+        program = self.tables.program
+        start = program.start
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
+        config = self.policy.config
+        if config is not DEFAULT_CONFIG and not config.decide.grants_all(
+            program.grants
+        ):
+            # Compiled for licences this decider does not grant: its shortcuts
+            # would answer in another order. The gated engine asks the decider.
+            raise PdaFail("the program's licences are not this decider's")
         holder: list[M] = []
         self._enter(start, holder)
         self._drive()

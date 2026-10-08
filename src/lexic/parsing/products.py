@@ -41,6 +41,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
@@ -190,12 +191,22 @@ class _ModelProduct:
 
 _MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = memo({}, 0, 1)
 _TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
+_PROGRAMS: dict[
+    tuple[int, int, frozenset[str]], tuple[IrAst, ModelExecutable, PdaTables]
+] = memo({}, 0, 1)
+"""The predictive programs compiled for a decider granting other licences than
+leftmost-longest's — keyed by identity plus those grants. The product keeps
+leftmost-longest's; the Earley half is the same for every decider and is
+never compiled twice."""
+
+_LL_GRANTS = LEFTMOST_LONGEST.grants
 
 
 def reset_product_cache() -> None:
     """Test seam: drop the per-identity product caches."""
     _MODEL_CACHE.clear()
     _TOKEN_TABLES.clear()
+    _PROGRAMS.clear()
 
 
 def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
@@ -224,6 +235,8 @@ def _model_product(
     Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
     at it). The PDA half is tier-independent but rides the key — a second
     tier for the same pair only ever compiles for a beyond-first-tier input.
+    Its PDA is compiled under leftmost-longest's grants; another decider's
+    program is :func:`_program`'s.
     """
     key = (id(grammar), id(binding), bits)
     cached = _MODEL_CACHE.get(key)
@@ -252,6 +265,41 @@ def _model_product(
     adopt(id(grammar), lifted, instance, product.pda, product.tables)
     adopt(id(binding), lifted, instance, product.pda, product.tables)
     return product
+
+
+def _for_decider(
+    grammar: IrAst,
+    binding: ModelExecutable,
+    product: _ModelProduct,
+    config: ParseConfig,
+) -> PdaTables:
+    """The program a non-default configuration parses with: the product's own
+    where its decider grants leftmost-longest's licences, else its own."""
+    grants = config.decide.grants
+    if grants == _LL_GRANTS:
+        return product.pda
+    return _program(grammar, binding, product.instance_grammar, grants)
+
+
+def _program(
+    grammar: IrAst, binding: ModelExecutable, instance: IrAst, grants: frozenset[str]
+) -> PdaTables:
+    """The predictive program for a decider granting ``grants``, memoised.
+
+    Compiled only the first time such a decider parses this grammar, beside
+    the product's own Earley half, and released with the grammar and the
+    binding as the product's own program is.
+    """
+    key = (id(grammar), id(binding), grants)
+    cached = _PROGRAMS.get(key)
+    if cached is not None and cached[0] is grammar and cached[1] is binding:
+        return cached[2]
+    lifted = lift_optional_nullables(grammar)
+    pda = compile_pda(lifted, instance, binding, grants)
+    _PROGRAMS[key] = (grammar, binding, pda)
+    adopt(id(grammar), lifted, pda)
+    adopt(id(binding), lifted, pda)
+    return pda
 
 
 # ── the public product entries ─────────────────────────────────────────────
@@ -314,8 +362,13 @@ def parse_model[M](
     """
     text = _owned_text(text)
     product = _model_product(grammar, binding, tier_for(len(text)))
+    pda = (
+        product.pda
+        if config is DEFAULT_CONFIG
+        else _for_decider(grammar, binding, product, config)
+    )
     try:
-        return pda_model(product.pda, text, binding.executor, config=config)
+        return pda_model(pda, text, binding.executor, config=config)
     except PdaFail as fail:
         try:
             return earley_model(

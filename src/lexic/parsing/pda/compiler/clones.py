@@ -59,6 +59,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
@@ -631,7 +632,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
 
 def _attach_delegates(
-    tables: PdaTables, lifted: IrAst, binding: ModelExecutable
+    tables: PdaTables, lifted: IrAst, binding: ModelExecutable, grants: frozenset[str]
 ) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's bound product; the injected
@@ -645,11 +646,14 @@ def _attach_delegates(
         name_to_rid,
         binding,
         (PdaCompiler, flatten_clones),
+        grants,
     )
 
 
 def compile_clones(
-    lifted: IrAst, binding: ModelExecutable
+    lifted: IrAst,
+    binding: ModelExecutable,
+    grants: frozenset[str] = LEFTMOST_LONGEST.grants,
 ) -> tuple[PdaCompiler, CloneKey | IslandRef]:
     """Run the clone compiler and hand back what it built, unlowered.
 
@@ -662,12 +666,14 @@ def compile_clones(
 
     :param lifted: The lifted codegen grammar the clones are cut against.
     :param binding: The bound model product, for the verified routines.
+    :param grants: The licence kinds the parse's decider grants: a shortcut
+        outside them is not compiled, and its rule islands.
     :returns: The compiler, drained, and where it started.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle.
     """
     grammar, folds = folded_grammar(lifted, binding)
-    compiler = PdaCompiler(GrammarAnalysis(grammar), binding.routines)
+    compiler = PdaCompiler(GrammarAnalysis(grammar, grants=grants), binding.routines)
     compiler.folds = folds
     return compiler, compiler.compile_start()
 
@@ -676,8 +682,10 @@ def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
     binding: ModelExecutable,
+    grants: frozenset[str] = LEFTMOST_LONGEST.grants,
 ) -> PdaTables:
-    """Compile the predictive-parser tables for one grammar.
+    """Compile the predictive-parser tables for one grammar, under one decider's
+    grants.
 
     :param lifted: The lifted codegen grammar
         (``lift_optional_nullables(build_codegen_grammar(canonical))``) — the
@@ -686,11 +694,13 @@ def compile_pda(
         (``normalize(lifted)``) — the island sub-parses run over it.
     :param binding: The bound model product — its verified routines are baked
         into each clone's capture layout, constructor and build plan.
+    :param grants: The licence kinds the parse's decider grants.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
-    compiler, start_key = compile_clones(lifted, binding)
+    compiler, start_key = compile_clones(lifted, binding, grants)
     tables = PdaTables(compiler, start_key, instance_grammar)
-    _attach_delegates(tables, lifted, binding)
+    tables.program.grants = grants
+    _attach_delegates(tables, lifted, binding, grants)
     return tables  # `compiler` dies here, and the authored specs with it

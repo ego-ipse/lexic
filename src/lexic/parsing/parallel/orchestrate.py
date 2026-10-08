@@ -22,9 +22,10 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     ParseConfig,
 )
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.executable import ModelExecutable, ModelParse
-from lexic.parsing.parallel.discovery.regions import par_find
 from lexic.parsing.parallel.discovery.partition import Division, Unit, partition, units
+from lexic.parsing.parallel.discovery.regions import par_find
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
     cut_offsets,
@@ -457,6 +458,11 @@ def split_model[M: IrNamedTuple](
     # pure serial overhead on the caller's parse path.
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
+        return None
+    # The plans and the proofs they rest on (a cut that speculation proposes is
+    # trusted on a determinism read off the leftmost-longest analysis) are this
+    # order's: another decider parses whole.
+    if not isinstance(ask.config.decide, LeftmostLongest):
         return None
     licensed = safe_plans(split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:

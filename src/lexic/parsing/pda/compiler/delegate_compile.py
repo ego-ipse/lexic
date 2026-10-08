@@ -201,14 +201,17 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         through.
     :ivar seams: ``(compiler_factory, flatten_clones)`` — the injected clone
         compiler and its lowering pass.
+    :ivar grants: The licence kinds the program was compiled under; an
+        interior is cut under the same ones.
     """
 
-    __slots__ = ("lifted", "name_to_rid", "binding", "seams", "_cache")
+    __slots__ = ("lifted", "name_to_rid", "binding", "seams", "grants", "_cache")
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
     binding: ModelExecutable
     seams: tuple[Callable[..., Any], Callable[..., Any]]
+    grants: frozenset[str]
     _cache: dict[str, dict[int, FlatClone]]
 
     def __init__(
@@ -217,12 +220,14 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         name_to_rid: Mapping[str, int],
         binding: ModelExecutable,
         seams: tuple[Callable[..., Any], Callable[..., Any]],
+        grants: frozenset[str],
     ) -> None:
         """Bind one grammar's delegate-compile ingredients + the injected seams."""
         self.lifted = lifted
         self.name_to_rid = name_to_rid
         self.binding = binding
         self.seams = seams
+        self.grants = grants
         self._cache = {}
 
     def for_island(self, name: str) -> dict[int, FlatClone]:
@@ -260,7 +265,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     def _compile(self, island_name: str) -> dict[int, FlatClone]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
         analysis = GrammarAnalysis(
-            IrAst(self.lifted.rules, island_name), delegated=True
+            IrAst(self.lifted.rules, island_name), delegated=True, grants=self.grants
         )
         delegable = _delegable_names(analysis, island_name)
         if not delegable:

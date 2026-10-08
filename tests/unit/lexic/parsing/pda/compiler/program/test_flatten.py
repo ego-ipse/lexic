@@ -20,6 +20,7 @@ reached through ``module._name`` attribute access, matching
 from __future__ import annotations
 
 from lexic.ir import BIND_MODES
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -160,9 +161,10 @@ def test_an_inline_group_clone_has_an_empty_name():
     assert group.name == ""
 
 
-def test_pdaprogram_declares_start_and_delegates_slots():
-    """PdaProgram carries the entry clone (or island opt-out) + delegate source."""
-    assert PdaProgram.__slots__ == ("start", "delegates")
+def test_pdaprogram_declares_start_delegates_and_grants_slots():
+    """PdaProgram carries the entry clone (or island opt-out), the delegate
+    source, and the licences it was compiled under."""
+    assert PdaProgram.__slots__ == ("start", "delegates", "grants")
 
 
 def test_pdaprogram_init_binds_start_verbatim():
@@ -171,3 +173,4 @@ def test_pdaprogram_init_binds_start_verbatim():
     program = PdaProgram(sentinel)
     assert program.start is sentinel
     assert program.delegates is None  # default; the artifact attaches the source
+    assert program.grants is LEFTMOST_LONGEST.grants  # the default decider's

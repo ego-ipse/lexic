@@ -25,10 +25,16 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.earley.kernel.tables.decider import (
+    LEFTMOST_LONGEST,
+    NOISE_GREEDY,
+    STOP_SET,
+)
 from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.conflicts import (
     attempt_group,
     attempt_spec,
+    file_attempt_loop,
     greedy_exact,
     soft_gap_conflict,
     sub_conflict,
@@ -133,7 +139,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     _follows: tuple[dict[str, CharSet], dict[str, CharSet], dict[str, CharSet]]
     taxonomy: Taxonomy
 
-    def __init__(self, grammar: IrAst, delegated: bool = False) -> None:
+    def __init__(
+        self,
+        grammar: IrAst,
+        delegated: bool = False,
+        grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+    ) -> None:
         """Run every fixpoint and classify every rule of the lifted grammar.
 
         :param grammar: The lifted grammar.
@@ -153,7 +164,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
         )
         self.taxonomy = Taxonomy(delegated)
-        self._classify()
+        self._classify(grants)
 
     @property
     def follow(self) -> dict[str, CharSet]:
@@ -402,7 +413,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     # ── conflict classification ────────────────────────────────────────
 
-    def _classify(self) -> None:
+    def _classify(self, grants: frozenset[str]) -> None:
         """Fill :attr:`conflicts` and :attr:`demoted` from every rule.
 
         A left-recursive rule islands unconditionally, before any other
@@ -418,7 +429,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     f"{name}: left-recursive — predictive descent cannot run it"
                 ]
                 continue
-            notes = Notes()
+            notes = Notes(grants)
             scope = Scope(
                 name,
                 Cont(
@@ -468,9 +479,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         longest = not invisible and self._takes_longest(name)
         for note in notes.stop_sets:
             if invisible:
-                notes.picks_extent(note)
+                notes.picks_extent(note, STOP_SET)
             elif longest:
-                notes.picks_extent(f"{note[: -len(' applied')]} taken longest")
+                notes.picks_extent(
+                    f"{note[: -len(' applied')]} taken longest", STOP_SET
+                )
             else:
                 notes.hard.append(f"{note[: -len(' applied')]} reaches FOLLOW")
         if longest:
@@ -548,7 +561,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if not gated:
                 for i in greedy:
                     notes.picks_extent(
-                        f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)"
+                        f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)", STOP_SET
                     )
 
     def seq_conflicts(
@@ -613,16 +626,14 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 if not demote.demote_loop(self, items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
-                    self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
-                        items, k, scope
-                    )
-                    notes.covered += 1
+                    file_attempt_loop(self, items, k, scope, notes)
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
                     self._stop_set(items, k, scope, notes)
                 elif noise_greedy_licensed(self, items, k, scope):
                     notes.picks_extent(
-                        f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
+                        f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)",
+                        NOISE_GREEDY,
                     )
                 else:
                     notes.hard.append(
@@ -649,7 +660,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         hard = self.hard_cont_at(items, k, scope.hard_tail)
         exits = first.subtract(first.subtract(hard))
         if exits.is_empty():
-            notes.picks_extent(f"{note} (runs longest)")
+            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
         elif (
             scope.body
             and not self.taxonomy.delegated
@@ -661,7 +672,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 exits,
             )
         ):
-            notes.picks_extent(f"{note} (exit decided two deep)")
+            notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
         else:
             notes.stop_sets.append(note)
 
