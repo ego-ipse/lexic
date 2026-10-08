@@ -2329,3 +2329,9 @@ derivation alone.
 `ir-shapes.md`'s `IrTuple` entry and a `decisions.md` entry: class-aware
 record equality with no plain-tuple interop, the payload hash kept, and the
 per-class copies of the rule removed.
+
+## Deciders state slots
+
+`decisions.md` entry: a decider states `slot(end)`; the rank is its slots left
+to right and final; redefining it, or leftmost-longest's slot, is refused at
+class definition; one `carving()`.

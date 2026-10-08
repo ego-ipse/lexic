@@ -1065,3 +1065,22 @@ The per-class copies of the rule (`IrBounds`, `Decider`, `GrammarModel`) are
 gone. `IrRule` keeps its structural rule (`semantic` excluded, for the
 self-hosting fixpoint) with the same kind test. Code that compared a record
 with a tuple literal builds the record it means.
+
+## A decider states one boundary's slot; its rank is final
+
+**Decision:** a decider answers one question, `slot(end) -> int`: where one
+boundary stands in its order, strictly (two ends never share a slot). Its rank
+over a carving is those slots read left to right, and is `@final`; a subclass
+that redefines `rank` is a `TypeError` when it is defined, and so is a
+`LeftmostLongest` subclass that redefines `slot`. `carving()` is the one place
+a chain's boundaries become a carving (a step ending where the previous one did
+is dropped).
+
+**Why:** Earley's chain reader decides a carving one level at a time, so it can
+honour only an order that compares carvings on the first boundary that
+differs. A `LeftmostLongest` subclass that overrode `rank` passed `splits.py`'s
+class check while the chain levels were still read by raw maximum and the
+children by the new order: `root ::= x+` / `x ::= [a]+` on `aaa` came out
+`Root((X('aa'), X('a')))`, which neither order gives. With the slot final, every
+`LeftmostLongest` instance IS that order, so `splits.py` reads it by raw
+maximum (the default by identity first) and refuses any other decider.

@@ -13,8 +13,8 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.parsing.earley.kernel.tables.atoms import KLink
 from lexic.exceptions import EngineInvariantError
+from lexic.parsing.earley.kernel.tables.atoms import KLink
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
@@ -186,9 +186,9 @@ def test_canonical_indices_leaves_a_single_arm_bucket_with_its_maximum():
 class _Shortest(Decider):
     """A decider whose order is not the raw boundary order."""
 
-    def rank(self, carving: tuple[int, ...]) -> tuple[int, ...]:
-        """The carving negated: the earliest boundary first."""
-        return tuple(-end for end in carving)
+    def slot(self, end: int) -> int:
+        """The end negated: the earliest boundary first."""
+        return -end
 
 
 def test_a_decider_the_level_keys_do_not_rank_is_refused():

@@ -1,7 +1,8 @@
 """Tests for ``lexic.parsing.earley.kernel.tables.decider`` — the split decider.
 
-A decider is a VALUE with one question, ``rank``, whose natural order must be
-a total preorder over carvings (the maximum is kept), and a set of licences.
+A decider is a VALUE with one question, ``slot`` — where one boundary stands —
+whose final ``rank`` reads a carving's slots left to right, a total preorder
+over carvings (the maximum is kept), and a set of licences.
 The order is pinned on hand-built carvings, in the shape ``splits`` hands
 them over: zero-width iterations beyond a repetition's minimum already
 dropped.
@@ -24,6 +25,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
     Carving,
     Decider,
     LeftmostLongest,
+    carving,
 )
 
 CARVINGS: tuple[Carving, ...] = (
@@ -41,9 +43,9 @@ CARVINGS: tuple[Carving, ...] = (
 class _ShortestFirst(Decider):
     """A second decider built only from the interface: the reverse order."""
 
-    def rank(self, carving: Carving) -> Carving:
-        """Each boundary negated, so the shortest first slot ranks highest."""
-        return tuple(-end for end in carving)
+    def slot(self, end: int) -> int:
+        """The end negated, so the shortest first slot ranks highest."""
+        return -end
 
 
 DECIDERS = (LEFTMOST_LONGEST, _ShortestFirst(frozenset()))
@@ -136,3 +138,41 @@ def test_the_base_decider_ranks_nothing() -> None:
     """``rank`` is the one question a decider must answer for itself."""
     with pytest.raises(NotImplementedError):
         Decider(frozenset()).rank((1,))
+
+
+def _negated(_self: Decider, value: tuple[int, ...]) -> tuple[int, ...]:
+    """A redefinition the classes below try to install: the reverse order."""
+    return tuple(-end for end in value)
+
+
+def test_a_leftmost_longest_subclass_cannot_reorder_it() -> None:
+    """A subclass that redefined the rank passed every ``isinstance`` check
+    while Earley read its chain levels by raw maximum and its children by the
+    new order: ``x+`` over ``aaa`` came out ``X('aa'), X('a')``, which neither
+    order gives. Redefining the rank, or leftmost-longest's slot, is now
+    refused when the class is defined. The classes are built by ``type`` —
+    the static checker already rejects such a subclass, and this pins that the
+    runtime does too."""
+    with pytest.raises(TypeError, match="slot"):
+        type("_Reranked", (LeftmostLongest,), {"rank": _negated})
+    with pytest.raises(TypeError, match="final"):
+        type("_Reslotted", (LeftmostLongest,), {"slot": _negated})
+
+
+def test_any_decider_states_slots_and_never_its_rank() -> None:
+    """The rank is a decider's slots read left to right, for every decider:
+    the one comparison Earley can honour level by level."""
+    with pytest.raises(TypeError, match="slot"):
+        type("_Ranked", (Decider,), {"rank": _negated})
+    shortest = _ShortestFirst(frozenset())
+    assert shortest.rank((2, 4, 6)) == (-2, -4, -6)
+    assert LEFTMOST_LONGEST.rank((2, 4, 6)) == (2, 4, 6)
+
+
+def test_a_carving_drops_a_step_that_ends_where_the_previous_one_did() -> None:
+    """A zero-width iteration repeats the previous boundary; dropped, the
+    reading cannot compete with itself plus an empty slot."""
+    assert carving((3, 3, 6)) == (3, 6)
+    assert carving((0, 0, 0)) == (0,)
+    assert not carving(())
+    assert carving((2, 4, 6)) == (2, 4, 6)

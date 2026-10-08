@@ -25,7 +25,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
-from lexic.parsing.earley.kernel.tables.decider import Decider, LeftmostLongest
+from lexic.parsing.earley.kernel.tables.decider import (
+    LEFTMOST_LONGEST,
+    Decider,
+    LeftmostLongest,
+    carving,
+)
 
 if TYPE_CHECKING:  # `atoms` imports this module, so the link type flows one way
     from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, KLink
@@ -304,10 +309,12 @@ def _choose(
 
     Keys within one level share item code and origin, so the packed key is
     monotone in the end column and ``max`` on the key IS ``max`` on the end.
-    Raw ``max`` is leftmost-longest's order and no other's, so another decider
-    is refused here, and in :func:`_bounds`'s caller, until one is ranked.
+    Raw ``max`` is leftmost-longest's order and no other's — its slot is final,
+    so no subclass can mean another — and any other decider is refused here,
+    and in :func:`_bounds`'s caller, until one is ranked. The default is tested
+    by identity first, the cheap answer for nearly every parse.
     """
-    if not isinstance(decide, LeftmostLongest):
+    if not (decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)):
         raise EngineInvariantError(f"splits: {decide!r} needs its level keys ranked")
     if not levels:
         return []
@@ -356,21 +363,22 @@ def _settle(
 
 def _child_rank(
     links: FamilyReader, child: object, spec: ChainSpec, decide: Decider
-) -> tuple[bool, object, int]:
+) -> tuple[bool, tuple[int, ...], int]:
     """Where a child's own carving stands: live before dead, then the decider's
     rank of its boundaries, then fewer steps."""
     if not isinstance(child, int):
         return False, (), 0
-    if not isinstance(decide, LeftmostLongest):  # `_bounds` keys by raw `max`
-        raise EngineInvariantError(f"splits: {decide!r} needs its level keys ranked")
+    if not (decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)):
+        raise EngineInvariantError(  # `_bounds` keys by raw `max`
+            f"splits: {decide!r} needs its level keys ranked"
+        )
     bits = spec.bits
     own = spec.arm_base[spec.code_arm[child >> bits >> bits]]
     levels = _descend(links, child, spec._replace(base=own), {})
     if levels is None:
         return False, (), 0
     bounds = _bounds(levels, (1 << bits) - 1)
-    steps = [end for i, end in enumerate(bounds) if i == 0 or end != bounds[i - 1]]
-    return True, decide.rank(tuple(steps)), -len(bounds)
+    return True, decide.rank(carving(bounds)), -len(bounds)
 
 
 def _bounds(levels: list[_Level], mask: int) -> tuple[int, ...]:
