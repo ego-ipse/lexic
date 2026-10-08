@@ -8,14 +8,21 @@ here we pin the classifier (one end, island-free, triviality floor) and the
 
 from __future__ import annotations
 
-from lexic.compile import compile_text
+from lexic.compile import CompiledGrammar, compile_text
 from lexic.ir import IrAst
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, _delegable
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
+from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
+    GATE_ATTEMPT,
+    OP_AVDISP,
+    OP_AVSTR,
+)
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import compiled
+from tools.benchmark.cases.grammars import BENCHES
 
 
 class NoDelegates(DelegateSource):
@@ -170,3 +177,100 @@ def test_a_bounded_repeat_counts_every_occurrence() -> None:
 def test_an_unbounded_loop_in_one_alternative_clears_it() -> None:
     """One arm can run long, so one match can: the largest arm decides."""
     assert floor_clears('"!" ("R" | "I" | "X:" [A-Z]+)')
+
+
+# ── a delegate never holds a both-viable verdict site ───────────────────────
+
+ATTEMPT_INTERIOR = (
+    'root ::= expr\nexpr ::= expr op term | expr "or" term | term\n'
+    'term ::= num | lst\nnum ::= "n" [0-9]+\nop ::= "and"\n'
+    'lst ::= "(" sec+ tl ")"\nsec ::= stmt+ end\nstmt ::= [a!]\nend ::= [a;]\n'
+    "tl ::= [a;!]*\n"
+)
+"""``expr`` is an island whose interior holds two kinds of rule side by side:
+``num``, conflict-free and long, and ``lst``/``sec``, whose ``sec+`` loop the
+analysis can only attempt (G4's shape)."""
+
+
+def _reachable(root: FlatClone) -> list[FlatClone]:
+    """Every clone a delegate can enter: its arms' payloads, dispatch targets
+    and attempt entries' sub-clones, each once."""
+    seen: set[int] = set()
+    found: list[FlatClone] = []
+    work: list[object] = [root]
+    while work:
+        clone = work.pop()
+        if not isinstance(clone, FlatClone) or id(clone) in seen:
+            continue
+        seen.add(id(clone))
+        found.append(clone)
+        if clone.attempt is not None:
+            work.extend(entry[-1] for entry in clone.attempt[1])
+        if clone.mode == BUILD_DISPATCH:
+            work.extend(target for *_gate, target in clone.selectors)
+            work.append(clone.default)
+        for arm in clone_arms(clone):
+            work.extend(arm.payloads)
+    return found
+
+
+def _verdict_sites(clone: FlatClone) -> list[str]:
+    """Where ``clone`` could reach a both-viable fork: an attempt clone, an
+    attempt-gated loop, or an attempt-aware inline loop."""
+    sites = ["attempt clone"] if clone.attempt is not None else []
+    for arm in clone_arms(clone):
+        for item, (kind, gate) in enumerate(zip(arm.kinds, arm.gate_kinds)):
+            if gate == GATE_ATTEMPT or kind in (OP_AVSTR, OP_AVDISP):
+                sites.append(f"item {item}")
+    return sites
+
+
+def _delegates(grammar: CompiledGrammar) -> list[FlatClone]:
+    """Every delegate clone the grammar's islands compile."""
+    source = prod(grammar).pda.program.delegates
+    if source is None:
+        return []
+    islands = GrammarAnalysis(source.lifted).islands
+    return [one for name in islands for one in source.for_island(name).values()]
+
+
+def test_no_delegate_program_holds_a_verdict_site() -> None:
+    """A delegate runs an island's interior as a document prefix
+    (``prefix_run``), where "did this side complete" would read a delegate's
+    early completion as a death. That never matters, because no delegate can
+    fork: the delegated analysis files every conflicted rule as an island,
+    and delegation drops islands and whatever reaches one. Every roster
+    grammar's delegates, and :data:`ATTEMPT_INTERIOR`'s, are walked whole."""
+    grammars = [bench.compiled for bench in BENCHES]
+    grammars.append(
+        compile_text(ATTEMPT_INTERIOR, cache_key="delegate-attempt-interior")
+    )
+    walked = 0
+    for grammar in grammars:
+        for delegate in _delegates(grammar):
+            for clone in _reachable(delegate):
+                walked += 1
+                assert not _verdict_sites(clone), (clone.name, _verdict_sites(clone))
+    assert walked, "no delegate clone was walked, so the contract proves nothing"
+
+
+def test_an_interior_that_attempts_is_never_delegated_beside_one_that_is() -> None:
+    """The conflict-free ``num`` is delegated; ``sec``, whose loop the
+    whole-grammar analysis attempts, and ``lst``, which reaches it, are not."""
+    grammar = compile_text(ATTEMPT_INTERIOR, cache_key="delegate-attempt-interior")
+    source = prod(grammar).pda.program.delegates
+    assert isinstance(source, DelegateSource)
+    whole = GrammarAnalysis(source.lifted)
+    attempting = {
+        name
+        for name, rule in whole.rules.items()
+        for arm in rule.body
+        for item in arm
+        if id(item) in whole.taxonomy.attempt_loops
+    }
+    assert {"sec", "lst"} <= attempting, attempting
+    delegated = {
+        str(source.lifted.rules[rid].name) for rid in source.for_island("expr")
+    }
+    assert "num" in delegated
+    assert not delegated & attempting, delegated & attempting
