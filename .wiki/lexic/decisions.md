@@ -1026,7 +1026,10 @@ The decider is leftmost-longest over authored slots, top-down
 - families from ONE predecessor whose children name one authored choice are
   ranked by `decide.rank` of each child's own boundaries (a zero-width step
   dropped, fewer steps winning a tie), read off the level DAG without resolving
-  the child's own ties, so it never recurses;
+  the child's own ties, so it never recurses. The steps are measured from where
+  the child starts, so a first step that takes nothing is dropped too: over an
+  empty span `X X+` with an empty `X` is the reading `X+` again, and a decider
+  that preferred it sent the tree build round the same node forever;
 - `dominant` settles two families from one predecessor the same way, so the
   pairwise primitive answers what the chain reader answers.
 

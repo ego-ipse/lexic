@@ -7,6 +7,13 @@ three deep, only while a forked verdict is retried, within a budget, and a neste
 side inherits its outer side's sub-runs. `decisions.md` records that completed
 sides the rank cannot read, or reached through a guess, fork under every decider.
 
+## A child's carving is measured from where it starts (2026-10-09)
+
+`decisions.md` records that `_child_rank` measures a child's steps from its
+start, so a first step that takes nothing is dropped like any other zero-width
+step. Without it a decider could keep `X X+` with an empty `X` over an empty
+span, and the tree build looped on the same node.
+
 ## A boundary's two parses are ranked as Earley ranks them (2026-10-09)
 
 `decisions.md` records how the predictive engine ranks a boundary's two

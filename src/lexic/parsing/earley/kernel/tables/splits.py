@@ -188,7 +188,8 @@ def dominant(
         if vb is not None:
             return second
     else:
-        ra, rb = decide.rank(va), decide.rank(vb)
+        start = first[0] & mask
+        ra, rb = _step_rank(decide, start, va), _step_rank(decide, start, vb)
         if ra != rb:
             return first if ra > rb else second
     return first if a >= b else second
@@ -404,8 +405,19 @@ def _child_rank(
     levels = _descend(links, child, spec._replace(base=own), {})
     if levels is None:
         return False, (), 0
-    bounds = _bounds(levels, (1 << bits) - 1, decide)
-    return True, decide.rank(carving(bounds)), -len(bounds)
+    mask = (1 << bits) - 1
+    bounds = _bounds(levels, mask, decide)
+    start = _floor(levels) & mask if levels else child >> bits & mask
+    return True, _step_rank(decide, start, bounds), -len(bounds)
+
+
+def _step_rank(decide: Decider, start: int, steps: tuple[int, ...]) -> tuple[int, ...]:
+    """Where steps taken from ``start`` stand in the decider's order: their
+    carving, a step that takes nothing dropped — the first one too, measured
+    from ``start``. Over an empty span ``X X+`` with an empty ``X`` is the
+    reading ``X+`` again, so preferring it would never finish. Every chooser
+    that ranks families by the decider asks here."""
+    return decide.rank(carving((start, *steps))[1:])
 
 
 def _bounds(levels: list[_Level], mask: int, decide: Decider) -> tuple[int, ...]:

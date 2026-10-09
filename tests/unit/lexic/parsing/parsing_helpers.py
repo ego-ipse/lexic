@@ -11,11 +11,14 @@ from __future__ import annotations
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaCompiler, compile_clones
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     earley_model,
+    grants_program,
     model_product,
     parse_model,
     pda_model,
@@ -28,6 +31,15 @@ def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
     pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""
     return model_product(cg.codegen_grammar, cg.product)
+
+
+def decider_program(cg: CompiledGrammar, decide: Decider) -> PdaTables:
+    """The PDA program compiled for ``decide``'s grants — the one the public
+    parse runs under that decider."""
+    product = prod(cg)
+    return grants_program(
+        cg.codegen_grammar, cg.product, product.instance_grammar, decide.grants
+    )
 
 
 def clone_specs(cg: CompiledGrammar) -> PdaCompiler:

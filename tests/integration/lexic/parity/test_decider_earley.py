@@ -21,12 +21,10 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     earley_model,
-    grants_program,
-    model_product,
     pda_model,
 )
 from tests.clone_walk import walk_program_clones
-from tests.unit.lexic.parsing.parsing_helpers import prod
+from tests.unit.lexic.parsing.parsing_helpers import decider_program, prod
 
 WITNESSES = {
     "nested repetition": (
@@ -117,13 +115,7 @@ def test_the_public_parse_keeps_a_shortest_deciders_carving(case: str) -> None:
     source, text, want = SHORTEST[case]
     decide = _Shortest(frozenset())
     compiled = compile_text(source, cache_key=f"shortest-{case}")
-    product = model_product(compiled.codegen_grammar, compiled.product)
-    program = grants_program(
-        compiled.codegen_grammar,
-        compiled.product,
-        product.instance_grammar,
-        decide.grants,
-    )
+    program = decider_program(compiled, decide)
     with pytest.raises(PdaFail):
         pda_model(program, text, compiled.executor, config=ParseConfig(decide=decide))
     assert repr(compiled.parse(text, cores=1, decide=decide)) == want
@@ -168,14 +160,8 @@ def test_a_scan_gate_is_a_conflict_for_a_decider_that_does_not_grant_it() -> Non
     leftmost-longest way; the public parse is the gated engine's model."""
     decide = _Shortest(frozenset())
     compiled = compile_text(SECTIONS, cache_key="shortest-sections")
-    product = model_product(compiled.codegen_grammar, compiled.product)
-    program = grants_program(
-        compiled.codegen_grammar,
-        compiled.product,
-        product.instance_grammar,
-        decide.grants,
-    )
-    assert _scans(product.pda)
+    program = decider_program(compiled, decide)
+    assert _scans(prod(compiled).pda)
     assert not _scans(program)
     with pytest.raises(PdaFail):
         pda_model(program, ";;", compiled.executor, config=ParseConfig(decide=decide))
@@ -197,13 +183,7 @@ def test_an_islands_two_ends_are_ranked_by_another_decider() -> None:
     engine's model and not leftmost-longest's."""
     decide = _Shortest(frozenset())
     compiled = compile_text(BRACKETED, cache_key="shortest-bracketed")
-    product = model_product(compiled.codegen_grammar, compiled.product)
-    program = grants_program(
-        compiled.codegen_grammar,
-        compiled.product,
-        product.instance_grammar,
-        decide.grants,
-    )
+    program = decider_program(compiled, decide)
     config = ParseConfig(decide=decide)
     want = "Top(Doc((), Tail('')), 'ab')"
     assert repr(pda_model(program, "[ab]", compiled.executor, config=config)) == want
@@ -226,13 +206,7 @@ def test_a_completed_pair_another_decider_cannot_rank_is_not_taken() -> None:
     sections."""
     decide = _Shortest(frozenset())
     compiled = compile_text(CLOSED, cache_key="shortest-closed")
-    product = model_product(compiled.codegen_grammar, compiled.product)
-    program = grants_program(
-        compiled.codegen_grammar,
-        compiled.product,
-        product.instance_grammar,
-        decide.grants,
-    )
+    program = decider_program(compiled, decide)
     with pytest.raises(PdaFail):
         pda_model(program, "[bb]", compiled.executor, config=ParseConfig(decide=decide))
     want = "Top(Doc((Sec((Part('b'),)), Sec((Part('b'),))), Tail('')), '')"
