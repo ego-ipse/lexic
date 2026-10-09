@@ -85,7 +85,7 @@ def leftmost_chain(
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
     """
-    chain = sole_chain(links, handle, spec)
+    chain = sole_chain(links, handle, spec.base, spec.bits)
     if chain is not None:
         if choices:
             _consume(choices, handle, chain, spec.bits)
@@ -96,7 +96,9 @@ def leftmost_chain(
     return _choose(links, levels, spec, decide)
 
 
-def sole_chain(links: FamilyReader, handle: int, spec: ChainSpec) -> list[KLink] | None:
+def sole_chain(
+    links: FamilyReader, handle: int, base: int, bits: int
+) -> list[KLink] | None:
     """The chain when every key on it holds ONE family, else ``None``.
 
     Nothing is chosen on such a chain — every level of the DAG is one key with
@@ -105,10 +107,10 @@ def sole_chain(links: FamilyReader, handle: int, spec: ChainSpec) -> list[KLink]
 
     :param links: The parse's SPPF family table.
     :param handle: The packed ``(item << bits) | end`` to resolve.
-    :param spec: The arm base and packing tier to cut against.
+    :param base: The arm's dot-0 code the walk stops at.
+    :param bits: The tables' packing tier.
     :returns: The chain's links in source order, or ``None``.
     """
-    base, bits = spec.base, spec.bits
     chain: list[KLink] = []
     item, end = handle >> bits, handle & ((1 << bits) - 1)
     while (item >> bits) != base:

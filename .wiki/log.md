@@ -2465,3 +2465,9 @@ names, in src, tests, tools or ext and in any spelling, enforced by an AST
 invariant test that replaces the src-only import check in the layering
 invariants; a class's or an object's private attributes are outside it. The names shared that way
 were made public at home; the wiki pages naming them now use the public names.
+
+## The unpinned tree build walks sole_chain without a spec (2026-10-09)
+
+`decisions.md`'s sole-chain entry: a build with no choices pinned calls
+`sole_chain` with the arm base and tier, and allocates no `ChainSpec` per
+handle; `atoms.predecessor_chain`, the dispatch between the two, is gone.

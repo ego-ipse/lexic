@@ -269,7 +269,7 @@ src/lexic/
             trampoline.py          Depth-safe forest tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
-          atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
+          atoms.py                 Packing tiers, the chart's family reader, what one terminal atom accepts
           builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
           records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
           splits.py                Which slot owns the text — resolving a binarised chain from the left

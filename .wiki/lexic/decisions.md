@@ -1334,7 +1334,9 @@ parse on leftmost-longest boundaries.
 **Decision:** `splits.leftmost_chain` first walks the chain as `sole_chain`:
 one bucket read per key, each holding exactly one family. Only the first key
 holding several families sends the read to the level DAG (`_descend`, `_prune`,
-`_floor`, `_choose`). `predecessor_chain`'s no-choices path is that same walk,
+`_floor`, `_choose`). A build with no choices pinned (`FastTree` with
+`choices=None`, the island's tree build) calls `sole_chain` itself, with the
+arm base and tier rather than a `ChainSpec`, so a handle allocates no spec;
 and a sole chain spends the pins at the keys it passes, as `_descend` does.
 
 **Why:** on such a chain every level of the DAG is one key with one edge, so

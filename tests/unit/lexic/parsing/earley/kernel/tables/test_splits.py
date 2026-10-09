@@ -1,9 +1,8 @@
 """Tests for lexic.parsing.earley.kernel.tables.splits — which slot owns the
 text between two adjacent nullable slots.
 
-``leftmost_chain`` is reached through ``atoms.predecessor_chain`` on every
-real parse (``atoms.py`` is not itself owed a unit file — it is exercised
-deeply by the parity and roundtrip suites); this file pins ``is_arm_choice``
+``leftmost_chain`` is reached from the fast tree build whenever choices are
+pinned, and ``sole_chain`` on every unpinned build; this file pins ``is_arm_choice``
 directly and confirms the leftmost-owns-the-text policy end to end through a
 real compiled grammar with two adjacent nullable slots.
 """
@@ -271,7 +270,7 @@ def test_a_chain_of_sole_families_is_read_without_the_level_dag() -> None:
     want = [links[_key(1, 0, 2)][0], links[top][0]]
     assert leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST) == want
     assert leftmost_chain(links, top, _spec(), {}, Shortest(frozenset())) == want
-    assert sole_chain(links, top, _spec()) == want
+    assert sole_chain(links, top, 0, BITS) == want
 
 
 def test_a_sole_chain_spends_the_pins_it_passes_as_the_dag_would() -> None:
@@ -294,7 +293,7 @@ def test_a_key_with_two_families_still_takes_the_decider_s_reading() -> None:
     top = _key(2, 0, 8)
     links = {**_bottomed(_key(1, 0, 6), _key(1, 0, 2)), top: [near, far]}
 
-    assert sole_chain(links, top, _spec()) is None
+    assert sole_chain(links, top, 0, BITS) is None
     longest = leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST)
     shortest = leftmost_chain(links, top, _spec(), {}, Shortest(frozenset()))
     assert longest is not None and longest[-1] is far
