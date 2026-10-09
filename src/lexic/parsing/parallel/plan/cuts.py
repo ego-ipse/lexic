@@ -8,15 +8,15 @@ what decides whether the second is worth asking at all.
 
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
-from collections.abc import Iterator
+from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAst
+from lexic.parsing.parallel.discovery.regions import Cutting, floor_cuts
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
+from lexic.parsing.parallel.policy import MIN_SCAN, clears_floor, worker_count
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import Roles, Terminator, roles
 
@@ -233,32 +233,42 @@ def cut_offsets(
     elif plan.terminated and marks and after_mark(plan, text, marks[-1]) == len(text):
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
+    cutting = _cutting(plan, text, marks)
     while workers >= 2:
-        cuts = _balanced_cuts(plan, text, marks, workers)
+        cuts = _balanced_cuts(plan, text, workers, cutting)
         if cuts:
             return Cuts(cuts, marks)
         workers -= 1
     return Cuts([], marks)
 
 
+def _cutting(plan: SplitPlan, text: str, marks: list[int]) -> Cutting:
+    """This plan's question to the cut chooser: the next piece starts at
+    :func:`after_mark`, and a terminated piece keeps its mark."""
+    # A terminated piece KEEPS its mark, so a candidate that close still
+    # clears the floor; an OPENING mark belongs to the next piece and does not.
+    owned = 0 if plan.opening else max((len(mark) for mark in plan.mark), default=1)
+    terminated = plan.terminated
+    return (
+        marks,
+        (0, len(text)),
+        partial(after_mark, plan, text),
+        (terminated, owned * int(terminated)),
+    )
+
+
 def _balanced_cuts(
-    plan: SplitPlan, text: str, marks: list[int], workers: int
+    plan: SplitPlan, text: str, workers: int, cutting: Cutting
 ) -> list[int]:
     """Marks nearest equal byte targets, if every actual span clears policy."""
-    cuts: list[int] = []
-    previous = 0
-    for k in range(1, workers):
-        want = len(text) * k / workers
-        remaining = workers - k
-        nearest = _safe_mark(plan, text, marks, previous, (want, remaining))
-        if nearest is None:
-            return []
-        cuts.append(nearest)
-        previous = after_mark(plan, text, nearest)
+    found = floor_cuts(cutting, workers)
+    if found is None:
+        return []
+    cuts = found[0]
     spans, _leads = cut_spans(plan, text, cuts)
     return (
         cuts
-        if len(spans) == workers and min(hi - lo for lo, hi in spans) >= MIN_CHUNK
+        if len(spans) == workers and clears_floor(hi - lo for lo, hi in spans)
         else []
     )
 
@@ -273,42 +283,6 @@ def after_mark(plan: SplitPlan, text: str, mark: int) -> int:
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
-
-
-def _safe_mark(
-    plan: SplitPlan,
-    text: str,
-    marks: list[int],
-    previous: int,
-    target: tuple[float, int],
-) -> int | None:
-    """Nearest target mark whose adjacent spans can still clear the floor."""
-    want, remaining = target
-    terminated = plan.terminated
-    # A terminated piece KEEPS its mark, so a candidate that close still
-    # clears the floor; an OPENING mark belongs to the next piece and does not.
-    owned = 0 if plan.opening else max((len(mark) for mark in plan.mark), default=1)
-    lo = bisect_left(marks, previous + MIN_CHUNK - owned * int(terminated))
-    hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
-    for candidate in _nearby_marks(marks, want, lo, hi):
-        after = after_mark(plan, text, candidate)
-        end = after if terminated else candidate
-        if end - previous >= MIN_CHUNK and len(text) - after >= remaining * MIN_CHUNK:
-            return candidate
-    return None
-
-
-def _nearby_marks(marks: list[int], want: float, lo: int, hi: int) -> Iterator[int]:
-    """Yield candidates within ``[lo, hi)`` from nearest to farthest."""
-    at = bisect_left(marks, want, lo, hi)
-    left, right = at - 1, at
-    while left >= lo or right < hi:
-        take_left = right >= hi or (
-            left >= lo and want - marks[left] <= marks[right] - want
-        )
-        yield marks[left] if take_left else marks[right]
-        left -= int(take_left)
-        right += int(not take_left)
 
 
 def cut_spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]]:

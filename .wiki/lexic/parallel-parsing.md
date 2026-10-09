@@ -25,7 +25,31 @@ character is structural. Neither does an unsupported shape, a short input, or a
 failing chunk; each simply parses sequentially.
 
 The floor is **2 KiB per worker**, measured against thread spin-up. Below it,
-splitting costs more than it returns.
+splitting costs more than it returns. It is stated once, in `policy.py`:
+`MIN_CHUNK` caps the worker COUNT (`capacity(size)`, how many pieces a size can
+feed), and `MIN_PIECE` (half a chunk) is how far under it one piece may fall —
+`clears_floor` asks it of every piece. A cut lands on a mark, so a piece can
+come out short of its share; dropping a worker for that idles a core that would
+still win (on the benchmark roster a 1 KiB piece parses for 33 µs at the
+cheapest row and ~0.95 ms at the median, against 7–21 µs to hand a warm pool
+one more piece), so only a piece far under the chunk is refused. The three
+dividers that cut at marks nearest even shares — the plan cuts
+(`cuts._balanced_cuts`), `routed.divide` and `folded.divide` — share ONE
+chooser, `regions.floor_cuts`, asked through a `Cutting` tuple: each cut snaps
+to the nearest mark, and only where that leaves a piece, or what is left after
+it, under `MIN_PIECE` does it walk on to the nearest mark that does not, or
+take one worker fewer. Each divider says where the next piece starts and
+whether the piece before keeps its mark (`after_mark` for the plans, one past
+a terminator for routed, past the separator for folded).
+`partition` holds every run to the same `clears_floor`, and asks `capacity`
+only how many workers a size feeds.
+
+**The routed split derives once and stitches trusted.** The interior's route
+(the model steps down to it) depends only on the binding and the plan, so it is
+memoised per `(binding, plan)` (`stitch/interior._route`); and the stitched run
+is put back with a trusted positional build (`_with_run`), as the folded stitch
+already is — the checked `rebuild` re-validated every element of a run the
+piece parses had just built, about 100–200 µs of a 32 KB document's split.
 
 ---
 

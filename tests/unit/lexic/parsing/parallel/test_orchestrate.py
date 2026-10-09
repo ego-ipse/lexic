@@ -414,7 +414,9 @@ def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
 
 
 def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
-    """A nearest unsafe mark gives way to an adjacent mark and three chunks."""
+    """A nearest mark that leaves a piece far under :data:`MIN_PIECE` (the
+    300-character item between two cuts) gives way to an adjacent mark, and
+    all three workers stay."""
     compiled = compile_text(LEAD_RULE)
 
     def item(char: str, body_length: int) -> str:
@@ -422,11 +424,10 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
 
     text = ",".join(
         [
-            item("a", 1998),
-            item("b", 2797),
-            item("c", 1397),
-            item("d", 1297),
-            item("e", 2497),
+            item("a", 3500),
+            item("b", 300),
+            item("c", 1200),
+            item("d", 1200),
         ]
     )
     calls: list[int] = []
@@ -445,7 +446,7 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
 
     assert parallel is not None
     assert parallel.to_text() == text
-    assert sorted(calls) == [2499, 2699, 4800]
+    assert sorted(calls) == [1202, 1505, 3502]
 
 
 def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():

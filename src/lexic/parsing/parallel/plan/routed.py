@@ -25,11 +25,13 @@ interior ends at its last mark, and a separated spine does not.
 
 from __future__ import annotations
 
+from functools import partial
+from operator import add
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.regions import Region, nearest_mark
+from lexic.parsing.parallel.discovery.regions import Cutting, Region, floor_cuts
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
@@ -40,7 +42,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     rule_emits,
     unbounded,
 )
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import terminates_once
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -547,6 +549,11 @@ def _whole_region(text: str, plan: RoutedPlan) -> Region | None:
     return Region(lo - 1, tail, plan.rule, marks)
 
 
+_after_terminator = partial(add, 1)
+"""Where the piece after a cut at a terminator starts: one past it, since a
+terminated unit owns its final character."""
+
+
 def _tail_closer(text: str, plan: RoutedPlan) -> int | None:
     """The closing character at the document's end, behind its allowed tail."""
     at = len(text) - 1
@@ -586,22 +593,21 @@ def divide(
     instead, which would leave every piece here missing an edge.
     """
     lo, hi = region.opener + 1, region.closer
-    # The user-pinned floor applies to ACTUAL pieces, not just the document:
-    # capacity caps the division as the region partition's floor does,
-    # so a small interior at a high worker count declines rather than paying
-    # sub-2 KiB parses.
-    workers = min(workers, (hi - lo) // MIN_CHUNK)
-    if workers < 2 or not region.marks:
+    if not region.marks:
         return None
-    target = (hi - lo) / workers
-    cuts: list[int] = []
-    for step in range(1, workers):
-        after = nearest_mark(region.marks, lo + step * target) + 1
-        if after not in cuts and after < hi:
-            cuts.append(after)
-    bounds = [lo, *cuts, hi]
-    widest = max(bounds[at + 1] - bounds[at] for at in range(len(bounds) - 1))
-    if len(bounds) < 3 or widest > 2 * target:
+    # The worker count is capped by the floor; the cuts land on marks, so a
+    # piece can fall short of its share, and fewer workers are tried only when
+    # one falls under `MIN_PIECE`. A cut lands just past a terminator, which
+    # its unit owns: the piece before keeps it.
+    cutting: Cutting = (region.marks, (lo, hi), _after_terminator, (True, 1))
+    for count in range(min(workers, capacity(hi - lo)), 1, -1):
+        found = floor_cuts(cutting, count)
+        if found is None:
+            continue
+        bounds = [lo, *found[1], hi]
+        if max(b - a for a, b in zip(bounds, bounds[1:])) <= 2 * (hi - lo) / count:
+            break
+    else:
         return None
     if plan.whole:
         # A whole-extent piece parses under the START rule, so it must wear
@@ -610,11 +616,11 @@ def divide(
         # lines and nothing else; for `root ::= open body close` they are the
         # opener and closer, without which the piece derives nothing at all.
         return [
-            plan.before + text[bounds[at] : bounds[at + 1]] + plan.closing + plan.after
+            f"{plan.before}{text[bounds[at] : bounds[at + 1]]}{plan.closing}{plan.after}"
             for at in range(len(bounds) - 1)
         ]
     opening, closing = text[region.opener], text[region.closer]
     return [
-        opening + text[bounds[at] : bounds[at + 1]] + closing
+        f"{opening}{text[bounds[at] : bounds[at + 1]]}{closing}"
         for at in range(len(bounds) - 1)
     ]

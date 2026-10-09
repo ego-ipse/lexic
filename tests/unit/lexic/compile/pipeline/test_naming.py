@@ -7,6 +7,7 @@ against real grammars; this file targets naming.py's own pure functions.
 
 from __future__ import annotations
 
+import keyword
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from lexic.compile.pipeline.naming import (
     ruleref_memo,
 )
 from lexic.ir import IrAlternation, IrLiteral, IrRuleRef, IrSequence
+from lexic.model import GrammarModel
 
 
 @pytest.mark.parametrize(
@@ -121,11 +123,13 @@ def test_charclass_names_cover_the_documented_library_entries():
     assert CHARCLASS_NAMES["[A-Za-z]"] == "letter"
 
 
-def test_reserved_field_names_includes_python_keywords_and_model_methods():
-    """The reserved set covers keywords and the GrammarModel/IrSelf protocol."""
-    assert "class" in RESERVED_FIELD_NAMES  # a Python keyword
-    assert "to_text" in RESERVED_FIELD_NAMES  # a GrammarModel method
-    assert "bind" in RESERVED_FIELD_NAMES  # the inherited spine protocol
+def test_reserved_field_names_cover_keywords_and_the_whole_model_surface():
+    """Every keyword and every public attribute of the REAL ``GrammarModel`` —
+    its own methods and the inherited IrSelf/tuple protocol — is reserved, so a
+    rule named after any of them cannot generate a field that shadows it."""
+    public = {name for name in dir(GrammarModel) if not name.startswith("_")}
+    assert set(keyword.kwlist) <= RESERVED_FIELD_NAMES
+    assert public - RESERVED_FIELD_NAMES == set()
 
 
 def test_a_charclass_library_name_reaches_the_generated_field_name():

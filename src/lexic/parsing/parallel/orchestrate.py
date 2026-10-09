@@ -43,6 +43,8 @@ from lexic.parsing.parallel.policy import (
     AUTO,
     MIN_CHUNK,
     available_workers,
+    capacity,
+    clears_floor,
     doc_workers,
 )
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
@@ -175,9 +177,7 @@ def _reselect(
     room = [
         candidate
         for candidate in marks
-        if candidate not in taken
-        and candidate - lo >= MIN_CHUNK
-        and hi - candidate >= MIN_CHUNK
+        if candidate not in taken and clears_floor((candidate - lo, hi - candidate))
     ]
     if not room:
         return None
@@ -398,8 +398,6 @@ def split_regions[M: IrNamedTuple](
     plan where this loop tries them all; the two agree wherever the first wins.
     """
     workers = pool.workers
-    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
-        return None
     sourced = source_split(parse, grammar, ask, pool)
     if sourced is not None:
         return sourced
@@ -457,7 +455,7 @@ def split_model[M: IrNamedTuple](
     # ownership and region safety for work that policy has already refused is
     # pure serial overhead on the caller's parse path.
     workers = doc_workers(cores)
-    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
+    if workers < 2 or capacity(len(ask.text)) < 2:
         return None
     # The plans and the proofs they rest on (a cut that speculation proposes is
     # trusted on a determinism read off the leftmost-longest analysis) are this

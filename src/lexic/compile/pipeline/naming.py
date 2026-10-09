@@ -113,6 +113,7 @@ RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
         "bound",
         "bound_fields",
         "bound_type",
+        "child_order",
         "children",
         "count",
         "dump",

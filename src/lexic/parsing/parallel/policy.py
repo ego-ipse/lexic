@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 
 AUTO = 0
 """``cores=AUTO`` — as many workers as the machine and the work allow."""
@@ -26,12 +27,49 @@ AUTO = 0
 MIN_CHUNK = 2 * 1024
 """The least text one worker should own — the amortization floor.
 
-Measured (3.14t, 16 cpus): a worker's share of ``ParsePool`` build+map+close
-is 56–300 µs, the replicas are ≤ 1 µs, and parsing runs ~1.3 µs/char — so a
-2 KiB chunk parses for ~2.6 ms and the pool cost stays under ~12% of it.
-A recorded result, not a tunable: if a later measurement moves the
-amortization point, this constant moves to what was measured.
+Measured (3.14t, 16 cpus; every benchmark-roster row's ``full`` document
+parsed with ``cores=1``, default and ``@lexical``/``@non-semantic`` seats):
+parsing costs 0.03–39 µs/char, median 0.93, so a 2 KiB chunk parses for
+66 µs at the cheapest row and ~1.9 ms at the median. A cold pool's
+build+map+close is ~1 ms across its workers — 61 µs each at 16, 564 at 2 —
+and handing a leased warm pool one more chunk costs 7–21 µs (``WorkPool.map``
+of trivial work, 2–16 workers). A recorded result, not a tunable: if a later
+measurement moves the amortization point, this constant moves to what was
+measured.
 """
+
+
+MIN_PIECE = MIN_CHUNK // 2
+"""The least text one piece of a split may hold once its cuts have snapped to
+marks — how far under :data:`MIN_CHUNK` a piece may fall before the chooser
+looks for another mark or takes one worker fewer.
+
+The worker COUNT is what :data:`MIN_CHUNK` caps (:func:`capacity`); a cut then
+lands on the mark nearest its even share, so one piece may come out short.
+Dropping a worker for that idles a core that would still win: on
+:data:`MIN_CHUNK`'s measurement a 1 KiB piece parses for 33 µs at the
+cheapest row and ~0.95 ms at the median, against 7–21 µs to hand a warm pool
+one more piece. A piece far under this floor is the one worth refusing.
+"""
+
+
+def clears_floor(widths: Iterable[int]) -> bool:
+    """Whether every piece a split hands a worker holds :data:`MIN_PIECE`.
+
+    THE per-piece floor: every chooser that cuts a document asks it of the
+    pieces it chose, in its own offsets, and declines (or chooses fewer) when
+    it fails.
+
+    :param widths: The width of each piece, in characters.
+    """
+    return all(width >= MIN_PIECE for width in widths)
+
+
+def capacity(size: int) -> int:
+    """How many workers ``size`` characters can feed at :data:`MIN_CHUNK`
+    each — the worker COUNT's cap. Not the per-piece floor: a piece clears
+    that at :data:`MIN_PIECE` (:func:`clears_floor`)."""
+    return size // MIN_CHUNK
 
 
 MIN_SCAN = 4 * MIN_CHUNK
@@ -45,9 +83,9 @@ spent 0.24 ms dispatching between 0.05 and 0.7 ms of work, and three of four
 measured grammars scanned faster on one thread than on sixteen.
 
 This is the SCAN's amortization point and not the parse's: :data:`MIN_CHUNK` is
-what a 2.6 ms chunk parse amortizes, and scanning is two orders of magnitude
-cheaper per byte than parsing. Splitting the document into parse chunks is
-untouched by it.
+what a chunk parse (~1.9 ms at the median) amortizes, and scanning is two
+orders of magnitude cheaper per byte than parsing. Splitting the document into
+parse chunks is untouched by it.
 """
 
 
@@ -90,4 +128,4 @@ def worker_count(size: int, splits: int, cores: int = AUTO) -> int:
     """
     chunks = splits + 1
     requested = available_workers() if cores == AUTO else cores
-    return max(1, min(requested, size // MIN_CHUNK, chunks))
+    return max(1, min(requested, capacity(size), chunks))

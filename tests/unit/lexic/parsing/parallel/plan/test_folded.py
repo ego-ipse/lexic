@@ -17,16 +17,16 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.parsing.parallel.discovery.regions import nearest_mark
+from lexic.parsing.parallel.discovery.regions import floor_cuts
 from lexic.parsing.parallel.plan.folded import (
     FoldedPlan,
-    chosen_marks,
     divide,
     folded_plan,
     locate,
-    mark_at,
     marks_in,
+    past_separator,
 )
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_PIECE
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.shape import foldable
@@ -129,11 +129,14 @@ def test_every_mark_inside_the_extent_is_found_in_order() -> None:
     region = locate(text, plan)
     assert region is not None
     assert region.marks == (1, 5, 9)
-    assert [mark_at(text, at, plan.marks) for at in region.marks] == [
+    ends = [past_separator(text, plan.marks, at) for at in region.marks]
+    assert ends == [4, 8, 12]
+    assert [text[at:end] for at, end in zip(region.marks, ends)] == [
         " + ",
         " - ",
         " + ",
     ]
+    assert past_separator(text, plan.marks, 0) is None
 
 
 def test_a_document_without_the_shell_declines() -> None:
@@ -299,43 +302,57 @@ def test_a_step_with_no_separator_rule_is_refused() -> None:
     assert folded_plan(compiled(source, "no-separator-rule").codegen_grammar) is None
 
 
-NEAREST = (10, 20, 30, 40)
-"""Mark offsets for the cut selection, in document order as `locate` gives them."""
+NEAREST = (100, 200, 300, 400)
+"""Mark offsets for the cut selection, past a floor's worth of text, in
+document order as `locate` gives them."""
+
+_FAR = 4 * MIN_CHUNK
+"""Where the marks stand: far enough in that the floor never binds here."""
+
+
+def _halving_cut(want: int) -> int:
+    """The one cut two workers take when the halfway target is ``want`` past
+    :data:`_FAR` — the span is sized so its middle lands there."""
+    marks = tuple(_FAR + mark for mark in NEAREST)
+    found = floor_cuts((marks, (0, 2 * (_FAR + want)), _at_mark, (False, 0)), 2)
+    assert found is not None
+    return found[0][0] - _FAR
+
+
+def _at_mark(at: int) -> int:
+    """A cut whose next piece starts on its mark."""
+    return at
 
 
 @pytest.mark.parametrize(
     ("want", "expected"),
     [
-        (0.0, 10),  # before the first
-        (10.0, 10),  # on a mark
-        (14.0, 10),  # nearer the one below
-        (15.0, 10),  # exactly between — the EARLIER, on every run
-        (16.0, 20),  # nearer the one above
-        (40.0, 40),  # on the last
-        (99.0, 40),  # past the last
+        (0, 100),  # before the first
+        (100, 100),  # on a mark
+        (140, 100),  # nearer the one below
+        (150, 100),  # exactly between — the EARLIER, on every run
+        (160, 200),  # nearer the one above
+        (400, 400),  # on the last
+        (990, 400),  # past the last
     ],
 )
-def test_the_cut_lands_on_the_nearest_mark(want: float, expected: int) -> None:
+def test_the_cut_lands_on_the_nearest_mark(want: int, expected: int) -> None:
     """The bisect answers what a scan over every mark answered.
 
     Written as a table because the bisect replaced a linear ``min`` for cost,
     not for behaviour: the ends and the exact midpoint are where the two can
     disagree, and a midpoint that drifted would move a cut for reasons no
-    other test would attribute.
-
-    The subject is the sweep path's own ``nearest_mark``, which this module
-    calls rather than reimplementing. It had no coverage anywhere before —
-    two routes now cut with it, and the table is where its tie rule and its
-    two ends are written down.
+    other test would attribute. The subject is the one cut chooser every
+    divider uses, where the floor does not bind.
     """
-    assert nearest_mark(NEAREST, want) == expected
+    assert _halving_cut(want) == expected
 
 
-@pytest.mark.parametrize("want", [-5.0, 0.0, 9.9, 25.0, 31.0, 200.0])
-def test_the_bisect_agrees_with_the_scan_it_replaced(want: float) -> None:
+@pytest.mark.parametrize("want", [-50, 0, 99, 250, 310, 2000])
+def test_the_bisect_agrees_with_the_scan_it_replaced(want: int) -> None:
     """A differential against the linear reading, on the same offsets."""
     scanned = min(NEAREST, key=lambda mark: (abs(mark - want), mark))
-    assert nearest_mark(NEAREST, want) == scanned
+    assert _halving_cut(want) == scanned
 
 
 # ── the document-order precondition the bisect rests on ───────────────────
@@ -393,20 +410,28 @@ def test_the_bisect_cuts_where_the_linear_reading_cut() -> None:
     a merge that emitted one spelling's run before the other's would leave the
     list unsorted, and the bisect would then pick a mark the scan would not.
     """
-    _text, marks = interleaved(400)
+    _text, marks = interleaved(4000)  # every worker count clears the floor
     lo, hi = marks[0], marks[-1] + 3
     for workers in (2, 3, 4, 8, 16):
         target = (hi - lo) / workers
-        chosen = chosen_marks(marks, lo, hi, target, workers)
+        found = floor_cuts((marks, (lo, hi), _past_separator, (False, 0)), workers)
         scanned = scanned_cuts(marks, lo, hi, target, workers)
+        assert found is not None, f"{workers} workers: the floor must not bind"
+        chosen = found[0]
         assert chosen == scanned, f"{workers} workers: {chosen} != {scanned}"
         assert len(chosen) == workers - 1, "the document must offer every cut"
+
+
+def _past_separator(at: int) -> int:
+    """An interleaved document's cut: the next piece starts past the
+    3-character separator."""
+    return at + 3
 
 
 def scanned_cuts(
     marks: tuple[int, ...], lo: int, hi: int, target: float, workers: int
 ) -> list[int]:
-    """``chosen_marks`` as it read before the bisect — a linear ``min``.
+    """The cut choice as it read before the bisect — a linear ``min``.
 
     The reference arm of the differential, kept flat rather than closed over
     the loop variable it compares against: the point is that it is a separate,
@@ -420,3 +445,63 @@ def scanned_cuts(
         if at not in found and lo < at < hi:
             found.append(at)
     return found
+
+
+@pytest.mark.parametrize(
+    ("unit", "count", "widths"),
+    [
+        (1700, 4, [1700, 3401, 1700]),
+        (1500, 5, [3001, 1500, 3001]),
+        (1300, 7, [2601, 2601, 1300, 2601]),
+    ],
+)
+def test_a_piece_short_of_a_chunk_keeps_its_worker(
+    unit: int, count: int, widths: list[int]
+) -> None:
+    """Terms of 1.3–1.7 KB: a cut snapped to the nearest mark leaves a piece
+    of one term, short of :data:`MIN_CHUNK` but above :data:`MIN_PIECE`. Its
+    worker still wins, so every worker the capacity allows is kept."""
+    plan = plan_for(BARE, "bare")
+    assert plan is not None
+    text = "+".join(["a" * unit] * count)
+    region = locate(text, plan)
+    assert region is not None
+    pieces = divide(text, region, 4, plan)
+    assert pieces is not None
+    assert [len(part) for part in pieces.parts] == widths
+
+
+def test_a_cut_far_under_the_floor_walks_to_the_next_mark() -> None:
+    """The first share's nearest mark ends a 500-character piece, far under
+    :data:`MIN_PIECE`: the cut walks on to the next mark, and all four
+    workers stay."""
+    plan = plan_for(BARE, "bare")
+    assert plan is not None
+    text = "+".join("a" * n for n in (500, 3500, 1500, 900, 500, 200, 1500))
+    region = locate(text, plan)
+    assert region is not None
+    pieces = divide(text, region, 4, plan)
+    assert pieces is not None
+    assert [len(part) for part in pieces.parts] == [4001, 1500, 1401, 1701]
+
+
+SPACED = 'root ::= expr\nexpr ::= expr op term | term\nterm ::= [a-z]+\nop ::= " + "\n'
+"""A spine whose separator is three characters wide."""
+
+
+def test_a_cut_reads_past_its_separator_to_keep_the_worker() -> None:
+    """The mark nearest the halfway target leaves the last piece 1 022
+    characters once its 3-character separator is consumed — under
+    :data:`MIN_PIECE` by less than the separator. Read as ending AT the mark,
+    it looked wide enough and was chosen; read past the separator, the cut
+    walks to the other mark and both workers stay."""
+    plan = plan_for(SPACED, "spaced")
+    assert plan is not None
+    text = "a" * MIN_PIECE + " + " + "a" * 2148 + " + " + "a" * (MIN_PIECE - 2)
+    region = locate(text, plan)
+    assert region is not None and len(region.marks) == 2
+    pieces = divide(text, region, 2, plan)
+    assert pieces is not None and len(pieces.parts) == 2
+    assert pieces.leads == (" + ",), "the cut consumes its whole separator"
+    assert all(not part.startswith(" ") for part in pieces.parts)
+    assert [len(part) for part in pieces.parts] == [MIN_PIECE, 3173]

@@ -14,7 +14,6 @@ import pytest
 
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
-from lexic.parsing.parallel.discovery.regions import Region, find
 from lexic.parsing.parallel.discovery.partition import (
     Division,
     Weights,
@@ -23,6 +22,8 @@ from lexic.parsing.parallel.discovery.partition import (
     runs,
     units,
 )
+from lexic.parsing.parallel.discovery.regions import Region, find
+from lexic.parsing.parallel.policy import MIN_PIECE
 
 FLOOR = 2 * MIN_CHUNK
 BIG = FLOOR // 2  # items of 2-5 chars, so a run of this many clears the floor
@@ -108,7 +109,7 @@ def test_one_long_run_packs_into_a_piece_per_worker():
     assert len(division.cuts) == 3
     assert all(doc[cut] == "," for cut in division.cuts)
     assert all(
-        MIN_CHUNK <= size <= target + MIN_CHUNK for size in _bounds_sizes(division)
+        MIN_PIECE <= size <= target + MIN_PIECE for size in _bounds_sizes(division)
     )
 
 
@@ -152,6 +153,19 @@ def test_no_piece_falls_below_the_floor():
     assert partition(doc, find(JSON_GRAMMAR, doc), 8) == []
 
 
+def test_a_run_under_the_chunk_but_over_the_piece_floor_is_a_piece():
+    """The per-piece floor is MIN_PIECE, the same one every divider asks: a
+    1.5 KiB item each side of an oversized one is a piece of its own, where
+    holding each run to MIN_CHUNK would leave the region undivided."""
+    side = "a" * 1500
+    doc = '["' + side + '","' + "b" * 30000 + '","' + side + '"]'
+    assert MIN_PIECE < len(side) < MIN_CHUNK
+    (division,) = partition(doc, find(JSON_GRAMMAR, doc), 8)
+    sizes = _bounds_sizes(division)
+    assert [MIN_PIECE <= size < MIN_CHUNK for size in sizes] == [True, False, True]
+    assert all(doc[cut] == "," for cut in division.cuts)
+
+
 def test_a_division_carries_the_cuts_its_pieces_were_cut_at():
     """The cuts ARE the pieces' boundaries: removing each piece's own brackets
     and rejoining with the separator at each cut gives the region back."""
@@ -173,15 +187,15 @@ def test_a_division_carries_the_cuts_its_pieces_were_cut_at():
 
 def _greedy(target: float, sizes: list[int], marks: tuple[int, ...]) -> tuple[int, ...]:
     """The reference: walk every item, close a run before the item that would
-    carry a run of at least MIN_CHUNK past ``target``; a short last run rejoins."""
+    carry a run of at least MIN_PIECE past ``target``; a short last run rejoins."""
     cuts: list[int] = []
     run = 0
     for at, size in enumerate(sizes):
-        if run >= MIN_CHUNK and run + size > target:
+        if run >= MIN_PIECE and run + size > target:
             cuts.append(marks[at - 1])
             run = 0
         run += size
-    if cuts and run < MIN_CHUNK:
+    if cuts and run < MIN_PIECE:
         cuts.pop()
     return tuple(cuts)
 

@@ -14,6 +14,15 @@ consult where it holds, otherwise the item-wise match checked by its
 the island, and `islands.settle_extent` as the one hook for two followable
 ends.
 
+## The split floor is stated once (2026-10-09)
+
+`parallel-parsing.md` records the floor as stated once in `policy.py` —
+`MIN_CHUNK` caps the worker count, `MIN_PIECE` (half a chunk) is how far one
+piece may fall under it — and `regions.floor_cuts` as the one cut chooser the
+plan cuts, the routed and the folded dividers share; the region partition holds
+its runs to the same per-piece floor. The routed split memoises its route and
+stitches its run with a trusted build.
+
 ## A document splits top-down, a worker's share at a time (2026-09-23)
 
 `parallel-parsing.md` records the top-down partition that replaced the region

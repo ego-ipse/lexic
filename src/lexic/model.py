@@ -337,7 +337,7 @@ class GrammarModel(IrNamedTuple):
         return cls.__binds__
 
     @classmethod
-    def _child_order(cls) -> ChildOrder:
+    def child_order(cls) -> ChildOrder:
         """The bound fields in item order — sorted once per binds table.
 
         Every walk asks for a model's children, and sorting the table on every
@@ -368,7 +368,7 @@ class GrammarModel(IrNamedTuple):
 
         :returns: The bound values, item order.
         """
-        return tuple(map(self.__getitem__, type(self)._child_order().indices))
+        return tuple(map(self.__getitem__, type(self).child_order().indices))
 
     def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Splice replacements into the bound fields; keep everything else.
@@ -379,7 +379,7 @@ class GrammarModel(IrNamedTuple):
         :param new_children: Replacement values for the bound fields.
         :returns: A new instance with the bound fields replaced.
         """
-        names = type(self)._child_order().names
+        names = type(self).child_order().names
         replacements = dict(zip(names, new_children, strict=True))
         values = [
             replacements.get(name, self[index])

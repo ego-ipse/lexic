@@ -19,7 +19,15 @@ from lexic.compile import compile_text
 # Each rule name is referenced as a field of ``r`` and must round-trip with no
 # error and no shadowing warning. ``annotated`` PascalCases onto the header's
 # ``typing.Annotated`` import, breaking every later annotation resolution.
-RESERVED = ["import", "class", "to-text", "semantic-dump", "model-fields", "annotated"]
+RESERVED = [
+    "import",
+    "class",
+    "to-text",
+    "semantic-dump",
+    "model-fields",
+    "annotated",
+    "child-order",
+]
 
 
 @pytest.mark.parametrize("rule", RESERVED)
@@ -43,3 +51,18 @@ def test_module_namespace_rule_name_compiles() -> None:
     grammar = 'r ::= grammar-model "!"\ngrammar-model ::= "m"\n'
     compiled = compile_text(grammar, cache_key="adv-rsv-gm")
     assert compiled.parse("m!").to_text() == "m!"
+
+
+def test_a_rule_named_like_the_child_order_reader_keeps_the_walk() -> None:
+    """``child_order`` is the classmethod every walk, ``rebuild`` and the
+    stitch read the bound-field order through: a rule of that name gets a
+    mangled field, so ``children()`` still yields the child and does not call
+    the field."""
+    compiled = compile_text(
+        'root ::= child_order\nchild_order ::= "x"\n', cache_key="adv-rsv-co"
+    )
+    model = compiled.parse("x")
+    (child,) = model.children()
+    assert type(child).__name__ == "ChildOrder"
+    assert type(model)._fields == ("child_order_",)
+    assert model.rebuild([child]).to_text() == "x"
