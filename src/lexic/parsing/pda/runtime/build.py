@@ -191,13 +191,29 @@ class Frame[Carry]:
         if origin is None:
             return
         self.inherited = None
-        mine, theirs = self.sinks, origin.sinks
-        if mine is None or theirs is None:
+        mine = self.sinks
+        if mine is None:
             return
         for at, slot in enumerate(mine):
-            prefix = theirs[at] if at < len(theirs) else None
-            if slot is not None and prefix:
-                slot[:0] = prefix
+            if slot is not None:
+                slot[:0] = origin.inherited_prefix(at)
+
+    def inherited_prefix(self, at: int) -> list[Carry]:
+        """Item ``at``'s values down this frame's fork chain, oldest first.
+
+        A fork one level deep is forked from a frame that is itself a fork,
+        whose own values start where its origin's end; nothing in the chain
+        is written to.
+        """
+        prefix: list[Carry] = []
+        frame: Frame[Carry] | None = self
+        while frame is not None:
+            sinks = frame.sinks
+            slot = sinks[at] if sinks is not None and at < len(sinks) else None
+            if slot:
+                prefix[:0] = slot
+            frame = frame.inherited
+        return prefix
 
     def alt_model(self) -> Carry | None:
         """The first sub-model under an ``alternation`` frame's matched arm."""

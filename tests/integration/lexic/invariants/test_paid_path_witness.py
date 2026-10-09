@@ -101,9 +101,9 @@ made.
 """
 
 WITNESS: dict[str, str] = {
-    "AttemptInlineMixin._attempt_tabled_loop": "c4566542d199cf29",
-    "AttemptInlineMixin._attempt_vdisp_loop": "9b5ec8133642b23c",
-    "AttemptInlineMixin.attempt_inline_loop": "6c7e913ef9c86b20",
+    "AttemptInlineMixin._attempt_tabled_loop": "142f44d6b872cd41",
+    "AttemptInlineMixin._attempt_vdisp_loop": "645ec6fe11a875d7",
+    "AttemptInlineMixin.attempt_inline_loop": "ad976bc033ce3718",
     "Kernel._advance_all": "56e7c5a8e276af55",
     "Kernel._close": "2705b7a15a0c4493",
     "Kernel._scan": "f65fdad568fc8431",

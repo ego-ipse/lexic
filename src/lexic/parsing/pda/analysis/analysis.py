@@ -629,22 +629,29 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.stop_sets.append(note)
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
-        """The continuation visible only BEYOND the arm after item ``k``.
+        """The attempt licence's audit set: every boundary char the stop side
+        can also go on with, the same-arm rest included.
 
-        The attempt licence's audit set: a boundary char viable via the
-        same-arm rest is a SPLIT (one production carved two ways — the first
-        slot owns the text, greedy take, never refused); only viability via
-        the ENCLOSING tail — reachable when the rest is all-nullable — makes
-        the boundary an arm choice in loop clothing, worth the composition
-        probe. (Subtracting the hard tail here was tried and is UNSOUND —
-        the escape alternative's first char can be hard at another site of
-        the same rule; the union follow keeps the audit alive at the cost of
-        spurious probes, and per-SITE precision is the honest narrowing.)
+        A stop side continuing into the rest of its own arm is a carving of
+        that arm the decider ranks, as much as one continuing past it, so both
+        are audited. A rest-of-arm boundary that two characters already decide
+        is left out (:func:`~.gates.kwindow.stop_exit_settles`): no text
+        continues both ways, so at most one side completes, and an iteration
+        that parsed is the take. That proof reads the end of the input, so a
+        delegate's analysis withholds it.
         """
+        cont = self.cont_at(items, k, scope.structural_tail)
         rest = items[k + 1 :]
-        if all(self.item_nullable(i) for i in rest):
-            return scope.structural_tail
-        return CharSet.EMPTY
+        if all(self.item_nullable(i) for i in rest) or not scope.body:
+            return cont
+        if self.taxonomy.delegated:
+            return cont
+        first = self.atom_first(items[k].atom)
+        exits = first.subtract(first.subtract(self.seq_first(rest)))
+        windows = FollowWindows(self.rules, self.start, FOLLOW_LOOP_K)
+        if stop_exit_settles(windows, items, k, scope.rule, exits):
+            return CharSet.EMPTY
+        return cont
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""

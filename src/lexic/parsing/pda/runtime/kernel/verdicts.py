@@ -26,6 +26,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
+    NESTING_DEPTH,
     REST_ADMITS,
     REST_ADMITS_HARD,
     REST_ASCEND,
@@ -77,6 +78,12 @@ TAKE, STOP_FORCED, FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Verdicts._fork_verdict`)."""
 
 
+_NESTING_BUDGET = 64
+"""How many nested verdicts one retry may ask. Past it every boundary left is a
+guess, so the retry forks: a document that would cost more goes whole to the
+gated engine, as it did before the retry."""
+
+
 class Verdicts[Carry](Sides[Carry]):
     """The boundary-verdict methods, hosted for ``Attempting`` to inherit; the
     kernel surface they read is declared on :class:`Sides`, beside the lane
@@ -112,10 +119,15 @@ class Verdicts[Carry](Sides[Carry]):
             else self._beyond_class(arm, i, pos)
         )
         if self._caches.probing:
-            # Inside a probe boundaries resolve GREEDILY by class — probes
-            # never nest. The terminator class (a MANDATORY item anywhere up
-            # the live chain wants the char) prefers stop; the chain class
-            # takes. Either way the probe's outcome becomes a SAMPLED path
+            if cls == REST_DEAD:
+                return True
+            settled = self._nested_verdict(arm, i, pos, got)
+            if settled is not None:
+                return settled
+            # Unsettled inside a probe, a boundary resolves GREEDILY by class.
+            # The terminator class (a MANDATORY item anywhere up the live
+            # chain wants the char) prefers stop; the chain class takes.
+            # Either way the probe's outcome becomes a SAMPLED path
             # (uncertain).
             if cls == REST_ADMITS_HARD:
                 self._caches.uncertain = True
@@ -123,7 +135,12 @@ class Verdicts[Carry](Sides[Carry]):
             if cls == REST_ADMITS:
                 self._caches.uncertain = True
         elif cls in (REST_ADMITS, REST_ADMITS_HARD):
-            verdict = self._fork_verdict(arm, i, pos, got)
+            try:
+                verdict = self._fork_verdict(arm, i, pos, got)
+            except IslandEnds:  # an island inside a side: a verdict of its own
+                verdict = FORKED
+            if verdict == FORKED:
+                verdict = self._retried(self._fork_verdict, arm, i, pos, got)
             if verdict == STOP_FORCED:
                 return False
             if verdict == FORKED:
@@ -132,6 +149,59 @@ class Verdicts[Carry](Sides[Carry]):
                     pos,
                 )
         return True
+
+    def _retried[*Args](self, ask: Callable[[*Args], int], *args: *Args) -> int:
+        """A forked verdict asked again, the boundaries inside its sides settled
+        by verdicts of their own (:meth:`_nests`).
+
+        Asked only after a fork: a side's guess is what usually forks it, and
+        a nested verdict costs a fork per boundary inside a side, so a verdict
+        that settles without them never pays for them. The fork it replaces
+        would hand the whole document to the gated engine.
+        """
+        caches = self._caches
+        caches.nesting = _NESTING_BUDGET
+        try:
+            return ask(*args)
+        finally:
+            caches.nesting = 0
+
+    def _nests(self) -> bool:
+        """Whether a verdict may be asked inside a side here, spending one of
+        the retry's budget if so: only while a forked verdict is asked again
+        (:meth:`_retried`), at most :data:`~...admission.NESTING_DEPTH` sides deep, and
+        within :data:`_NESTING_BUDGET` nested verdicts. Past either, the
+        boundary stays a guess, or an island's extent stays unsettled. Nested
+        sides carry the sub-runs the side still has to settle
+        (:meth:`_inherited_floors`)."""
+        caches = self._caches
+        if not caches.nesting or caches.probing > NESTING_DEPTH:
+            return False
+        caches.nesting -= 1
+        return True
+
+    def _nested_verdict(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        got: tuple[int, list[Carry]],
+    ) -> bool | None:
+        """Whether a boundary inside a side takes, settled by a verdict of its
+        own where :meth:`_nests` allows one.
+
+        :returns: ``True`` to take, ``False`` to stop, ``None`` when it stays
+            a guess.
+        """
+        if not self._nests():
+            return None
+        try:
+            verdict = self._fork_verdict(arm, i, pos, got)
+        except ProbeFork:
+            return None  # undecidable inside the side: it stays a guess
+        if verdict == TAKE:
+            return True
+        return False if verdict == STOP_FORCED else None
 
     def _beyond_class(self, arm: FlatArm, i: int, pos: int) -> int:
         """The boundary's viability CLASS over the whole live chain.
@@ -235,7 +305,7 @@ class Verdicts[Carry](Sides[Carry]):
             return FORKED
         if same_value(done[3], stop[3]):
             return TAKE
-        return self._ranked(makers, -1)
+        return self._ranked(makers, -1, (stop, done))
 
     def _lockstep_verdict(
         self,
@@ -329,35 +399,35 @@ class Verdicts[Carry](Sides[Carry]):
         Sides whose values differ are ranked (:meth:`_ranked`) — read before
         the common remainder runs, while both ledgers stand at the convergence
         — once that remainder is seen to complete. A guess on the way
-        unsettles a rank as it does a mid-parse agreement. Completed sides the
-        rank cannot settle, or reached through a guess, keep the take: a guess
-        inside a side is resolved exactly only by a verdict of its own.
+        unsettles a rank as it does a mid-parse agreement, and completed sides
+        reached through one fork, agreeing or not: the guess may have dropped
+        the carving the decider keeps.
 
         :param guessed: Whether either side's drive guessed on the way here.
         :param makers: The two sides afresh, for the rank.
         """
         if not left[0]:
+            if guessed:
+                return FORKED
             if same_value(left[3], right[3]):
                 return TAKE
-            ranked = FORKED if guessed else self._ranked(makers, -1)
-            # The exemption the nested lockstep removes: until a guess inside a
-            # side gets a verdict of its own, a completed pair it reached, or one
-            # the rank cannot read, keeps the take leftmost-longest has always
-            # had. Any other decider's forks.
-            return TAKE if ranked == FORKED and self._takes_longest() else ranked
+            return self._ranked(makers, -1, (left, right))
         if same_value(pending_values(left[0], shape), pending_values(right[0], shape)):
             return FORKED if guessed else TAKE
-        ranked = FORKED if guessed else self._ranked(makers, left[1])
+        ranked = FORKED if guessed else self._ranked(makers, left[1], (left, right))
         done, sampled = self._advance(left, -1, shared=True)
         if done is None:  # the common remainder completes on neither side
             return FORKED if guessed or sampled else TAKE
         return FORKED if sampled else ranked
 
-    def _ranked(self, makers: Makers, at: int) -> int:
+    def _ranked(self, makers: Makers, at: int, sides: tuple[Side, Side]) -> int:
         """Two sides whose values differ, ranked as the gated engine ranks them
-        (:meth:`_rank`): both built again keeping ledgers and driven to ``at``
-        (``-1``: to the end) — exactly where they stood, since a drive is a
+        (:meth:`_rank`): ``sides`` themselves where they kept ledgers, else
+        both built again keeping ledgers and driven to ``at`` (``-1``: to the
+        end) — exactly where they stood, since outside a retry a drive is a
         function of where it starts and where it stops."""
+        if sides[0][5] is not None:
+            return self._rank(*sides)
         stop, _guessed = self._advance(self._made(makers, False, True), at)
         take, _guessed = self._advance(self._made(makers, True, True), at)
         if stop is None or take is None:
@@ -477,9 +547,8 @@ class Verdicts[Carry](Sides[Carry]):
         """Whether the decider is leftmost-longest: the one order whose
         repetitions are ranked here by where their first differing iteration
         ends — Earley reads ``X+`` as ``X | X X+``, and has been shown to answer
-        that way only for it — and whose take a completed pair the rank cannot
-        read keeps. Under any other decider both fork, and the gated engine
-        answers."""
+        that way only for it. Under any other decider those repetitions fork,
+        and the gated engine answers."""
         return isinstance(self.policy.config.decide, LeftmostLongest)
 
     def _kept(self, stop: tuple[int, ...], take: tuple[int, ...]) -> int:
@@ -499,13 +568,13 @@ class Verdicts[Carry](Sides[Carry]):
         and the frame already as the descent left it, so each completion is a
         side: the live stack forked with that completion's value in the item
         and the cursor past it (:meth:`_extent_side`), ranked as
-        :meth:`_kept_end` ranks them. Never from inside a side — probes never
-        nest — and never at a reference the top frame does not stand in
-        (``k < 0``): the island is then left to whoever owns ``sink``.
+        :meth:`_kept_end` ranks them. Inside a side only where :meth:`_nests`
+        allows a verdict there, and never at a reference the top frame does not
+        stand in (``k < 0``): the island is then left to whoever owns ``sink``.
 
         :raises IslandEnds: When a verdict forks, or no verdict can be asked.
         """
-        if k < 0 or self._caches.probing:
+        if k < 0 or (self._caches.probing and not self._nests()):
             two.sink = sink
             raise two
         end, value = self._kept_end(two, partial(self._extent_side, k))
@@ -520,12 +589,12 @@ class Verdicts[Carry](Sides[Carry]):
         island with more than one followable completion: each completion is a
         candidate iteration, taken on a side of its own
         (:meth:`_iteration_side`), and the one the verdict keeps is the
-        iteration's outcome. Never from inside a side.
+        iteration's outcome. Inside a side only where :meth:`_nests` allows.
 
         :returns: The kept iteration's ``(end, values)``.
         :raises IslandEnds: When a verdict forks, or no verdict can be asked.
         """
-        if self._caches.probing:
+        if self._caches.probing and not self._nests():
             raise two
         end, value = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))
         return pos + end, [value.value] if isinstance(value, Completed) else []
@@ -549,7 +618,14 @@ class Verdicts[Carry](Sides[Carry]):
         ]
         kept = picks[0]
         for pick in picks[1:]:
-            verdict = self._pair(side_of, kept, pick)
+            try:
+                verdict = self._pair(side_of, kept, pick)
+            except IslandEnds:
+                if self._caches.probing:
+                    raise
+                verdict = FORKED  # an island inside a side: a verdict of its own
+            if verdict == FORKED and not self._caches.probing:
+                verdict = self._retried(self._pair, side_of, kept, pick)
             if verdict == FORKED:
                 raise two
             if verdict == TAKE:

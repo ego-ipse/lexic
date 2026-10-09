@@ -192,11 +192,12 @@ is settled by convergence"* below.
   live stack (`_drive(floor)`); nested viability walks and probes see the true
   continuation. A severed fresh stack mis-resolves any fork whose alternative
   lives in an enclosing frame.
-- **Probes never nest.** Inside a probe, both-viable boundaries resolve
-  greedily by viability class and mark the outcome `uncertain`; the sampled
-  verdict is trusted. Nested probing is exponential (measured — a 24-deep
-  probe chain), and conservative bailing on `uncertain` regressed working
-  grammars.
+- **Probes nest only on a retry.** Inside a probe, both-viable boundaries
+  resolve greedily by viability class and mark the outcome `uncertain`, which
+  forks the verdict that reads it. Only a forked verdict asked again
+  (`_retried`) settles them by verdicts of their own, three sides deep and 64
+  verdicts at most: nesting everywhere is exponential (measured — a 24-deep
+  probe chain), and a verdict that settles without it never pays for it.
 - **No memoization.** A sub-run's outcome depends on the enclosing
   continuation, so `(clone, pos)` is not a sound packrat key — and the memo
   measured zero hits before removal. The prototype's memoized numbers priced
@@ -1231,10 +1232,11 @@ where it starts and where it stops. The common side drives with no floors to
 settle and nothing to record. Measured cost on the verdict path: +0.37 ns per
 character, median over the corpus rows; whole parses within the A/A noise band.
 
-Under leftmost-longest, completed sides the rank cannot read, or reached
-through a guess inside a side, still keep the take, as before: such a guess is
-resolved exactly only by a verdict of its own. That take is leftmost-longest's
-choice, so under any other decider those sides fork.
+Completed sides the rank cannot read, or reached through a guess inside a
+side, fork under every decider; no take is kept for them. The guess is settled
+by a verdict of its own when the forked verdict is asked again (`_retried`),
+and a rank keyed on the decider's type stays only where it is the order's own
+semantics: a repetition ranked by where its first differing iteration ends.
 
 **Why:** two parses that both complete differ in where some node ends, and
 Earley keeps the decider's carving of the first such node top-down. Ranking by

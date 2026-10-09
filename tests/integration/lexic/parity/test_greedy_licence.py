@@ -302,10 +302,10 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     seen = [0]
     real = sides.frames_copy
 
-    def counted(stack, every_end=False):
+    def counted(stack, every_end=False, remap=None):
         """Count the forks, so a fixture that stops forking is visible."""
         seen[0] += 1
-        return real(stack, every_end)
+        return real(stack, every_end, remap)
 
     sides.frames_copy = counted
     try:

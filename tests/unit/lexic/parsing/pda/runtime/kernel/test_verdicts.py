@@ -25,7 +25,7 @@ from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import sides, verdicts
-from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
 from lexic.parsing.pda.runtime.kernel.sides import (
     PENDING,
     UNSEEN,
@@ -65,7 +65,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     STOP side dies there, the verdict is already settled, and probing the stop
     side again only re-establishes that death. Counted rather than asserted
     about: every :func:`frames_copy` call during a parse that forks, against
-    the number of verdicts that asked.
+    the number of lockstep verdicts asked, a boundary inside a side included.
 
     The copy count alone would hold for the wrong reason — two copies per
     verdict says only that no verdict fell through to a probe, which any
@@ -75,7 +75,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     branch and a non-zero difference is the evidence it ran.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
-    counted = {"copies": 0, "verdicts": 0, "settled": 0, "converged": 0}
+    counted = {"copies": 0, "verdicts": 0, "asked": 0, "settled": 0, "converged": 0}
     copy = sides.frames_copy
     defined = vars(verdicts.Verdicts)  # what the class DEFINES
     verdict, lockstep, converged = (
@@ -84,10 +84,10 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
         defined["_converged"],
     )
 
-    def counting_copy(stack, every_end=False):
+    def counting_copy(stack, every_end=False, remap=None):
         """`frames_copy`, counted."""
         counted["copies"] += 1
-        return copy(stack, every_end)
+        return copy(stack, every_end, remap)
 
     def counting_verdict(self, *args, **kwargs):
         """`_fork_verdict`, counted."""
@@ -96,6 +96,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
 
     def counting_lockstep(self, *args, **kwargs):
         """`_lockstep_verdict`, counting the boundaries it SETTLES."""
+        counted["asked"] += 1
         answer = lockstep(self, *args, **kwargs)
         counted["settled"] += answer is not None
         return answer
@@ -119,7 +120,8 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
         "no boundary settled on a dead STOP side — the branch under test "
         "never ran, so the copy count below proves nothing about it"
     )
-    assert counted["copies"] == 2 * counted["verdicts"]
+    assert counted["asked"] >= counted["verdicts"]
+    assert counted["copies"] == 2 * counted["asked"]
 
 
 def test_the_lockstep_settles_a_converged_boundary_when_the_values_agree(
@@ -389,14 +391,14 @@ def test_a_stop_side_death_is_judged_by_its_own_drive(
 
 
 @pytest.mark.parametrize(
-    ("stack", "verdict"), [("mid-parse", FORKED), ("completed", TAKE)]
+    ("stack", "verdict"), [("mid-parse", FORKED), ("completed", FORKED)]
 )
-def test_only_a_mid_parse_convergence_is_unsettled_by_a_guess(
+def test_a_guess_unsettles_every_convergence(
     monkeypatch, stack: str, verdict: int
 ) -> None:
-    """Both convergences agree and both were reached after a guess. The
-    mid-parse one forks; the completed one takes — two completed sides are
-    compared on the values they built, and one value is one answer."""
+    """Both convergences agree and both were reached after a guess, so both
+    fork: a side that guessed may have dropped the carving the decider keeps,
+    agreement included, and completing does not change that."""
     kern = live_kernel()
     frames = _holding("v") if stack == "mid-parse" else []
     monkeypatch.setattr(
@@ -462,7 +464,7 @@ def test_completed_sides_that_differ_are_ranked(monkeypatch) -> None:
     """Two completed sides hold empty stacks, whose pending snapshots are both
     ``()``. What they built is in their root outputs; those differ, so the
     rank decides — and where it cannot read the step, or a guess reached the
-    sides, the take stands."""
+    sides, the boundary forks."""
     kern = _at_a_boundary(live_kernel())
     end = len(kern.text)
     converged = vars(Verdicts)["_converged"]
@@ -470,8 +472,8 @@ def test_completed_sides_that_differ_are_ranked(monkeypatch) -> None:
     monkeypatch.setattr(Verdicts, "_ranked", lambda *_a: next(ranks))
     left, right = completed_side(end, ["x", "y"]), completed_side(end, ["xy"])
     assert converged(kern, left, right, (), False, _made(left, right)) == STOP_FORCED
-    assert converged(kern, left, right, (), False, _made(left, right)) == TAKE
-    assert converged(kern, left, right, (), True, _made(left, right)) == TAKE
+    assert converged(kern, left, right, (), False, _made(left, right)) == FORKED
+    assert converged(kern, left, right, (), True, _made(left, right)) == FORKED
     assert (
         converged(
             kern,
@@ -723,3 +725,26 @@ def test_a_completed_carving_the_decider_keeps_stays_on_the_pda() -> None:
     predictive, gated = parity_helpers.answers(TWO_RUNS, "verdicts-two-runs", "x #a\nx")
     assert predictive != parity_helpers.DECLINED
     assert predictive == gated
+
+
+SECTIONS = (
+    'doc ::= sec+\nsec ::= stmt+ end\nstmt ::= "!" | ";"? [a;]\n'
+    'end ::= [a;] | [a]* "a"\n'
+)
+"""Every section closes with ``end``, and ``!`` is only ever a statement."""
+
+
+@pytest.mark.parametrize("text", [";aaaa!", ";aaa;!"])
+def test_a_retry_nested_four_deep_rejects_what_no_carving_derives(text: str) -> None:
+    """No carving derives the text: the trailing ``!`` opens a section no
+    ``end`` closes. The first boundary's sides meet an island with two ends,
+    each needing a verdict of its own four sides deep before every side dies
+    exactly; nested less deep, the deaths are guesses, the boundary forks and
+    the predictive engine declines a document it can reject itself."""
+    compiled, product = parity_helpers.built(SECTIONS, "verdicts-sections")
+    with pytest.raises(PdaFail) as refusal:
+        pda_model(product.pda, text, compiled.product.executor)
+    assert not isinstance(refusal.value, ProbeFork), refusal.value
+    assert parity_helpers.answers(SECTIONS, "verdicts-sections", text)[1] == (
+        parity_helpers.REFUSED
+    )

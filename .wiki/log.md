@@ -1,5 +1,12 @@
 # Log
 
+## A forked verdict is asked again with nested verdicts; no completed pair keeps the take (2026-10-09)
+
+`invariants.md` replaces "probes never nest" with the nesting bound: forks nest
+three deep, only while a forked verdict is retried, within a budget, and a nested
+side inherits its outer side's sub-runs. `decisions.md` records that completed
+sides the rank cannot read, or reached through a guess, fork under every decider.
+
 ## A boundary's two parses are ranked as Earley ranks them (2026-10-09)
 
 `decisions.md` records how the predictive engine ranks a boundary's two

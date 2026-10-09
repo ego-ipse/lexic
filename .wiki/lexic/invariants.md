@@ -113,30 +113,25 @@ These live in `resources/ground_truth/`. All integration and property tests run 
 
 `arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
-## Probes never nest — a POLICY invariant, not a shape one
+## Forks nest three deep at most, and only when a forked verdict is asked again
 
-A fork's frames carry `inherited`, and `adopt_inherited` prepends **one**
-origin's sinks at the build. That is the whole prefix only because forks never
-nest: every `inherited` chain is length 1.
+A fork's frames carry `inherited`, and `adopt_inherited` prepends the values of
+the whole chain (`Frame.inherited_prefix`, oldest first), so a fork of a fork
+builds with every origin's values and writes to none of them.
 
-Nothing structural prevents nesting. One branch does — `if self._caches.probing:`
-in `verdicts.py`, which resolves an interior boundary greedily by class instead
-of forking again. `_fork_verdict` is the only entry to the one `frames_copy` call
-site (`_side`), and it sits in that branch's `elif`. `frames_copy` raises if the root frame
-of the stack it is copying already carries `inherited`, so the policy is checked
-rather than carried.
+A boundary inside a side resolves greedily by class, a guess, except while a
+forked verdict is asked again (`_retried`): then the boundary gets a verdict of
+its own (`_nested_verdict`), as does an island's extent inside a side, up to
+`NESTING_DEPTH` sides deep and within `_NESTING_BUDGET` nested verdicts per
+retry. Past either it stays a guess, and a nested verdict that is itself
+undecidable does too. `frames_copy` raises past `NESTING_DEPTH` forks, so the
+bound is checked rather than carried. A nested side settles the sub-runs its
+outer side still has to (`_inherited_floors`); an entry its own drive started
+at the bottom owns its root.
 
-Two plausible optimisations break it **silently**, producing a model with values
-missing and no exception anywhere:
-
-- committing a winning probe's stack instead of re-driving a decision already
-  paid for — the committed frames would still be marked;
-- resolving interior boundaries exactly, to kill `uncertain` — that is the very
-  branch the invariant rests on.
-
-Either needs `adopt_inherited` to walk the chain first. Do not add that walk
-before then: with forks that cannot nest it is dead code that makes nesting look
-supported.
+A retried drive spends the budget, so it cannot be reproduced by driving again:
+a side built while `nesting` is set keeps its ledger, and the rank reads the
+sides at hand.
 
 ## What these invariants mean in practice
 

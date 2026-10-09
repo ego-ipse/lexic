@@ -31,6 +31,7 @@ from lexic.parsing.pda.runtime.build import (
 )
 
 __all__ = [
+    "NESTING_DEPTH",
     "NO_ROUTE",
     "Audit",
     "Floor",
@@ -249,26 +250,41 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
     :ivar probing: How many probes are live. Non-zero means a boundary is
-        resolved GREEDILY by class rather than by forking again, which is what
-        makes probes never nest. A counter rather than a flag because
-        :meth:`_advance` counts its own drive too.
+        resolved GREEDILY by class rather than by forking again, unless a
+        forked verdict asked again nests a verdict there (``nesting``). A
+        counter rather than a flag because :meth:`_advance` counts its own
+        drive too, and the nesting depth is read off it.
     :ivar audits: The audit runs in flight, innermost last — one record per
         audited entry run, pushed around it, read only by a fork inside one.
     :ivar uncertain: Set when a probe's drive resolved a both-viable
-        boundary GREEDILY (probes never nest — the exponential chain of a
-        rules-list grammar probing every later line is cut to one linear
-        drive); the probe's outcome is then a SAMPLED path, and the outer
-        verdict treats it conservatively — an uncertain outcome on a
-        decisive side reads as a fork, which is a fallback, never a wrong
-        commit.
+        boundary GREEDILY (forks nest one level, and only by convergence —
+        the exponential chain of a rules-list grammar probing every later
+        line is cut to one linear drive); the probe's outcome is then a
+        SAMPLED path, and the outer verdict treats it conservatively — an
+        uncertain outcome on a decisive side reads as a fork, which is a
+        fallback, never a wrong commit.
+    :ivar side: The side being driven, or ``None`` outside a side's drive —
+        what a fork inside it copies its unsettled sub-runs and root from.
+    :ivar nesting: How many nested verdicts a forked verdict asked again may
+        still run; ``0`` everywhere else (no boundary inside a side forks).
     """
 
-    __slots__ = ("audits", "deleg", "intern", "probing", "uncertain")
+    __slots__ = (
+        "audits",
+        "deleg",
+        "intern",
+        "nesting",
+        "probing",
+        "side",
+        "uncertain",
+    )
 
     audits: list[Audit]
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
+    nesting: int
     probing: int
+    side: Side | None
     uncertain: bool
 
     def __init__(self) -> None:
@@ -276,12 +292,27 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         self.audits = []
         self.deleg = {}
         self.intern = {}
+        self.nesting = 0
         self.probing = 0
+        self.side = None
         self.uncertain = False
 
 
+NESTING_DEPTH = 16
+"""How many forks deep a stack copy may already be, and so how many sides deep
+a retried verdict nests one of its own (:meth:`~...verdicts.Verdicts._nests`).
+
+A STACK bound, not a cost one: the retry's budget of nested verdicts bounds the
+cost, while each level costs some twelve interpreter frames, so sixteen stay
+far inside the recursion limit. Measured on the decision families: four
+levels keep every rejection the engine made unnested, and none past six
+settles anything more."""
+
+
 def frames_copy[Carry](
-    stack: list[Frame[Carry]], every_end: bool = False
+    stack: list[Frame[Carry]],
+    every_end: bool = False,
+    remap: dict[int, list[Any]] | None = None,
 ) -> list[Frame[Carry]]:
     """A structural copy of the frame stack, aliasing topology preserved.
 
@@ -308,19 +339,28 @@ def frames_copy[Carry](
     through the original — at the one moment it is read, which is its build.
     Two live universes therefore still append only to their own lists.
 
+    :param stack: The stack to copy.
     :param every_end: Give every copy an ``ends`` of its own, kept or not —
         what a side the rank reads needs.
+    :param remap: Filled with each original container's copy, by ``id``, for
+        a caller that must find the copies of lists it holds off the stack.
     """
     # The ROOT frame, because it is never popped before the drive reaches end
     # of input; the top frame is fresh and would prove nothing. Raised rather
     # than asserted because `-O` strips asserts and a nested fork builds a
     # SHORT model silently; the class says why it is outside the LexicError
     # family. See `invariants.md`.
-    if stack and stack[0].inherited is not None:
+    depth, origin = 0, stack[0].inherited if stack else None
+    while origin is not None:
+        depth += 1
+        origin = origin.inherited
+    if depth > NESTING_DEPTH:
         raise EngineInvariantError(
-            "frames_copy: a fork inside a fork — probes are not allowed to nest"
+            f"frames_copy: a fork {depth + 1} deep — forks nest "
+            f"{NESTING_DEPTH} levels at most"
         )
-    remap: dict[int, list[Any]] = {}
+    if remap is None:
+        remap = {}
     copies: list[Frame[Carry]] = []
     for frame in stack:
         new = Frame(frame.arm, _fork(frame.out, remap), frame.clone, 0)

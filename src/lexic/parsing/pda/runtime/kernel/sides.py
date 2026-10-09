@@ -134,12 +134,23 @@ class Sides[Carry]:
         :raises ProbeFork: When the stack does not say how to settle one of
             those sub-runs.
         """
-        forked = frames_copy(self.stack, record)
+        # A retry's drive spends a nesting budget, so it cannot be driven again
+        record = record or bool(self._caches.nesting)
+        remap: dict[int, list[Any]] = {}
+        forked = frames_copy(self.stack, record, remap)
         root: list[Carry] = forked[0].out
         floors: list[Floor] = []
+        outer = self._caches.side if self._caches.probing else None
+        if outer is not None:
+            root, floors = self._inherited_floors(outer, forked, remap)
         for frame in self.stack:
             if frame.clone.sub_root:
-                root, floors = self._side_floors(forked)
+                found_root, found = self._side_floors(forked)
+                # An entry the side's own drive started at the bottom replaced
+                # the one it inherited: its winner is the side's root.
+                if outer is None or (found and found[0][0] == 0):
+                    root = found_root
+                floors += found
                 break
         routes = None if self._routes is None else self._routes.forked(forked)
         return (
@@ -254,8 +265,9 @@ class Sides[Carry]:
         saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
         self.stack, self.pos, self._routes = side[0], side[1], side[2]
         caches.probing += 1
-        saved_unc = caches.uncertain
+        saved_unc, saved_side = caches.uncertain, caches.side
         caches.uncertain = False
+        caches.side = side
         try:
             floors = side[4]
             ledger = side[5]
@@ -289,7 +301,7 @@ class Sides[Carry]:
             return None, caches.uncertain
         finally:
             caches.probing -= 1
-            caches.uncertain = saved_unc
+            caches.uncertain, caches.side = saved_unc, saved_side
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
 
@@ -440,6 +452,38 @@ class Sides[Carry]:
                 ]
             floors += found if audit is None else auditing(found, audit)
         return root, floors
+
+    def _inherited_floors(
+        self,
+        outer: Side,
+        forked: list[Frame[Carry]],
+        remap: dict[int, list[Any]],
+    ) -> tuple[list[Carry], list[Floor]]:
+        """The sub-runs side ``outer`` still has to settle, and its root
+        output, as ``forked`` — a copy of ``outer``'s stack — carries them.
+
+        A list on the stack has an empty copy in ``remap``, so a holder's
+        values so far join its live prefix; a list off the stack (a root, or
+        an entry's winner list) is copied whole, once, so floors that share it
+        still share it.
+        """
+
+        def carried(lst: list[Carry]) -> tuple[list[Carry], list[Carry]]:
+            """``lst``'s copy, and the values it holds that the copy lacks."""
+            got = remap.get(id(lst))
+            if got is not None:
+                return got, lst
+            got = remap[id(lst)] = list(lst)
+            return got, []
+
+        floors: list[Floor] = []
+        for depth, start, holder, live, loop, entry in outer[4]:
+            copy, before = carried(holder)
+            if entry is not None:
+                entry = (entry[0], carried(entry[1])[0], entry[2], entry[3])
+            mine = None if loop is None else forked[depth - 1]
+            floors.append((depth, start, copy, [*live, *before], mine, entry))
+        return carried(outer[3])[0], floors
 
     def _audit_at(self, depth: int, start: int) -> Audit | None:
         """The live audit whose sub-run roots at ``depth``, or ``None`` when the
