@@ -15,40 +15,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.tools.benchmark.benchmark_helpers import BASE, CONTRACT, HEAD, OBSERVED
 from tools.benchmark import compare
 from tools.benchmark.execution.isolation import Job
 from tools.benchmark.judging import arithmetic
-from tools.benchmark.measurement.contract import (
-    CLOCKS,
-    PROTOCOL,
-    Observation,
-    RowContract,
-    RowResult,
-)
-
-BASE = Path("/tmp/base")
-HEAD = Path("/tmp/head")
-
-CONTRACT = RowContract(
-    PROTOCOL,
-    "lexic-pda",
-    "json",
-    "abc123",
-    (),
-    (),
-    "def456",
-    2403,
-    "corpus",
-    "typed model",
-    1,
-    True,
-    CLOCKS,
-)
-"""A well-formed contract for one sequential row."""
-
-
-OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1)
-"""A well-formed observation of one accepted sequential row."""
+from tools.benchmark.measurement.contract import Observation, RowResult
 
 
 def _result(cpu: float) -> RowResult:
@@ -546,7 +517,9 @@ def test_an_already_balanced_result_is_not_grown(
 
 def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
-    observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, "plan", 4)
+    observation = Observation(
+        2.0, 9.0, "text", "shape", "accepted", True, "plan", 4, 0, 0.0
+    )
 
     assert arithmetic.primary_reading(observation, "lexic-mt") == 2.0
     assert arithmetic.primary_reading(observation, "lexic-pda") == 9.0
@@ -907,6 +880,33 @@ def test_growth_keeps_one_head_reading_per_candidate_pair(
     assert len(pairing.candidate) > compare.MIN_PAIRS, "the fixture must have grown"
     assert len(pairing.head_wall) == len(pairing.candidate)
     assert len(pairing.head_cpu) == len(pairing.candidate)
+    assert len(pairing.collections) == len(pairing.candidate)
+    assert len(pairing.paused) == len(pairing.candidate)
+
+
+def test_the_collector_report_names_rows_that_collected_and_skips_the_rest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A head collecting more, or longer, than its base reads beside the
+    verdicts; a row neither arm collected in is left out."""
+    collecting = arithmetic.Pairing(
+        (0.0,) * 3,
+        (0.0,) * 3,
+        (0.0,) * 3,
+        collections=((5, 0), (5, 0), (4, 1)),
+        paused=((0.05, 0.0), (0.04, 0.0), (0.06, 0.01)),
+    )
+    quiet = arithmetic.Pairing(
+        (0.0,), (0.0,), (0.0,), collections=((0, 0),), paused=((0.0, 0.0),)
+    )
+
+    compare.report_collections({"gbnf-meta/lexic-earley": collecting, "json/x": quiet})
+    out = capsys.readouterr().out
+
+    assert "gbnf-meta/lexic-earley" in out
+    assert "json/x" not in out
+    row = next(line for line in out.splitlines() if line.startswith("gbnf-meta"))
+    assert row.split()[1:] == ["5.0", "0.0", "50.00", "0.00"]
 
 
 def test_the_absolute_summary_uses_the_verdicts_own_arithmetic() -> None:

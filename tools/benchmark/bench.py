@@ -41,7 +41,6 @@ noise floor says what difference must be beaten.
 
 from __future__ import annotations
 
-import gc
 from collections.abc import Sequence
 from importlib import import_module
 from typing import NamedTuple
@@ -61,7 +60,13 @@ from tools.benchmark.measurement.contract import (
 )
 from tools.benchmark.measurement.language import unfaithful
 from tools.benchmark.measurement.occupancy import declined_reason
-from tools.benchmark.measurement.sampling import Parse, Pass, prime, timed
+from tools.benchmark.measurement.sampling import (
+    Parse,
+    Pass,
+    Sampled,
+    prime,
+    sample_round,
+)
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -420,27 +425,28 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
     return EngineBuild(parse, document, None, artifact)
 
 
-def observe(build: EngineBuild, rounds: int) -> Pass:
+def observe(build: EngineBuild, rounds: int) -> Sampled:
     """This process's ONE observation of its row, on both clocks.
 
     The independent unit of a comparison is the PROCESS, not the pass. Several
     inner passes are reduced here to a single answer so that a warm allocator
     or a lucky cache line inside one interpreter cannot be counted as several
     independent structural samples. The reduction is the median on each clock,
-    which is what a repeated measurement of one state is worth.
+    which is what a repeated measurement of one state is worth; the collections
+    and their pauses are summed over every :func:`sample_round`.
     """
     parse, document = build.parse, build.document
     if parse is None:
         raise ValueError("cannot observe a refused benchmark row")
     prime(parse, document)
-    passes: list[Pass] = []
-    for _ in range(rounds):
-        parse(document)
-        passes.append(timed(parse, document))
-        gc.collect()
-    walls = sorted(entry.wall for entry in passes)
-    cpus = sorted(entry.cpu for entry in passes)
-    return Pass(walls[len(walls) // 2], cpus[len(cpus) // 2])
+    taken = [sample_round(parse, document) for _ in range(rounds)]
+    walls = sorted(one.timing.wall for one in taken)
+    cpus = sorted(one.timing.cpu for one in taken)
+    return Sampled(
+        Pass(walls[len(walls) // 2], cpus[len(cpus) // 2]),
+        sum(one.collections for one in taken),
+        sum(one.paused for one in taken),
+    )
 
 
 class Result(NamedTuple):

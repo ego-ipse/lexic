@@ -230,8 +230,8 @@ class Arms(NamedTuple):
 
 def _ratio(
     numerator: Job, denominator: Job, numerator_first: bool, row: str
-) -> tuple[float, Arm]:
-    """Log ratio of ``numerator`` over ``denominator``, and the numerator's arm.
+) -> tuple[float, Arm, Arm]:
+    """Log ratio of ``numerator`` over ``denominator``, and the two arms.
 
     ``numerator_first`` says which of the two processes RUNS first. Flipping it
     between pairs is what stops the first slot's cache and thermal state from
@@ -241,7 +241,7 @@ def _ratio(
     arms = dict(zip((job.label for job in pair), run_pair(*pair, row), strict=True))
     top, bottom = arms[numerator.label], arms[denominator.label]
     reading = primary_reading(top.observation, row)
-    return math.log(reading / primary_reading(bottom.observation, row)), top
+    return math.log(reading / primary_reading(bottom.observation, row)), top, bottom
 
 
 def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairing:
@@ -288,7 +288,7 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     :param pairs: How many pairs this call collects.
     :param first: The absolute index of the first of them.
     """
-    candidate: list[tuple[float, Arm]] = []
+    candidate: list[tuple[float, Arm, Arm]] = []
     control: list[float] = []
     slots: list[float] = []
     for index in range(first, first + pairs):
@@ -307,18 +307,27 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
 
 
 def _with_heads(
-    candidate: list[tuple[float, Arm]], control: list[float], slots: list[float]
+    candidate: list[tuple[float, Arm, Arm]], control: list[float], slots: list[float]
 ) -> Pairing:
-    """The pairing, carrying each candidate pair's head arm as nanoseconds per byte."""
+    """The pairing, carrying each candidate pair's head arm as nanoseconds per
+    byte and both arms' collector passes and pause."""
     size = candidate[-1][1].contract.document_bytes if candidate else 0
-    heads = [head.observation for _log, head in candidate]
+    heads = [head.observation for _log, head, _base in candidate]
     return Pairing(
-        tuple(ratio for ratio, _head in candidate),
+        tuple(ratio for ratio, _head, _base in candidate),
         tuple(control),
         tuple(slots),
         tuple(one.wall / size * 1e9 for one in heads),
         tuple(one.cpu / size * 1e9 for one in heads),
         size,
+        tuple(
+            (head.observation.collections, base.observation.collections)
+            for _log, head, base in candidate
+        ),
+        tuple(
+            (head.observation.paused, base.observation.paused)
+            for _log, head, base in candidate
+        ),
     )
 
 
@@ -385,6 +394,8 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
             pairing.head_wall + extra.head_wall,
             pairing.head_cpu + extra.head_cpu,
             pairing.document_bytes,
+            pairing.collections + extra.collections,
+            pairing.paused + extra.paused,
         )
         verdict = decide(label, pairing, clock)
     return verdict, pairing
@@ -470,6 +481,38 @@ def report_absolute(samples: dict[str, Pairing]) -> None:
             f"{row:{width}}  {one.document_bytes:>8}  {wall[0]:10.2f}  "
             f"{wall[1]:8.2f}..{wall[2]:<7.2f}  {cpu[0]:10.2f}  "
             f"{cpu[1]:8.2f}..{cpu[2]:<7.2f}  {one.pairs}"
+        )
+
+
+def _arm_medians(pairing: Pairing) -> tuple[float, float, float, float]:
+    """``(head passes, base passes, head ms, base ms)``, each a median."""
+    return (
+        median([float(head) for head, _base in pairing.collections]),
+        median([float(base) for _head, base in pairing.collections]),
+        median([head * 1e3 for head, _base in pairing.paused]),
+        median([base * 1e3 for _head, base in pairing.paused]),
+    )
+
+
+def report_collections(samples: dict[str, Pairing]) -> None:
+    """Print each row's collector passes and pause, both arms, never judged.
+
+    Every timed pass starts from a fresh collection, so the clocks no longer
+    carry a collection two parses' allocation brings on, nor the longer pause a
+    larger live heap costs it. A head that collects more often or for longer
+    than its base reads here, whatever its ratio says.
+    """
+    known = {row: _arm_medians(p) for row, p in samples.items() if p.collections}
+    known = {row: one for row, one in known.items() if one[0] or one[1]}
+    if not known:
+        return
+    width = max(len(row) for row in known)
+    print("\ncollector passes and pause per observation, median — never judged")
+    print(f"{'row':{width}}  {'head':>5}  {'base':>5}  {'head ms':>8}  {'base ms':>8}")
+    for row in sorted(known):
+        heads, bases, head_ms, base_ms = known[row]
+        print(
+            f"{row:{width}}  {heads:5.1f}  {bases:5.1f}  {head_ms:8.2f}  {base_ms:8.2f}"
         )
 
 
@@ -573,6 +616,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print()
     report_table(verdicts)
     report_absolute(samples)
+    report_collections(samples)
     if args.json:
         args.json.write_text(
             json.dumps(
@@ -583,6 +627,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "candidate": list(p.candidate),
                             "control": list(p.control),
                             "slots": list(p.slots),
+                            "collections": [list(pair) for pair in p.collections],
+                            "paused": [list(pair) for pair in p.paused],
                         }
                         for row, p in samples.items()
                     },

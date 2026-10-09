@@ -318,7 +318,8 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
     """Each isolated worker measures hot executions of its one engine.
 
     The initial parse is the ordinary one-time prime. Each timed sample then
-    gets one untimed pass of the SAME engine immediately before it, keeping the
+    gets one untimed pass of the SAME engine and a collection before it, so
+    every timed parse starts from the same collector state, keeping the
     reported value a median of individual timed parses. Public workers contain
     no other engine; this pins the low-level sampling protocol itself.
     """
@@ -328,15 +329,16 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
         events.append("parse")
         return object()
 
-    def timed(_parse: Parse, _text: str) -> float:
+    def timed(_parse: Parse, _text: str) -> sampling.Pass:
         events.append("timed")
-        return 1.0
+        return sampling.Pass(1e-6, 1e-6)
 
-    monkeypatch.setattr(sampling, "once", timed)
-    monkeypatch.setattr(sampling.gc, "collect", lambda: None)
+    monkeypatch.setattr(sampling, "timed", timed)
+    monkeypatch.setattr(sampling.gc, "collect", lambda: events.append("collect"))
 
     assert interleaved({"row": parse}, {"row": "x"}, 2) == {"row": [1.0, 1.0]}
-    assert events == ["parse", "parse", "timed", "parse", "timed"]
+    one_round = ["parse", "collect", "timed", "collect"]
+    assert events == ["parse", *one_round, *one_round]
 
 
 def test_peg_and_antlr_can_translate_the_directive_matched_variant() -> None:
