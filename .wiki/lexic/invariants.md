@@ -124,7 +124,10 @@ forked verdict is asked again (`_retried`): then the boundary gets a verdict of
 its own (`_nested_verdict`), as does an island's extent inside a side, up to
 `NESTING_DEPTH` sides deep and within `_NESTING_BUDGET` nested verdicts per
 retry. Past either it stays a guess, and a nested verdict that is itself
-undecidable does too. `frames_copy` raises past `NESTING_DEPTH` forks, so the
+undecidable does too. The retries of one parse, its delegate sub-runs'
+included, draw on one allowance (`PARSE_NESTING`, the `Nesting` record), so a
+document costs at most that many drives to the end; past it a fork goes to the
+gated engine as it would without a retry. `frames_copy` raises past `NESTING_DEPTH` forks, so the
 bound is checked rather than carried. A nested side settles the sub-runs its
 outer side still has to (`_inherited_floors`); an entry its own drive started
 at the bottom owns its root.

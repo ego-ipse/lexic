@@ -84,6 +84,7 @@ from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
+    Nesting,
     RouteLane,
     sole_admitted,
 )
@@ -162,6 +163,7 @@ class PdaKernel[M](
         executor: ProductExecutor[M] | None = None,
         *,
         config: ParseConfig = DEFAULT_CONFIG,
+        nesting: Nesting | None = None,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -174,13 +176,15 @@ class PdaKernel[M](
         :param config: The caller's resolver, answering an island that
             derives its text two ways that mean different things, and split
             decider. Per-parse state, so it rides on the cursor.
+        :param nesting: The nesting record of the parse this one runs inside,
+            whose allowance it shares, or ``None`` for a parse of its own.
         """
         self.tables = tables
         self.text = text
         self.policy = IslandPolicy(config=config, executor=executor)
         self.pos = 0
         self.stack = []
-        self._caches = KernelCaches[M]()
+        self._caches = KernelCaches[M](nesting)
         # `None` for every program without route continuations — which is the
         # generated-model product permanently. A frame slot would have taxed
         # every product's every frame push; this taxes one attribute.

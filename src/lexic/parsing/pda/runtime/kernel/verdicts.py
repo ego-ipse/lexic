@@ -157,14 +157,16 @@ class Verdicts[Carry](Sides[Carry]):
         Asked only after a fork: a side's guess is what usually forks it, and
         a nested verdict costs a fork per boundary inside a side, so a verdict
         that settles without them never pays for them. The fork it replaces
-        would hand the whole document to the gated engine.
+        would hand the whole document to the gated engine, and does once the
+        parse's allowance (:data:`~...admission.PARSE_NESTING`) is spent.
         """
-        caches = self._caches
-        caches.nesting = _NESTING_BUDGET
+        nesting = self._caches.nesting
+        if not nesting.open(_NESTING_BUDGET):
+            return FORKED
         try:
             return ask(*args)
         finally:
-            caches.nesting = 0
+            nesting.close()
 
     def _nests(self) -> bool:
         """Whether a verdict may be asked inside a side here, spending one of
@@ -175,10 +177,7 @@ class Verdicts[Carry](Sides[Carry]):
         sides carry the sub-runs the side still has to settle
         (:meth:`_inherited_floors`)."""
         caches = self._caches
-        if not caches.nesting or caches.probing > NESTING_DEPTH:
-            return False
-        caches.nesting -= 1
-        return True
+        return caches.probing <= NESTING_DEPTH and caches.nesting.take()
 
     def _nested_verdict(
         self,

@@ -10,10 +10,12 @@ from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_REF1
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
     NESTING_DEPTH,
+    PARSE_NESTING,
     REST_ADMITS_HARD,
     REST_ASCEND,
     REST_DEAD,
     KernelCaches,
+    Nesting,
     admits,
     arm_rest_scan,
     composes,
@@ -364,3 +366,38 @@ def test_composes_checks_the_next_character_against_follow():
     follow = CharSet.from_chars("x")
     assert composes(follow, "axb", 1) is True
     assert composes(follow, "ayb", 1) is False
+
+
+# ── Nesting — a retry's nested verdicts, drawn from the parse's allowance ──
+
+
+def test_a_retry_draws_from_the_parse_and_gives_back_what_it_did_not_ask():
+    """Two of a retry's sixty-four are asked; the other sixty-two go back."""
+    nesting = Nesting()
+    assert nesting.open(64) and nesting.retry == 64
+    assert nesting.take() and nesting.take()
+    nesting.close()
+    assert (nesting.retry, nesting.left) == (0, PARSE_NESTING - 2)
+
+
+def test_a_spent_allowance_opens_no_retry_and_outside_one_nothing_is_taken():
+    """Past the parse's allowance a retry is not opened at all; outside a
+    retry no nested verdict is ever granted."""
+    nesting = Nesting()
+    assert not nesting.take()
+    nesting.left = 1
+    assert nesting.open(64) and nesting.retry == 1
+    assert nesting.take() and not nesting.take()
+    nesting.close()
+    assert not nesting.open(64)
+
+
+def test_a_delegate_kernel_draws_on_the_parse_s_own_allowance():
+    """A kernel run inside a parse keeps a retry of its own but spends the
+    same allowance, so delegate sub-runs cannot multiply the parse's bound."""
+    parse = KernelCaches()
+    delegate = KernelCaches(parse.nesting)
+    assert delegate.nesting is not parse.nesting
+    assert delegate.nesting.root is parse.nesting.root
+    delegate.nesting.open(64)
+    assert parse.nesting.left == PARSE_NESTING - 64

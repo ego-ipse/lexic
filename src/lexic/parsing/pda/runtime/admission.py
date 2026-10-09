@@ -33,6 +33,8 @@ from lexic.parsing.pda.runtime.build import (
 __all__ = [
     "NESTING_DEPTH",
     "NO_ROUTE",
+    "PARSE_NESTING",
+    "Nesting",
     "Audit",
     "Floor",
     "RouteLane",
@@ -243,6 +245,58 @@ def composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
+PARSE_NESTING = 256
+"""How many nested verdicts one parse may ask over all its retries, delegate
+sub-runs' included: each costs a drive to the end of the input, and past it a
+forked verdict goes to the gated engine as without a retry. The most any of
+4,181 documents asked is 117 (decision families, ground truth, 200 generated
+vyx documents, the roster)."""
+
+
+class Nesting:
+    """One kernel's nested verdicts: what its retry may still run, and the
+    parse's allowance, shared with the delegate sub-runs the parse starts.
+
+    :ivar retry: How many nested verdicts the retry being asked may still run;
+        ``0`` outside a retry (no boundary inside a side forks).
+    :ivar root: The parse's own record, whose ``left`` is the allowance.
+    :ivar left: What is left of the allowance, read on the root.
+    """
+
+    __slots__ = ("left", "retry", "root")
+
+    left: int
+    retry: int
+    root: Nesting
+
+    def __init__(self, root: Nesting | None = None) -> None:
+        """A kernel outside any retry, drawing on ``root``'s allowance — a
+        fresh one (:data:`PARSE_NESTING`) for a parse of its own."""
+        self.left = PARSE_NESTING
+        self.retry = 0
+        self.root = self if root is None else root
+
+    def open(self, most: int) -> bool:
+        """Start a retry with up to ``most`` of the allowance; whether any was
+        left."""
+        root = self.root
+        self.retry = min(most, root.left)
+        root.left -= self.retry
+        return self.retry > 0
+
+    def close(self) -> None:
+        """End the retry, giving back what it did not ask."""
+        self.root.left += self.retry
+        self.retry = 0
+
+    def take(self) -> bool:
+        """Spend one of the retry's nested verdicts, if it has one left."""
+        if not self.retry:
+            return False
+        self.retry -= 1
+        return True
+
+
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     """One kernel run's scratch — the memos and the stop-probe depth.
 
@@ -265,8 +319,8 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         fallback, never a wrong commit.
     :ivar side: The side being driven, or ``None`` outside a side's drive —
         what a fork inside it copies its unsettled sub-runs and root from.
-    :ivar nesting: How many nested verdicts a forked verdict asked again may
-        still run; ``0`` everywhere else (no boundary inside a side forks).
+    :ivar nesting: The nested verdicts a forked verdict asked again may still
+        run, and the parse's allowance they are drawn from (:class:`Nesting`).
     """
 
     __slots__ = (
@@ -282,17 +336,19 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     audits: list[Audit]
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
-    nesting: int
+    nesting: Nesting
     probing: int
     side: Side | None
     uncertain: bool
 
-    def __init__(self) -> None:
-        """Seed the memos empty, the probe depth zero, certainty clean."""
+    def __init__(self, nesting: Nesting | None = None) -> None:
+        """Seed the memos empty, the probe depth zero, certainty clean, and the
+        nesting record — one drawing on ``nesting``'s allowance when a parse
+        runs this kernel inside it."""
         self.audits = []
         self.deleg = {}
         self.intern = {}
-        self.nesting = 0
+        self.nesting = Nesting(None if nesting is None else nesting.root)
         self.probing = 0
         self.side = None
         self.uncertain = False

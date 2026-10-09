@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.runtime import admission
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import sides, verdicts
@@ -748,3 +749,15 @@ def test_a_retry_nested_four_deep_rejects_what_no_carving_derives(text: str) -> 
     assert parity_helpers.answers(SECTIONS, "verdicts-sections", text)[1] == (
         parity_helpers.REFUSED
     )
+
+
+def test_a_parse_whose_allowance_is_spent_forks_as_before_the_retry(
+    monkeypatch,
+) -> None:
+    """The same rejection, with no nested verdicts left to the parse: the
+    boundary's fork is not retried, and the document goes to the gated engine
+    — the predictive engine's answer before retries, never a wrong one."""
+    monkeypatch.setattr(admission, "PARSE_NESTING", 0)
+    compiled, product = parity_helpers.built(SECTIONS, "verdicts-sections")
+    with pytest.raises(ProbeFork):
+        pda_model(product.pda, ";aaaa!", compiled.product.executor)

@@ -135,7 +135,7 @@ class Sides[Carry]:
             those sub-runs.
         """
         # A retry's drive spends a nesting budget, so it cannot be driven again
-        record = record or bool(self._caches.nesting)
+        record = record or bool(self._caches.nesting.retry)
         remap: dict[int, list[Any]] = {}
         forked = frames_copy(self.stack, record, remap)
         root: list[Carry] = forked[0].out

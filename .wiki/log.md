@@ -1,5 +1,11 @@
 # Log
 
+## A parse's nested verdicts are bounded, not only a retry's (2026-10-09)
+
+`invariants.md` records that every retry of one parse, delegate sub-runs
+included, draws on one allowance (`PARSE_NESTING`), so the nesting cost is
+bounded per document.
+
 ## A forked verdict is asked again with nested verdicts; no completed pair keeps the take (2026-10-09)
 
 `invariants.md` replaces "probes never nest" with the nesting bound: forks nest
