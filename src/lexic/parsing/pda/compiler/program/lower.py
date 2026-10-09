@@ -28,6 +28,7 @@ from lexic.parsing.pda.compiler.program.gating import (
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    BUILD_VALUE_STR,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
@@ -51,6 +52,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VDISP,
     OP_VRUN,
     OP_VSTR,
+    TERMINAL_OPS,
 )
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
@@ -499,10 +501,18 @@ def _attempt_entries(
     last entry, always admitted (``chars is None``).
     """
     entries: list[tuple[Any, Any, Any, Any, FlatClone]] = []
+    take = clone.longest
     for (chars, negated, arm), spec in zip(clone.selectors, arms):
         sub = _attempt_sub(clone)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
+        if take is not None and take.steals:
+            # A sole admitted arm is entered as this sub, not attempted. One
+            # of terminals matches as a leaf on the path that checks its span;
+            # any other runs framed, and a sub-run it roots that misses asks
+            # the island (`Attempting._attempt_run`).
+            sub.leaf = _checked_arm(clone, arm)
+            sub.longest = take
         window = (
             compile_admission(_flat_windows(spec.attempt_window))
             if spec.attempt_window is not None
@@ -515,6 +525,16 @@ def _attempt_entries(
         sub.default = clone.default
         entries.append((None, None, None, None, sub))
     return tuple(entries)
+
+
+def _checked_arm(clone: FlatClone, arm: FlatArm) -> bool:
+    """Whether ``clone``'s ``arm`` is matched whole on the path that checks a
+    take: a ``value_str`` arm of two items or more, every one a terminal."""
+    return (
+        clone.mode == BUILD_VALUE_STR
+        and arm.n > 1
+        and all(kind in TERMINAL_OPS for kind in arm.kinds)
+    )
 
 
 def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
@@ -601,7 +621,10 @@ def _require_checked_takes(shells: Iterable[FlatClone]) -> None:
     :raises EngineInvariantError: On a longest-take clone with a one-item arm.
     """
     for clone in shells:
-        if clone.longest is not None and any(arm.n < 2 for arm in clone_arms(clone)):
+        take = clone.longest
+        if take is None or take.steals:
+            continue  # a stealing rule's one-item arm matches its run whole
+        if any(arm.n < 2 for arm in clone_arms(clone)):
             raise EngineInvariantError(
                 f"flatten: longest-take clone {clone.name!r} has a one-item arm"
             )

@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Any, Sequence
 
 from lexic.ir import (
+    IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -131,6 +132,33 @@ def sub_conflict(
         eff = eff.union(analysis.atom_first(atom))
     ctx = ConflictCtx(notes, Cont(eff, hard_eff, structural_eff), scope.rule, k)
     SEQ_ATOM.resolve(atom).eval(analysis, atom, (ctx,))
+
+
+def text_only(rule: IrRule) -> bool:
+    """Whether no rule reference appears anywhere in ``rule``'s body, inline
+    groups included — its model is then its matched text."""
+    pending = [_arm_items(arm) for arm in rule.body]
+    while pending:
+        for item in pending.pop():
+            if isinstance(item.atom, IrRuleRef):
+                return False
+            if isinstance(item.atom, IrAlternation):
+                pending.extend(_arm_items(arm) for arm in item.atom)
+    return True
+
+
+def may_steal(analysis: Any, rule: IrRule) -> bool:
+    """Whether ``rule``'s text is matched item by item with nothing to say the
+    match is right: a text-only rule with an arm of two items or more that
+    :func:`greedy_exact` does not cover. Whether its own extent proof declines
+    is the compiler's to ask. Withheld from a delegate's analysis, whose end is
+    not the document's."""
+    return (
+        not analysis.taxonomy.delegated
+        and text_only(rule)
+        and any(len(_arm_items(arm)) > 1 for arm in rule.body)
+        and not greedy_exact(analysis, rule)
+    )
 
 
 def greedy_exact(analysis: Any, rule: IrRule) -> bool:

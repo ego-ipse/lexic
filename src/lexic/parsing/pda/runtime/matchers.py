@@ -34,6 +34,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT,
     OP_LIT1,
 )
+from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
 from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
 
@@ -425,6 +426,30 @@ def table_miss[Carry](
     return vstr_once(text, {}, clone, sink, pos)
 
 
+def taken_end(text: str, take: LongestTake, arm: FlatArm, pos: int) -> int:
+    """Where a checked take's match ends, when the match is its rule's answer.
+
+    :raises IslandEscape: When the span holds a shorter end this reference
+        could continue from, the next character could lengthen it, or a
+        stealing rule's arm missed: none of those is the rule's answer here,
+        so the rule's island is asked.
+    :raises PdaFail: When a rule that cannot steal misses.
+    """
+    try:
+        end = match_arm(text, arm, pos)
+    except PdaFail:
+        if not take.steals:
+            raise
+        # A loop may have taken what the rest of the arm needed: the miss is
+        # no more the rule's answer than a match would be.
+        raise IslandEscape(take.island, pos) from None
+    if take.exit_at.search(text, pos + take.lead, end) or (
+        take.extends_at is not None and take.extends_at.match(text, end)
+    ):
+        raise IslandEscape(take.island, pos)
+    return end
+
+
 def vstr_once[Carry](
     text: str,
     intern: InternMemo[Carry],
@@ -462,15 +487,11 @@ def vstr_once[Carry](
 
     varm = select_arm(clone, char, pos)
     if varm.n != 1:  # the rare multi-item arm — cold, off the hot path
-        end = match_arm(text, varm, pos)
         take = clone.longest
-        if take is not None and (
-            take.exit_at.search(text, pos + take.lead, end)
-            or (take.extends_at is not None and take.extends_at.match(text, end))
-        ):
-            # A shorter end this reference could continue from, or a longer
-            # match: the span is not the island's answer, so ask the island.
-            raise IslandEscape(take.island, pos)
+        if take is None:
+            end = match_arm(text, varm, pos)
+        else:
+            end = taken_end(text, take, varm, pos)
         sink.append(build_vstr(clone, text[pos:end], intern))
         return end
     kj = varm.kinds[0]  # the common single-item arm — no item loop, no slice

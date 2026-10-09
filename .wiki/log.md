@@ -1,5 +1,13 @@
 # Log
 
+## A text extent has one answerer (2026-10-08)
+
+`decisions.md` records how a text-only rule's extent is answered: the proof's
+consult where it holds, otherwise the item-wise match checked by its
+`LongestTake`, with a declined own proof making misses and two-arm choices ask
+the island, and `islands.settle_extent` as the one hook for two followable
+ends.
+
 ## A document splits top-down, a worker's share at a time (2026-09-23)
 
 `parallel-parsing.md` records the top-down partition that replaced the region

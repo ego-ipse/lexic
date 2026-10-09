@@ -20,7 +20,7 @@ from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern
 from lexic.parsing.product import RegularProof, RuleRoutine, prove_regular
 
-__all__ = ["extent_consult", "extent_pattern", "matches_own_text"]
+__all__ = ["extent_consult", "extent_declined", "extent_pattern", "matches_own_text"]
 
 
 def matches_own_text(routine: RuleRoutine | None) -> bool:
@@ -72,6 +72,21 @@ def extent_consult(
     if not match_only:
         return None
     return prove_regular(rules, name, tail.union(follow))
+
+
+def extent_declined(rules: Mapping[str, IrRule], name: str) -> bool:
+    """Whether the rule's extent has no proof even with nothing after it.
+
+    The narrowest continuation asks only the rule's own obligations: its arms
+    part on one character and no loop takes what the rest of its arm needs. A
+    rule that fails them under no continuation fails them under every one, so
+    no clone of it consults, and an item-wise match of it can be wrong.
+
+    :param rules: The grammar's rule table.
+    :param name: The rule asked about.
+    :returns: ``True`` when the proof declines.
+    """
+    return prove_regular(rules, name, CharSet.EMPTY) is None
 
 
 def extent_pattern(proof: RegularProof) -> Pattern:

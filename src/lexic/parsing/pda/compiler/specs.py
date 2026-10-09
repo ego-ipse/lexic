@@ -132,6 +132,9 @@ class LongestTake(NamedTuple):
         character after the span; ``None`` where every arm ends in an unbounded
         run over a class holding all of EXTEND, since the greedy run already
         stopped at a character outside it.
+    :ivar steals: Whether the rule's own extent proof declined, so an arm
+        matched item by item may have taken what its rest needed: a miss is
+        then no answer either, and asks :attr:`island` too.
     """
 
     exits: CharSet
@@ -140,6 +143,7 @@ class LongestTake(NamedTuple):
     lead: int
     exit_at: Pattern
     extends_at: Pattern | None
+    steals: bool
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────

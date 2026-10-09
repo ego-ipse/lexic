@@ -15,14 +15,12 @@ __all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 from typing import Sequence, cast
 
 from lexic.ir import (
-    IrAlternation,
     IrAst,
     IrAtom,
     IrItem,
     IrLeaf,
     IrNoneType,
     IrRule,
-    IrRuleRef,
     IrSelf,
 )
 from lexic.parsing.earley.kernel.tables.decider import (
@@ -39,6 +37,7 @@ from lexic.parsing.pda.analysis.conflicts import (
     same_ref_extent_split,
     soft_gap_conflict,
     sub_conflict,
+    text_only,
 )
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
@@ -78,19 +77,6 @@ sentinel in a positive :class:`CharSet`."""
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _text_only(rule: IrRule) -> bool:
-    """Whether no rule reference appears anywhere in ``rule``'s body, inline
-    groups included — its model is then its matched text."""
-    pending = [_items(arm) for arm in rule.body]
-    while pending:
-        for item in pending.pop():
-            if isinstance(item.atom, IrRuleRef):
-                return False
-            if isinstance(item.atom, IrAlternation):
-                pending.extend(_items(arm) for arm in item.atom)
-    return True
 
 
 def _hi(item: IrItem) -> int | None:
@@ -468,7 +454,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if not extents:
             extents.append(rule_extensions(self))
         extends = extents[0].found[name]
-        invisible = _text_only(self.rules[name]) and not extends.overlaps(
+        invisible = text_only(self.rules[name]) and not extends.overlaps(
             self.follow[name]
         )
         longest = not invisible and self._takes_longest(name)
@@ -499,7 +485,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         return (
             not self.taxonomy.delegated
-            and _text_only(self.rules[name])
+            and text_only(self.rules[name])
             and greedy_exact(self, self.rules[name])
         )
 

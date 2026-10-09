@@ -1128,3 +1128,35 @@ outputs are compared.
 through a sub-run's root without settling it as the caller would is a different
 parse, and a verdict asked on it answers a different question; the ranked
 verdict compares sides' values, so they must be the values the parse builds.
+
+## A text extent has one answerer, and a declined proof checks every match
+
+**Decision:** a text-only rule's extent is answered in one order. Where
+`prove_regular` proves it against the clone's continuation, the possessive
+consult answers. Otherwise the rule is matched item by item, and a match is
+checked by its `LongestTake` before it stands. A rule whose own proof declines
+with nothing after it (`eligibility.extent_declined`), and which
+`greedy_exact` does not cover (`GrammarAnalysis.may_steal`), carries a take
+with `steals` set. Its misses ask the island too, and so does a choice between
+two of its admitted attempt arms (`_settle`): no sub-run settles that choice,
+and the rule's island does. Its sole admitted arm, if two items or more of
+terminals, is a leaf carrying the take, so the frame-less matcher checks it;
+any other arm runs framed, and a sub-run it roots that misses asks the island
+(`Attempting._attempt_run`), so an inline group is covered too.
+Two followable ends of the island go to `islands.settle_extent`, the one place
+the decider's ranking will answer them; until it does, they are refused.
+
+**Why:** a loop matched item by item takes what the rest of its arm needs.
+`item ::= [a;] | "a"+ "a"` never matched its second arm, so `aa` came back as
+two one-character items where whole-document Earley has one. A miss read as
+the end of an enclosing loop was a wrong model too (`x ::= t* rest` with
+`t ::= "ab" | "a"+ "a"` on `aa`). The mark is static, and a clone without it
+pays nothing on the paths it shares: the check sits on the multi-item path
+of `vstr_once` and on the attempt path of `_settle`, one attribute read per
+call.
+
+Answers the old item-wise guess gave right by luck now decline, where either
+the two followable ends wait on the decider's ranking, or the loop before them
+takes greedily because the audit set never names the same-arm rest:
+`sec ::= stmt+ end` with `stmt ::= "!" | ";"? [a;]` on `a;`, where `stmt` now
+derives `;` and the loop takes it from `end`.

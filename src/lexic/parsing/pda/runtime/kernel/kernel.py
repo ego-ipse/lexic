@@ -597,7 +597,11 @@ class PdaKernel[M](
             if clone.attempt is not None:
                 sole = sole_admitted(clone.attempt[1], self.text, self.pos)
                 if sole is None:
-                    self.attempt(clone, out)
+                    take = clone.longest
+                    if take is None or not take.steals:
+                        self.attempt(clone, out)
+                    else:  # an arm run item by item may steal: no sub-run
+                        self._island(take.island, out)  # settles the choice
                     return None  # the winning arm was consumed inline
                 clone = sole  # one admitted entry — no fork is possible: a
                 # plain frame push replaces the sub-run, and the audit has

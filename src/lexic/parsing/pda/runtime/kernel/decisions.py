@@ -373,9 +373,41 @@ class Attempting[Carry](Verdicts[Carry]):
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
             raise
-        except PdaFail, LexicError:
+        except PdaFail:
+            island = self._stolen_at(floor)
+            if island is None:
+                return None
+        except LexicError:
             return None
         finally:
             if len(self.stack) > floor:  # a completed drive left none above
                 del self.stack[floor:]
+            self.pos = saved_pos
+        return self._stolen_back(island, pos)
+
+    def _stolen_at(self, floor: int) -> IslandPayload | None:
+        """The island to ask for a sub-run that missed, when its root is a
+        rule matched item by item whose own extent proof declines: the miss
+        may be a loop taking what the rest of its arm needed, so it is no
+        more the rule's answer than a match would be."""
+        if len(self.stack) <= floor:
+            return None
+        take = self.stack[floor].clone.longest
+        return take.island if take is not None and take.steals else None
+
+    def _stolen_back(
+        self, island: IslandPayload, pos: int
+    ) -> tuple[int, list[Carry]] | None:
+        """The rule's island at ``pos``, as the sub-run's outcome — ``None``
+        when it derives nothing there."""
+        saved_pos, self.pos = self.pos, pos
+        holder: list[Carry] = []
+        try:
+            self._island(island, holder)
+            return self.pos, holder
+        except ProbeFork:
+            raise
+        except PdaFail:
+            return None
+        finally:
             self.pos = saved_pos

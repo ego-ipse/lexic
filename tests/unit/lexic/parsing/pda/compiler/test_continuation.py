@@ -298,3 +298,29 @@ def test_a_reference_inside_an_inline_group_is_a_site() -> None:
     conts = IslandContinuations(analysis, analysis.islands)
     assert conts.follow("x").has(";")
     assert any(chars[0].has(";") for chars, _ in conts.windows("x"))
+
+
+def test_a_rule_whose_extent_proof_declines_checks_every_match() -> None:
+    """``item``'s arms part on no character and ``"a"+`` takes the ``a`` its
+    arm ends on: its take steals, and its island asks with every site's
+    continuation rather than the clone's own."""
+    conts = continuations('root ::= item+ ";"?\nitem ::= [a;] | "a"+ "a"\n')
+    take = conts.longest_take("item", CharSet.EMPTY)
+    assert take is not None and take.steals
+    assert take.island[:2] == ("item", conts.follow("item"))
+
+
+def test_a_rule_whose_own_proof_holds_takes_nothing() -> None:
+    """``n``'s arms part on their first character and no loop reaches what
+    follows it in its arm: an item-wise match of it is exact."""
+    conts = continuations('root ::= n ";"\nn ::= "x" | [0-9]+ "."\n')
+    assert conts.longest_take("n", CharSet.from_chars(";")) is None
+
+
+def test_an_empty_arm_ends_in_no_run() -> None:
+    """A nullable stealing rule: its empty arm ends in no run, so the
+    character after a match is checked, and its empty match is an end."""
+    conts = continuations('root ::= w "b"\nw ::= "a"+ "a" | ""\n')
+    take = conts.longest_take("w", CharSet.from_chars("b"))
+    assert take is not None and take.steals
+    assert take.extends_at is not None and take.lead == 0

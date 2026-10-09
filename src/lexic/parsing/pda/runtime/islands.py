@@ -57,6 +57,7 @@ __all__ = [
     "island_parse",
     "island_run",
     "island_value",
+    "settle_extent",
 ]
 
 ISLAND_WINDOW = 256
@@ -311,17 +312,35 @@ def island_parse(
         if best is not None and policy.follow is not None:
             alt = _unsettled_end(kern, best[1], text, pos, policy)
             if alt >= 0:
-                raise ProbeFork(
-                    f"island {name!r} at {pos}: arm choice spans two ends "
-                    f"({alt}, {best[1]}) and the shorter could compose",
-                    pos,
-                )
+                settle_extent(name, pos, alt, best[1])
         if exact or window >= remaining or not _may_extend(kern):
             break
         window *= 2
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}", pos)
     return _decoded(kern, best, name, policy)
+
+
+def settle_extent(name: str, pos: int, shorter: int, longer: int) -> int:
+    """Which of two ends a text extent takes when the caller may follow both.
+
+    The one place a rule's extent with two followable ends is decided. The
+    split decider's ranking of the two carvings is what answers it; until
+    that ranking is read here, every such extent is refused.
+
+    :param name: The rule whose extent it is.
+    :param pos: Where the extent begins.
+    :param shorter: The shorter end, as a length from ``pos``.
+    :param longer: The longer end, as a length from ``pos``.
+    :returns: The end taken.
+    :raises ProbeFork: Always, for now: undecidable here, so the gated engine
+        answers.
+    """
+    raise ProbeFork(
+        f"island {name!r} at {pos}: arm choice spans two ends "
+        f"({shorter}, {longer}) and the shorter could compose",
+        pos,
+    )
 
 
 def _decoded(

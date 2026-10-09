@@ -440,12 +440,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
         A longest-take rule's body is compiled against the end of input, so
         its loops run greedily: the key's tail is the continuation its
-        :class:`LongestTake` checks, not one its loops stop at.
+        :class:`LongestTake` checks, not one its loops stop at. A rule whose
+        take only guards an item-wise match (:attr:`LongestTake.steals`) keeps
+        its tail.
         """
         name = key.name
         rule = self.analysis.rules[name]
         longest = self.continuations.longest_take(key.name, key.tail)
-        tail = key.tail if longest is None else _EOF
+        tail = key.tail if longest is None or longest.steals else _EOF
         arms, default, struct, follow = self._clone_shape(name, rule, tail)
         routine = self.routines.get(name)
         match_only = matches_own_text(routine)
