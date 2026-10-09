@@ -11,14 +11,17 @@ from typing import Any
 import pytest
 
 from lexic.exceptions import EngineInvariantError
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, Pref
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.gating import (
     KWindowSelect,
     NoiseSkipSelect,
+    continuation_windows,
     gate_take,
     select_gated,
+    window_admits,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -26,6 +29,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_KWIN,
     GATE_STOP,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 
 EOF_GATE = (";", "", None)
@@ -225,3 +229,49 @@ def test_a_clone_with_no_wide_selection_is_an_impossible_state() -> None:
     """
     with pytest.raises(EngineInvariantError, match="no wide selection"):
         select_gated("a", 0, _gated(None, default=object()))
+
+
+# ── an island's continuation windows, read by the one window test ──────────
+
+
+def _continuation(chars: str, state: str) -> Pref:
+    """One window over single-character sets, spelled as a string."""
+    return (tuple(CharSet.from_chars(c) for c in chars), state)
+
+
+def test_no_windows_is_no_evidence_and_admits():
+    """Without windows the one-character test decides alone."""
+    assert window_admits("ab", 0, continuation_windows(()))
+
+
+def test_a_window_must_match_every_character_it_names():
+    """Two characters named, two characters checked."""
+    windows = (_continuation("+a", MORE),)
+    assert window_admits("x+a", 1, continuation_windows(windows))
+    assert not window_admits("x+b", 1, continuation_windows(windows))
+
+
+def test_a_window_past_the_end_of_the_text_cannot_match():
+    """Text too short for the window is not a continuation of it."""
+    assert not window_admits(
+        "x+", 1, continuation_windows((_continuation("+a", MORE),))
+    )
+
+
+def test_a_complete_window_matches_only_where_the_input_ends():
+    """END is the whole continuation, so anything after it disagrees."""
+    windows = (_continuation(";", END),)
+    assert window_admits("x;", 1, continuation_windows(windows))
+    assert not window_admits("x;y", 1, continuation_windows(windows))
+
+
+def test_unknown_past_its_characters_matches_on_them_alone():
+    """UNK says nothing beyond what it spells."""
+    assert window_admits("x y", 1, continuation_windows((_continuation(" ", UNK),)))
+
+
+def test_a_continuation_window_holding_eof_is_refused():
+    """END says where a derivation stops; EOF never appears as a character, so
+    a window holding it is a broken invariant, not a reading."""
+    with pytest.raises(EngineInvariantError, match="EOF"):
+        continuation_windows((((CharSet(frozenset({""})),), MORE),))

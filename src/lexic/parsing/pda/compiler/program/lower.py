@@ -25,6 +25,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
 from lexic.parsing.pda.compiler.program.gating import (
     KWindowSelect,
     NoiseSkipSelect,
+    flat_window,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -90,7 +91,7 @@ def _flat_windows(
     windows: tuple[tuple[CharSet, ...], ...],
 ) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
     """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
-    return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
+    return tuple(flat_window(win) for win in windows)
 
 
 def _flatten_gate(gate: LoopGate) -> tuple[int, object]:

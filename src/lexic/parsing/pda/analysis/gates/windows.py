@@ -31,6 +31,7 @@ from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
     "END",
+    "Depth",
     "FollowWindows",
     "KWindowFirst",
     "MORE",
@@ -315,9 +316,15 @@ def separable(sets: Sequence[set[Pref]]) -> bool:
     return True
 
 
+type Depth = tuple[int, KWindowFirst, CharSet | set[Pref]]
+"""One width a decision is asked at: ``k``, the FIRST\\ :sub:`k` solver of that
+width, and what follows the sides there — a one-character FOLLOW set or the
+FOLLOW\\ :sub:`k` windows."""
+
+
 def first_separating(
     sides: Sequence[Sequence[IrItem]],
-    depths: Iterable[tuple[int, KWindowFirst, "CharSet | set[Pref]"]],
+    depths: Iterable[Depth],
 ) -> tuple[int, list[set[Pref]]] | None:
     """The first ``(k, each side's windows)`` among ``depths`` at which the
     sides separate, or ``None``. Each depth names its width, the solver of that

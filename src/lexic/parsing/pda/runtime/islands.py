@@ -46,7 +46,11 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
-from lexic.parsing.pda.analysis.gates.windows import END, Pref
+from lexic.parsing.pda.analysis.gates.windows import Pref
+from lexic.parsing.pda.compiler.program.gating import (
+    continuation_windows,
+    window_admits,
+)
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.product import ProductExecutor
@@ -192,37 +196,14 @@ def _unsettled_ends[M](
     follow = policy.follow
     if follow is None:
         return []  # no continuation evidence: plain longest-match
+    windows = continuation_windows(policy.windows)
     return [
         alt
         for alt in start_completion_ends(kern)
         if alt < end
         and follow.has(text[pos + alt])
-        and continues(policy.windows, text, pos + alt)
+        and window_admits(text, pos + alt, windows)
     ]
-
-
-def continues(windows: tuple[Pref, ...], text: str, at: int) -> bool:
-    """Whether some continuation window matches ``text`` from ``at``.
-
-    A window that runs past the end of ``text`` cannot match. One marked
-    complete (END) is a whole continuation through to the end of the input
-    (the compiler marks a full-width one MORE, since it may go on), so it
-    matches only where the input ends. MORE and UNK say nothing past
-    their characters, so matching those is enough. No windows is no
-    evidence, and admits.
-    """
-    if not windows:
-        return True
-    for chars, state in windows:
-        piece = text[at : at + len(chars)]
-        if len(piece) < len(chars):
-            continue
-        if not all(one.has(char) for one, char in zip(chars, piece)):
-            continue
-        if state == END and at + len(chars) != len(text):
-            continue
-        return True
-    return False
 
 
 def bounded_window(text: str, pos: int, cont: CharSet) -> int:

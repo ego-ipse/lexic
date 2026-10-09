@@ -12,7 +12,7 @@ from __future__ import annotations
 __all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 
-from typing import Sequence, cast
+from typing import NamedTuple, Sequence, cast
 
 from lexic.ir import (
     IrAst,
@@ -92,6 +92,34 @@ def _hi(item: IrItem) -> int | None:
 # motion (C0302 headroom, Task 6.6); re-exported above for the public surface.
 
 
+class Follows(NamedTuple):
+    """An analysis' FOLLOW views: the soft, hard and structural CharSet
+    fixpoints, and the FOLLOW\\ :sub:`k` window sets built on demand.
+
+    :ivar deep: The window sets built so far, by width — filled by
+        :meth:`windows`, never by a caller.
+    """
+
+    soft: dict[str, CharSet]
+    hard: dict[str, CharSet]
+    structural: dict[str, CharSet]
+    rules: dict[str, IrRule]
+    start: str
+    deep: dict[int, FollowWindows]
+
+    def windows(self, k: int) -> FollowWindows:
+        """FOLLOW\\ :sub:`k` as window sets, built once per width.
+
+        A whole-grammar fixpoint, read by every stop-set two-deep proof, the
+        empty-arm and arm-final demotions and the island continuations — each
+        of which built its own, one per decision asked.
+        """
+        found = self.deep.get(k)
+        if found is None:
+            found = self.deep[k] = FollowWindows(self.rules, self.start, k)
+        return found
+
+
 class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     """FIRST/hard-FIRST/FOLLOW/nullability + per-rule conflict classification.
 
@@ -108,7 +136,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         "nullable",
         "first",
         "hard",
-        "_follows",
+        "follows",
         "taxonomy",
     )
 
@@ -117,7 +145,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     nullable: frozenset[str]
     first: dict[str, CharSet]
     hard: dict[str, CharSet]
-    _follows: tuple[dict[str, CharSet], dict[str, CharSet], dict[str, CharSet]]
+    follows: Follows
     taxonomy: Taxonomy
 
     def __init__(
@@ -139,10 +167,13 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self.nullable = nullable_names(list(grammar.rules))
         self.first = self._first_sets()
         self.hard = self._hard_sets()
-        self._follows = (
+        self.follows = Follows(
             self._follow_fixpoint(hard=False, loopback=True, nullable_first=True),
             self._follow_fixpoint(hard=True, loopback=False, nullable_first=False),
             self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
+            self.rules,
+            self.start,
+            {},
         )
         self.taxonomy = Taxonomy(delegated)
         self._classify(grants)
@@ -150,17 +181,17 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     @property
     def follow(self) -> dict[str, CharSet]:
         """Rule name → its (soft) FOLLOW :class:`CharSet`."""
-        return self._follows[0]
+        return self.follows.soft
 
     @property
     def hard_follow(self) -> dict[str, CharSet]:
         """Rule name → its hard FOLLOW :class:`CharSet` (nullable followers skipped)."""
-        return self._follows[1]
+        return self.follows.hard
 
     @property
     def _structural_follow(self) -> dict[str, CharSet]:
         """Rule name → soft FOLLOW with generated repeat loopback omitted."""
-        return self._follows[2]
+        return self.follows.structural
 
     @property
     def conflicts(self) -> dict[str, list[str]]:
@@ -617,7 +648,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             scope.body
             and not self.taxonomy.delegated
             and stop_exit_settles(
-                FollowWindows(self.rules, self.start, FOLLOW_LOOP_K),
+                self.follows.windows(FOLLOW_LOOP_K),
                 items,
                 k,
                 scope.rule,
@@ -648,8 +679,9 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return cont
         first = self.atom_first(items[k].atom)
         exits = first.subtract(first.subtract(self.seq_first(rest)))
-        windows = FollowWindows(self.rules, self.start, FOLLOW_LOOP_K)
-        if stop_exit_settles(windows, items, k, scope.rule, exits):
+        if stop_exit_settles(
+            self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
+        ):
             return CharSet.EMPTY
         return cont
 

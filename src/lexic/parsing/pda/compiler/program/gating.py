@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
+from lexic.parsing.pda.analysis.gates.windows import END, Pref
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -28,8 +29,51 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_PEEK,
     GATE_STOP,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
+
+type FlatWindow = tuple[tuple[frozenset[str], bool], ...]
+"""A window as :func:`window_admits` reads it: one ``(chars, negated)`` per
+position."""
+
+EOF_ONLY: tuple[frozenset[str], bool] = (frozenset({""}), False)
+"""A position only the end of the input fills — the EOF sentinel and nothing
+else."""
+
+
+def flat_window(window: tuple[CharSet, ...]) -> FlatWindow:
+    """A CharSet window pre-resolved to the flat form :func:`window_admits` reads."""
+    return tuple((cs.chars, cs.negated) for cs in window)
+
+
+def continuation_windows(windows: tuple[Pref, ...]) -> tuple[FlatWindow, ...]:
+    """An island continuation's windows, as :func:`window_admits` reads them.
+
+    Two readings differ from a k-window gate's, and both are stated here as
+    data, so the window test itself is the gate's one definition:
+
+    - **END** — a window marked complete is a whole continuation through to
+      the end of the input, so it gains one more position only EOF fills
+      (:data:`EOF_ONLY`); MORE and UNK say nothing past their characters.
+    - **none** — no windows is no evidence, and admits: the one empty window.
+
+    Past the end of the input every position reads EOF, which no continuation
+    CharSet holds — they are spelled by literals, classes and their
+    complements, and END marks where a derivation stops — so a window running
+    past the input fails.
+
+    :raises EngineInvariantError: On a continuation CharSet holding EOF.
+    """
+    if not windows:
+        return ((),)
+    out: list[FlatWindow] = []
+    for chars, state in windows:
+        if any("" in cs.chars for cs in chars):
+            raise EngineInvariantError("a continuation window holds the EOF sentinel")
+        flat = flat_window(chars)
+        out.append((*flat, EOF_ONLY) if state == END else flat)
+    return tuple(out)
 
 
 def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:

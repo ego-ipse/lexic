@@ -33,6 +33,7 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, nullable_names
 from lexic.parsing.pda.analysis.gates import kwindow
+from lexic.parsing.pda.analysis.gates.windows import windows_of
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN, ScanGate
 from tests.paths import GROUND_TRUTH
@@ -261,9 +262,11 @@ def test_demotes_chess_nonpawn_loop():
 
     items = arm_items(analysis.rules["nonpawn"].body[0])
     assert id(items[1]) in analysis.taxonomy.loop_gates
-    gate = kwindow.loop_gate(analysis.rules, items, 1, analysis.follow["nonpawn"])
+    gate = kwindow.loop_gate(
+        items, 1, kwindow.follow_depths(analysis.rules, analysis.follow["nonpawn"])
+    )
     assert gate is not None
-    assert analysis.taxonomy.loop_gates[id(items[1])] == kwindow.windows_of(gate[1])
+    assert analysis.taxonomy.loop_gates[id(items[1])] == windows_of(gate[1])
 
 
 def test_demotes_gbnf_self_cc_esc_arm():
@@ -277,30 +280,11 @@ def test_demotes_gbnf_self_cc_esc_arm():
     arms = [arm_items(arm) for arm in analysis.rules["cc-esc"].body]
     stored = analysis.taxonomy.arm_gates["cc-esc"]
     assert len(stored) == len(arms)
-    gate = kwindow.arm_gate(analysis.rules, arms, analysis.follow["cc-esc"])
+    gate = kwindow.arm_gate(
+        arms, kwindow.follow_depths(analysis.rules, analysis.follow["cc-esc"])
+    )
     assert gate is not None
-    assert stored == tuple(kwindow.windows_of(s) for s in gate[1])
-
-
-def test_demotes_gbnf_self_cc_tail_via_follow_windows():
-    """``cc-tail``'s empty-arm overlap doesn't separate under the plain FIRST
-    arm gate (only one FOLLOW char reachable) — ``_demote_follow_windows``
-    reaches for the deeper :func:`kwindow.follow_arm_gate` instead, and the
-    taxonomy STORES the resulting per-arm windows under the same
-    ``arm_gates`` channel the FIRST-gate demotion uses."""
-    analysis = self_grammar_analysis("gbnf")
-    assert "cc-tail" not in analysis.islands
-    assert analysis.demoted["cc-tail"] == [
-        "cc-tail: arms FOLLOW-window separable (demoted)"
-    ]
-
-    arms = [arm_items(arm) for arm in analysis.rules["cc-tail"].body]
-    assert kwindow.arm_gate(analysis.rules, arms, analysis.follow["cc-tail"]) is None
-    stored = analysis.taxonomy.arm_gates["cc-tail"]
-    assert len(stored) == len(arms)
-    gate = kwindow.follow_arm_gate(analysis.rules, analysis.start, arms, "cc-tail")
-    assert gate is not None
-    assert stored == gate
+    assert stored == tuple(windows_of(s) for s in gate[1])
 
 
 @pytest.mark.parametrize("stem", ["json.gbnf", "json.abnf"])

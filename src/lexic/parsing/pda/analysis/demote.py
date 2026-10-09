@@ -40,6 +40,7 @@ from lexic.parsing.pda.analysis.gates.structured import (
     structured_arm_gate,
     structured_loop_gate,
 )
+from lexic.parsing.pda.analysis.gates.windows import windows_of
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -76,11 +77,9 @@ def demote_arms(
     the arms and the continuation, so ``site`` is the only thing that
     differs between them.
     """
-    gate = kwindow.arm_gate(analysis.rules, arms, site.follow)
+    gate = kwindow.arm_gate(arms, kwindow.follow_depths(analysis.rules, site.follow))
     if gate is not None:
-        analysis.taxonomy.store_arm_windows(
-            site.at, tuple(kwindow.windows_of(s) for s in gate[1])
-        )
+        analysis.taxonomy.store_arm_windows(site.at, kwindow.arm_windows(gate))
         notes.soft.append(f"{site.label}: arms k-window separable (demoted)")
         return True
     w = noise_alphabet(analysis)
@@ -95,13 +94,15 @@ def demote_arms(
 def demote_follow_windows(
     analysis: Any, arms: Sequence[Sequence[IrItem]], label: str, notes: Notes
 ) -> bool:
-    """Empty-arm FOLLOW\\ :sub:`k` demotion via :func:`kwindow.follow_arm_gate`:
-    store the separating per-arm windows (body-arm order) in
-    :attr:`Taxonomy.arm_gates` + the soft note; ``False`` ⇒ no licence."""
-    gate = kwindow.follow_arm_gate(analysis.rules, analysis.start, arms, label)
+    """Empty-arm FOLLOW\\ :sub:`k` demotion: the arm gate asked at the rule's
+    FOLLOW\\ :sub:`k` windows (:func:`kwindow.window_depths`); store the
+    separating per-arm windows (body-arm order) in :attr:`Taxonomy.arm_gates` +
+    the soft note; ``False`` ⇒ no licence."""
+    depths = kwindow.window_depths(analysis.follows.windows, label)
+    gate = kwindow.arm_gate(arms, depths)
     if gate is None:
         return False
-    analysis.taxonomy.arm_gates[label] = gate
+    analysis.taxonomy.arm_gates[label] = kwindow.arm_windows(gate)
     notes.soft.append(f"{label}: arms FOLLOW-window separable (demoted)")
     return True
 
@@ -174,9 +175,11 @@ def _separable_loop(
     structured gate, and last the FOLLOW-window gate — last because it is the
     only one that builds a whole-grammar fixpoint.
     """
-    gate = kwindow.loop_gate(analysis.rules, items, k, scope.tail)
+    gate = kwindow.loop_gate(
+        items, k, kwindow.follow_depths(analysis.rules, scope.tail)
+    )
     if gate is not None:
-        store_loop_gate(analysis, items[k], kwindow.windows_of(gate[1]))
+        store_loop_gate(analysis, items[k], windows_of(gate[1]))
         notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
         return True
     w = noise_alphabet(analysis)
@@ -201,11 +204,12 @@ def _separable_loop(
     # cheaper question has been asked and declined. It reaches what the others
     # structurally cannot — an arm-final loop, whose skip side `loop_gate` can
     # only see one character of.
-    deep = kwindow.follow_loop_gate(
-        analysis.rules, analysis.start, items, k, scope.rule
+    depths = kwindow.arm_final_loop_depths(
+        analysis.rules, analysis.follows.windows, items, k, scope.rule
     )
+    deep = None if depths is None else kwindow.loop_gate(items, k, depths)
     if deep is None:
         return False
-    store_loop_gate(analysis, items[k], deep)
+    store_loop_gate(analysis, items[k], windows_of(deep[1]))
     notes.soft.append(f"{scope.rule}[{k}]: loop FOLLOW-window (demoted)")
     return True

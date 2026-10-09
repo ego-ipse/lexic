@@ -180,7 +180,7 @@ class IslandContinuations:
             return cached
         if self._deep is None:
             analysis = self.analysis
-            self._deep = FollowWindows(analysis.rules, analysis.start, WINDOW)
+            self._deep = analysis.follows.windows(WINDOW)
         deep = self._deep
         found: set[Pref] = set()
         for rule, items, at, groups in self._sites(name, site):
