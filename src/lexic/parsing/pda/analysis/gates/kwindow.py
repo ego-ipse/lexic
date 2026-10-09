@@ -32,12 +32,12 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
-    END,
     FollowWindows,
     KWindowFirst,
     Pref,
+    collide,
     extend_follow,
-    separable,
+    first_separating,
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -141,16 +141,12 @@ def follow_arm_gate(
     :param max_k: The widest window to try (``≤ MAX_K``).
     :returns: The per-arm window tuples at the separating ``k``, or ``None``.
     """
-    for k in range(2, max_k + 1):
-        fw = FollowWindows(rules, start, k)
-        follow = fw.follow.get(label, set())
-        sets = [
-            extend_follow(fw.solver.arm_prefixes(list(arm), k), follow, k)
-            for arm in arms
-        ]
-        if separable(sets):
-            return tuple(windows_of(s) for s in sets)
-    return None
+    depths = (
+        (k, fw.solver, fw.follow.get(label, set()))
+        for k, fw in ((k, FollowWindows(rules, start, k)) for k in range(2, max_k + 1))
+    )
+    found = first_separating(arms, depths)
+    return None if found is None else tuple(windows_of(s) for s in found[1])
 
 
 # ── the gate classification (arm-selection + loop take/skip) ───────────────
@@ -171,15 +167,8 @@ def arm_gate(
     :returns: ``(k, per-arm prefix sets)`` at the separating ``k``, or ``None``
         when the arms collide at every ``k ≤ max_k`` (the decision stays island).
     """
-    for k in range(2, max_k + 1):
-        solver = KWindowFirst(rules, k)
-        sets = [
-            extend_follow(solver.arm_prefixes(list(arm), k), ext_follow, k)
-            for arm in arms
-        ]
-        if separable(sets):
-            return k, sets
-    return None
+    depths = ((k, KWindowFirst(rules, k), ext_follow) for k in range(2, max_k + 1))
+    return first_separating(arms, depths)
 
 
 def loop_gate(
@@ -208,15 +197,12 @@ def loop_gate(
     item = items[idx]
     rest = list(items[idx + 1 :])
     loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
-    for k in range(2, max_k + 1):
-        solver = KWindowFirst(rules, k)
-        taken = solver.arm_prefixes([loop_item, *rest], k)
-        skip = solver.arm_prefixes(rest, k)
-        taken = extend_follow(taken, rule_follow, k)
-        skip = extend_follow(skip, rule_follow, k)
-        if separable([taken, skip]):
-            return k, taken, skip
-    return None
+    depths = ((k, KWindowFirst(rules, k), rule_follow) for k in range(2, max_k + 1))
+    found = first_separating([[loop_item, *rest], rest], depths)
+    if found is None:
+        return None
+    k, (taken, skip) = found
+    return k, taken, skip
 
 
 def follow_loop_gate(
@@ -282,9 +268,8 @@ def follow_loop_gate(
         return None  # nothing known to follow: a zero-length skip side collides
     item = items[idx]
     loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
-    taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
-    skip = extend_follow({((), END)}, follow, k)
-    return windows_of(taken) if separable([taken, skip]) else None
+    found = first_separating([[loop_item], []], [(k, windows.solver, follow)])
+    return None if found is None else windows_of(found[1][0])
 
 
 def stop_exit_settles(
@@ -325,28 +310,6 @@ def stop_exit_settles(
     for site in windows.site_windows(label):
         take = extend_follow(taken, site, k)
         stop = extend_follow(stopped, site, k)
-        if any(_both_go_on(t, s, exits) for t in take for s in stop):
+        if any(collide(t, s, exits, eof=True) for t in take for s in stop):
             return False
     return True
-
-
-def _both_go_on(take: Pref, stop: Pref, exits: CharSet) -> bool:
-    """Whether one text fits a take window and a stop window that both begin
-    with an exit character. A window's characters are what it knows, as for
-    :func:`~.windows.collide`; a one-character window ENDs the input there, or
-    says nothing about what comes next."""
-    if not take[0] or not stop[0]:
-        # An empty window is the end of input, unless nothing is known.
-        return (not take[0] and take[1] != END) or (not stop[0] and stop[1] != END)
-    lead = take[0][0].subtract(take[0][0].subtract(stop[0][0]))
-    if not lead.overlaps(exits):
-        return False
-    if len(take[0]) > 1 and len(stop[0]) > 1:
-        return take[0][1].overlaps(stop[0][1])
-    take_ends = len(take[0]) == 1 and take[1] == END
-    stop_ends = len(stop[0]) == 1 and stop[1] == END
-    # One side ends the input where the other has more: disjoint. Both ending
-    # right after the exit character lands here too, and collides: a guard, not
-    # a case that arises, since an exit character is a HARD continuation
-    # character of the clone that exits and a take must still meet one after it.
-    return not (take_ends and len(stop[0]) > 1 or stop_ends and len(take[0]) > 1)

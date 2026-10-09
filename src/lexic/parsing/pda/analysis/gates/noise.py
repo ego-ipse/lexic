@@ -57,6 +57,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.pda.analysis.gates.windows import END, separable
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
@@ -496,10 +497,8 @@ def peek_arm_gate(
         if open_end or chars.is_empty():
             return None
         sets.append(chars)
-    for i, chars_i in enumerate(sets):
-        for chars_j in sets[i + 1 :]:
-            if chars_i.overlaps(chars_j):
-                return None
+    if not separable([{((chars,), END)} for chars in sets]):
+        return None
     return tuple(sets)
 
 

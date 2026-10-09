@@ -26,7 +26,13 @@ from lexic.parsing.earley.kernel.tables.decider import (
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
-from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, KWindowFirst
+from lexic.parsing.pda.analysis.gates.windows import (
+    END,
+    MORE,
+    UNK,
+    KWindowFirst,
+    separable,
+)
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 
@@ -178,11 +184,8 @@ def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     arms = [_arm_items(arm) for arm in rule.body]
     if any(len(arm) < 2 for arm in arms):
         return False
-    firsts = [analysis.seq_first(arm) for arm in arms]
-    for i, first in enumerate(firsts):
-        if any(first.overlaps(other) for other in firsts[i + 1 :]):
-            return False
-    return all(_arm_greedy_exact(analysis, arm) for arm in arms)
+    firsts = [{((analysis.seq_first(arm),), END)} for arm in arms]
+    return separable(firsts) and all(_arm_greedy_exact(analysis, arm) for arm in arms)
 
 
 def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
