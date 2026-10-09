@@ -383,7 +383,8 @@ src/lexic/
           __init__.py              the group's package marker
           attempt_inline.py        Frame-less attempt-aware value-string loops
           decisions.py             The attempt/probe method group — the kernel's decision half
-          verdicts.py              The boundary verdict — take, stop or fork, and the sides it is asked on
+          sides.py                 Boundary sides — the stack copies a verdict is asked on, and the sub-runs they settle
+          verdicts.py              The boundary verdict — take, stop or fork, ranked by the decider
           execution.py             Leaf execution, island delegation, and completion
           kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree
 tests/

@@ -9,6 +9,7 @@ attempt/probe DRIVERS stay methods — their group writes the cursor's own state
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
@@ -78,9 +79,22 @@ type Audit = tuple[int, Any, int, int, tuple[int, list[Any]]]
 entry, pos, won)`` — the depth its sub-run roots at, the attempt clone, the
 entry it runs, the attempt position and the winner's ``(end, values)``."""
 
-type Side = tuple[list[Any], int, "RouteLane | None", list[Any], list[Floor]]
+type Side = tuple[
+    list[Any],
+    int,
+    "RouteLane | None",
+    list[Any],
+    list[Floor],
+    list[int] | None,
+    Sequence[Frame],
+    tuple[int, int] | tuple[()],
+]
 """One resumable boundary side: its forked stack, its position, its route lane,
-its root output, and the attempt sub-runs it is still inside.
+its root output, the attempt sub-runs it is still inside, its ledger — where
+each frame the fork copied completed, by depth — and the copies themselves,
+which keep where their items end, both kept only by a side built to record
+them; and the fork's own step when it is no loop boundary's (the top frame's
+item it stands in, and where that ends; empty at a loop boundary).
 
 A UNIFORM shape. The lane slot is ``None`` for every program without route
 continuations rather than the tuple changing arity by product, so the
@@ -266,7 +280,9 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         self.uncertain = False
 
 
-def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
+def frames_copy[Carry](
+    stack: list[Frame[Carry]], every_end: bool = False
+) -> list[Frame[Carry]]:
     """A structural copy of the frame stack, aliasing topology preserved.
 
     Frames alias each other: a frame's ``out`` IS the run holder, a parent's
@@ -291,6 +307,9 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     prefix back — by copying it in front of its own values, never by writing
     through the original — at the one moment it is read, which is its build.
     Two live universes therefore still append only to their own lists.
+
+    :param every_end: Give every copy an ``ends`` of its own, kept or not —
+        what a side the rank reads needs.
     """
     # The ROOT frame, because it is never popped before the drive reaches end
     # of input; the top frame is fresh and would prove nothing. Raised rather
@@ -308,11 +327,17 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
         new.i = frame.i
         new.count = frame.count
         new.inherited = frame
-        if frame.ends is not None:
-            # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed
-            # at ``arm.n + 1``, so it neither grows with the document nor
-            # survives being started empty. Copied whole, for a constant.
-            new.ends = _dup(frame.ends, remap)
+        # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed at
+        # ``arm.n + 1``, so it neither grows with the document nor survives
+        # being started empty. Copied whole, for a constant. With `every_end`
+        # a copy of a frame that keeps none gets its own, so a side records
+        # where its items end for the verdict's rank, starting at ``-1`` where
+        # the span start stood.
+        ends = frame.ends
+        if ends is not None:
+            new.ends = _dup(ends, remap)
+        elif every_end:
+            new.ends = [-1] * (frame.arm.n + 1)
         sinks = frame.sinks
         if sinks is not None:
             new.sinks = [slot if slot is None else _fork(slot, remap) for slot in sinks]

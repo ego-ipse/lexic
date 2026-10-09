@@ -11,6 +11,8 @@ what a sub-run writes for the verdict to read. The verdict itself is
 
 from __future__ import annotations
 
+from typing import Never
+
 import pytest
 
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
@@ -71,6 +73,9 @@ class _IslandUndecidable(Attempting[str]):
 
     def _island(self, ref: IslandPayload, sink: list[str]) -> None:
         raise ProbeFork("island spans two ends and the shorter could compose", 0)
+
+    def _island_value(self, name: str, tree: object, built: object) -> Never:
+        raise AssertionError("an island iteration that bails splices nothing")
 
 
 def test_an_attempted_island_that_cannot_settle_bails_instead_of_closing() -> None:

@@ -186,9 +186,10 @@ def test_two_admitted_arms_of_a_stealing_rule_ask_its_island(
     islands: Counter[str],
 ) -> None:
     """At ``aa`` both arms of ``item`` are admitted: no sub-run settles the
-    choice, the island does, and its two followable ends decline."""
-    predictive, _gated = answers(STOLEN, "stolen", "aa")
-    assert predictive == DECLINED
+    choice, the island does, and the verdict ranks its two followable ends —
+    the predictive answer is the gated engine's."""
+    predictive, gated = answers(STOLEN, "stolen", "aa")
+    assert predictive == gated
     assert islands["item"] >= 1
 
 
@@ -200,11 +201,12 @@ def test_a_sole_arm_that_misses_by_stealing_asks_the_island(text: str) -> None:
     assert predictive == gated
 
 
-def test_a_sole_arm_with_two_followable_ends_declines() -> None:
+def test_a_sole_arm_with_two_followable_ends_is_ranked() -> None:
     """At ``aaa`` ``t`` ends after two characters or three, and ``rest`` can
-    follow either: undecided here, so the predictive path declines."""
-    predictive = answers(SOLE, "sole", "aaa")[0]
-    assert predictive == DECLINED
+    follow either: each end is a candidate iteration of ``t*``, and the
+    decider's rank keeps the gated engine's, on the predictive path."""
+    predictive, gated = answers(SOLE, "sole", "aaa")
+    assert predictive == gated == "X((T('aaa'),), Rest(''))"
     _parity(SOLE, "sole", "aaa")
 
 
@@ -229,3 +231,18 @@ def test_no_short_document_gets_a_wrong_model(source: str, alphabet: str) -> Non
             text = "".join(chars)
             predictive, gated = answers(source, f"short-{alphabet}", text)
             assert predictive in (gated, DECLINED), text
+
+
+HOOK = 'doc ::= c "b"?\nc ::= t tl?\nt ::= [a;] | "a"+ "a"\ntl ::= "a" "b"\n'
+"""``t`` is an island whose reference can follow two of its completions at
+``aab``: ``a``, leaving ``ab`` to ``tl``, or ``aa``, leaving ``b`` to ``doc``."""
+
+
+def test_an_islands_two_ends_are_ranked_by_the_parse_not_the_island() -> None:
+    """The island's own longest completion is ``aa``, and taking it would be
+    the wrong model: ``c`` ends where the shorter one lets ``tl`` end, and
+    that is the first boundary the decider ranks. The verdict forks one side
+    per completion and keeps the gated engine's."""
+    predictive, gated = answers(HOOK, "hook", "aab")
+    assert predictive == gated == "Doc(C(T('a'), Tl('ab')), '')"
+    assert predictive != "Doc(C(T('aa')), 'b')"

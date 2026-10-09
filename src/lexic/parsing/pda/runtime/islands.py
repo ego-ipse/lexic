@@ -40,6 +40,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.earley.kernel.forest.support.readout import (
     decode_item,
     start_completion_ends,
+    start_completions,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
@@ -57,7 +58,7 @@ __all__ = [
     "island_parse",
     "island_run",
     "island_value",
-    "settle_extent",
+    "IslandEnds",
 ]
 
 ISLAND_WINDOW = 256
@@ -166,23 +167,17 @@ class IslandPolicy[M](NamedTuple):
         )
 
 
-def _unsettled_end[M](
+def _unsettled_ends[M](
     kern: Kernel, end: int, text: str, pos: int, policy: IslandPolicy[M]
-) -> int:
-    """A shorter completion end this window cannot settle against, or ``-1``.
+) -> list[int]:
+    """The shorter completion ends this window cannot settle against.
 
     Asked after every window rather than only after the climb, and that is
     sound because **completion ends only accumulate as the window grows**: a
     derivation over a prefix survives every longer window, so an alternative
     found at 256 characters is an alternative at every width, and the longest
-    end is non-decreasing. A refusal raised at the first window is therefore a
-    refusal the last window would also have raised. Early checking can MISS a
-    later-appearing alternative — the next window asks again — but it cannot
-    invent one.
-
-    What it saves is the whole climb on an island that cannot settle: without
-    it the window doubles to the end of the input to reach the refusal its
-    first window already held.
+    end is non-decreasing. Early checking can MISS a later-appearing
+    alternative — the next window asks again — but it cannot invent one.
 
     :param kern: The window's finished kernel.
     :param end: The longest completion's end over this window.
@@ -191,17 +186,19 @@ def _unsettled_end[M](
     :param policy: Carries the occurrence continuation, one character deep
         (``follow``) and a few deep (``windows``); the deeper one is asked only
         where the first admits the next character.
-    :returns: The shorter end, or ``-1`` when every one of them is refused by
-        the continuation and longest-match is still a defined answer.
+    :returns: The shorter ends, ascending; empty when every one of them is
+        refused by the continuation and longest-match is still a defined answer.
     """
     follow = policy.follow
     if follow is None:
-        return -1  # no continuation evidence: plain longest-match
-    for alt in start_completion_ends(kern):
-        at = pos + alt
-        if alt < end and follow.has(text[at]) and continues(policy.windows, text, at):
-            return alt
-    return -1
+        return []  # no continuation evidence: plain longest-match
+    return [
+        alt
+        for alt in start_completion_ends(kern)
+        if alt < end
+        and follow.has(text[pos + alt])
+        and continues(policy.windows, text, pos + alt)
+    ]
 
 
 def continues(windows: tuple[Pref, ...], text: str, at: int) -> bool:
@@ -307,36 +304,65 @@ def island_parse(
     remaining = len(text) - pos
     exact = policy.window is not None
     window = ISLAND_WINDOW if policy.window is None else policy.window
+    alts: list[int] = []
     while True:
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
-        if best is not None and policy.follow is not None:
-            alt = _unsettled_end(kern, best[1], text, pos, policy)
-            if alt >= 0:
-                settle_extent(name, pos, alt, best[1])
+        if best is not None:
+            alts = _unsettled_ends(kern, best[1], text, pos, policy)
         if exact or window >= remaining or not _may_extend(kern):
             break
         window *= 2
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}", pos)
+    if alts:
+        items = start_completions(kern)
+        try:
+            ends = tuple(
+                _decoded(kern, (items[alt], alt), name, policy) for alt in alts
+            ) + (_decoded(kern, best, name, policy),)
+        except LexicError, PdaFail:  # a completion that builds nothing is no answer
+            raise _two_ends(name, pos, alts[0], best[1]) from None
+        raise IslandEnds(name, pos, ends)
     return _decoded(kern, best, name, policy)
 
 
-def settle_extent(name: str, pos: int, shorter: int, longer: int) -> int:
-    """Which of two ends a text extent takes when the caller may follow both.
+type Extent = tuple[ParseTree, int, CompletionResult[Any] | None]
+"""One completion of an island: its derivation, its length, and the value the
+settle step built (``None`` where it built none)."""
 
-    The one place a rule's extent with two followable ends is decided. The
-    split decider's ranking of the two carvings is what answers it; until
-    that ranking is read here, every such extent is refused.
 
-    :param name: The rule whose extent it is.
-    :param pos: Where the extent begins.
-    :param shorter: The shorter end, as a length from ``pos``.
-    :param longer: The longer end, as a length from ``pos``.
-    :returns: The end taken.
-    :raises ProbeFork: Always, for now: undecidable here, so the gated engine
-        answers.
+class IslandEnds(ProbeFork):
+    """An island whose occurrence may follow more than one of its completions.
+
+    Which one the parse keeps is the split decider's question, asked of the
+    whole parse rather than of the island: the shorter end may be what an
+    enclosing frame needs to end later. A kernel site that can fork the live
+    parse at the reference answers it with the boundary verdict, from
+    :attr:`ends`; anywhere else it is the :class:`ProbeFork` it subclasses —
+    undecidable here, so the gated engine answers.
+
+    :ivar name: The island rule.
+    :ivar ends: The completions, each an :data:`Extent`, shortest first.
+    :ivar sink: The list the island was asked to report into, where no item of
+        a frame owns it — set by the site that could not place it.
+    :ivar root: The clone of the attempt sub-run the island is the whole
+        outcome of — its sink was that sub-run's holder — or ``None``.
     """
-    raise ProbeFork(
+
+    __slots__ = ("name", "ends", "sink", "root")
+
+    def __init__(self, name: str, pos: int, ends: tuple[Extent, ...]) -> None:
+        """Bind the island and its completions at ``pos``."""
+        super().__init__(_two_ends(name, pos, ends[0][1], ends[-1][1]).args[0], pos)
+        self.name = name
+        self.ends = ends
+        self.sink: list[Any] | None = None
+        self.root: Any = None
+
+
+def _two_ends(name: str, pos: int, shorter: int, longer: int) -> ProbeFork:
+    """The refusal of two followable ends, in words."""
+    return ProbeFork(
         f"island {name!r} at {pos}: arm choice spans two ends "
         f"({shorter}, {longer}) and the shorter could compose",
         pos,

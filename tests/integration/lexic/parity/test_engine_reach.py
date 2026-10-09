@@ -40,6 +40,7 @@ from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
 from lexic.parsing.products import model_product
 from tests.clone_walk import walk_program_clones
+from tests.parity_helpers import answers
 from tools.benchmark.cases.engine_reach import INTERIOR_DELEGATE
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -250,27 +251,20 @@ _REFUSAL = """root ::= item tail
 item ::= item [a-z] | [a-z]
 tail ::= "zz\\n"
 """
-"""A climbing island whose first settled window REFUSES, then falls back.
+"""A climbing island with two ends its reference can follow.
 
-Not a benchmark row, because it is the engine's most expensive single path: a
-climb whose sub-parses are all discarded, followed by a whole-document re-parse
-on the gated engine. As a timed row it would price one pathological shape; what
-matters about it is a COUNT — how many sub-parses run before the refusal — and
-a counter reads that exactly where a timer only estimates it.
-
-It is the only cover for the first-window refusal RAISING rather than silently
-taking the shorter end.
+Not a benchmark row: what matters about it is a COUNT — how many sub-parses
+the climb runs before the ends are settled — and a counter reads that exactly
+where a timer only estimates it. The extent is settled on the predictive path,
+by the boundary verdict over the two completions, not by the gated engine.
 """
 
 
-def test_refusal_after_a_climb_falls_back_and_round_trips(reach):
-    """The island refuses an arm choice spanning two ends, then the product falls back.
-
-    The island's alphabet includes the tail's own characters, so two different
-    ends compose and the settle step refuses rather than picking one. The
-    product then parses the document whole on the gated engine, and the result
-    still round-trips — a refusal inside an island is not a parse failure.
-    """
+def test_two_ends_after_a_climb_are_ranked_on_the_predictive_path(reach):
+    """The island's alphabet includes the tail's own characters, so two ends
+    compose. The climb runs to the document's size, and the verdict ranks the
+    two completions there: the predictive answer is the gated engine's model,
+    with no fallback."""
     # Sized like `interior-climb`: several doublings, so the row keeps
     # climbing even if the initial window widens once.
     text = "q" * 2400 + "zz\n"
@@ -279,11 +273,14 @@ def test_refusal_after_a_climb_falls_back_and_round_trips(reach):
 
     assert reach["islands"] == 1
     assert reach["runs"] == climbs(len(text)), (
-        f"{reach['runs']} sub-parses before the refusal over {len(text)} chars, "
+        f"{reach['runs']} sub-parses over {len(text)} chars, "
         f"expected {climbs(len(text))}"
     )
-    assert reach["earley"] == 1, "the refusal did not reach the product's fallback"
+    assert reach["earley"] == 0, "the extent fell back to the gated engine"
     assert model.to_text() == text
+    short = "q" * 40 + "zz\n"  # the model is as deep as the text: compared short
+    predictive, gated = answers(_REFUSAL, "engine-reach-refusal", short)
+    assert predictive == gated
 
 
 # ── the window-gated pass-through dispatch ──────────────────────────────

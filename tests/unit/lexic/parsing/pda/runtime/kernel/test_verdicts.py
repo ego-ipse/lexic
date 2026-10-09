@@ -13,129 +13,49 @@ import itertools
 
 import pytest
 
-from lexic.compile import compile_text
 from lexic.exceptions import LexicError
 from lexic.ir import IrNamedTuple, IrStr
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_TRANSPARENT,
-    GATE_ATTEMPT,
-    OP_GRP,
     OP_REF,
     OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
-from lexic.parsing.pda.runtime.admission import Floor, Side
+from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel import verdicts
-from lexic.parsing.pda.runtime.kernel.decisions import Attempting
+from lexic.parsing.pda.runtime.kernel import sides, verdicts
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.pda.runtime.kernel.sides import (
+    PENDING,
+    UNSEEN,
+    Sides,
+)
 from lexic.parsing.pda.runtime.kernel.verdicts import (
     FORKED,
     STOP_FORCED,
     TAKE,
+    Makers,
     Verdicts,
-    descending,
-    entered,
-    iterating,
-    landing,
 )
 from tests import parity_helpers
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tests.unit.lexic.parsing.pda.runtime.kernel.side_support import (
+    NOISE_RUNS,
+    TOP,
+    completed_side,
+    converged_tally,
+    live_kernel,
+)
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_and_pda
 from tools.benchmark.cases.grammars import BENCHES
 
 
-def _raise(why: BaseException) -> None:
-    """Raise from inside a lambda, so the patched drive stays one expression."""
-    raise why
-
-
-def _live_kernel(text: str = "{}") -> PdaKernel:
-    """A kernel standing where a boundary would be decided.
-
-    The lockstep's sides are driven through ``_advance``, which needs a real
-    cursor: a stack to swap in and out and a ``_caches`` to count probing on.
-    """
-    compiled, pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
-    return PdaKernel(pda, text, compiled.executor)
-
-
-def _side(kern: PdaKernel) -> Side:
-    """The lockstep side ``_advance`` swaps in — the cursor triple, as a value.
-
-    The reach is the subject, not an accident of testing: ``_routes`` is
-    private because nothing outside the kernel may steer it, and a test of
-    that seam's exception contract has to stand exactly where the seam does.
-    The three tests below reach through here, so the reach is stated once.
-    """
-    return kern.stack, kern.pos, kern._routes, [], []  # pylint: disable=protected-access
-
-
-def _cursor(kern: PdaKernel) -> tuple[Side, int, bool]:
-    """Everything ``_advance``'s ``finally`` promises to put back."""
-    caches = kern._caches  # pylint: disable=protected-access  # the seam — see `_side`
-    return _side(kern), caches.probing, caches.uncertain
-
-
-def _advance(kern: PdaKernel, side: Side) -> Side | None:
-    """Drive one side to exhaustion — the method whose contract is under test."""
-    return kern._advance(side, -1)[0]  # pylint: disable=protected-access  # see `_side`
-
-
-def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
-    """Undecidable is not death, and ``_advance`` says so by RAISING.
-
-    ``ProbeFork`` subclasses :class:`PdaFail`, so the ordinary handler would
-    swallow it and hand back ``None`` — indistinguishable from a side that
-    died. The lockstep answers :data:`TAKE` on a dead STOP side, so a
-    swallowed fork would commit a take the gated engine never got to refuse.
-
-    Injected at the seam deliberately: the contract under test is the
-    EXCEPTION's, and a grammar that happens to fork here would test the
-    grammar as much as the handler.
-    """
-    kern = _live_kernel()
-    side = _side(kern)
-    monkeypatch.setattr(
-        PdaKernel, "_drive", lambda *_a, **_k: _raise(ProbeFork("undecidable", 0))
-    )
-    with pytest.raises(ProbeFork):
-        _advance(kern, side)
-
-
-def test_advance_restores_the_cursor_when_a_probe_fork_propagates(
-    monkeypatch,
-) -> None:
-    """The ``finally`` holds under the raise path.
-
-    Early propagation is the one thing that could leave the cursor swapped in:
-    the stack, position, routes and both cache counters are saved around the
-    drive and must come back whether it returned, failed, or raised through.
-    """
-    kern = _live_kernel()
-    before = _cursor(kern)
-    side = _side(kern)
-    monkeypatch.setattr(
-        PdaKernel, "_drive", lambda *_a, **_k: _raise(ProbeFork("undecidable", 0))
-    )
-    with pytest.raises(ProbeFork):
-        _advance(kern, side)
-    assert _cursor(kern) == before
-
-
-def test_an_ordinary_failure_still_reads_as_a_dead_side(monkeypatch) -> None:
-    """A real :class:`PdaFail` is death, and ``_advance`` still answers ``None``.
-
-    The guard must not widen: only the fork propagates.
-    """
-    kern = _live_kernel()
-    side = _side(kern)
-    monkeypatch.setattr(
-        PdaKernel, "_drive", lambda *_a, **_k: _raise(PdaFail("dead", 0))
-    )
-    assert _advance(kern, side) is None
+def _at_a_boundary(kern: PdaKernel) -> PdaKernel:
+    """``kern`` standing in a boundary's frame: the verdict reads its count."""
+    kern.stack = [Frame(flat_arm(1), [], flat_clone(), 0)]
+    return kern
 
 
 def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
@@ -156,7 +76,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
     counted = {"copies": 0, "verdicts": 0, "settled": 0, "converged": 0}
-    copy = verdicts.frames_copy
+    copy = sides.frames_copy
     defined = vars(verdicts.Verdicts)  # what the class DEFINES
     verdict, lockstep, converged = (
         defined["_fork_verdict"],
@@ -164,10 +84,10 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
         defined["_converged"],
     )
 
-    def counting_copy(stack):
+    def counting_copy(stack, every_end=False):
         """`frames_copy`, counted."""
         counted["copies"] += 1
-        return copy(stack)
+        return copy(stack, every_end)
 
     def counting_verdict(self, *args, **kwargs):
         """`_fork_verdict`, counted."""
@@ -186,7 +106,7 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
         counted["converged"] += answer is not None
         return answer
 
-    monkeypatch.setattr(verdicts, "frames_copy", counting_copy)
+    monkeypatch.setattr(sides, "frames_copy", counting_copy)
     monkeypatch.setattr(verdicts.Verdicts, "_fork_verdict", counting_verdict)
     monkeypatch.setattr(verdicts.Verdicts, "_lockstep_verdict", counting_lockstep)
     monkeypatch.setattr(verdicts.Verdicts, "_converged", counting_converged)
@@ -200,64 +120,6 @@ def test_a_dead_stop_side_costs_two_stack_copies_not_three(monkeypatch) -> None:
         "never ran, so the copy count below proves nothing about it"
     )
     assert counted["copies"] == 2 * counted["verdicts"]
-
-
-def _converged_tally(compiled, text: str, monkeypatch) -> dict[str, int]:
-    """Parse ``text`` and classify every answer ``_converged`` gave.
-
-    Read observationally rather than re-derived: the values-agree answer
-    returns without driving, and both differing answers drive the common
-    remainder first, so an ``_advance`` seen DURING a ``_converged`` call
-    separates agreement from difference and the verdict separates the rest.
-    Duplicating the branch conditions here would let the test agree with a
-    wrong ``_converged`` about what it did.
-
-    ``depth`` is kept rather than a flag because the reading would be wrong if
-    the calls ever nested; they do not, since the drive runs under a probe and
-    probes never fork, and a nested call would show up as a depth above one.
-
-    Each class names BOTH what the method did and what it answered. What that
-    separates, exactly: the drove bit tells agreement from difference, and the
-    verdict tells the two differing answers apart — so a differing branch
-    returning its SIBLING's verdict reads as that sibling rather than landing
-    in ``other``. The tests below still catch the swap, because each asserts
-    its own class at one and the other two at zero.
-    """
-    defined = vars(verdicts.Verdicts)  # what the class DEFINES
-    converged, advance = defined["_converged"], defined["_advance"]
-    tally = {"converged": 0, "agree": 0, "dead": 0, "fork": 0, "other": 0, "nested": 0}
-    inside = {"depth": 0, "drove": 0}
-    classes = {(False, TAKE): "agree", (True, TAKE): "dead", (True, FORKED): "fork"}
-
-    def counting_converged(self, *args, **kwargs):
-        """`_converged`, classifying which of its three answers it gave."""
-        tally["converged"] += 1
-        inside["depth"] += 1
-        tally["nested"] += inside["depth"] > 1
-        inside["drove"] = 0
-        try:
-            answer = converged(self, *args, **kwargs)
-        finally:
-            inside["depth"] -= 1
-        tally[classes.get((bool(inside["drove"]), answer), "other")] += 1
-        return answer
-
-    def counting_advance(self, *args, **kwargs):
-        """`_advance`, flagging a drive that happened inside `_converged`."""
-        inside["drove"] += bool(inside["depth"])
-        return advance(self, *args, **kwargs)
-
-    monkeypatch.setattr(verdicts.Verdicts, "_converged", counting_converged)
-    monkeypatch.setattr(verdicts.Verdicts, "_advance", counting_advance)
-    compiled.parse(text, cores=1)
-    assert (
-        sum(tally[name] for name in set(classes.values()) | {"other"})
-        == tally["converged"]
-    ), (
-        "a `_converged` call was entered and never classified, so something "
-        f"escaped it — which a ProbeFork now does, by design: {tally}"
-    )
-    return tally
 
 
 def test_the_lockstep_settles_a_converged_boundary_when_the_values_agree(
@@ -276,7 +138,7 @@ def test_the_lockstep_settles_a_converged_boundary_when_the_values_agree(
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
     monkeypatch.setattr(verdicts, "pending_values", lambda _stack, _shape: ())
-    tally = _converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
+    tally = converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
 
     assert tally["converged"] == 1, (
         f"this packet no longer converges — it witnesses nothing: {tally}"
@@ -311,7 +173,7 @@ def test_a_converged_boundary_takes_when_the_common_remainder_dies(
     correctly, its sides guess, and a guess settles nothing.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
-    tally = _converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
+    tally = converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
 
     assert tally["converged"] == 1, (
         f"this packet no longer converges — it witnesses nothing: {tally}"
@@ -324,14 +186,16 @@ def test_a_converged_boundary_takes_when_the_common_remainder_dies(
     assert (tally["other"], tally["nested"]) == (0, 0), tally
 
 
-def test_a_converged_boundary_forks_when_the_common_remainder_completes(
+def test_a_converged_boundary_is_ranked_when_the_common_remainder_completes(
     monkeypatch,
 ) -> None:
-    """Values DIFFER and the remainder COMPLETES — the difference is real.
+    """Values DIFFER and the remainder COMPLETES — the difference is real, and
+    the decider's rank answers it.
 
     Reached by injection on a real convergence: the vyx packet's snapshots are
-    made distinct at the one site that reads them, and its shared remainder is
-    reported complete, so the converged boundary must fork rather than settle
+    made distinct at the one site that reads them, its shared remainder is
+    reported complete, and the rank answers a verdict nothing else here gives,
+    so the converged boundary must answer the rank's verdict rather than settle
     whatever the remainder would have done.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
@@ -339,24 +203,25 @@ def test_a_converged_boundary_forks_when_the_common_remainder_completes(
     monkeypatch.setattr(
         verdicts, "pending_values", lambda _stack, _shape: (next(distinct),)
     )
-    drive = vars(Verdicts)["_advance"]
+    drive = vars(Sides)["_advance"]
 
     def completing(self, side, limit, shared=False):
         if shared:
             return side, False
         return drive(self, side, limit, shared)
 
-    monkeypatch.setattr(Verdicts, "_advance", completing)
-    tally = _converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
+    monkeypatch.setattr(Sides, "_advance", completing)
+    monkeypatch.setattr(Verdicts, "_ranked", lambda *_a: STOP_FORCED)
+    tally = converged_tally(bench.compiled, VYX_CONVERGES, monkeypatch)
 
     assert tally["converged"] >= 1, (
         f"the convergence path did not run — this witnesses nothing: {tally}"
     )
-    assert tally["fork"] == tally["converged"], (
-        "a converged boundary whose remainder completes must answer FORKED, "
+    assert tally["ranked"] == tally["converged"], (
+        "a converged boundary whose remainder completes must answer the rank, "
         f"not settle the boundary itself: {tally}"
     )
-    assert (tally["agree"], tally["dead"]) == (0, 0), tally
+    assert (tally["agree"], tally["dead"], tally["fork"]) == (0, 0, 0), tally
     assert (tally["other"], tally["nested"]) == (0, 0), tally
 
 
@@ -436,24 +301,30 @@ def test_converged_sides_whose_records_differ_in_class_do_not_agree(
     monkeypatch,
 ) -> None:
     """``_Left('x')`` and ``_Right('x')`` are two meanings with one field tuple:
-    read apart, the common remainder decides, and here it completes, so the
-    boundary forks."""
-    kern = _live_kernel()
+    read apart, the common remainder decides; here it completes, and with no
+    step the rank can read, the boundary forks."""
+    kern = _at_a_boundary(live_kernel())
     end = len(kern.text)
     monkeypatch.setattr(
-        Verdicts,
+        Sides,
         "_advance",
-        lambda _self, side, _limit, shared=False: (([], end, None, [], []), False),
+        lambda _self, side, _limit, shared=False: (completed_side(end, []), False),
     )
     converged = vars(Verdicts)["_converged"]
-    left = (_holding(_Left(IrStr("x"))), end, None, [], [])
-    right = (_holding(_Right(IrStr("x"))), end, None, [], [])
-    assert converged(kern, left, right, (), False) == FORKED
-    same = (_holding(_Left(IrStr("x"))), end, None, [], [])
-    assert converged(kern, left, same, (), False) == TAKE
+    left = (_holding(_Left(IrStr("x"))), end, None, [], [], [], [TOP], ())
+    right = (_holding(_Right(IrStr("x"))), end, None, [], [], [], [TOP], ())
+    assert converged(kern, left, right, (), False, _made(left, right)) == FORKED
+    same = (_holding(_Left(IrStr("x"))), end, None, [], [], [], [TOP], ())
+    assert converged(kern, left, same, (), False, _made(left, same)) == TAKE
 
 
 # ── the sampled-death rule ──────────────────────────────────────────────────
+
+
+def _as_side(probed: tuple[list[str] | None, bool]) -> tuple[Side | None, bool]:
+    """A probe's ``(root output | None, uncertain)`` as ``_probe`` reports it."""
+    values, uncertain = probed
+    return (None if values is None else completed_side(1, list(values))), uncertain
 
 
 @pytest.mark.parametrize(
@@ -481,12 +352,12 @@ def test_an_outcome_a_guess_reached_decides_nothing(
     """A side that died, or two that agreed, after a drive guessed at a
     boundary did so on the guess's path, not on every path: it proves
     nothing, so the boundary forks. With no guess on the way it settles."""
-    kern = _live_kernel()
+    kern = live_kernel()
     monkeypatch.setattr(Verdicts, "_lockstep_verdict", lambda *_a: None)
     monkeypatch.setattr(
-        Verdicts,
+        Sides,
         "_probe",
-        lambda _self, _arm, _i, _pos, taken: stop if taken is None else take,
+        lambda _self, _arm, _i, _pos, taken: _as_side(stop if taken is None else take),
     )
     fork_verdict = vars(Verdicts)["_fork_verdict"]
     assert fork_verdict(kern, flat_arm(1), 0, 0, (1, [])) == verdict
@@ -503,11 +374,11 @@ def test_a_stop_side_death_is_judged_by_its_own_drive(
     """The lockstep's stop side dies on its first advance. Only ITS drive's
     guess unsettles that death: a guess on the take side's drive says nothing
     about whether stopping could have survived."""
-    kern = _live_kernel()
-    sides = iter([([], 0, None, [], []), ([], 1, None, [], [])])
-    monkeypatch.setattr(Verdicts, "_side", lambda *_a: next(sides))
+    kern = live_kernel()
+    made = iter([completed_side(0, []), completed_side(1, [])])
+    monkeypatch.setattr(Sides, "_side", lambda *_a: next(made))
     monkeypatch.setattr(
-        Verdicts,
+        Sides,
         "_advance",
         lambda _self, side, _limit, shared=False: (
             (None, stop_guessed) if side[1] == 0 else (side, take_guessed)
@@ -524,16 +395,18 @@ def test_only_a_mid_parse_convergence_is_unsettled_by_a_guess(
     monkeypatch, stack: str, verdict: int
 ) -> None:
     """Both convergences agree and both were reached after a guess. The
-    mid-parse one forks; the completed one takes, as it did before guesses
-    were read at all — two completed carvings are the ranked verdict's to
-    compare and to doubt, not convergence's."""
-    kern = _live_kernel()
+    mid-parse one forks; the completed one takes — two completed sides are
+    compared on the values they built, and one value is one answer."""
+    kern = live_kernel()
     frames = _holding("v") if stack == "mid-parse" else []
     monkeypatch.setattr(
-        Verdicts, "_advance", lambda _self, side, _limit, shared=False: (side, False)
+        Sides, "_advance", lambda _self, side, _limit, shared=False: (side, False)
     )
-    side = (frames, len(kern.text), None, [], [])
-    assert vars(Verdicts)["_converged"](kern, side, side, (), True) == verdict
+    side = (frames, len(kern.text), None, [], [], [], [TOP], ())
+    assert (
+        vars(Verdicts)["_converged"](kern, side, side, (), True, _made(side, side))
+        == verdict
+    )
 
 
 @pytest.mark.parametrize(
@@ -546,13 +419,16 @@ def test_a_shared_remainder_that_dies_after_a_guess_decides_nothing(
     and here it dies. Reached through a guess, the death is the guess's, so
     the boundary forks; with none, neither side completes and the take
     stands."""
-    kern = _live_kernel()
+    kern = _at_a_boundary(live_kernel())
     monkeypatch.setattr(
-        Verdicts, "_advance", lambda _self, side, _limit, shared=False: (None, sampled)
+        Sides, "_advance", lambda _self, side, _limit, shared=False: (None, sampled)
     )
-    left = (_holding(_Left(IrStr("x"))), 1, None, [], [])
-    right = (_holding(_Right(IrStr("x"))), 1, None, [], [])
-    assert vars(Verdicts)["_converged"](kern, left, right, (), False) == verdict
+    left = (_holding(_Left(IrStr("x"))), 1, None, [], [], [], [TOP], ())
+    right = (_holding(_Right(IrStr("x"))), 1, None, [], [], [], [TOP], ())
+    assert (
+        vars(Verdicts)["_converged"](kern, left, right, (), False, _made(left, right))
+        == verdict
+    )
 
 
 @pytest.mark.parametrize(
@@ -565,40 +441,256 @@ def test_sides_converge_only_inside_the_same_sub_runs(
     they stand inside the same sub-runs: one still inside a floor settles it
     on the way, the other does not. Apart, the sides advance instead — and
     here the stop side dies, so the take is forced."""
-    kern = _live_kernel()
+    kern = live_kernel()
     frames = _holding("v")
-    sides = iter([(frames, 1, None, [], []), (frames, 1, None, [], floors)])
-    monkeypatch.setattr(Verdicts, "_side", lambda *_a: next(sides))
+    made = iter(
+        [
+            (frames, 1, None, [], [], [], [TOP], ()),
+            (frames, 1, None, [], floors, [], [TOP], ()),
+        ]
+    )
+    monkeypatch.setattr(Sides, "_side", lambda *_a: next(made))
     monkeypatch.setattr(Verdicts, "_converged", lambda *_a: FORKED)
     monkeypatch.setattr(
-        Verdicts, "_advance", lambda _self, side, _limit, shared=False: (None, False)
+        Sides, "_advance", lambda _self, side, _limit, shared=False: (None, False)
     )
     lockstep = vars(Verdicts)["_lockstep_verdict"]
     assert lockstep(kern, flat_arm(1), 0, 0, (1, [])) == verdict
 
 
-RANKED = pytest.mark.xfail(
-    strict=True,
-    reason="two completed carvings are not compared at convergence; the "
-    "ranked verdict settles them by the decider",
-)
-
-
-@RANKED
-def test_sides_that_converge_by_completing_compare_their_root_outputs(
-    monkeypatch,
-) -> None:
+def test_completed_sides_that_differ_are_ranked(monkeypatch) -> None:
     """Two completed sides hold empty stacks, whose pending snapshots are both
-    ``()``. What they built is in the root outputs they completed into, and
-    those differ."""
-    kern = _live_kernel()
+    ``()``. What they built is in their root outputs; those differ, so the
+    rank decides — and where it cannot read the step, or a guess reached the
+    sides, the take stands."""
+    kern = _at_a_boundary(live_kernel())
     end = len(kern.text)
-    monkeypatch.setattr(
-        Verdicts, "_advance", lambda _self, side, _limit, shared=False: (side, False)
-    )
     converged = vars(Verdicts)["_converged"]
-    left = ([], end, None, ["x", "y"], [])
-    assert converged(kern, left, ([], end, None, ["xy"], []), (), False) == FORKED
+    ranks = iter([STOP_FORCED, FORKED])
+    monkeypatch.setattr(Verdicts, "_ranked", lambda *_a: next(ranks))
+    left, right = completed_side(end, ["x", "y"]), completed_side(end, ["xy"])
+    assert converged(kern, left, right, (), False, _made(left, right)) == STOP_FORCED
+    assert converged(kern, left, right, (), False, _made(left, right)) == TAKE
+    assert converged(kern, left, right, (), True, _made(left, right)) == TAKE
+    assert (
+        converged(
+            kern,
+            left,
+            completed_side(end, ["x", "y"]),
+            (),
+            False,
+            _made(left, completed_side(end, ["x", "y"])),
+        )
+        == TAKE
+    )
+
+
+# ── the rank: the first frame whose carving differs, at its step ───────────
+
+
+class _Shortest(Decider):
+    """The first slot takes as little as it can."""
+
+    def slot(self, end: int) -> int:
+        return -end
+
+
+def _made(left: Side, right: Side) -> Makers:
+    """Makers handing back two sides built by hand, whatever is asked."""
+    return (lambda side, _record: side), (left,), (right,)
+
+
+def _boundary(
+    parent: Frame | None = None, count: int = 1, decide: Decider = LEFTMOST_LONGEST
+) -> PdaKernel:
+    """A kernel standing at a boundary at 2 whose loop has taken ``count``,
+    under ``parent`` — by default a frame descending into an exactly-once
+    reference — and parsing under ``decide``."""
+    compiled, pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
+    kern = PdaKernel(
+        pda, "x" * 10, compiled.executor, config=ParseConfig(decide=decide)
+    )
+    if parent is None:
+        parent = Frame(flat_arm(1, kinds=(OP_REF1,)), [], flat_clone(), 0)
+        parent.i = 1
+    top = Frame(flat_arm(1), [], flat_clone(), 0)
+    top.count = count
+    kern.stack, kern.pos = [parent, top], 2
+    return kern
+
+
+def _ranked(
+    kern: PdaKernel,
+    stop: list[int],
+    take: list[int],
+    loops: tuple[int | None, int | None] = (None, None),
+) -> int:
+    """``_rank`` at ``kern``'s boundary on two completed sides with these
+    ledgers (:func:`_sides`)."""
+    return vars(Verdicts)["_rank"](kern, *_sides(kern, stop, take, loops))
+
+
+def _sides(
+    kern: PdaKernel,
+    stop: list[int],
+    take: list[int],
+    loops: tuple[int | None, int | None] = (None, None),
+) -> tuple[Side, Side]:
+    """Two completed sides at ``kern``'s boundary with these ledgers, the
+    boundary's loop ending at 2 on the stop side and at 5 on the take side.
+    ``loops`` closes the parent's loop on each side at that end (``None``:
+    still open)."""
+    arm = kern.stack[0].arm
+    pairs = []
+    for ledger, loop_end, closed in zip((stop, take), (2, 5), loops):
+        mine = Frame(arm, [], flat_clone(), 0)
+        mine.ends = [-1] * (arm.n + 1)
+        if closed is not None:
+            mine.i, mine.ends[1] = 1, closed
+        copy = Frame(flat_arm(1), [], flat_clone(), 0)
+        copy.ends = [-1, loop_end]
+        pairs.append(([], 10, None, [], [], ledger, [mine, copy], ()))
+    return pairs[0], pairs[1]
+
+
+@pytest.mark.parametrize(
+    ("stop", "take", "decide", "verdict"),
+    [
+        ([10, 3], [10, 5], LEFTMOST_LONGEST, TAKE),
+        ([10, 6], [10, 5], LEFTMOST_LONGEST, STOP_FORCED),
+        ([10, 3], [10, 5], _Shortest(frozenset()), STOP_FORCED),
+    ],
+    ids=["longer-take", "longer-stop", "shortest"],
+)
+def test_the_first_frame_completing_apart_is_ranked_at_its_parents_step(
+    stop: list[int], take: list[int], decide: Decider, verdict: int
+) -> None:
+    """The root completes alike; the boundary's frame does not, so its
+    parent's step into it is the first that differs, and the decider's slot
+    for that end decides."""
+    assert _ranked(_boundary(decide=decide), stop, take) == verdict
+
+
+@pytest.mark.parametrize(
+    ("decide", "verdict"),
+    [(LEFTMOST_LONGEST, TAKE), (_Shortest(frozenset()), STOP_FORCED)],
+    ids=["leftmost-longest", "shortest"],
+)
+def test_frames_completing_alike_leave_the_boundarys_loop_end(
+    decide: Decider, verdict: int
+) -> None:
+    """Every copied frame completes at one place on both sides, so the first
+    differing step is the boundary's own loop: it ends at the boundary when
+    stopped, later when taken — the loop is one step, as Earley reads it."""
+    assert _ranked(_boundary(decide=decide), [10, 7], [10, 7]) == verdict
+
+
+def _in_a_loop() -> Frame:
+    """A parent frame descending into an unbounded loop it has counted."""
+    frame: Frame[object] = Frame(
+        flat_arm(1, kinds=(OP_REF,), los=(0,), his=(-1,), gate_kinds=(0,)),
+        [],
+        flat_clone(),
+        0,
+    )
+    frame.count = 1
+    return frame
+
+
+@pytest.mark.parametrize(
+    ("stop", "take", "parent", "count"),
+    [
+        ([10, -2], [10, -2], None, 1),
+        ([10, 2], [10, 5], _in_a_loop(), 0),
+    ],
+    ids=["settled-elsewhere", "zero-width-iteration"],
+)
+def test_a_step_the_ledger_cannot_read_forks(
+    stop: list[int], take: list[int], parent: Frame | None, count: int
+) -> None:
+    """A sub-run its caller settled on something else, and an iteration the
+    loop's carving may drop — the stop side's, at a boundary whose loop had
+    taken nothing, in a loop that ends alike on both sides — both fork."""
+    assert _ranked(_boundary(parent, count), stop, take) == FORKED
+
+
+@pytest.mark.parametrize(
+    ("decide", "at", "verdict"),
+    [
+        (LEFTMOST_LONGEST, 4, TAKE),
+        (_Shortest(frozenset()), 4, FORKED),
+        (LEFTMOST_LONGEST, 3, FORKED),
+    ],
+    ids=["longest", "shortest-iterations-fork", "may-end-alike"],
+)
+def test_a_child_still_open_at_a_convergence_ranks_by_where_it_can_end(
+    decide: Decider, at: int, verdict: int
+) -> None:
+    """The stop side's iteration completed at 3; the take side's is still
+    open at the convergence, so it ends at the convergence or later. Where
+    every such end ranks the same way against 3 the rank answers; where one
+    of them is 3 itself, it cannot. They are iterations of a loop, which only
+    leftmost-longest's order is known to rank as Earley does."""
+    kern = _boundary(_in_a_loop(), decide=decide)
+    kern.text = "x" * 6
+    stop, take = _sides(kern, [10, 3], [10, PENDING])
+    assert vars(Verdicts)["_rank"](kern, stop[:1] + (at,) + stop[2:], take) == verdict
+
+
+@pytest.mark.parametrize(
+    ("loops", "verdict"),
+    [
+        ((8, 6), STOP_FORCED),
+        ((6, 8), TAKE),
+        ((None, None), FORKED),
+        ((8, None), FORKED),
+    ],
+    ids=["stop-ends-later", "take-ends-later", "loop-open", "closed-on-one-side"],
+)
+def test_a_child_the_ledger_cannot_read_is_ranked_by_its_parents_loop_end(
+    loops, verdict: int
+) -> None:
+    """The take side's iteration was a sub-run its loop closed instead of
+    committing, so where that child completed is unreadable. The parent's
+    loop still recorded where it ended on both sides — the parent's own step
+    — and that ranks; with no end recorded on both sides, nothing does."""
+    kern = _boundary(_in_a_loop())
+    assert _ranked(kern, [10, 4], [10, UNSEEN], loops) == verdict
+
+
+@pytest.mark.parametrize(
+    ("stop", "take", "decide", "verdict"),
+    [
+        ([10, 2], [10, 5], LEFTMOST_LONGEST, TAKE),
+        ([10, 7], [10, 7], LEFTMOST_LONGEST, TAKE),
+        ([10, 2], [10, 5], _Shortest(frozenset()), STOP_FORCED),
+        ([10, 7], [10, 7], _Shortest(frozenset()), STOP_FORCED),
+    ],
+    ids=["step-longest", "loop-longest", "step-shortest", "loop-shortest"],
+)
+def test_a_zero_width_step_of_a_node_is_ranked_raw(
+    stop: list[int], take: list[int], decide: Decider, verdict: int
+) -> None:
+    """The boundary's loop had taken nothing, so the stop side's step — the
+    child's end, or the loop's own — ends where the one before it did. Earley
+    compares a node's boundaries raw, that step included, so the rank answers:
+    the decider's slot for the first end that differs."""
+    assert _ranked(_boundary(count=0, decide=decide), stop, take) == verdict
+
+
+@pytest.mark.parametrize(
+    ("loops", "verdict"),
+    [((None, None), TAKE), ((8, 6), STOP_FORCED), ((8, None), FORKED)],
+    ids=["loop-open", "loop-ends-apart", "closed-on-one-side"],
+)
+def test_a_frame_suspended_in_a_loop_ranks_its_loop_end_first(
+    loops, verdict: int
+) -> None:
+    """The parent's step into a loop is where the LOOP ends: two loop ends
+    that differ decide it; a loop still open on both sides ends alike, so its
+    iterations decide, the forked one's end first; a loop closed on one side
+    only cannot be read, and forks."""
+    assert _ranked(_boundary(_in_a_loop()), [10, 3], [10, 5], loops) == verdict
 
 
 TAIL_CARVING = (
@@ -608,7 +700,6 @@ TAIL_CARVING = (
 ``x`` takes one and ``tail`` the rest — which the decider keeps."""
 
 
-@RANKED
 def test_a_completed_carving_the_decider_does_not_keep_is_not_committed() -> None:
     """Both sides of a boundary complete ``aab``. Read at convergence as two
     empty snapshots, they agree, and the predictive parse commits the take: a
@@ -620,15 +711,7 @@ def test_a_completed_carving_the_decider_does_not_keep_is_not_committed() -> Non
     assert predictive == gated
 
 
-TWO_RUNS = (
-    "# @non-semantic n m\n"
-    "doc ::= item n? m? item\n"
-    "n ::= nunit+\n"
-    "m ::= nunit+\n"
-    'nunit ::= " " | cl\n'
-    'cl ::= "#" [a-z]* "\\n"\n'
-    'item ::= "x"\n'
-)
+TWO_RUNS = "# @non-semantic n m\ndoc ::= item n? m? item\n" + NOISE_RUNS
 """Two runs of one unit side by side: where ``n`` stops and ``m`` starts is a
 choice the values record."""
 
@@ -640,359 +723,3 @@ def test_a_completed_carving_the_decider_keeps_stays_on_the_pda() -> None:
     predictive, gated = parity_helpers.answers(TWO_RUNS, "verdicts-two-runs", "x #a\nx")
     assert predictive != parity_helpers.DECLINED
     assert predictive == gated
-
-
-# ── a fork inside an attempt sub-run settles it, as the live parse would ────
-
-
-def _floors_seen(compiled, text: str, monkeypatch) -> list[list[str]]:
-    """Parse ``text`` and name the caller of every floor each side was built
-    with — ``loop``, ``entry`` or ``audit`` — recorded at :meth:`_side_floors`."""
-    real = vars(Verdicts)["_side_floors"]
-    seen: list[list[str]] = []
-
-    def caller(floor: Floor) -> str:
-        entry = floor[5]
-        if entry is None:
-            return "loop"
-        return "entry" if entry[3] is None else "audit"
-
-    def recording(self, forked):
-        root, floors = real(self, forked)
-        seen.append([caller(f) for f in floors])
-        return root, floors
-
-    monkeypatch.setattr(Verdicts, "_side_floors", recording)
-    compiled.parse(text, cores=1)
-    return seen
-
-
-def test_a_fork_inside_a_loop_iteration_settles_it(monkeypatch) -> None:
-    """gbnf-meta's trailing comment line is a boundary inside the ``n?``
-    iteration the grammar loop is attempting. The stop side ends ``n`` there;
-    settled as the live loop settles it, the rest of the line cannot be a
-    ``tail-comment`` (no newline in one), so the stop side dies and the take
-    settles — without the sides ever converging."""
-    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
-    text = "q::=\nBcQ::=#\n#\n"
-    tally = _converged_tally(bench.compiled, text, monkeypatch)
-    monkeypatch.undo()
-    seen = _floors_seen(bench.compiled, text, monkeypatch)
-    predictive, _gated = parity_helpers.answers(bench.source, "verdicts-gbnf", text)
-
-    assert ["loop"] in seen, f"no side was forked inside a loop iteration: {seen}"
-    assert tally["converged"] == 0, tally
-    assert predictive != parity_helpers.DECLINED
-
-
-def test_a_fork_inside_an_attempt_entry_settles_it(monkeypatch) -> None:
-    """A vyx packet whose boundary sits inside an attempt clone's entry
-    sub-run: each side carries the entry, and the predictive parse builds the
-    gated engine's model."""
-    bench = next(one for one in BENCHES if one.name == "vyx")
-    text = "!E ^k L083< D:{s=} >"
-    seen = _floors_seen(bench.compiled, text, monkeypatch)
-    predictive, gated = parity_helpers.answers(bench.source, "verdicts-vyx", text)
-
-    assert ["entry"] in seen, f"no side was forked inside an attempt entry: {seen}"
-    assert predictive == gated
-
-
-ENTRY_AT_THE_START = (
-    "# @non-semantic n m\n"
-    "root ::= a | b\n"
-    'a ::= item n? m? item ";"\n'
-    'b ::= item n? m? item "."\n'
-    "n ::= nunit+\n"
-    "m ::= nunit+\n"
-    'nunit ::= " " | cl\n'
-    'cl ::= "#" [a-z]* "\\n"\n'
-    'item ::= "x"\n'
-)
-"""The start rule is an attempt clone: the run itself starts its entries, and
-a boundary in ``n``'s run sits inside them."""
-
-
-def test_an_entry_the_run_started_settles_into_the_sides_own_root(
-    monkeypatch,
-) -> None:
-    """Nothing below the bottom sub-run holds what the winner splices into:
-    the run's holder is not on the stack. Each side completes into a root of
-    its own — the value the end-of-input comparison reads — and the parse
-    builds the gated engine's model."""
-    real_floors, real_converged = (
-        vars(Verdicts)["_side_floors"],
-        vars(Verdicts)["_converged"],
-    )
-    bottoms: list[bool] = []
-    roots: list[tuple[int, int]] = []
-
-    def floors(self, forked):
-        root, found = real_floors(self, forked)
-        bottoms.extend(root is f[5][1] for f in found if f[0] == 0)
-        return root, found
-
-    def converged(self, left, right, shape, guessed):
-        roots.append((len(left[3]), len(right[3])))
-        return real_converged(self, left, right, shape, guessed)
-
-    monkeypatch.setattr(Verdicts, "_side_floors", floors)
-    monkeypatch.setattr(Verdicts, "_converged", converged)
-    predictive, gated = parity_helpers.answers(
-        ENTRY_AT_THE_START, "verdicts-entry-start", "x #a\nx."
-    )
-
-    assert bottoms and all(bottoms), "the start entry splices into the side's root"
-    assert roots and all(left and right for left, right in roots), roots
-    assert (
-        predictive
-        == gated
-        == "B(Item('x'), Item('x'), N((NunitArm1(' '), Cl('#a\\n'))))"
-    )
-
-
-def test_a_fork_inside_an_audit_settles_it_as_the_audit_would(monkeypatch) -> None:
-    """``a`` wins ``x #a\\nx;`` and the attempt audits ``b``, whose sub-run
-    meets a boundary in its ``n`` run. The sides settle that audit from the
-    record its attempt pushed — ``b`` fails at ``;``, the audit passes, ``a``
-    commits — and the parse builds the gated engine's model."""
-    compiled = compile_text(ENTRY_AT_THE_START, cache_key="verdicts-entry-start")
-    seen = _floors_seen(compiled, "x #a\nx;", monkeypatch)
-    predictive, gated = parity_helpers.answers(
-        ENTRY_AT_THE_START, "verdicts-entry-start", "x #a\nx;"
-    )
-    assert any("audit" in floors for floors in seen), seen
-    assert (
-        predictive
-        == gated
-        == "A(Item('x'), Item('x'), N((NunitArm1(' '), Cl('#a\\n'))))"
-    )
-
-
-def _stacked(*frames: Frame[str], text: str = "x") -> PdaKernel:
-    """A kernel standing on ``frames``, as a fork would find it."""
-    kern = _live_kernel(text)
-    kern.stack = list(frames)
-    return kern
-
-
-def _floors_of(kern: PdaKernel) -> tuple[list[str], list[Floor]]:
-    """What :meth:`_side_floors` reads off ``kern``'s stack."""
-    return vars(Verdicts)["_side_floors"](kern, verdicts.frames_copy(kern.stack))
-
-
-def _marked(clone: FlatClone[str], start: int) -> Frame[str]:
-    """A sub-run's root frame, marked as :meth:`_attempt_run` marks one, on a
-    clone the program flags as one a sub-run can root."""
-    clone.sub_root = True
-    frame: Frame[str] = Frame(flat_arm(1), [], clone, 0)
-    frame.start = start
-    return frame
-
-
-def test_an_audit_with_no_record_is_undecidable() -> None:
-    """An audit's sub-run is settled from the record its attempt pushed; a
-    frame marked as an audit's with no record at its depth is nobody's."""
-    below: Frame[str] = Frame(flat_arm(1), [], flat_clone(), 0)
-    with pytest.raises(ProbeFork, match="no record"):
-        _floors_of(_stacked(below, _marked(flat_clone(), -1)))
-
-
-def test_a_fork_inside_a_span_check_is_undecidable() -> None:
-    """``_spans_exactly`` re-runs an entry on the text truncated at the
-    winner's end, a question about that one span: a side forked inside it has
-    no caller to hand an answer back to, so the fork refuses."""
-    below: Frame[str] = Frame(flat_arm(1), [], flat_clone(), 0)
-    with pytest.raises(ProbeFork, match="span check"):
-        _floors_of(_stacked(below, _marked(flat_clone(), -2)))
-
-
-def test_a_sub_run_at_the_bottom_must_be_an_entry_of_the_start_clone() -> None:
-    """A marked frame with nothing below it was started by the run itself;
-    one the start clone does not enter is nobody's to settle."""
-    with pytest.raises(ProbeFork, match="unowned"):
-        _floors_of(_stacked(_marked(flat_clone(), 0)))
-
-
-def _attempting(*subs: FlatClone[str]) -> FlatClone[str]:
-    """An attempt clone whose entries all admit, so none is substituted."""
-    return flat_clone(attempt=(None, tuple((None, False, None, None, s) for s in subs)))
-
-
-@pytest.mark.parametrize(
-    ("lo", "count", "callers"),
-    [(0, 1, ["loop", "entry"]), (1, 2, ["loop", "entry"]), (1, 1, None)],
-    ids=["optional", "past-its-minimum", "at-its-minimum"],
-)
-def test_an_attempt_entry_inside_a_loop_iteration_is_read_by_its_count(
-    lo: int, count: int, callers: list[str] | None
-) -> None:
-    """A loop item whose payload is an attempt clone: the entry's frame is the
-    only one on the stack, and whether a loop iteration runs it or a
-    mandatory descent does is told by the count alone. Past the minimum only
-    an iteration can; below it, only a descent; AT it, either — and a reading
-    the stack cannot single out is refused, never guessed."""
-    entry, other = flat_clone(attempt=None), flat_clone(attempt=None)
-    arm = flat_arm(
-        1,
-        kinds=(OP_REF,),
-        gate_kinds=(GATE_ATTEMPT,),
-        los=(lo,),
-        his=(-1,),
-        payloads=(_attempting(entry, other),),
-    )
-    below: Frame[str] = Frame(arm, [], flat_clone(), 0)
-    below.count = count
-    kern = _stacked(below, _marked(entry, 0))
-    if callers is None:
-        with pytest.raises(ProbeFork, match="unowned"):
-            _floors_of(kern)
-        return
-    _root, floors = _floors_of(kern)
-    assert ["loop" if f[4] is not None else "entry" for f in floors] == callers
-    entry_caller = floors[1][5]
-    assert entry_caller is not None and entry_caller[1] is floors[0][2], (
-        "the entry splices into the iteration"
-    )
-
-
-def test_a_plain_clone_lands_on_itself() -> None:
-    """Nothing to chase and no entries to choose: ``_enter`` pushes the clone."""
-    clone: FlatClone[str] = flat_clone(attempt=None)
-    assert landing(clone, "x", 0) is clone
-    assert landing(None, "x", 0) is None
-
-
-def test_a_sole_admitted_entry_lands_where_it_does() -> None:
-    """An attempt clone with one admitted entry is replaced by it, as
-    ``_settle`` replaces it."""
-    sole, barred = flat_clone(attempt=None), flat_clone(attempt=None)
-    clone = flat_clone(
-        attempt=(
-            None,
-            (
-                (frozenset("x"), False, None, None, sole),
-                (frozenset("y"), False, None, None, barred),
-            ),
-        )
-    )
-    assert landing(clone, "x", 0) is sole
-
-
-def test_an_entry_two_subs_land_on_is_nobodys() -> None:
-    """``entered`` names THE entry: two entries landing on one clone would
-    leave the side to guess which one the live attempt was running."""
-    target = flat_clone(attempt=None)
-    assert entered(_attempting(target, flat_clone(attempt=None)), target, "x", 0)
-    assert entered(_attempting(target, target), target, "x", 0) is None
-    assert entered(flat_clone(attempt=None), target, "x", 0) is None
-
-
-# ── a side drives floor by floor ────────────────────────────────────────────
-
-
-def test_a_failure_above_a_floor_fails_the_sub_run_not_the_side(monkeypatch) -> None:
-    """The live loop closes when its iteration fails; the side must too. The
-    failure is settled at the floor, and the side drives on."""
-    kern = _live_kernel("")
-    kern.stack = [Frame(flat_arm(1), [], flat_clone(), 0)]
-    floor = (1, 0, [], [], None, None)
-    settled: list[bool] = []
-    drives = iter([PdaFail("dead above the floor", 0), None])
-
-    def drive(self, floor_depth: int = 0, _limit: int = -1) -> None:
-        failure = next(drives)
-        if failure is not None:
-            raise failure
-        del self.stack[floor_depth:]
-
-    def settle(self, settling, derived: bool) -> None:
-        settled.append(derived)
-        del self.stack[settling[0] :]
-
-    monkeypatch.setattr(PdaKernel, "_drive", drive)
-    monkeypatch.setattr(Verdicts, "_settle_floor", settle)
-    vars(Verdicts)["_drive_floors"](kern, [floor], -1)
-    assert settled == [False]
-    assert kern.stack == []
-
-
-def test_a_side_that_drains_short_of_the_end_is_dead(monkeypatch) -> None:
-    """With no floor left, an empty stack before the end is trailing input:
-    the side is dead, and a side that drained AT the end completed."""
-    kern = _live_kernel("ab")
-    monkeypatch.setattr(PdaKernel, "_drive", lambda *_a, **_k: None)
-    advance = vars(Verdicts)["_advance"]
-    assert advance(kern, ([], 1, None, [], []), -1) == (None, False)
-    done, _sampled = advance(kern, ([], 2, None, ["r"], []), -1)
-    assert done is not None and done[1] == 2 and done[3] == ["r"]
-
-
-def test_the_recovery_restates_what_the_live_parse_did(monkeypatch) -> None:
-    """A fork reads the stack with side-effect-free restatements of what the
-    live parse decided, so on every corpus that attempts: each push is the
-    clone ``landing`` names, each attempted iteration's frame is one
-    ``iterating`` admits, each descent's item is one ``descending`` names, each
-    suspended frame is read at an item one of those two names, and each frame a
-    sub-run marked is on a clone flagged ``sub_root`` — audit
-    roots included."""
-    real_enter = next(
-        vars(c)["_enter"] for c in PdaKernel.__mro__ if "_enter" in vars(c)
-    )
-    real_drive = next(
-        vars(c)["_drive"] for c in PdaKernel.__mro__ if "_drive" in vars(c)
-    )
-    real_iteration = Attempting.attempt_iteration
-    names = ("pushed", "iterated", "descended", "suspended", "marked", "audits")
-    seen = dict.fromkeys(names, 0)
-
-    def descent_item(frame, clone, out) -> int:
-        """The item ``frame`` is descending into with ``clone``, or ``-1``."""
-        for k in (frame.i, frame.i - 1):
-            if 0 <= k < frame.arm.n and frame.arm.payloads[k] is clone:
-                transparent = frame.clone.mode == BUILD_TRANSPARENT
-                sinks = frame.sinks
-                if out is (frame.out if transparent else sinks and sinks[k]):
-                    return k
-        return -1
-
-    def enter(self, clone, out):
-        if self.stack and (k := descent_item(self.stack[-1], clone, out)) >= 0:
-            assert k in descending(self.stack[-1])
-            seen["descended"] += 1
-        pos, depth = self.pos, len(self.stack)
-        pushed = real_enter(self, clone, out)
-        if pushed:
-            assert landing(clone, self.text, pos) is self.stack[depth].clone
-            seen["pushed"] += 1
-        return pushed
-
-    def drive(self, floor: int = 0, limit: int = -1) -> None:
-        for frame in self.stack[:-1]:
-            # `_beyond_class`'s reading of a suspended frame, restated
-            at = frame.i
-            if at and frame.count == 0 and frame.arm.kinds[at - 1] == OP_REF1:
-                at -= 1
-            assert at in descending(frame) or (iterating(frame) and at == frame.i)
-            seen["suspended"] += 1
-        for frame in self.stack:
-            start = getattr(frame, "start", None)
-            if start is not None:
-                assert frame.clone.sub_root
-                seen["marked"] += 1
-                seen["audits"] += start == -1
-        return real_drive(self, floor, limit)
-
-    def iteration(self, frame, arm, i, pos):
-        if arm.kinds[i] in (OP_REF, OP_GRP):
-            assert iterating(frame)
-            seen["iterated"] += 1
-        return real_iteration(self, frame, arm, i, pos)
-
-    monkeypatch.setattr(PdaKernel, "_enter", enter)
-    monkeypatch.setattr(PdaKernel, "_drive", drive)
-    monkeypatch.setattr(Attempting, "attempt_iteration", iteration)
-    for bench in BENCHES:
-        if bench.name in ("gbnf-meta", "abnf-meta", "vyx", "markdown"):
-            bench.compiled.parse(bench.corpus, cores=1)
-    assert all(seen.values()), seen

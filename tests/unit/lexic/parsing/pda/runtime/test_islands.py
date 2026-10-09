@@ -47,6 +47,7 @@ from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
+    IslandEnds,
     IslandPolicy,
     bounded_window,
     island_derivation,
@@ -140,23 +141,16 @@ def test_island_parse_bails_when_a_shorter_end_could_compose():
         island_parse(_cross_span_tables(), "abc", 0, "x", policy)
 
 
-def test_two_followable_ends_go_to_the_one_extent_hook(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The island does not refuse two followable ends itself: it hands the
-    rule, the position and both ends to ``settle_extent``, the one place the
-    decider's ranking will answer them."""
-    asked: list[tuple[str, int, int, int]] = []
-
-    def recording(name: str, pos: int, shorter: int, longer: int) -> int:
-        asked.append((name, pos, shorter, longer))
-        raise ProbeFork("recorded", pos)
-
-    monkeypatch.setattr(islands, "settle_extent", recording)
+def test_two_followable_ends_carry_both_completions() -> None:
+    """The island does not choose between two followable ends itself: it
+    raises them as ``IslandEnds`` — a ``ProbeFork`` wherever no verdict reads
+    it — carrying both completions, shorter first, for the verdict that can."""
     policy = IslandPolicy(follow=CharSet(frozenset("b")))
-    with pytest.raises(ProbeFork, match="recorded"):
+    with pytest.raises(IslandEnds) as raised:
         island_parse(_cross_span_tables(), "abc", 0, "x", policy)
-    assert asked == [("x", 0, 1, 2)]
+    assert raised.value.name == "x"
+    assert [end for _tree, end, _value in raised.value.ends] == [1, 2]
+    assert all(isinstance(tree, ParseTree) for tree, _end, _value in raised.value.ends)
 
 
 def test_island_parse_commits_longest_when_the_shorter_cannot_compose():

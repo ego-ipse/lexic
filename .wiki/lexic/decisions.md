@@ -1143,8 +1143,8 @@ and the rule's island does. Its sole admitted arm, if two items or more of
 terminals, is a leaf carrying the take, so the frame-less matcher checks it;
 any other arm runs framed, and a sub-run it roots that misses asks the island
 (`Attempting._attempt_run`), so an inline group is covered too.
-Two followable ends of the island go to `islands.settle_extent`, the one place
-the decider's ranking will answer them; until it does, they are refused.
+Two followable ends of the island are ranked by the decider ("A boundary's
+two parses are ranked as Earley ranks them", below).
 
 **Why:** a loop matched item by item takes what the rest of its arm needs.
 `item ::= [a;] | "a"+ "a"` never matched its second arm, so `aa` came back as
@@ -1191,3 +1191,53 @@ back. `doc ::= sec+ tail?` with `sec ::= part* sepr` and `part ::= [a;]` gates
 decider that keeps the shortest first slot, `;;` is two sections, and the
 skip eats the second section's separator. Leftmost-longest carves the run as
 the skip does, so for it the gate stands.
+
+## A boundary's two parses are ranked as Earley ranks them
+
+**Decision:** a boundary whose two sides build different values asks the
+decider, in one place (`Verdicts._kept`, `decide.rank` of each side's
+carving), about the first step the sides carve apart, read the way the gated
+engine reads a carving:
+
+- **The shallowest node that differs.** Each copied frame's completion is
+  recorded in a ledger; the first depth whose entries differ names the node,
+  and its parent's step into it is compared. A loop is a node in Earley, so
+  the parent's own recorded end of the item comes first, then the child's own
+  end. A child the ledger cannot read is ranked by the step its parent
+  recorded instead.
+- **Steps are compared raw.** A node's step that ends where the one before it
+  did is still a step, as Earley's chain boundaries are. The one exception is
+  an iteration at a boundary whose loop had taken nothing: it may be
+  zero-width, which the loop's carving drops, so it forks.
+- **An open child** at a convergence ends somewhere in the sides' common
+  future; it is ranked only where every end it can reach ranks the same way
+  (`_kept_open`), whatever the decider.
+- **An island with two followable ends** raises `IslandEnds` carrying each
+  completion, and its holder (a frame's item, an attempted iteration whose
+  whole sub-run is the island, a steal) builds one side per end and ranks them.
+
+**Iterations are ranked under leftmost-longest only.** Earley desugars `X+`
+to `X | X X+`, and for any other decider its order over a repetition is not
+the order of where the first differing iteration ends, so under any other
+decider those sides fork and the gated engine answers. An island's two ends are
+ranked under every decider: the gates that read a run as leftmost-longest
+carves it are that decider's licence alone (the entry above), so no side is
+killed by a reading the decider does not share.
+
+**Ledgers are paid only by a rank.** A side keeps no ledger while it drives; a
+verdict that ranks builds both sides again keeping ledgers and drives them to
+where they stood, which reproduces them because a side's drive is a function of
+where it starts and where it stops. The common side drives with no floors to
+settle and nothing to record. Measured cost on the verdict path: +0.37 ns per
+character, median over the corpus rows; whole parses within the A/A noise band.
+
+Under leftmost-longest, completed sides the rank cannot read, or reached
+through a guess inside a side, still keep the take, as before: such a guess is
+resolved exactly only by a verdict of its own. That take is leftmost-longest's
+choice, so under any other decider those sides fork.
+
+**Why:** two parses that both complete differ in where some node ends, and
+Earley keeps the decider's carving of the first such node top-down. Ranking by
+anything else — the side that took, the longer side overall — answers a
+different question, and the PDA's model would differ from the gated engine's
+under the same decider.

@@ -1,5 +1,14 @@
 # Log
 
+## A boundary's two parses are ranked as Earley ranks them (2026-10-09)
+
+`decisions.md` records how the predictive engine ranks a boundary's two
+completing parses: the shallowest node that differs, the parent's recorded
+step first, raw steps, an open child only where every reachable end agrees,
+an island's two ends by its holder under every decider, iterations under
+leftmost-longest only, and ledgers paid only by a rank. The text-extent entry
+no longer names `islands.settle_extent`, which is gone.
+
 ## A gate that reads a run whole is a leftmost-longest licence (2026-10-09)
 
 `decisions.md` records the `SCAN_SKIP` grant: the structured scan and probe

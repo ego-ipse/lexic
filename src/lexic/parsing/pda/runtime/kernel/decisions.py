@@ -15,6 +15,8 @@ extends.
 
 from __future__ import annotations
 
+from typing import Any
+
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
@@ -34,9 +36,10 @@ from lexic.parsing.pda.runtime.admission import (
 from lexic.parsing.pda.runtime.build import (
     Frame,
 )
+from lexic.parsing.pda.runtime.islands import IslandEnds
 from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
 
-__all__ = ["Attempting"]
+__all__ = ["Attempting", "claim"]
 
 
 class Attempting[Carry](Verdicts[Carry]):
@@ -112,7 +115,12 @@ class Attempting[Carry](Verdicts[Carry]):
                     pos,
                 )
             return self._attempt_island(frame, arm, i, pos)
-        got = self._attempt_run(arm.payloads[i], pos, pos)
+        try:
+            got = self._attempt_run(arm.payloads[i], pos, pos)
+        except IslandEnds as two:
+            if two.root is not arm.payloads[i] or two.pos != pos:
+                raise
+            got = self._iteration_ends(two, arm, i, pos)
         return self._attempt_settle(frame, arm, i, pos, got)
 
     def _attempt_settle(
@@ -369,9 +377,11 @@ class Attempting[Carry](Verdicts[Carry]):
                     self.stack[floor].start = mark
                 self._drive(floor)
             return self.pos, holder
-        except ProbeFork:
+        except ProbeFork as fork:
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
+            if isinstance(fork, IslandEnds):
+                claim(fork, holder, sub)
             raise
         except PdaFail:
             island = self._stolen_at(floor)
@@ -383,7 +393,11 @@ class Attempting[Carry](Verdicts[Carry]):
             if len(self.stack) > floor:  # a completed drive left none above
                 del self.stack[floor:]
             self.pos = saved_pos
-        return self._stolen_back(island, pos)
+        try:
+            return self._stolen_back(island, pos)
+        except IslandEnds as two:  # the island asked for the run is its outcome
+            claim(two, None, sub)
+            raise
 
     def _stolen_at(self, floor: int) -> IslandPayload | None:
         """The island to ask for a sub-run that missed, when its root is a
@@ -411,3 +425,11 @@ class Attempting[Carry](Verdicts[Carry]):
             return None
         finally:
             self.pos = saved_pos
+
+
+def claim(two: IslandEnds, holder: list[Any] | None, sub: FlatClone) -> None:
+    """Mark ``two`` the whole outcome of the attempt sub-run of ``sub`` when it
+    was asked straight into that run's ``holder`` (``None``: asked for the run
+    itself)."""
+    if holder is None or two.sink is holder:
+        two.root = sub

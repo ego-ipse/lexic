@@ -12,55 +12,50 @@ to end of input; the attempt sub-runs it is inside are recovered from the stack
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 
-from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest, carving
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
-    FlatClone,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_DISPATCH,
-    GATE_ATTEMPT,
-    OP_GRP,
-    OP_REF,
     OP_REF1,
 )
-from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     REST_ADMITS,
     REST_ADMITS_HARD,
     REST_ASCEND,
     REST_DEAD,
-    Audit,
-    Floor,
-    KernelCaches,
-    RouteLane,
     Side,
     arm_rest_scan,
     control_signature,
-    frames_copy,
     pending_values,
-    sole_admitted,
     value_shape,
 )
-from lexic.parsing.pda.runtime.build import (
-    Frame,
+from lexic.parsing.pda.runtime.build import Frame
+from lexic.parsing.pda.runtime.islands import IslandEnds
+from lexic.parsing.pda.runtime.kernel.sides import (
+    PENDING,
+    UNSEEN,
+    Sides,
+    descending,
+    iterating,
+    once,
+    recorded,
 )
-from lexic.parsing.pda.runtime.matchers import chase_dispatch
+from lexic.parsing.product import Completed
+from lexic.parsing.product.tree import CompletionResult
 
 __all__ = [
     "FORKED",
+    "Makers",
     "STOP_FORCED",
     "TAKE",
     "Verdicts",
-    "auditing",
-    "descending",
-    "entered",
-    "iterating",
-    "landing",
 ]
 
 _LOCKSTEP_ROUNDS = 32
@@ -72,64 +67,29 @@ _LOCKSTEP_STEP = 8
 different control states — small, because convergence is usually one element
 away and every character driven past it is wasted."""
 
+type Makers = tuple[Callable[..., Side], tuple[object, ...], tuple[object, ...]]
+"""How a verdict's two sides are built afresh: a builder, and its arguments for
+the stop side and for the take side; the builder takes last whether the side
+keeps a ledger (:meth:`Sides._forked`). Plain values, so a verdict that never
+ranks pays nothing to carry them (:meth:`Verdicts._made`)."""
+
 TAKE, STOP_FORCED, FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Verdicts._fork_verdict`)."""
 
 
-class Verdicts[Carry]:
-    """The boundary-verdict methods, hosted for ``Attempting`` to inherit.
-
-    Declares the kernel surface it reads, the driver methods it re-enters and
-    the attempt entries a side settles a sub-run through.
-    """
+class Verdicts[Carry](Sides[Carry]):
+    """The boundary-verdict methods, hosted for ``Attempting`` to inherit; the
+    kernel surface they read is declared on :class:`Sides`, beside the lane
+    they write."""
 
     __slots__ = ()
 
-    tables: PdaTables
-    text: str
     pos: int
-    stack: list[Frame[Carry]]
-    _caches: KernelCaches[Carry]
-    _routes: RouteLane | None
 
-    def _drive(self, floor: int = 0, limit: int = -1) -> None:
-        """Provided by the kernel — drain the frame stack down to ``floor``."""
-        raise NotImplementedError
-
-    def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
-        """Provided by the kernel — item ``i``'s lazily-allocated sink."""
-        raise NotImplementedError
-
-    def attempt(
-        self,
-        clone: FlatClone[Carry],
-        out: list[Carry],
-        ran: int = -1,
-        got: tuple[int, list[Carry]] | None = None,
-    ) -> None:
-        """Provided by ``Attempting`` — run an attempt clone's entries."""
-        raise NotImplementedError
-
-    def _attempt_settle(
-        self,
-        frame: Frame[Carry],
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        got: tuple[int, list[Carry]] | None,
-    ) -> int:
-        """Provided by ``Attempting`` — commit an iteration or close the loop."""
-        raise NotImplementedError
-
-    def _attempt_audit(
-        self,
-        clone: FlatClone[Carry],
-        first: int,
-        won: tuple[int, list[Carry]],
-        out: list[Carry],
-        got: tuple[int, list[Carry]] | None = None,
-    ) -> None:
-        """Provided by ``Attempting`` — audit an attempt's winner."""
+    def _island_value(
+        self, name: str, tree: Any, built: CompletionResult[Carry] | None
+    ) -> CompletionResult[Carry]:
+        """Provided by the kernel — what one island completion splices."""
         raise NotImplementedError
 
     def _attempt_choice(
@@ -222,9 +182,9 @@ class Verdicts[Carry]:
         is forced (Earley's split answer is maximal SUBJECT TO SUCCESS — the
         gbnf-meta terminator theft resolves here); both complete → equal
         values are a benign split (committed as the take), different values
-        are the gated engine's question. A death or a completion either drive
-        reached through a greedy guess (``uncertain``) is the guess's as much as
-        the boundary's, so it decides nothing and forks.
+        are ranked by the decider (:meth:`_ranked`). A death or a completion
+        either drive reached through a greedy guess (``uncertain``) is the
+        guess's as much as the boundary's, so it decides nothing and forks.
 
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
         :returns: :data:`TAKE` / :data:`STOP_FORCED` / :data:`FORKED`.
@@ -235,12 +195,47 @@ class Verdicts[Carry]:
         stop, stop_unc = self._probe(arm, i, pos, None)
         if stop is None:
             return FORKED if stop_unc else TAKE
-        take, take_unc = self._probe(arm, i, pos, taken)
-        if take is None:
+        take = self._probe(arm, i, pos, taken)
+        return self._compared(stop, stop_unc, take, self._makers(arm, i, pos, taken))
+
+    def _makers(
+        self, arm: FlatArm, i: int, pos: int, taken: tuple[int, list[Carry]]
+    ) -> Makers:
+        """The loop boundary's two sides, stop then take (:data:`Makers`)."""
+        return self._side, (arm, i, pos, None), (arm, i, pos, taken)
+
+    @staticmethod
+    def _made(makers: Makers, take: bool, record: bool) -> Side:
+        """One of a verdict's two sides, built afresh: the take side's when
+        ``take``, keeping a ledger when ``record``."""
+        build, stop, taken = makers
+        return build(*(taken if take else stop), record)
+
+    def _compared(
+        self,
+        stop: Side,
+        stop_unc: bool,
+        take: tuple[Side | None, bool],
+        makers: Makers,
+    ) -> int:
+        """Two sides run to the end of input, the stop side complete: a dead
+        take forces the stop, one value is a benign split, and two values are
+        ranked (:meth:`_ranked`) — unless a drive guessed on the way, when it
+        proves nothing and forks.
+
+        :param stop: The completed stop side.
+        :param stop_unc: Whether its drive guessed.
+        :param take: The take side, ``None`` if it died, and its guess.
+        :param makers: The two sides afresh, for the rank.
+        """
+        done, take_unc = take
+        if done is None:
             return FORKED if take_unc else STOP_FORCED
-        if stop_unc or take_unc or not same_value(take, stop):
+        if stop_unc or take_unc:
             return FORKED
-        return TAKE
+        if same_value(done[3], stop[3]):
+            return TAKE
+        return self._ranked(makers, -1)
 
     def _lockstep_verdict(
         self,
@@ -287,9 +282,16 @@ class Verdicts[Carry]:
 
         :returns: The verdict, or ``None`` when the long way must decide.
         """
+        stop, take = self._side(arm, i, pos, None), self._side(arm, i, pos, taken)
+        return self._lockstep(stop, take, self._makers(arm, i, pos, taken))
+
+    def _lockstep(
+        self, left: Side | None, right: Side | None, makers: Makers
+    ) -> int | None:
+        """Advance the stop side and the take side in step until they converge
+        (:meth:`_converged`) or one dies, inside the round budget; ``None`` when
+        the long way must decide. ``makers`` builds them afresh, for the rank."""
         shape = value_shape(self.stack)
-        left: Side | None = self._side(arm, i, pos, None)
-        right: Side | None = self._side(arm, i, pos, taken)
         left_unc = right_unc = False
         for _round in range(_LOCKSTEP_ROUNDS):
             if left is None:
@@ -301,7 +303,8 @@ class Verdicts[Carry]:
                 if len(left[4]) == len(right[4]) and control_signature(
                     left[0], left[1]
                 ) == control_signature(right[0], right[1]):
-                    return self._converged(left, right, shape, left_unc or right_unc)
+                    guessed = left_unc or right_unc
+                    return self._converged(left, right, shape, guessed, makers)
                 target += _LOCKSTEP_STEP
             left, sampled = self._advance(left, target)
             left_unc = left_unc or sampled
@@ -315,385 +318,259 @@ class Verdicts[Carry]:
         right: Side,
         shape: tuple[Any, ...],
         guessed: bool,
+        makers: Makers,
     ) -> int | None:
         """The verdict once both sides share a position and a control state.
 
         Only the values built SINCE the boundary are compared — ``shape`` is
         the watermark taken there, and both sides inherited everything below it
         from one stack. Sides that converged by COMPLETING hold empty stacks,
-        so they agree here, base-preserving: two completed carvings are the
-        ranked verdict's to compare and F2-check, not convergence's.
+        so what they built is in their root outputs, and those are compared.
+        Sides whose values differ are ranked (:meth:`_ranked`) — read before
+        the common remainder runs, while both ledgers stand at the convergence
+        — once that remainder is seen to complete. A guess on the way
+        unsettles a rank as it does a mid-parse agreement. Completed sides the
+        rank cannot settle, or reached through a guess, keep the take: a guess
+        inside a side is resolved exactly only by a verdict of its own.
 
         :param guessed: Whether either side's drive guessed on the way here.
+        :param makers: The two sides afresh, for the rank.
         """
+        if not left[0]:
+            if same_value(left[3], right[3]):
+                return TAKE
+            ranked = FORKED if guessed else self._ranked(makers, -1)
+            # The exemption the nested lockstep removes: until a guess inside a
+            # side gets a verdict of its own, a completed pair it reached, or one
+            # the rank cannot read, keeps the take leftmost-longest has always
+            # had. Any other decider's forks.
+            return TAKE if ranked == FORKED and self._takes_longest() else ranked
         if same_value(pending_values(left[0], shape), pending_values(right[0], shape)):
-            return FORKED if guessed and left[0] else TAKE
+            return FORKED if guessed else TAKE
+        ranked = FORKED if guessed else self._ranked(makers, left[1])
         done, sampled = self._advance(left, -1, shared=True)
         if done is None:  # the common remainder completes on neither side
             return FORKED if guessed or sampled else TAKE
-        return FORKED
+        return FORKED if sampled else ranked
 
-    def _side(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]] | None,
-    ) -> Side:
-        """One side of the boundary, undriven, as a resumable :data:`Side`.
+    def _ranked(self, makers: Makers, at: int) -> int:
+        """Two sides whose values differ, ranked as the gated engine ranks them
+        (:meth:`_rank`): both built again keeping ledgers and driven to ``at``
+        (``-1``: to the end) — exactly where they stood, since a drive is a
+        function of where it starts and where it stops."""
+        stop, _guessed = self._advance(self._made(makers, False, True), at)
+        take, _guessed = self._advance(self._made(makers, True, True), at)
+        if stop is None or take is None:
+            return FORKED
+        return self._rank(stop, take)
 
-        A structural stack copy with the boundary decided — closed
-        (``taken is None``) or advanced past one taken iteration — handed back
-        undriven so the caller can run it to the end or advance it in step with
-        the other. The lane forks with the stack, so whichever side loses takes
-        the routes it published with it; the sub-runs the boundary sits inside
-        come with it too (:meth:`_side_floors`), looked for only when a frame's
-        clone can root one.
+    def _rank(self, stop: Side, take: Side) -> int:
+        """Two sides keeping ledgers, ranked as the gated engine ranks them:
+        the shallowest frame whose carving differs, at its first differing step.
 
-        :raises ProbeFork: When the stack does not say how to settle one of
-            those sub-runs.
+        Frames the fork copied that completed at one position on both sides
+        carve alike — from there on both share a control state, and before the
+        fork they share everything — so the first copied depth whose ledger
+        entries differ names the step: its parent's step into it
+        (:meth:`_ranked_at`). Every copied frame completing alike leaves the
+        boundary's own frame: the first of its items to end apart — at a loop
+        boundary the loop itself, which ends at the boundary on the stop side —
+        and failing that the fork's own step, the island's two ends.
+
+        A node's own steps are compared raw, as Earley compares a chain's
+        boundaries: a step that ends where the one before it did stays in the
+        vector. Only a repetition's iterations drop a zero-width one
+        (:meth:`_ranked_at`). A child whose completion the ledger cannot read —
+        a sub-run its caller settled on something else, a closed loop or a
+        replacing entry — is ranked by the step its parent recorded instead.
         """
-        forked = frames_copy(self.stack)
-        root: list[Carry] = forked[0].out
-        floors: list[Floor] = []
-        for frame in self.stack:
-            if frame.clone.sub_root:
-                root, floors = self._side_floors(forked)
-                break
-        routes = None if self._routes is None else self._routes.forked(forked)
-        top = forked[-1]
-        if taken is None:
-            top.close_loop(i, pos)
-            return forked, pos, routes, root, floors
-        top.count += 1
-        top.i = i
-        saved = self.stack
-        self.stack = forked
-        try:
-            self._sink_for(top, arm, i).extend(taken[1])
-        finally:
-            self.stack = saved
-        return forked, taken[0], routes, root, floors
-
-    def _advance(
-        self, side: Side, limit: int, shared: bool = False
-    ) -> tuple[Side | None, bool]:
-        """Drive one side to ``limit`` (``-1`` = to the end); ``None`` if it dies.
-
-        Swapped in and out under one discipline, and counted as probing so
-        nested boundaries resolve greedily rather than recursing. Whether that
-        greedy resolution SAMPLED a both-viable boundary comes back beside the
-        side (``uncertain``): the verdicts read it, since a death or a
-        convergence reached through a guess proves nothing. A side carrying
-        sub-runs drives floor by floor (:meth:`_drive_floors`).
-
-        :param shared: The drive is the remainder two converged sides share,
-            where a refusal is undecidable rather than a death.
-        :returns: ``(side | None, uncertain)``.
-        """
-        caches = self._caches
-        saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
-        self.stack, self.pos, self._routes = side[0], side[1], side[2]
-        caches.probing += 1
-        saved_unc = caches.uncertain
-        caches.uncertain = False
-        try:
-            floors = side[4]
-            if floors:
-                self._drive_floors(floors, limit)
-            else:
-                self._drive(0, limit)
-            if not self.stack and self.pos != len(self.text):
-                # Drained short of the end: trailing input. This is the one
-                # place a side's completion is decided.
-                raise PdaFail(f"trailing input at {self.pos}", self.pos)
+        for depth, (left, right) in enumerate(zip(stop[5] or (), take[5] or ())):
+            if left == right and left != UNSEEN:
+                continue
+            if not depth:
+                return FORKED
+            return self._ranked_at(depth - 1, stop, take, (left, right))
+        ends = zip(stop[6][-1].ends or (), take[6][-1].ends or ())
+        steps = [(a, b) for a, b in ends if a != b]
+        if steps:
             return (
-                self.stack,
-                self.pos,
-                self._routes,
-                side[3],
-                floors,
-            ), caches.uncertain
-        except ProbeFork:
-            raise  # undecidable is not death: it is the gated engine's
-        except LexicError as refusal:
-            if shared:  # the common remainder, run once for both sides
-                raise ProbeFork(
-                    f"lockstep: refusal on the shared remainder: {refusal}", self.pos
-                ) from None
-            return None, caches.uncertain
-        except PdaFail:
-            return None, caches.uncertain
-        finally:
-            caches.probing -= 1
-            caches.uncertain = saved_unc
-            self.stack, self.pos = saved_stack, saved_pos
-            self._routes = saved_routes
+                FORKED if min(steps[0]) < 0 else self._kept(*map(tuple, zip(steps[0])))
+            )
+        mine, theirs = stop[7], take[7]
+        if len(mine) != 2 or len(theirs) != 2:
+            return FORKED
+        (k, stop_end), (_k, take_end) = mine, theirs
+        if not once(self.stack[-1], k) and not self._takes_longest():
+            return FORKED
+        return self._kept((stop_end,), (take_end,))
 
-    def _probe(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]] | None,
-    ) -> tuple[list[Carry] | None, bool]:
-        """One side of a boundary, run to end of input — :meth:`_side` driven
-        by :meth:`_advance`; the live stack is never touched.
+    def _ranked_at(
+        self, depth: int, stop: Side, take: Side, ends: tuple[int, int]
+    ) -> int:
+        """The rank at the copied frame standing at ``depth``, whose child
+        completed at ``ends`` on the two sides (``-2``: unreadable) and at one
+        place above.
 
-        :param taken: ``None`` for the stop side; the iteration's
-            ``(end, values)`` for the take side.
-        :returns: ``(values | None, uncertain)`` — the root output of a side
-            that completed, and whether its drive greedily sampled any
-            both-viable boundary on the way (the caller's conservatism).
-        :raises ProbeFork: An undecidable boundary — the caller bails
-            (undecidable never reads as "this side failed").
+        The step is the frame's item's own end where both sides passed the
+        item and recorded it: a loop's end, or an optional's; Earley's loop is
+        a node, so a loop's end is compared first. An exactly-once reference
+        records none, so its step is its child's end. A loop that ends alike
+        leaves its iterations, the forked one the first that differs — unless
+        the stop side's may be zero-width, an iteration at a boundary whose
+        loop had taken nothing, which the loop's carving drops. A child still
+        open on one side at a convergence ends somewhere in the sides' common
+        future (:meth:`_kept_open`). The item is read as a side's floors are
+        (:func:`descending`, :func:`iterating`); one the frame may not stand in
+        alone, an item passed on one side only, or a step neither record shows,
+        forks.
         """
-        done, sampled = self._advance(self._side(arm, i, pos, taken), -1)
-        return (None if done is None else done[3]), sampled
+        live = self.stack[depth]
+        items = descending(live) + ([live.i] if iterating(live) else [])
+        whole = bool(items) and all(once(live, k) for k in items)
+        if len(set(items)) == 1:
+            own = self._own_step(stop[6][depth], take[6][depth], items[0])
+            if own is not None:
+                return own
+        elif not whole:
+            return FORKED
+        return self._child_step(ends, stop[1], whole)
 
-    def _drive_floors(self, floors: list[Floor], limit: int) -> None:
-        """Drive the swapped-in side, settling each sub-run it drains back to.
-
-        The live parse leaves an attempt sub-run to the Python call that
-        started it; a side has no such call, so it drives to one floor at a
-        time and settles there as that call would (:meth:`_settle_floor`). A
-        failure above a floor fails that sub-run, never the side, and a settle
-        that fails in turn fails the next floor out. With no floor left it
-        drives on and returns; :meth:`_advance` decides completion.
-
-        :raises PdaFail: The side dies.
-        """
-        failed = False
-        while True:
-            try:
-                if failed:
-                    failed = False
-                    self._settle_floor(floors.pop(), False)
-                depth = floors[-1][0] if floors else 0
-                self._drive(depth, limit)
-                if len(self.stack) > depth or not floors:
-                    return  # paused at the limit, or past the last floor
-                self._settle_floor(floors.pop(), True)
-            except ProbeFork:
-                raise
-            except PdaFail, LexicError:
-                if not floors:
-                    raise
-                failed = True
-
-    def _settle_floor(self, floor: Floor, derived: bool) -> None:
-        """Settle one sub-run as its live caller would: the attempted
-        iteration's commit or close, the attempt's next entry, or the audit's.
-
-        :param derived: Whether the sub-run reached its floor; its values are
-            the live prefix its root reported before the fork, then the side's.
-        """
-        depth, start, holder, live, loop, entry = floor
-        got = (self.pos, [*live, *holder]) if derived else None
-        del self.stack[depth:]
-        self.pos = start
-        if loop is not None:
-            self._attempt_settle(loop, loop.arm, loop.i, start, got)
-        elif entry is not None and entry[3] is not None:
-            self._attempt_audit(entry[0], entry[2] + 1, entry[3], entry[1], got)
-        elif entry is not None:
-            self.attempt(entry[0], entry[1], entry[2], got)
-
-    def _side_floors(
-        self, forked: list[Frame[Carry]]
-    ) -> tuple[list[Carry], list[Floor]]:
-        """The attempt sub-runs the live stack is inside, as ``forked`` settles
-        them, and the root output it completes into.
-
-        A sub-run's root frame carries its start (:meth:`_attempt_run`), read
-        only on a clone that can root one (``sub_root``); the rest is read off
-        the frame below it (:meth:`_floors_at`). A sub-run at the bottom of the
-        stack is an entry of the start clone, whose winner splices into the
-        run's own holder, so the side's root output is a list of its own.
-
-        :raises ProbeFork: On a sub-run no side settles (:meth:`_audit_at`), or
-            one the stack does not attribute to exactly one caller.
-        """
-        root = forked[0].out
-        floors: list[Floor] = []
-        for depth, frame in enumerate(self.stack):
-            if not frame.clone.sub_root:
-                continue
-            start = getattr(frame, "start", None)
-            if start is None:
-                continue
-            audit = self._audit_at(depth, start)
-            pos = start if audit is None else audit[3]
-            holder, live = forked[depth].out, frame.out
-            if depth > 0:
-                found = self._floors_at(depth, pos, holder, live, forked[depth - 1])
-            else:
-                owner = entered(self.tables.program.start, frame.clone, self.text, pos)
-                if owner is None:
-                    raise ProbeFork(f"probe side: an unowned sub-run at {pos}", pos)
-                root = []
-                found: list[Floor] = [
-                    (0, pos, holder, live, None, (owner[0], root, owner[1], None))
-                ]
-            floors += found if audit is None else auditing(found, audit)
-        return root, floors
-
-    def _audit_at(self, depth: int, start: int) -> Audit | None:
-        """The live audit whose sub-run roots at ``depth``, or ``None`` when the
-        sub-run there is no audit's (``start`` is a position).
-
-        :raises ProbeFork: On :meth:`_spans_exactly`'s sub-run, which no side
-            settles, or an audit with no record.
-        """
-        if start >= 0:
+    def _own_step(self, mine: Frame[Carry], theirs: Frame[Carry], k: int) -> int | None:
+        """The rank by item ``k``'s own recorded end on the two copies of one
+        frame, or ``None`` when both recorded it alike, or neither passed it,
+        and its child decides."""
+        if (mine.i > k) != (theirs.i > k):
+            return FORKED
+        step = recorded(mine, k), recorded(theirs, k)
+        if mine.i <= k or step[0] == step[1]:
             return None
-        if start != -1:
-            raise ProbeFork(f"probe side: inside a span check at {self.pos}", self.pos)
-        for audit in self._caches.audits:
-            if audit[0] == depth:
-                return audit
-        raise ProbeFork(f"probe side: an audit with no record at {self.pos}", self.pos)
+        return FORKED if min(step) < 0 else self._kept(*map(tuple, zip(step)))
 
-    def _floors_at(
-        self,
-        depth: int,
-        start: int,
-        holder: list[Carry],
-        live: list[Carry],
-        mine: Frame[Carry],
-    ) -> list[Floor]:
-        """The sub-run whose root frame stands at ``depth``, read off the frame
-        below it — ``mine`` is the side's copy of that frame.
+    def _child_step(self, ends: tuple[int, int], at: int, whole: bool) -> int:
+        """The rank by where the child completed on the two sides — an
+        iteration of a loop unless ``whole`` — at a convergence at ``at``."""
+        if UNSEEN in ends or ends == (PENDING, PENDING):
+            return FORKED
+        if not whole and not self._takes_longest():
+            return FORKED
+        if not whole and ends[0] == self.pos and not self.stack[-1].count:
+            return FORKED
+        if PENDING in ends:
+            return self._kept_open(ends, at)
+        return self._kept((ends[0],), (ends[1],))
 
-        Every reading the frame admits is collected and exactly one must
-        survive: an attempted iteration of its current item, alone or around
-        the attempt entry its payload runs; or an attempt entry of the item it
-        is descending into (a quantified descent stands AT the item, an
-        exactly-once reference just past it).
+    def _kept_open(self, ends: tuple[int, int], at: int) -> int:
+        """The rank of two steps one of which is still open (``PENDING``) at a
+        convergence at ``at``: it ends at ``at`` or later, and the sides share
+        what follows. Settled only where it cannot end where the other step
+        did, and every end it can reach ranks the same way against it —
+        whatever the decider's order."""
+        if max(ends) >= at:
+            return FORKED
+        found = {
+            self._kept(*((at_end if end == PENDING else end,) for end in ends))
+            for at_end in range(at, len(self.text) + 1)
+        }
+        return found.pop() if len(found) == 1 else FORKED
 
-        :raises ProbeFork: When none or several readings survive.
+    def _takes_longest(self) -> bool:
+        """Whether the decider is leftmost-longest: the one order whose
+        repetitions are ranked here by where their first differing iteration
+        ends — Earley reads ``X+`` as ``X | X X+``, and has been shown to answer
+        that way only for it — and whose take a completed pair the rank cannot
+        read keeps. Under any other decider both fork, and the gated engine
+        answers."""
+        return isinstance(self.policy.config.decide, LeftmostLongest)
+
+    def _kept(self, stop: tuple[int, ...], take: tuple[int, ...]) -> int:
+        """The side the decider keeps, by the rank of the steps the two differ
+        in — each a carving, a zero-width step dropped, as Earley ranks a
+        node's: the only place a boundary verdict asks the decider."""
+        decide = self.policy.config.decide
+        if decide.rank(carving(stop)) > decide.rank(carving(take)):
+            return STOP_FORCED
+        return TAKE
+
+    def _extent(self, two: IslandEnds, k: int, sink: list[Carry]) -> None:
+        """An island whose reference may follow more than one of its
+        completions, settled by the boundary verdict and spliced into ``sink``.
+
+        The reference is item ``k`` of the top frame, the cursor at the island,
+        and the frame already as the descent left it, so each completion is a
+        side: the live stack forked with that completion's value in the item
+        and the cursor past it (:meth:`_extent_side`), ranked as
+        :meth:`_kept_end` ranks them. Never from inside a side — probes never
+        nest — and never at a reference the top frame does not stand in
+        (``k < 0``): the island is then left to whoever owns ``sink``.
+
+        :raises IslandEnds: When a verdict forks, or no verdict can be asked.
         """
-        below, root, text = self.stack[depth - 1], self.stack[depth].clone, self.text
-        readings: list[list[Floor]] = []
-        if iterating(below):
-            payload = below.arm.payloads[below.i]
-            owner = entered(payload, root, text, start)
-            if landing(payload, text, start) is root:
-                readings.append([(depth, start, holder, live, mine, None)])
-            elif owner is not None:
-                loop: list[Carry] = []
-                readings.append(
-                    [
-                        (depth, start, loop, [], mine, None),
-                        (
-                            depth,
-                            start,
-                            holder,
-                            live,
-                            None,
-                            (owner[0], loop, owner[1], None),
-                        ),
-                    ]
-                )
-        for k in descending(below):
-            owner = entered(below.arm.payloads[k], root, text, start)
-            if owner is not None:
-                out = self._sink_for(mine, mine.arm, k)
-                readings.append(
-                    [
-                        (
-                            depth,
-                            start,
-                            holder,
-                            live,
-                            None,
-                            (owner[0], out, owner[1], None),
-                        )
-                    ]
-                )
-        if len(readings) != 1:
-            raise ProbeFork(f"probe side: an unowned sub-run at {start}", start)
-        return readings[0]
+        if k < 0 or self._caches.probing:
+            two.sink = sink
+            raise two
+        end, value = self._kept_end(two, partial(self._extent_side, k))
+        if isinstance(value, Completed):
+            sink.append(value.value)
+        self.pos += end
 
+    def _iteration_ends(
+        self, two: IslandEnds, arm: FlatArm, i: int, pos: int
+    ) -> tuple[int, list[Carry]]:
+        """An attempted iteration of item ``i`` whose whole sub-run is an
+        island with more than one followable completion: each completion is a
+        candidate iteration, taken on a side of its own
+        (:meth:`_iteration_side`), and the one the verdict keeps is the
+        iteration's outcome. Never from inside a side.
 
-def iterating(frame: Frame) -> bool:
-    """Whether ``frame`` may stand in an attempted iteration of its current
-    item: an attempt-gated reference past its minimum, short of its maximum."""
-    arm, i, count = frame.arm, frame.i, frame.count
-    if i >= arm.n or arm.gate_kinds[i] != GATE_ATTEMPT:
-        return False
-    if arm.kinds[i] not in (OP_REF, OP_GRP) or count < arm.los[i]:
-        return False
-    return arm.his[i] < 0 or count < arm.his[i]
+        :returns: The kept iteration's ``(end, values)``.
+        :raises IslandEnds: When a verdict forks, or no verdict can be asked.
+        """
+        if self._caches.probing:
+            raise two
+        end, value = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))
+        return pos + end, [value.value] if isinstance(value, Completed) else []
 
+    def _kept_end(
+        self, two: IslandEnds, side_of: Callable[..., Side]
+    ) -> tuple[int, CompletionResult[Carry]]:
+        """The completion of ``two`` the verdict keeps, each completion a side
+        ``side_of(end, value)`` builds.
 
-def descending(frame: Frame) -> list[int]:
-    """The items ``frame`` may be descending into: its current one once a
-    quantified descent has counted itself (an attempted item's only up to its
-    minimum), and the one before when that is an exactly-once reference, which
-    advances before it descends."""
-    arm, i, count = frame.arm, frame.i, frame.count
-    found = [i - 1] if 0 < i <= arm.n and arm.kinds[i - 1] == OP_REF1 else []
-    if i >= arm.n or arm.kinds[i] not in (OP_REF, OP_GRP) or count < 1:
-        return found
-    if arm.gate_kinds[i] == GATE_ATTEMPT and count > arm.los[i]:
-        return found
-    return [i, *found]
+        Completions meet in pairs, the one kept so far as the stop side against
+        the next longer, each pair driven and ranked as an attempted loop's
+        sides are; the rank is one order over completed parses, so the last
+        one kept is the decider's.
 
+        :raises IslandEnds: When a pair's verdict forks.
+        """
+        picks = [
+            (end, self._island_value(two.name, tree, built))
+            for tree, end, built in two.ends
+        ]
+        kept = picks[0]
+        for pick in picks[1:]:
+            verdict = self._pair(side_of, kept, pick)
+            if verdict == FORKED:
+                raise two
+            if verdict == TAKE:
+                kept = pick
+        return kept
 
-def auditing(found: list[Floor], audit: Audit) -> list[Floor]:
-    """``found`` with its innermost floor's entry caller turned into the
-    auditing one: the same attempt clone and list, the entry the audit runs,
-    carrying the winner it audits.
-
-    :raises ProbeFork: When the stack's entry is not the one the audit runs.
-    """
-    *outer, (depth, start, holder, live, loop, entry) = found
-    _depth, clone, idx, _pos, won = audit
-    if entry is None or entry[0] is not clone or entry[2] != idx:
-        raise ProbeFork(f"probe side: an unowned audit at {start}", start)
-    return [*outer, (depth, start, holder, live, loop, (clone, entry[1], idx, won))]
-
-
-def landing(clone: Any, text: str, pos: int) -> FlatClone | None:
-    """The clone :meth:`PdaKernel._enter` would push for ``clone`` at ``pos`` —
-    or the attempt clone it would run instead; ``None`` when nothing lands.
-
-    The same chase and the same sole-entry substitution, replayed: both are
-    functions of the clone, the text and the position alone. A restatement of
-    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._settle`'s
-    fixpoint rather than a call into one both share: the entry path pays for a
-    shared fixpoint's call on every attempt entry (measured +8 to +20 ns a
-    call on vyx), and the replay is pinned to the live parse instead.
-    """
-    while isinstance(clone, FlatClone):
-        if clone.mode == BUILD_DISPATCH:
-            try:
-                clone = chase_dispatch(clone, text, pos)
-            except PdaFail:
-                return None
-            continue
-        if clone.attempt is None:
-            return clone
-        sole = sole_admitted(clone.attempt[1], text, pos)
-        if sole is None:
-            return clone
-        clone = sole
-    return None
-
-
-def entered(
-    clone: Any, target: FlatClone, text: str, pos: int
-) -> tuple[FlatClone, int] | None:
-    """The attempt clone ``clone`` lands on at ``pos``, and the index of its one
-    entry whose sub-run pushes ``target`` — or ``None`` when there is no such
-    clone or not exactly one such entry."""
-    outer = landing(clone, text, pos)
-    if outer is None or outer.attempt is None:
-        return None
-    found = [
-        idx
-        for idx, entry in enumerate(outer.attempt[1])
-        if landing(entry[4], text, pos) is target
-    ]
-    return (outer, found[0]) if len(found) == 1 else None
+    def _pair(
+        self,
+        side_of: Callable[..., Side],
+        stop: tuple[int, CompletionResult[Carry]],
+        take: tuple[int, CompletionResult[Carry]],
+    ) -> int:
+        """The verdict between two completions, the shorter standing as the
+        stop side: in step first, else each run to the end of input and
+        compared."""
+        makers: Makers = side_of, stop, take
+        verdict = self._lockstep(side_of(*stop, False), side_of(*take, False), makers)
+        if verdict is not None:
+            return verdict
+        done, unc = self._advance(self._made(makers, False, False), -1)
+        if done is None:
+            return FORKED if unc else TAKE
+        taken = self._advance(self._made(makers, True, False), -1)
+        return self._compared(done, unc, taken, makers)

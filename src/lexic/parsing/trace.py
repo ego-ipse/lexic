@@ -48,6 +48,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.product import ProductExecutor
@@ -279,7 +280,7 @@ class WatchedKernel[M](PdaKernel[M]):
         i: int,
         pos: int,
         taken: tuple[int, list[M]] | None,
-    ) -> tuple[list[M] | None, bool]:
+    ) -> tuple[Side | None, bool]:
         """One side of a boundary, run to end-of-input on a copied stack."""
         self._flush()
         side = "stop side" if taken is None else "take side"

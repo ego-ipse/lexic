@@ -89,6 +89,7 @@ from lexic.parsing.pda.runtime.admission import (
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import (
+    IslandEnds,
     IslandPolicy,
 )
 from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
@@ -418,7 +419,10 @@ class PdaKernel[M](
                 "F1 semantic escape, engine fallback",
                 pos,
             )
-        self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
+        try:
+            self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
+        except IslandEnds as two:
+            self._extent(two, i, sink)
         return i
 
     # ── terminal matching (whole quantifier loop, inline, no per-char call) ─
@@ -601,7 +605,10 @@ class PdaKernel[M](
                     if take is None or not take.steals:
                         self.attempt(clone, out)
                     else:  # an arm run item by item may steal: no sub-run
-                        self._island(take.island, out)  # settles the choice
+                        try:
+                            self._island(take.island, out)  # settles the choice
+                        except IslandEnds as two:
+                            self._extent(two, self._descent_item(out), out)
                     return None  # the winning arm was consumed inline
                 clone = sole  # one admitted entry — no fork is possible: a
                 # plain frame push replaces the sub-run, and the audit has

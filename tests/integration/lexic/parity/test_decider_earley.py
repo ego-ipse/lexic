@@ -181,3 +181,59 @@ def test_a_scan_gate_is_a_conflict_for_a_decider_that_does_not_grant_it() -> Non
         pda_model(program, ";;", compiled.executor, config=ParseConfig(decide=decide))
     want = "Doc((Sec((), Sepr(';')), Sec((), Sepr(';'))), Tail(''))"
     assert repr(compiled.parse(";;", cores=1, decide=decide)) == want
+
+
+BRACKETED = (
+    'top ::= "[" doc [ab;]* "]"\ndoc ::= sec* tail\nsec ::= part+ sepr?\n'
+    'part ::= [ab]\ntail ::= ("a" "b"?)*\nsepr ::= "a"\n'
+)
+"""``doc`` islands for a decider that grants nothing, and inside the brackets it
+may end at any of its completions: the run after it takes what it leaves."""
+
+
+def test_an_islands_two_ends_are_ranked_by_another_decider() -> None:
+    """The predictive parse ranks the island's followable ends by the decider
+    it is asked under: the shortest keeps ``doc`` empty, which is the gated
+    engine's model and not leftmost-longest's."""
+    decide = _Shortest(frozenset())
+    compiled = compile_text(BRACKETED, cache_key="shortest-bracketed")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    program = grants_program(
+        compiled.codegen_grammar,
+        compiled.product,
+        product.instance_grammar,
+        decide.grants,
+    )
+    config = ParseConfig(decide=decide)
+    want = "Top(Doc((), Tail('')), 'ab')"
+    assert repr(pda_model(program, "[ab]", compiled.executor, config=config)) == want
+    assert repr(compiled.parse("[ab]", cores=1, decide=decide)) == want
+    assert repr(compiled.parse("[ab]", cores=1)) != want
+
+
+CLOSED = (
+    'top ::= "[" doc "]" [ab;]*\ndoc ::= sec+ tail?\nsec ::= part+ sepr?\n'
+    'part ::= "b"\ntail ::= ("a" "b"?)*\nsepr ::= "a"\n'
+)
+"""``sec`` islands, and its two ends inside ``[bb]`` are two carvings of the
+``sec+`` repetition: one ``bb`` section, or two ``b`` sections."""
+
+
+def test_a_completed_pair_another_decider_cannot_rank_is_not_taken() -> None:
+    """The two ends are iterations, ranked here only under leftmost-longest, so
+    under the shortest decider the pair forks rather than keep the longer end
+    leftmost-longest would; the public parse is the gated engine's two
+    sections."""
+    decide = _Shortest(frozenset())
+    compiled = compile_text(CLOSED, cache_key="shortest-closed")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    program = grants_program(
+        compiled.codegen_grammar,
+        compiled.product,
+        product.instance_grammar,
+        decide.grants,
+    )
+    with pytest.raises(PdaFail):
+        pda_model(program, "[bb]", compiled.executor, config=ParseConfig(decide=decide))
+    want = "Top(Doc((Sec((Part('b'),)), Sec((Part('b'),))), Tail('')), '')"
+    assert repr(compiled.parse("[bb]", cores=1, decide=decide)) == want

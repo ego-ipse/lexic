@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any, cast
 
@@ -56,6 +57,7 @@ from lexic.parsing.pda.runtime.build import (
     leaf_mismatch,
 )
 from lexic.parsing.pda.runtime.islands import (
+    IslandEnds,
     IslandPolicy,
     bounded_window,
     island_parse,
@@ -73,6 +75,7 @@ from lexic.parsing.pda.runtime.matchers import (
     vstr_once,
 )
 from lexic.parsing.product import Completed
+from lexic.parsing.product.tree import CompletionResult
 
 
 class KernelExecutionMixin[Carry]:
@@ -86,6 +89,10 @@ class KernelExecutionMixin[Carry]:
     tables: PdaTables
     policy: IslandPolicy
     _caches: KernelCaches[Carry]
+    # Declared, not defined: the boundary verdict the kernel inherits answers
+    # an island with several followable ends (`Verdicts._extent`).
+    _extent: Callable[[IslandEnds, int, list[Carry]], None]
+    _descent_item: Callable[[list[Carry]], int]
 
     def _leaf_run(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """A frame-less leaf clone's whole run — one of three shapes.
@@ -103,7 +110,10 @@ class KernelExecutionMixin[Carry]:
                     self.text, self._caches.intern, clone, out, self.pos
                 )
             except IslandEscape as escape:
-                self._islanded(escape, out)
+                try:
+                    self._islanded(escape, out)
+                except IslandEnds as two:  # the whole leaf is the island
+                    self._extent(two, self._descent_item(out), out)
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
@@ -275,23 +285,37 @@ class KernelExecutionMixin[Carry]:
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
         name, cont, exact, windows = ref
+        if self.policy.executor is None:
+            raise PdaFail(
+                f"island {name!r} at {self.pos}: no product for splice", self.pos
+            )
+        tree, end, built = self._island_subparse(name, cont, exact, windows)
+        result = self._island_value(name, tree, built)
+        if isinstance(result, Completed):
+            sink.append(result.value)
+        self.pos += end
+
+    def _island_value(
+        self, name: str, tree: Any, built: CompletionResult[Carry] | None
+    ) -> CompletionResult[Carry]:
+        """What one island completion splices: the value its settle step
+        built, else its tree completed through the product.
+
+        The settle step builds the value to answer the ambiguity question and
+        retains it for exactly this reason; splicing the same tree again would
+        build the same value twice.
+
+        :raises PdaFail: With no product to splice, or when the product
+            refuses the completion.
+        """
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end, built = self._island_subparse(name, cont, exact, windows)
-        # The settle step builds the value to answer the ambiguity question
-        # and retains it for exactly this reason; splicing the same tree again
-        # would build the same value twice.
-        result = (
-            built
-            if built is not None
-            else island_value(lambda: executor.splice(tree), name, self.pos)
-        )
-        if isinstance(result, Completed):
-            sink.append(result.value)
-        self.pos += end
+        if built is not None:
+            return built
+        return island_value(lambda: executor.splice(tree), name, self.pos)
 
     def _island_subparse(
         self, name: str, cont: CharSet, exact: bool, windows: tuple[Pref, ...]
