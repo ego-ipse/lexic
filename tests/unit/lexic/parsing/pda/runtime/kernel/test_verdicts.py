@@ -41,6 +41,7 @@ from lexic.parsing.pda.runtime.kernel.verdicts import (
 )
 from tests import parity_helpers
 from tests.paths import GROUND_TRUTH
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 from tests.unit.lexic.parsing.pda.runtime.kernel.side_support import (
     NOISE_RUNS,
@@ -491,13 +492,6 @@ def test_completed_sides_that_differ_are_ranked(monkeypatch) -> None:
 # ── the rank: the first frame whose carving differs, at its step ───────────
 
 
-class _Shortest(Decider):
-    """The first slot takes as little as it can."""
-
-    def slot(self, end: int) -> int:
-        return -end
-
-
 def _made(left: Side, right: Side) -> Makers:
     """Makers handing back two sides built by hand, whatever is asked."""
     return (lambda side, _record: side), (left,), (right,)
@@ -561,7 +555,7 @@ def _sides(
     [
         ([10, 3], [10, 5], LEFTMOST_LONGEST, TAKE),
         ([10, 6], [10, 5], LEFTMOST_LONGEST, STOP_FORCED),
-        ([10, 3], [10, 5], _Shortest(frozenset()), STOP_FORCED),
+        ([10, 3], [10, 5], Shortest(frozenset()), STOP_FORCED),
     ],
     ids=["longer-take", "longer-stop", "shortest"],
 )
@@ -576,7 +570,7 @@ def test_the_first_frame_completing_apart_is_ranked_at_its_parents_step(
 
 @pytest.mark.parametrize(
     ("decide", "verdict"),
-    [(LEFTMOST_LONGEST, TAKE), (_Shortest(frozenset()), STOP_FORCED)],
+    [(LEFTMOST_LONGEST, TAKE), (Shortest(frozenset()), STOP_FORCED)],
     ids=["leftmost-longest", "shortest"],
 )
 def test_frames_completing_alike_leave_the_boundarys_loop_end(
@@ -621,7 +615,7 @@ def test_a_step_the_ledger_cannot_read_forks(
     ("decide", "at", "verdict"),
     [
         (LEFTMOST_LONGEST, 4, TAKE),
-        (_Shortest(frozenset()), 4, FORKED),
+        (Shortest(frozenset()), 4, FORKED),
         (LEFTMOST_LONGEST, 3, FORKED),
     ],
     ids=["longest", "shortest-iterations-fork", "may-end-alike"],
@@ -666,8 +660,8 @@ def test_a_child_the_ledger_cannot_read_is_ranked_by_its_parents_loop_end(
     [
         ([10, 2], [10, 5], LEFTMOST_LONGEST, TAKE),
         ([10, 7], [10, 7], LEFTMOST_LONGEST, TAKE),
-        ([10, 2], [10, 5], _Shortest(frozenset()), STOP_FORCED),
-        ([10, 7], [10, 7], _Shortest(frozenset()), STOP_FORCED),
+        ([10, 2], [10, 5], Shortest(frozenset()), STOP_FORCED),
+        ([10, 7], [10, 7], Shortest(frozenset()), STOP_FORCED),
     ],
     ids=["step-longest", "loop-longest", "step-shortest", "loop-shortest"],
 )
@@ -801,7 +795,7 @@ def test_an_open_step_under_another_decider_is_ranked_end_by_end(
 ) -> None:
     """Another decider's order is asked at every end the step can reach; the
     shortest keeps the closed step against each of them."""
-    verdict, asked = _open_rank(monkeypatch, _Shortest(frozenset()), 20)
+    verdict, asked = _open_rank(monkeypatch, Shortest(frozenset()), 20)
     assert verdict == STOP_FORCED
     assert sorted(asked) == list(range(4, 21))
 
@@ -812,7 +806,7 @@ def test_an_open_step_with_many_ends_is_still_answered_on_the_pda(
     """However many ends the step can reach, another decider's order is asked
     at each of them and answered here: which carving to keep is the decider's
     question, settled on the predictive engine, never sent to Earley."""
-    verdict, asked = _open_rank(monkeypatch, _Shortest(frozenset()), 500)
+    verdict, asked = _open_rank(monkeypatch, Shortest(frozenset()), 500)
     assert verdict == STOP_FORCED
     assert sorted(asked) == list(range(4, 501))
 

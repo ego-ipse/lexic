@@ -1308,3 +1308,23 @@ gated engine; ranked, they stay on the predictive engine.
 **The trace** keeps no scan for a candidate's text — an attempt entry's or a
 boundary side's (`WatchedKernel._aside`) — so a derived run's scans still tile
 the document now that ranked candidates run before the commit.
+
+## The split keys on the decider's order; islands and delegates on the parse's
+
+**Decision:** the parallel split is asked only under a `LeftmostLongest`
+decider, whatever it grants; any other order parses the document whole
+(`orchestrate.split_model`). Its plans, and the determinism speculation reads
+off the leftmost-longest analysis, are facts about that order's answer, and a
+leftmost-longest decider granting fewer licences has the same answer: its
+chunks parse through the program compiled for its grants, and the stitched
+model is the sequential one. An island's sub-parse builds its trees under the
+parse's decider and ranks its followable ends by it. Its delegates are
+compiled under the program's grants (`DelegateSource.grants`), and a delegate
+is conflict-free with no extent picked by policy (`is_delegable`), so no
+delegate holds a shortcut its decider does not grant.
+
+**Why:** a cut is sound when the stitched model is the one the whole-document
+parse would build, and which model that is depends on the order alone; the
+grants decide only which shortcuts reach it. Keying the split by grants would
+refuse a split that is sound, and keying it by nothing would cut a shortest
+parse on leftmost-longest boundaries.

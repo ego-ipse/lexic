@@ -27,6 +27,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
     LeftmostLongest,
     carving,
 )
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 
 CARVINGS: tuple[Carving, ...] = (
     (6,),
@@ -40,15 +41,7 @@ CARVINGS: tuple[Carving, ...] = (
 )
 
 
-class _ShortestFirst(Decider):
-    """A second decider built only from the interface: the reverse order."""
-
-    def slot(self, end: int) -> int:
-        """The end negated, so the shortest first slot ranks highest."""
-        return -end
-
-
-DECIDERS = (LEFTMOST_LONGEST, _ShortestFirst(frozenset()))
+DECIDERS = (LEFTMOST_LONGEST, Shortest(frozenset()))
 
 
 @pytest.mark.parametrize("decider", DECIDERS, ids=["leftmost-longest", "shortest"])
@@ -84,7 +77,7 @@ def test_the_leftmost_order_decides_on_the_first_boundary_that_differs() -> None
 
 def test_another_decider_is_only_another_value() -> None:
     """The same carvings under the reverse rank keep the other extreme."""
-    assert max(CARVINGS[:4], key=_ShortestFirst(frozenset()).rank) == (2, 4, 6)
+    assert max(CARVINGS[:4], key=Shortest(frozenset()).rank) == (2, 4, 6)
 
 
 def test_leftmost_longest_grants_only_what_is_proven_for_it() -> None:
@@ -112,7 +105,7 @@ def test_another_kind_with_the_same_fields_is_another_decider() -> None:
     """Two orders granting the same licences are two deciders, so they never
     share one cached product. Records are class-aware; their hashes may
     coincide, which a cache tolerates, so the hash is not asserted apart."""
-    other = _ShortestFirst(LEFTMOST_LONGEST.grants)
+    other = Shortest(LEFTMOST_LONGEST.grants)
     assert other != LEFTMOST_LONGEST
     assert LEFTMOST_LONGEST != other
     assert len({other: 1, LEFTMOST_LONGEST: 2}) == 2
@@ -162,7 +155,7 @@ def test_any_decider_states_slots_and_never_its_rank() -> None:
     the one comparison Earley can honour level by level."""
     with pytest.raises(TypeError, match="slot"):
         type("_Ranked", (Decider,), {"rank": _negated})
-    shortest = _ShortestFirst(frozenset())
+    shortest = Shortest(frozenset())
     assert shortest.rank((2, 4, 6)) == (-2, -4, -6)
     assert LEFTMOST_LONGEST.rank((2, 4, 6)) == (2, 4, 6)
 
@@ -192,4 +185,4 @@ def test_a_decider_grants_all_of_a_set_only_when_it_grants_each_kind() -> None:
     assert LEFTMOST_LONGEST.grants_all(frozenset({SPLIT_GREEDY, ATTEMPT}))
     assert LEFTMOST_LONGEST.grants_all(frozenset())
     assert not LEFTMOST_LONGEST.grants_all(frozenset({"unproven"}))
-    assert not _ShortestFirst(frozenset()).grants_all(frozenset({ATTEMPT}))
+    assert not Shortest(frozenset()).grants_all(frozenset({ATTEMPT}))

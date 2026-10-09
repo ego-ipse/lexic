@@ -12,7 +12,6 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
-from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     earley_model,
@@ -20,16 +19,7 @@ from lexic.parsing.products import (
     pda_model,
 )
 from tests.adversarial.lexic.adversarial_helpers import watchdog
-from tests.unit.lexic.parsing.parsing_helpers import decider_program
-
-
-class _Shortest(Decider):
-    """The first slot takes as little as it can."""
-
-    def slot(self, end: int) -> int:
-        """The end negated."""
-        return -end
-
+from tests.unit.lexic.parsing.parsing_helpers import Shortest, decider_program
 
 EMPTY_TAIL = (
     'top ::= "[" doc "]"\ndoc ::= sec* tail+\nsec ::= part* sepr\npart ::= "b"\n'
@@ -42,7 +32,7 @@ EMPTY_TAIL = (
 def test_the_shortest_decider_answers_a_repetition_of_an_empty_item() -> None:
     """Earley returns the shortest carving, and the PDA compiled for that
     decider's grants, which hands the rule to Earley, returns the same."""
-    decide = _Shortest(frozenset())
+    decide = Shortest(frozenset())
     config = ParseConfig(decide=decide)
     compiled = compile_text(EMPTY_TAIL, cache_key="zero-width-shortest")
     product = model_product(compiled.codegen_grammar, compiled.product)
@@ -94,7 +84,7 @@ shortest step there is."""
 def test_a_chain_step_that_takes_nothing_is_not_the_shortest_step() -> None:
     """Under the shortest decider ``[aa]`` is one section ``a`` and a tail,
     found without stepping through an empty section forever."""
-    decide = _Shortest(frozenset())
+    decide = Shortest(frozenset())
     config = ParseConfig(decide=decide)
     compiled = compile_text(OPTIONAL_PARTS, cache_key="zero-width-chain")
     product = model_product(compiled.codegen_grammar, compiled.product)
@@ -121,7 +111,7 @@ def test_an_authored_slot_that_takes_nothing_is_still_a_slot() -> None:
     """Only a repetition's empty iteration is dropped from a carving; an empty
     ``doc`` is the shortest first slot, so the shortest decider keeps it and
     the run takes ``a`` — on Earley and on the PDA compiled for that decider."""
-    decide = _Shortest(frozenset())
+    decide = Shortest(frozenset())
     config = ParseConfig(decide=decide)
     compiled = compile_text(BRACKETED_RUN, cache_key="zero-width-authored")
     product = model_product(compiled.codegen_grammar, compiled.product)
@@ -150,7 +140,7 @@ def test_an_empty_iteration_the_minimum_needs_is_a_step() -> None:
     are two carvings, and the shortest decider keeps the empty first one: on
     Earley, and on the public parse, which the PDA compiled for that decider
     hands to Earley."""
-    decide = _Shortest(frozenset())
+    decide = Shortest(frozenset())
     config = ParseConfig(decide=decide)
     compiled = compile_text(AT_LEAST_TWO, cache_key="zero-width-minimum")
     product = model_product(compiled.codegen_grammar, compiled.product)

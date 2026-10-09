@@ -1,5 +1,11 @@
 # Log
 
+## The split keys on the decider's order (2026-10-09)
+
+`decisions.md` records that the parallel split is asked under any
+leftmost-longest decider and no other, and that an island's sub-parse and its
+delegates answer under the parse's decider and the program's grants.
+
 ## An attempt's arms that end apart are ranked by the decider (2026-10-09)
 
 `decisions.md` records that the attempt audit ranks an arm ending elsewhere

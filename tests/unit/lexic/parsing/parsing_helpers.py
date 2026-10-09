@@ -27,6 +27,15 @@ from lexic.parsing.products import (
 PRODUCTS_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
 
 
+class Shortest(Decider):
+    """The reverse of leftmost-longest: the first slot takes as little as it
+    can. Built as ``Shortest(frozenset())`` — no licence is proven for it."""
+
+    def slot(self, end: int) -> int:
+        """The end negated: the earliest boundary first."""
+        return -end
+
+
 def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
     pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""

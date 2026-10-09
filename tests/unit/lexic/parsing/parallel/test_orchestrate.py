@@ -15,7 +15,8 @@ import pytest
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.parsing import DEFAULT_CONFIG, parse_model
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
@@ -39,6 +40,7 @@ from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     ENVELOPE_SOURCE,
     TWO_MARK_SOURCE,
 )
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 
 BARE_LEAD = 'root ::= word more*\nmore ::= "|" word\nword ::= [a-z]+\n'
 NO_SPLIT = 'root ::= "a" [b-z]+\n'
@@ -167,6 +169,42 @@ def test_split_equals_sequential_and_round_trips():
     assert parallel == parse_model(grammar, text, binding)
     assert parallel.to_text() == text
     assert compiled.parse(text) == parallel
+
+
+def test_a_decider_of_another_order_parses_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The plans and the proofs a cut rests on are leftmost-longest's, so a
+    decider of another order never asks for a plan: the caller parses whole."""
+    compiled = compile_text(LEAD_RULE)
+
+    def unexpected_plans(*_args, **_kwargs):
+        raise AssertionError("a split plan was asked under another order")
+
+    monkeypatch.setattr(orchestrate, "split_plans", unexpected_plans)
+    config = ParseConfig(decide=Shortest(frozenset()))
+    ask = Request(sample_doc(1000), compiled.product, config)
+    assert split_model(parse_model, compiled.codegen_grammar, ask, 4) is None
+
+
+def test_a_leftmost_longest_decider_granting_less_still_splits() -> None:
+    """The split is keyed by the order, not by the licences: a leftmost-longest
+    decider granting none still divides the document, every chunk parses under
+    that decider, and the model is the sequential one."""
+    compiled = compile_text(LEAD_RULE)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    config = ParseConfig(decide=LeftmostLongest(frozenset()))
+    text = sample_doc(1000)
+    seen: list[ParseConfig] = []
+
+    def watched(grammar, source, binding, config=DEFAULT_CONFIG):
+        seen.append(config)
+        return parse_model(grammar, source, binding, config)
+
+    parallel = split_model(watched, grammar, Request(text, binding, config), 4)
+    assert parallel is not None
+    assert len(seen) > 1 and all(one == config for one in seen)
+    assert parallel == parse_model(grammar, text, binding, config)
 
 
 def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPatch):

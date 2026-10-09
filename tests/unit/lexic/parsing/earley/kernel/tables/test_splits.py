@@ -27,6 +27,7 @@ from lexic.parsing.earley.kernel.tables.splits import (
     is_arm_choice,
 )
 from lexic.parsing.products import earley_model, model_product
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 
 
 def test_is_arm_choice_is_false_when_every_family_names_the_same_arm():
@@ -190,14 +191,6 @@ def test_canonical_indices_leaves_a_single_arm_bucket_with_its_maximum():
     assert canonical_indices(links, bucket, spec, LEFTMOST_LONGEST) == [1]
 
 
-class _Shortest(Decider):
-    """A decider whose order is not the raw boundary order."""
-
-    def slot(self, end: int) -> int:
-        """The end negated: the earliest boundary first."""
-        return -end
-
-
 def test_a_decider_the_level_keys_do_not_rank_raw_is_read_by_its_slots():
     """The chain reader keys each level by the decider's slot where raw ``max``
     is not its order: the shortest decider keeps the nearer predecessor, where
@@ -207,7 +200,7 @@ def test_a_decider_the_level_keys_do_not_rank_raw_is_read_by_its_slots():
     near: KLink = (_item(1, 0), 2, "y")
     links = _bottomed(_key(1, 0, 6), _key(1, 0, 2))
 
-    assert dominant(links, near, far, spec, _Shortest(frozenset())) is near
+    assert dominant(links, near, far, spec, Shortest(frozenset())) is near
     assert dominant(links, near, far, spec, LEFTMOST_LONGEST) is far
 
 
@@ -235,7 +228,7 @@ def test_earley_keeps_the_shortest_carving_under_a_shortest_decider():
     """``x+`` over ``aaa``: three one-character ``x`` under the shortest
     decider, one ``x`` over the whole span under leftmost-longest."""
     source, text = _WITNESSES[0]
-    assert _earley(source, text, _Shortest(frozenset())) == (
+    assert _earley(source, text, Shortest(frozenset())) == (
         "Root((X('a'), X('a'), X('a')))"
     )
     assert _earley(source, text, LEFTMOST_LONGEST) == "Root((X('aaa'),))"
