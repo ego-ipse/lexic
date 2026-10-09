@@ -1,5 +1,13 @@
 # Log
 
+## An attempt's arms that end apart are ranked by the decider (2026-10-09)
+
+`decisions.md` records that the attempt audit ranks an arm ending elsewhere
+that could compose against the winner through the boundary verdict, lets two
+arms over one span with one value stand, and turns the greedy arm over an empty
+sibling into an ordered attempt; `GREEDY_ARM` is deleted. The attempt-gate and
+delegate entries are corrected to match.
+
 ## An open child is ranked at its first end under leftmost-longest (2026-10-09)
 
 `decisions.md` records that `_kept_open` ranks leftmost-longest's open child by

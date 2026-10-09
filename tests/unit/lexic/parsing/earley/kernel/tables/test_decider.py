@@ -16,7 +16,6 @@ import pytest
 
 from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
-    GREEDY_ARM,
     GREEDY_SPLIT,
     LEFTMOST_LONGEST,
     NOISE_GREEDY,
@@ -89,11 +88,9 @@ def test_another_decider_is_only_another_value() -> None:
 
 
 def test_leftmost_longest_grants_only_what_is_proven_for_it() -> None:
-    """Every kind proven for this order is granted; the greedy arm take still
-    owes its proof, so it is not."""
+    """Every kind proven for this order is granted, and nothing else."""
     proven = {SPLIT_GREEDY, ATTEMPT, STOP_SET, NOISE_GREEDY, GREEDY_SPLIT, SCAN_SKIP}
     assert proven == LEFTMOST_LONGEST.grants
-    assert GREEDY_ARM not in LEFTMOST_LONGEST.grants
 
 
 def test_a_decider_without_licences_grants_none() -> None:
@@ -194,5 +191,5 @@ def test_a_decider_grants_all_of_a_set_only_when_it_grants_each_kind() -> None:
     """What a program compiled under ``used`` may run for this decider."""
     assert LEFTMOST_LONGEST.grants_all(frozenset({SPLIT_GREEDY, ATTEMPT}))
     assert LEFTMOST_LONGEST.grants_all(frozenset())
-    assert not LEFTMOST_LONGEST.grants_all(frozenset({GREEDY_ARM}))
+    assert not LEFTMOST_LONGEST.grants_all(frozenset({"unproven"}))
     assert not _ShortestFirst(frozenset()).grants_all(frozenset({ATTEMPT}))

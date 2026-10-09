@@ -148,12 +148,13 @@ class WatchedKernel[M](PdaKernel[M]):
     it.
     """
 
-    __slots__ = ("events", "cap", "capped", "_scanned")
+    __slots__ = ("events", "cap", "capped", "_scanned", "_aside")
 
     events: list[TraceEvent]
     cap: int  # the recording ceiling — per-run state, set by `watch`
     capped: bool
     _scanned: int
+    _aside: int  # how many candidates are being run: their text is no scan
 
     def __init__(
         self,
@@ -181,6 +182,7 @@ class WatchedKernel[M](PdaKernel[M]):
         self.cap = TRACE_CAP
         self.capped = False
         self._scanned = 0
+        self._aside = 0
 
     # ── recording ─────────────────────────────────────────────────────
 
@@ -206,7 +208,7 @@ class WatchedKernel[M](PdaKernel[M]):
         :param rule: The rule to attribute it to; the executing frame's by
             default.
         """
-        if self.pos <= self._scanned:
+        if self._aside or self.pos <= self._scanned:
             return
         span = IrSpan(self._scanned, self.pos)
         self._scanned = self.pos
@@ -264,15 +266,30 @@ class WatchedKernel[M](PdaKernel[M]):
     def _attempt_run(
         self, sub: FlatClone[M], pos: int, mark: int
     ) -> tuple[int, list[M]] | None:
-        """One attempt entry, tried and rolled back by construction."""
+        """One attempt entry, tried and rolled back by construction: the text
+        it reads is a candidate's, not the document's account, so no scan is
+        kept until the winner commits."""
         self._flush()
         self._note(PROBE, str(sub.name), "attempt entry", IrSpan(pos, pos))
-        scanned = self._scanned
-        got = super()._attempt_run(sub, pos, mark)
-        self._scanned = scanned
+        self._aside += 1
+        try:
+            got = super()._attempt_run(sub, pos, mark)
+        finally:
+            self._aside -= 1
         if got is None:
             self._note(ROLLBACK, str(sub.name), "did not derive", IrSpan(pos, pos))
         return got
+
+    def _advance(
+        self, side: Side, limit: int, shared: bool = False
+    ) -> tuple[Side | None, bool]:
+        """A boundary side driven on its own stack copy: the text it reads is
+        a candidate's, not the document's account, so no scan is kept."""
+        self._aside += 1
+        try:
+            return super()._advance(side, limit, shared)
+        finally:
+            self._aside -= 1
 
     def _probe(
         self,

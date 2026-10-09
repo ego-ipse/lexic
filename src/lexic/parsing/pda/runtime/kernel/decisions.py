@@ -15,9 +15,11 @@ extends.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from lexic.exceptions import LexicError
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -180,10 +182,10 @@ class Attempting[Carry](Verdicts[Carry]):
         Each entry runs as a self-contained sub-run from the cursor
         (:meth:`_attempt_run` — rolled back by construction on failure). The
         first success is audited against the REMAINING admitted entries before
-        it commits: a second success on the SAME span is a value question this
-        seam does not settle, and one on a DIFFERENT span whose next character
-        the rule's continuation accepts is a cross-span arm choice — both bail
-        to the gated engine, which refuses iff the ambiguity is real.
+        it commits: a second success on the SAME span with a different value is
+        a value question for the gated engine, and one on a DIFFERENT span
+        whose next character the rule's continuation accepts is a carving the
+        decider ranks against the winner (:meth:`_kept_arm`).
 
         :param clone: The attempt clone (``clone.attempt`` is set).
         :param out: The parent sink the winning arm's values splice into.
@@ -225,17 +227,74 @@ class Attempting[Carry](Verdicts[Carry]):
                 break
         if got is None:
             raise PdaFail(f"attempt: no arm matches at {pos}", pos)
-        self._attempt_audit(clone, ran + 1, got, out)
+        self._settle_arm(got, self._attempt_audit(clone, ran + 1, got), out)
+
+    def _settle_arm(
+        self,
+        won: tuple[int, list[Carry]],
+        rivals: list[tuple[int, list[Carry]]] | None,
+        out: list[Carry],
+    ) -> None:
+        """Commit an audited attempt: the winner, or the arm the decider keeps
+        among it and its ``rivals`` (:meth:`_kept_arm`), spliced into ``out``
+        with the cursor past it."""
+        if rivals is not None:
+            won = self._kept_arm(won, rivals, out)
+        out.extend(won[1])
+        self.pos = won[0]
+
+    def _kept_arm(
+        self,
+        won: tuple[int, list[Carry]],
+        rivals: list[tuple[int, list[Carry]]],
+        out: list[Carry],
+    ) -> tuple[int, list[Carry]]:
+        """An attempt's winning arm against the admitted arms that end
+        elsewhere and could compose, as ``(end, values)``: the one the decider
+        keeps (:meth:`_kept_pick`), each arm a side as an island's completion
+        is (:meth:`_extent_side`), at the reference the attempt runs for.
+
+        Two rivals ending alike with different values are a value question;
+        and no side can be built where no item of the top frame owns ``out``,
+        where the run is not over the whole document (a delegate's sub-run,
+        whose root may end anywhere in the island's window, or a truncated
+        text: :meth:`RunScope.whole`), or inside a side where :meth:`_nests`
+        allows no verdict.
+
+        :raises ProbeFork: In each of those cases, and when the verdict forks:
+            the gated engine answers.
+        """
+        pos = self.pos
+        picks = {won[0]: won[1]}
+        for end, values in rivals:
+            held = picks.setdefault(end, values)
+            if not same_value(held, values):
+                raise value_question(pos, end)
+        k = self._descent_item(out)
+        kept = None
+        if k >= 0 and self._caches.scope.whole():
+            if not self._caches.probing or self._nests():
+                ordered = [(end - pos, picks[end]) for end in sorted(picks)]
+                kept = self._kept_pick(ordered, partial(self._extent_side, k))
+        if kept is None:
+            raise ProbeFork(
+                f"attempt at {pos}: arm choice spans {sorted(picks)} "
+                "and the alternatives could compose",
+                pos,
+            )
+        return pos + kept[0], kept[1]
 
     def _attempt_audit(
         self,
         clone: FlatClone[Carry],
         first: int,
         won: tuple[int, list[Carry]],
-        out: list[Carry],
         got: tuple[int, list[Carry]] | None = None,
-    ) -> None:
-        """Refuse a commit a later admitted entry could contest, then commit it.
+    ) -> list[tuple[int, list[Carry]]] | None:
+        """Audit a winner against the later admitted entries before its caller
+        commits it: refuse what the gated engine must decide, and return the
+        entries that end elsewhere and could compose, for the decider to rank
+        against the winner (:meth:`_kept_arm`) — ``None`` when there are none.
 
         Runs with the cursor at the attempt position. Each audited entry's
         sub-run is wrapped in a record of the audit (:data:`Audit`), the one
@@ -245,16 +304,17 @@ class Attempting[Carry](Verdicts[Carry]):
         :param clone: The attempt clone whose entry ``won``.
         :param first: The first entry still to audit.
         :param won: The winner's ``(end, values)``.
-        :param out: The parent sink the winner's values splice into.
         :param got: The outcome of entry ``first - 1``, already run — how a
             boundary side resumes an audit it was forked inside; the live
             audit passes none.
+        :returns: The rivals, as ``(end, values)``, or ``None``.
         :raises ProbeFork: As :meth:`_contest` raises.
         """
         pos = self.pos
         entries = clone.attempt[1]
-        if got is not None:
-            self._contest(entries[first - 1][-1], won[0], got[0], clone)
+        rivals: list[tuple[int, list[Carry]]] | None = None
+        if got is not None and self._contest(entries[first - 1][-1], won, got, clone):
+            rivals = [got]
         char = self.text[pos : pos + 1]
         for idx in range(first, len(entries)):
             chars, negated, prefix, window, sub = entries[idx]
@@ -274,40 +334,38 @@ class Attempting[Carry](Verdicts[Carry]):
                     got = self._attempt_run(sub, pos, -1)
                 finally:
                     self._caches.audits.pop()
-            if got is not None:
-                self._contest(sub, won[0], got[0], clone)
-        out.extend(won[1])
-        self.pos = won[0]
+            if got is not None and self._contest(sub, won, got, clone):
+                rivals = [got] if rivals is None else [*rivals, got]
+        return rivals
 
     def _contest(
-        self, sub: FlatClone[Carry], end: int, alt: int, clone: FlatClone
-    ) -> None:
-        """Refuse a winner ending at ``end`` that ``sub``'s success at ``alt``
-        contests, both from the attempt position at the cursor.
+        self,
+        sub: FlatClone[Carry],
+        won: tuple[int, list[Carry]],
+        got: tuple[int, list[Carry]],
+        clone: FlatClone,
+    ) -> bool:
+        """Whether ``sub``'s success ``got`` is a rival of the winner ``won``,
+        both ``(end, values)`` from the attempt position at the cursor: one
+        that ends elsewhere and could compose is, for the decider to rank; one
+        that cannot compose is no reading at all, and one on the winner's span
+        with the winner's value changes nothing.
 
-        :raises ProbeFork: A later entry succeeding on the SAME span (a value
-            question this seam does not settle) or on a DIFFERENT span whose
-            next character the rule's soft FOLLOW accepts (a cross-span arm
-            choice) — either way the gated engine decides. Undecidable, not a
-            miss: an enclosing attempted iteration re-raises it rather than
-            reading it as its own arm failing, which would close the loop and
-            commit.
+        :raises ProbeFork: A success on the SAME span with a different value,
+            or one that overshoots yet derives the winner's span too — a value
+            question the gated engine decides. Undecidable, not a miss: an
+            enclosing attempted iteration re-raises it rather than reading it
+            as its own arm failing, which would close the loop and commit.
         """
         pos = self.pos
-        if alt == end or (alt > end and self._spans_exactly(sub, pos, end)):
-            raise ProbeFork(
-                f"attempt at {pos}: two arms span [{pos}, {end}) — "
-                "a value question for the gated engine",
-                pos,
-            )
-        # Reaching the end composes: the bail direction, where the gated
-        # engine's whole-input view settles it.
-        if composes(clone.attempt[0], self.text, alt):
-            raise ProbeFork(
-                f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
-                "and the alternative could compose",
-                pos,
-            )
+        end, alt = won[0], got[0]
+        if alt == end:
+            if same_value(got[1], won[1]):
+                return False
+            raise value_question(pos, end)
+        if alt > end and self._spans_exactly(sub, pos, end):
+            raise value_question(pos, end)
+        return composes(clone.attempt[0], self.text, alt)
 
     def _spans_exactly(self, sub: FlatClone, pos: int, end: int) -> bool:
         """Whether ``sub`` also derives exactly ``[pos, end)``.
@@ -418,6 +476,15 @@ class Attempting[Carry](Verdicts[Carry]):
             return None
         finally:
             self.pos = saved_pos
+
+
+def value_question(pos: int, end: int) -> ProbeFork:
+    """The refusal of two arms over ``[pos, end)`` that build different values."""
+    return ProbeFork(
+        f"attempt at {pos}: two arms span [{pos}, {end}) — "
+        "a value question for the gated engine",
+        pos,
+    )
 
 
 def claim(two: IslandEnds, holder: list[Any] | None, sub: FlatClone) -> None:

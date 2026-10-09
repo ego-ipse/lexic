@@ -45,9 +45,6 @@ NOISE_GREEDY = "noise-greedy"
 GREEDY_SPLIT = "greedy-split"
 """A loop over-eats a soft follower whose split the decider settles."""
 
-GREEDY_ARM = "greedy-arm"
-"""An arm is taken greedily over an empty sibling whose follower it starts."""
-
 SCAN_SKIP = "scan-skip"
 """A structured gate skips a run of rules possessively, then peeks past it: the
 run is read as leftmost-longest carves it, giving nothing back."""
@@ -146,6 +143,6 @@ It grants the licences proven for it. :data:`STOP_SET` is granted because the
 analysis files a stop-set only where its first exit is this order's answer:
 the loop runs longest, no text continues both ways two characters deep, or
 every carving builds one model. :data:`SCAN_SKIP` is granted because a run
-the gate skips whole is the run this order's first slot takes.
-:data:`GREEDY_ARM` owes its exchange proof, so it is withheld: those sites
-island instead, and Earley answers."""
+the gate skips whole is the run this order's first slot takes. An arm taken
+over an empty sibling whose follower it starts needs no licence: it is tried
+in order, and the decider ranks the arms that end elsewhere."""

@@ -581,9 +581,8 @@ class Verdicts[Carry](Sides[Carry]):
         if k < 0 or (self._caches.probing and not self._nests()):
             two.sink = sink
             raise two
-        end, value = self._kept_end(two, partial(self._extent_side, k))
-        if isinstance(value, Completed):
-            sink.append(value.value)
+        end, values = self._kept_end(two, partial(self._extent_side, k))
+        sink.extend(values)
         self.pos += end
 
     def _iteration_ends(
@@ -600,26 +599,38 @@ class Verdicts[Carry](Sides[Carry]):
         """
         if self._caches.probing and not self._nests():
             raise two
-        end, value = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))
-        return pos + end, [value.value] if isinstance(value, Completed) else []
+        end, values = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))
+        return pos + end, values
 
     def _kept_end(
         self, two: IslandEnds, side_of: Callable[..., Side]
-    ) -> tuple[int, CompletionResult[Carry]]:
-        """The completion of ``two`` the verdict keeps, each completion a side
-        ``side_of(end, value)`` builds.
-
-        Completions meet in pairs, the one kept so far as the stop side against
-        the next longer, each pair driven and ranked as an attempted loop's
-        sides are; the rank is one order over completed parses, so the last
-        one kept is the decider's.
+    ) -> tuple[int, list[Carry]]:
+        """The completion of ``two`` the verdict keeps, as ``(end, values)``,
+        each completion a side ``side_of(end, values)`` builds
+        (:meth:`_kept_pick`).
 
         :raises IslandEnds: When a pair's verdict forks.
         """
-        picks = [
-            (end, self._island_value(two.name, tree, built))
-            for tree, end, built in two.ends
-        ]
+        picks = []
+        for tree, end, built in two.ends:
+            value = self._island_value(two.name, tree, built)
+            picks.append((end, [value.value] if isinstance(value, Completed) else []))
+        kept = self._kept_pick(picks, side_of)
+        if kept is None:
+            raise two
+        return kept
+
+    def _kept_pick(
+        self, picks: list[tuple[int, list[Carry]]], side_of: Callable[..., Side]
+    ) -> tuple[int, list[Carry]] | None:
+        """Of several ways one item can end — ``(end, values)``, shortest
+        first — the one the verdict keeps, ``None`` when it cannot say.
+
+        Picks meet in pairs, the one kept so far as the stop side against the
+        next longer, each pair driven and ranked as an attempted loop's sides
+        are; the rank is one order over completed parses, so the last one kept
+        is the decider's.
+        """
         kept = picks[0]
         for pick in picks[1:]:
             try:
@@ -631,7 +642,7 @@ class Verdicts[Carry](Sides[Carry]):
             if verdict == FORKED and not self._caches.probing:
                 verdict = self._retried(self._pair, side_of, kept, pick)
             if verdict == FORKED:
-                raise two
+                return None
             if verdict == TAKE:
                 kept = pick
         return kept
@@ -639,11 +650,11 @@ class Verdicts[Carry](Sides[Carry]):
     def _pair(
         self,
         side_of: Callable[..., Side],
-        stop: tuple[int, CompletionResult[Carry]],
-        take: tuple[int, CompletionResult[Carry]],
+        stop: tuple[int, list[Carry]],
+        take: tuple[int, list[Carry]],
     ) -> int:
-        """The verdict between two completions, the shorter standing as the
-        stop side: in step first, else each run to the end of input and
+        """The verdict between two ways an item ends, the shorter standing as
+        the stop side: in step first, else each run to the end of input and
         compared."""
         makers: Makers = side_of, stop, take
         verdict = self._lockstep(side_of(*stop, False), side_of(*take, False), makers)

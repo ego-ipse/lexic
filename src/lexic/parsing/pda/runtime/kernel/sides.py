@@ -41,8 +41,6 @@ from lexic.parsing.pda.runtime.build import (
 )
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.matchers import chase_dispatch
-from lexic.parsing.product import Completed
-from lexic.parsing.product.tree import CompletionResult
 
 __all__ = [
     "PENDING",
@@ -114,10 +112,18 @@ class Sides[Carry]:
         clone: FlatClone[Carry],
         first: int,
         won: tuple[int, list[Carry]],
-        out: list[Carry],
         got: tuple[int, list[Carry]] | None = None,
-    ) -> None:
+    ) -> list[tuple[int, list[Carry]]] | None:
         """Provided by ``Attempting`` — audit an attempt's winner."""
+        raise NotImplementedError
+
+    def _settle_arm(
+        self,
+        won: tuple[int, list[Carry]],
+        rivals: list[tuple[int, list[Carry]]] | None,
+        out: list[Carry],
+    ) -> None:
+        """Provided by ``Attempting`` — commit an audited attempt."""
         raise NotImplementedError
 
     def _forked(self, record: bool = False) -> Side:
@@ -202,15 +208,16 @@ class Sides[Carry]:
             self.stack = saved
 
     def _extent_side(
-        self, k: int, end: int, value: CompletionResult[Carry], record: bool = False
+        self, k: int, end: int, values: list[Carry], record: bool = False
     ) -> Side:
-        """One completion of an island at item ``k`` of the top frame, as a
-        side: the live stack forked, the value in the item, the cursor past it.
-        An exactly-once item's end is written where the drive would not."""
+        """One way item ``k`` of the top frame can end — an island's completion,
+        or an attempted arm — as a side: the live stack forked, ``values`` in
+        the item, the cursor ``end`` past it. An exactly-once item's end is
+        written where the drive would not."""
         forked, pos, routes, root, floors, ledger, copies, _fork = self._forked(record)
         top = forked[-1]
-        if isinstance(value, Completed):
-            self._spliced(forked, top.arm, k, [value.value])
+        if values:
+            self._spliced(forked, top.arm, k, values)
         if once(top, k) and top.ends:
             top.ends[k + 1] = pos + end
         return forked, pos + end, routes, root, floors, ledger, copies, (k, pos + end)
@@ -219,15 +226,14 @@ class Sides[Carry]:
         self,
         boundary: tuple[FlatArm, int, int],
         end: int,
-        value: CompletionResult[Carry],
+        values: list[Carry],
         record: bool = False,
     ) -> Side:
         """One completion of an island that is an attempted iteration's whole
         sub-run, as a side: the iteration of item ``i`` at ``pos`` —
         ``boundary`` is ``(arm, i, pos)`` — taken with that completion's
-        value, its extent the fork's own step."""
+        ``values``, its extent the fork's own step."""
         arm, i, pos = boundary
-        values = [value.value] if isinstance(value, Completed) else []
         side = self._side(arm, i, pos, (pos + end, values), record)
         return side[:7] + ((i, pos + end),)
 
@@ -407,7 +413,8 @@ class Sides[Carry]:
             self._attempt_settle(loop, loop.arm, loop.i, start, got)
             return self.pos != start
         if entry is not None and entry[3] is not None:
-            self._attempt_audit(entry[0], entry[2] + 1, entry[3], entry[1], got)
+            rivals = self._attempt_audit(entry[0], entry[2] + 1, entry[3], got)
+            self._settle_arm(entry[3], rivals, entry[1])
             return True
         if entry is not None:
             self.attempt(entry[0], entry[1], entry[2], got)

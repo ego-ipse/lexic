@@ -466,12 +466,56 @@ def test_earley_decides_a_cross_span_choice_by_its_boundary() -> None:
     assert repr(model) == "Root(Item('ab'), Tail('c'))"
 
 
-def test_the_public_parse_answers_a_cross_span_choice_as_earley_does() -> None:
-    """The island seam cannot settle a second completion end whose next
-    character the continuation accepts (`item`'s FOLLOW holds `b` via `tail`),
-    so the PDA bails, and the public path completes on the gated engine, which
-    answers with the decider's reading."""
+def test_the_pda_answers_a_cross_span_choice_as_earley_does() -> None:
+    """``item``'s two arms end at 1 and at 2, and ``tail`` can follow either
+    (its FOLLOW holds ``b``), so the attempt's audit ranks the two carvings by
+    the decider instead of handing the parse over: the PDA itself answers with
+    the first slot longest, which is Earley's reading."""
     cg = compile_text(_CROSS_SPAN, cache_key="parity-cross-span-pda")
-    with pytest.raises((UnsupportedConstructError, PdaFail)):
-        pda_model(prod(cg).pda, "abc", cg.executor)
-    assert repr(cg.parse("abc")) == "Root(Item('ab'), Tail('c'))"
+    want = "Root(Item('ab'), Tail('c'))"
+    assert repr(pda_model(prod(cg).pda, "abc", cg.executor)) == want
+    assert repr(cg.parse("abc")) == want
+
+
+_EMPTY_ARM = (
+    'root ::= w "c"?\nw ::= o tl\no ::= "a" | "x"?\ntl ::= "a" "b" "c" | "b"?\n'
+)
+"""``o`` can take ``a`` or nothing, and ``tl`` can start with ``a`` too: which
+one owns the ``a`` is a carving of ``w``, the decider's to rank."""
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("abc", "Root(W(O(''), Tl('abc')), '')"),
+        ("ab", "Root(W(O('a'), Tl('b')), '')"),
+        ("abcc", "Root(W(O(''), Tl('abc')), 'c')"),
+    ],
+    ids=["first-slot-longest", "only-the-arm-composes", "both-then-more"],
+)
+def test_an_arm_over_an_empty_sibling_is_ranked_on_the_pda(
+    text: str, want: str
+) -> None:
+    """The greedy arm is tried in order, and the empty arm, which ends earlier
+    and composes, is ranked against it: on ``abc`` ``w`` reads all three
+    characters with ``o`` empty, as Earley does; on ``ab`` the empty arm cannot
+    finish the document, so ``o`` takes the ``a``."""
+    cg = compile_text(_EMPTY_ARM, cache_key="parity-empty-arm")
+    pr = prod(cg)
+    assert repr(earley_model(pr.instance_grammar, text, cg.product, pr.tables)) == want
+    assert repr(pda_model(pr.pda, text, cg.executor)) == want
+
+
+_SAME_VALUE = 'root ::= int "e"\nint ::= ([0-9] | [1-9] [0-9]{0,3})\n'
+"""Both arms read ``9`` alone and build the same ``Int('9')``."""
+
+
+def test_two_arms_over_one_span_with_one_value_continue_on_the_pda() -> None:
+    """Two arms deriving the same span are a question of value, and one value
+    answers it: the audit lets the winner stand instead of handing the parse
+    over."""
+    cg = compile_text(_SAME_VALUE, cache_key="parity-same-value")
+    pr = prod(cg)
+    want = "Root(Int('9'))"
+    assert repr(earley_model(pr.instance_grammar, "9e", cg.product, pr.tables)) == want
+    assert repr(pda_model(pr.pda, "9e", cg.executor)) == want

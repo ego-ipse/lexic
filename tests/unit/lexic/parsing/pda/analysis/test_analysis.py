@@ -586,8 +586,9 @@ def test_instance_grammar_empty_last_arm_demotes_to_sg_scan():
 def test_inline_group_empty_arm_never_stores_struct_gate():
     """An empty arm inside an inline ``(...)`` group never reaches the
     struct-arm store: its label is a bracketed group tag (``r[0]grp``), never
-    a rule name, so ``_demote_struct_arm`` is never even attempted — the
-    greedy note stays the plain (non-structured) form."""
+    a rule name, so ``_demote_struct_arm`` is never even attempted. The arm
+    is tried in order instead: the site is a conflict the group's
+    ordered-attempt licence covers, so the rule does not island."""
     ws = IrRule(
         "ws",
         IrAlternation(IrSequence(_item(IrCharClass(IrChr(32)), lo=1, hi=None))),
@@ -606,21 +607,25 @@ def test_inline_group_empty_arm_never_stores_struct_gate():
     )
     analysis = _analysis(root, seq, ws, start="r")
     assert analysis.taxonomy.struct_arm_gates == {}
-    assert analysis.demoted["r"] == ["r[0]grp: arm 0 FIRST hits FOLLOW (greedy)"]
+    assert analysis.taxonomy.conflicts["r"] == ["r[0]grp: arm 0 FIRST hits FOLLOW"]
+    assert "r" in analysis.taxonomy.attempts  # compiled as an attempt clone
+    assert "r" not in analysis.islands - frozenset(analysis.taxonomy.attempts)
 
 
 def test_noise_free_empty_last_arm_denies_structured_demotion():
     """A noise-free grammar's empty-arm greedy overlap can never license a
     structured-noise gate: ``noise_roots`` is empty (no non-semantic rule is
     referenced nullable anywhere), so ``structured_arm_gate`` denies at its
-    very first guard and the plain greedy note survives (DENY per the plan)."""
+    very first guard (DENY per the plan), and the arm is tried in order: a
+    conflict the rule's ordered-attempt licence covers."""
     text = 'top ::= a "x"\na ::= "x" |\n'
     canonical = canonical_grammar(text, get_flavour("gbnf"))
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     analysis = GrammarAnalysis(lifted)
     assert analysis.taxonomy.struct_arm_gates == {}
-    assert analysis.demoted["a"] == ["a: arm 0 FIRST hits FOLLOW (greedy)"]
-    assert "a" not in analysis.islands
+    assert analysis.taxonomy.conflicts["a"] == ["a: arm 0 FIRST hits FOLLOW"]
+    assert "a" in analysis.taxonomy.attempts  # compiled as an attempt clone
+    assert "a" not in analysis.islands - frozenset(analysis.taxonomy.attempts)
 
 
 def test_empty_middle_arm_licenses_sg_scan_with_escape_at_middle_index():

@@ -175,9 +175,11 @@ does not forbid may be classified `attempts` (analysis `Taxonomy.attempts`,
 `AttemptSpec.order` with nullable arms last) instead of islanding: the runtime
 tries the arms in order as self-contained sub-runs and commits the first
 success — after an **audit** of the remaining admitted arms. A second success
-on the same span, or on a different span whose next character the rule's soft
-FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
-ambiguity is real. Licensed optional loops run the same way per iteration
+on the same span with a different value raises `PdaFail` — the gated engine
+then refuses iff the ambiguity is real — and one with the same value lets the
+winner stand. One on a different span whose next character the rule's soft
+FOLLOW accepts is a carving the decider ranks against the winner (*"An
+attempt's arms that end apart are ranked by the decider"* below). Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
 arm, and a boundary where taking AND stopping are both viable is resolved by
 comparing the VALUES the two sides build (`same_value`, exactly the forest
@@ -317,8 +319,7 @@ already climbing. Answers are unchanged on both.
 
 **Decision:** an island-interior rule is delegated only if no rule in its
 reachable interior picks an EXTENT by policy. That covers a stop-set exit, a
-greedy loop split, a split-greedy licence, and a greedy arm over an empty
-one. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
+greedy loop split, and a split-greedy licence. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
 decision is made (`Notes.picks_extent`), never read back from note text, and
 `is_delegable` refuses a reachable member.
 
@@ -1273,3 +1274,37 @@ Earley keeps the decider's carving of the first such node top-down. Ranking by
 anything else — the side that took, the longer side overall — answers a
 different question, and the PDA's model would differ from the gated engine's
 under the same decider.
+
+
+## An attempt's arms that end apart are ranked by the decider
+
+**Decision:** the attempt audit no longer refuses an admitted arm that ends
+somewhere else than the winner and could compose. Each such arm is a side, as
+an island's completion is: the live stack forked with the arm's values in the
+reference's item and the cursor past it (`Sides._extent_side`), and the sides
+meet in pairs through the boundary verdict (`Verdicts._kept_pick`, shared with
+an island's ends), so the decider keeps one. Two arms over the same span are a
+question of value: one value lets the winner stand, two refuse.
+
+The site where a non-nullable arm's FIRST meets the continuation beside an
+empty arm (`o ::= "a" | "x"?` before a `tl` that may start with `a`) is no
+longer a greedy pick: it is an arm conflict, tried in order like any overlap,
+and the ordered-attempt licence covers it. `GREEDY_ARM`, the licence such a
+pick never earned, is deleted.
+
+The audit refuses still where no side can be built: no item of the top frame
+owns the attempt's sink, the run is not over the whole document
+(`RunScope.whole` — a delegate's sub-run, whose root may end anywhere in the
+island's window, or a truncated text), a side's nesting allows no verdict, or
+the verdict forks. The gated engine answers those.
+
+**Why:** which arm takes the text is where some node ends, the decider's
+question, and Earley answers it by the decider. The greedy pick took `a` for
+`o` on `abc`, where the first slot longest gives `w` all three characters
+with `o` empty, so the PDA built a model Earley does not. An audit that
+refused every cross-span success was correct but sent each such choice to the
+gated engine; ranked, they stay on the predictive engine.
+
+**The trace** keeps no scan for a candidate's text — an attempt entry's or a
+boundary side's (`WatchedKernel._aside`) — so a derived run's scans still tile
+the document now that ranked candidates run before the commit.

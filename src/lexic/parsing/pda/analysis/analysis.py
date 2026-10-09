@@ -538,9 +538,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         been decided all along. A rule body's attempt licence is
         :meth:`_classify`'s — it sees the whole note ledger.
 
-        The empty-arm-vs-FOLLOW branch below stays rule-body-only: its gates
-        are computed from the rule's own FOLLOW\\ :sub:`k`, which a group has
-        no equivalent of. Its note is soft, so it never islands.
+        An arm that is not nullable but whose FIRST the continuation also
+        accepts competes with the empty arm. Its gates are computed from the
+        rule's own FOLLOW\\ :sub:`k`, so they are rule-body-only; a site no gate
+        separates is tried in order, as an overlap is, and the audit ranks an
+        arm ending elsewhere against the winner by the decider.
 
         :param site: The alternation — its label, store key and continuation.
         """
@@ -570,11 +572,14 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     or demote.demote_struct_arm(self, arms, site.label, notes)
                 )
             )
-            if not gated:
-                for i in greedy:
-                    notes.picks_extent(
-                        f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)", STOP_SET
-                    )
+            if not gated and greedy:
+                # Which arm the text takes is the decider's question: the
+                # site is tried in order, and the audit ranks an arm that ends
+                # elsewhere and composes against the winner.
+                notes.hard.extend(
+                    f"{site.label}: arm {i} FIRST hits FOLLOW" for i in greedy
+                )
+                attempt_group(self, arms, site, notes, len(greedy))
 
     def seq_conflicts(
         self, items: Sequence[IrItem], scope: Scope, notes: Notes
