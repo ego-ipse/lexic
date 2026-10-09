@@ -85,10 +85,51 @@ def leftmost_chain(
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
     """
+    chain = sole_chain(links, handle, spec)
+    if chain is not None:
+        if choices:
+            _consume(choices, handle, chain, spec.bits)
+        return chain
     levels = _descend(links, handle, spec, choices)
     if levels is None:
         return None
     return _choose(links, levels, spec, decide)
+
+
+def sole_chain(links: FamilyReader, handle: int, spec: ChainSpec) -> list[KLink] | None:
+    """The chain when every key on it holds ONE family, else ``None``.
+
+    Nothing is chosen on such a chain — every level of the DAG is one key with
+    one edge — so it is every decider's answer, read without building the DAG.
+    ``None`` when a key is missing or holds several families.
+
+    :param links: The parse's SPPF family table.
+    :param handle: The packed ``(item << bits) | end`` to resolve.
+    :param spec: The arm base and packing tier to cut against.
+    :returns: The chain's links in source order, or ``None``.
+    """
+    base, bits = spec.base, spec.bits
+    chain: list[KLink] = []
+    item, end = handle >> bits, handle & ((1 << bits) - 1)
+    while (item >> bits) != base:
+        bucket = links.get((item << bits) | end)
+        if bucket is None or len(bucket) > 1:
+            return None
+        link = bucket[0]
+        chain.append(link)
+        item, end = link[0], link[1]
+    chain.reverse()
+    return chain
+
+
+def _consume(
+    choices: dict[int, int], handle: int, chain: list[KLink], bits: int
+) -> None:
+    """Spend the pins at the keys a sole chain passed, as :func:`_descend`
+    would have on its way down."""
+    choices.pop(handle, None)
+    for link in chain[1:]:
+        choices.pop((link[0] << bits) | link[1], None)
 
 
 def spec_for(

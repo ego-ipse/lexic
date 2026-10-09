@@ -25,6 +25,8 @@ from lexic.parsing.earley.kernel.tables.splits import (
     canonical_indices,
     dominant,
     is_arm_choice,
+    leftmost_chain,
+    sole_chain,
 )
 from lexic.parsing.products import earley_model, model_product
 from tests.unit.lexic.parsing.parsing_helpers import Shortest
@@ -241,3 +243,59 @@ def test_every_leftmost_longest_instance_reads_as_the_default(source: str, text:
     assert _earley(source, text, LeftmostLongest(frozenset())) == _earley(
         source, text, LEFTMOST_LONGEST
     )
+
+
+# ── a chain with one family at every key is read without the level DAG ──
+
+
+class _Indexed(list):
+    """A bucket that can be indexed but not walked — what reading one family
+    needs, and less than the level DAG takes."""
+
+    def __iter__(self):
+        raise AssertionError("a sole chain's bucket was walked as a DAG level")
+
+
+def _sole_links() -> tuple[dict[int, list[KLink]], int]:
+    """A two-step chain, one family per key: dot 0 → dot 1 at 2 → dot 2 at 5."""
+    first: KLink = (_item(0, 0), 0, "a")
+    second: KLink = (_item(1, 0), 2, "b")
+    top = _key(2, 0, 5)
+    return {_key(1, 0, 2): _Indexed([first]), top: _Indexed([second])}, top
+
+
+def test_a_chain_of_sole_families_is_read_without_the_level_dag() -> None:
+    """Nothing is chosen where every key holds one family, so the chain is the
+    links in source order — under every decider, and no bucket is walked."""
+    links, top = _sole_links()
+    want = [links[_key(1, 0, 2)][0], links[top][0]]
+    assert leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST) == want
+    assert leftmost_chain(links, top, _spec(), {}, Shortest(frozenset())) == want
+    assert sole_chain(links, top, _spec()) == want
+
+
+def test_a_sole_chain_spends_the_pins_it_passes_as_the_dag_would() -> None:
+    """A pin is consumed at the first visit of its key: the keys a sole chain
+    walks through lose theirs, a key it never reaches keeps its own."""
+    links, top = _sole_links()
+    elsewhere = _key(3, 0, 9)
+    choices = {top: 0, _key(1, 0, 2): 0, elsewhere: 1}
+
+    leftmost_chain(links, top, _spec(), choices, LEFTMOST_LONGEST)
+
+    assert choices == {elsewhere: 1}
+
+
+def test_a_key_with_two_families_still_takes_the_decider_s_reading() -> None:
+    """The first key holding two families sends the read to the level DAG:
+    leftmost-longest keeps the far boundary, the shortest decider the near."""
+    far: KLink = (_item(1, 0), 6, "x")
+    near: KLink = (_item(1, 0), 2, "y")
+    top = _key(2, 0, 8)
+    links = {**_bottomed(_key(1, 0, 6), _key(1, 0, 2)), top: [near, far]}
+
+    assert sole_chain(links, top, _spec()) is None
+    longest = leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST)
+    shortest = leftmost_chain(links, top, _spec(), {}, Shortest(frozenset()))
+    assert longest is not None and longest[-1] is far
+    assert shortest is not None and shortest[-1] is near

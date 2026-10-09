@@ -1,5 +1,11 @@
 # Log
 
+## A sole chain is read without the level DAG (2026-10-09)
+
+`decisions.md` records that `leftmost_chain` walks a chain whose every key
+holds one family directly, and builds the level DAG only from a key with
+several families.
+
 ## The split keys on the decider's order (2026-10-09)
 
 `decisions.md` records that the parallel split is asked under any

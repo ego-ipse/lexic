@@ -1328,3 +1328,18 @@ parse would build, and which model that is depends on the order alone; the
 grants decide only which shortcuts reach it. Keying the split by grants would
 refuse a split that is sound, and keying it by nothing would cut a shortest
 parse on leftmost-longest boundaries.
+
+## A chain with one family at every key is read without the level DAG
+
+**Decision:** `splits.leftmost_chain` first walks the chain as `sole_chain`:
+one bucket read per key, each holding exactly one family. Only the first key
+holding several families sends the read to the level DAG (`_descend`, `_prune`,
+`_floor`, `_choose`). `predecessor_chain`'s no-choices path is that same walk,
+and a sole chain spends the pins at the keys it passes, as `_descend` does.
+
+**Why:** on such a chain every level of the DAG is one key with one edge, so
+every decider's answer is that path; nothing is chosen. The tree build always
+resolves through `leftmost_chain` (it passes a choice map), so before this
+change every handle of every parse paid for a DAG of dicts, a prune, a floor
+and a generator `max` per level. That cost 14-20% of an Earley parse's CPU on
+every roster grammar, and the Earley models are byte-identical.

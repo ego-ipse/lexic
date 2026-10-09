@@ -22,7 +22,11 @@ from lexic.ir import (
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 from lexic.parsing.earley.kernel.tables.decider import Decider
-from lexic.parsing.earley.kernel.tables.splits import ChainSpec, leftmost_chain
+from lexic.parsing.earley.kernel.tables.splits import (
+    ChainSpec,
+    leftmost_chain,
+    sole_chain,
+)
 
 _MAX_CHARSET = 4096
 """Expansion cap for a char-class range — beyond it the set poisons."""
@@ -124,17 +128,7 @@ def predecessor_chain(
     """
     if choices is not None:
         return leftmost_chain(links, handle, spec, choices, decide)
-    base, bits = spec.base, spec.bits
-    chain: list[KLink] = []
-    item, end = handle >> bits, handle & ((1 << bits) - 1)
-    while (item >> bits) != base:
-        bucket = links.get((item << bits) | end)
-        if bucket is None or len(bucket) > 1:
-            return None
-        item, end, child = bucket[0]
-        chain.append((item, end, child))
-    chain.reverse()
-    return chain
+    return sole_chain(links, handle, spec)
 
 
 def _charclass_contains(charclass: IrCharClass, char: str) -> bool:
