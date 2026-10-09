@@ -170,13 +170,24 @@ def test_any_decider_states_slots_and_never_its_rank() -> None:
     assert LEFTMOST_LONGEST.rank((2, 4, 6)) == (2, 4, 6)
 
 
-def test_a_carving_drops_a_step_that_ends_where_the_previous_one_did() -> None:
-    """A zero-width iteration repeats the previous boundary; dropped, the
-    reading cannot compete with itself plus an empty slot."""
-    assert carving((3, 3, 6)) == (3, 6)
-    assert carving((0, 0, 0)) == (0,)
-    assert not carving(())
-    assert carving((2, 4, 6)) == (2, 4, 6)
+def test_a_carving_drops_an_empty_iteration_beyond_the_minimum() -> None:
+    """A droppable step that ends where the one before it did is an iteration
+    the repetition's minimum does not need; dropped, the reading cannot
+    compete with itself plus an empty iteration. The first step is measured
+    from the start, so it is dropped too."""
+    assert carving((3, 3, 6), 0, (True, True, True)) == (3, 6)
+    assert not carving((0, 0, 0), 0, (True, True, True))
+    assert not carving((), 0, ())
+    assert carving((2, 4, 6), 0, (True, True, True)) == (2, 4, 6)
+
+
+def test_a_carving_keeps_a_slot_or_a_needed_iteration_that_takes_nothing() -> None:
+    """An authored slot, or an iteration within the minimum, is a step even
+    when it takes nothing: ``x{2,}`` over ``a`` as ``("", "a")`` is two steps,
+    and only the decider says which of its carvings is kept."""
+    assert carving((0, 1), 0, (False, False)) == (0, 1)
+    assert carving((1, 1), 0, (False, True)) == (1,)
+    assert carving((3, 3, 6), 0, (False, False, False)) == (3, 3, 6)
 
 
 def test_a_decider_grants_all_of_a_set_only_when_it_grants_each_kind() -> None:

@@ -56,14 +56,18 @@ Carving = tuple[int, ...]
 """A family's boundary vector over one span, left to right."""
 
 
-def carving(ends: Iterable[int]) -> Carving:
-    """A chain's boundaries as a carving: a step ending where the previous one
-    did is a zero-width iteration, dropped, so one reading never competes with
-    itself plus an empty slot."""
+def carving(ends: Iterable[int], start: int, droppable: Iterable[bool]) -> Carving:
+    """Steps taken from ``start`` as a carving: a step that ends where the one
+    before it did is dropped where it is a repetition's iteration beyond its
+    minimum (``droppable``), so one reading never competes with itself plus an
+    empty iteration. An authored slot, or an iteration the minimum needs, stays
+    a step even when it takes nothing."""
     out: list[int] = []
-    for end in ends:
-        if not out or end != out[-1]:
+    last = start
+    for end, drop in zip(ends, droppable, strict=True):
+        if not (drop and end == last):
             out.append(end)
+        last = end
     return tuple(out)
 
 

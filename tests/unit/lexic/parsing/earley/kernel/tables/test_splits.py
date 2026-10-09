@@ -76,10 +76,12 @@ def _key(code: int, origin: int, end: int) -> int:
     return (_item(code, origin) << BITS) | end
 
 
-def _spec(code_choice: tuple[int, ...] = ()) -> ChainSpec:
+def _spec(code_choice: tuple[int, ...] = (0,) * (1 << BITS)) -> ChainSpec:
     """A chain spec over a hand-built link table, with dot 0 as the bottom:
-    every code belongs to arm 0, whose dot-0 code is 0."""
-    return ChainSpec(0, BITS, code_choice, (0,) * (1 << BITS), (0,))
+    every code belongs to arm 0, whose dot-0 code is 0, an authored arm."""
+    return ChainSpec(
+        0, BITS, code_choice, (0,) * (1 << BITS), (0,), (False,) * (1 << BITS)
+    )
 
 
 def _bottomed(*keys: int) -> dict[int, list[KLink]]:

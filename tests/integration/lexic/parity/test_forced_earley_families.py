@@ -88,7 +88,13 @@ def consumers(kern) -> dict[str, object]:
         out[f"points {handle}"] = points
         for point in points:
             bucket = reader[point]
-            spec = spec_for(codes, bits, kern.tables.code_choice, point)
+            spec = spec_for(
+                codes,
+                bits,
+                kern.tables.code_choice,
+                kern.tables.decode.code_droppable,
+                point,
+            )
             out[f"canonical {point}"] = canonical_indices(
                 reader, bucket, spec, LEFTMOST_LONGEST
             )

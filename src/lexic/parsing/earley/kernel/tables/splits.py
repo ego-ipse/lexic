@@ -44,6 +44,9 @@ class ChainSpec(NamedTuple):
     :ivar code_arm: Code → its arm; with :attr:`arm_base`, where a CHILD's
         chain stops, for comparing two children's carvings.
     :ivar arm_base: Arm → its dot-0 code.
+    :ivar code_droppable: Code → whether the step completing there is a
+        repetition's iteration beyond its minimum, which a carving drops when
+        it takes nothing.
     """
 
     base: int
@@ -51,6 +54,7 @@ class ChainSpec(NamedTuple):
     code_choice: tuple[int, ...]
     code_arm: tuple[int, ...]
     arm_base: tuple[int, ...]
+    code_droppable: tuple[bool, ...]
 
 
 _Level = dict[int, list[tuple[int, int, "KLink"]]]
@@ -87,7 +91,13 @@ def leftmost_chain(
     return _choose(links, levels, spec, decide)
 
 
-def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainSpec:
+def spec_for(
+    codes,
+    bits: int,
+    code_choice: tuple[int, ...],
+    code_droppable: tuple[bool, ...],
+    key: int,
+) -> ChainSpec:
     """The chain constants for ``key``'s own arm.
 
     Every family at a key shares that key's item, so its predecessors share an
@@ -96,6 +106,7 @@ def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainS
     :param codes: The compiled code tables (``arm_base``/``code_arm``).
     :param bits: The tables' packing tier.
     :param code_choice: Completed code → authored choice identity.
+    :param code_droppable: Code → whether its step is a droppable iteration.
     :param key: The packed ``(item << bits) | end`` being read.
     """
     return ChainSpec(
@@ -104,6 +115,7 @@ def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainS
         code_choice,
         codes.code_arm,
         codes.arm_base,
+        code_droppable,
     )
 
 
@@ -180,8 +192,8 @@ def dominant(
     b = (second[0] << bits) | second[1]
     if a == b:  # one predecessor: the children decide, as the chain reader's do
         return _settle(links, [first, second], spec, decide)
-    va = _vector(links, a, spec, mask, decide)
-    vb = _vector(links, b, spec, mask, decide)
+    va = _vector(links, a, spec, decide)
+    vb = _vector(links, b, spec, decide)
     if va is None or vb is None:
         if va is not None:
             return first
@@ -189,27 +201,31 @@ def dominant(
             return second
     else:
         start = first[0] & mask
-        ra, rb = _step_rank(decide, start, va), _step_rank(decide, start, vb)
+        ra, rb = (
+            _step_rank(decide, start, va, spec),
+            _step_rank(decide, start, vb, spec),
+        )
         if ra != rb:
             return first if ra > rb else second
     return first if a >= b else second
 
 
 def _vector(
-    links: FamilyReader, key: int, spec: ChainSpec, mask: int, decide: Decider
+    links: FamilyReader, key: int, spec: ChainSpec, decide: Decider
 ) -> tuple[int, ...] | None:
-    """``V(key)`` — its chain's boundaries from dot 1 up, deepest first.
+    """``V(key)`` — its chain's keys from dot 1 up, deepest first; their ends
+    are its boundaries.
 
     Deepest first because the vector is maximised from the LEFT, so ordinary
     tuple comparison IS the rule. ``None`` when the chain does not reach the
     bottom: a family that derives nothing cannot be the answer.
     """
     if key >> spec.bits >> spec.bits == spec.base:
-        return (key & mask,)
+        return (key,)
     chain = leftmost_chain(links, key, spec, {}, decide)
     if chain is None:
         return None
-    return tuple(link[1] for link in chain[1:]) + (key & mask,)
+    return tuple((link[0] << spec.bits) | link[1] for link in chain[1:]) + (key,)
 
 
 def _descend(
@@ -335,32 +351,72 @@ def _choose(
 def _choose_slots(
     links: FamilyReader, levels: list[_Level], spec: ChainSpec, decide: Decider
 ) -> list[KLink]:
-    """:func:`_choose` for a decider whose order is not the raw key order: each
-    level's key is the one its slots rank highest (:func:`_slot_max`)."""
+    """:func:`_choose` for a decider whose order is not the raw key order: the
+    keys whose carving the decider ranks highest (:func:`_slot_chain`)."""
     if not levels:
         return []
     _prune(levels)
     below = _floor(levels)
-    mask = (1 << spec.bits) - 1
     chain: list[KLink] = []
-    for level in reversed(levels):  # deepest first, so this is already source order
-        key = _slot_max(level, below, decide, mask)
+    keys = _slot_chain(levels, decide, (1 << spec.bits) - 1, spec)
+    for level, key in zip(reversed(levels), keys):  # deepest first: source order
         tied = [link for p, _, link in level[key] if p == below]
         chain.append(_settle(links, tied, spec, decide))
         below = key
     return chain
 
 
-def _slot_max(level: _Level, below: int, decide: Decider, mask: int) -> int:
-    """The key of ``level`` reaching ``below`` whose end the decider's slot
-    ranks highest, the key settling only a tie of ends.
+def _slot_chain(
+    levels: list[_Level], decide: Decider, mask: int, spec: ChainSpec
+) -> list[int]:
+    """The keys, deepest first, of the chain whose carving the decider ranks
+    highest — the order :func:`_step_rank` states — without enumerating chains.
 
-    Greedy from the left is the whole rank: every key a level holds reaches
-    the bottom and is reached from the top, so the best first slot never
-    strands the slots after it.
+    A key whose step is a repetition's iteration beyond its minimum
+    (``code_droppable``) and ends where the key below it does takes nothing:
+    the carving drops it, so it is transparent and the next end up the chain
+    stands in its place. Any other step that takes nothing is a slot like any
+    other.
+    Read from the top down, a key's best remainder is the slots of the ends
+    above it that take text, and a chain is the best remainder from the floor;
+    an exact tie goes to the larger key, as a level's raw maximum would. One
+    pass over the pruned DAG's edges.
     """
-    keys = [k for k, edges in level.items() if any(p == below for p, _, _ in edges)]
-    return max(keys, key=lambda k: (decide.slot(k & mask), k))
+    rest: dict[int, tuple[int, ...]] = {key: () for key in levels[0]}
+    steps: list[dict[int, int]] = []  # per depth: lower key -> its best upper key
+    for upper in levels:
+        best = _best_below(upper, rest, decide, mask, spec)
+        rest = {below: value for below, (value, _) in best.items()}
+        steps.append({below: key for below, (_, key) in best.items()})
+    keys: list[int] = []
+    at = _floor(levels)
+    for step in reversed(steps):
+        at = step[at]
+        keys.append(at)
+    return keys
+
+
+def _best_below(
+    upper: _Level,
+    rest: dict[int, tuple[int, ...]],
+    decide: Decider,
+    mask: int,
+    spec: ChainSpec,
+) -> dict[int, tuple[tuple[int, ...], int]]:
+    """For each key below ``upper``, its best remainder and the upper key that
+    gives it (:func:`_slot_chain`); ``rest`` is each upper key's own, and an
+    empty step the carving drops is transparent."""
+    best: dict[int, tuple[tuple[int, ...], int]] = {}
+    for key, edges in upper.items():
+        end = key & mask
+        drop = spec.code_droppable[key >> spec.bits >> spec.bits]
+        taken = (decide.slot(end), *rest[key])
+        for below, _, _ in edges:
+            value = rest[key] if drop and end == below & mask else taken
+            held = best.get(below)
+            if held is None or (value, key) > held:
+                best[below] = (value, key)
+    return best
 
 
 def _floor(levels: list[_Level]) -> int:
@@ -406,36 +462,43 @@ def _child_rank(
     if levels is None:
         return False, (), 0
     mask = (1 << bits) - 1
-    bounds = _bounds(levels, mask, decide)
+    keys = _bound_keys(levels, mask, decide, spec)
     start = _floor(levels) & mask if levels else child >> bits & mask
-    return True, _step_rank(decide, start, bounds), -len(bounds)
+    return True, _step_rank(decide, start, keys, spec), -len(keys)
 
 
-def _step_rank(decide: Decider, start: int, steps: tuple[int, ...]) -> tuple[int, ...]:
-    """Where steps taken from ``start`` stand in the decider's order: their
-    carving, a step that takes nothing dropped — the first one too, measured
-    from ``start``. Over an empty span ``X X+`` with an empty ``X`` is the
-    reading ``X+`` again, so preferring it would never finish. Every chooser
-    that ranks families by the decider asks here."""
-    return decide.rank(carving((start, *steps))[1:])
+def _step_rank(
+    decide: Decider, start: int, keys: tuple[int, ...], spec: ChainSpec
+) -> tuple[int, ...]:
+    """Where a chain's steps, taken from ``start``, stand in the decider's
+    order: the rank of their :func:`carving`, each step droppable where its
+    code says it is a repetition's iteration beyond its minimum. Over an empty
+    span ``X X+`` with an empty ``X`` is the reading ``X+`` again, so
+    preferring it would never finish. Every chooser that ranks families by the
+    decider asks here."""
+    mask = (1 << spec.bits) - 1
+    ends = tuple(key & mask for key in keys)
+    drops = tuple(spec.code_droppable[key >> spec.bits >> spec.bits] for key in keys)
+    return decide.rank(carving(ends, start, drops))
 
 
-def _bounds(levels: list[_Level], mask: int, decide: Decider) -> tuple[int, ...]:
-    """The chain's boundaries, deepest first, as the decider's level keys give
-    them — the same keys :func:`_choose` takes, without reading their links."""
+def _bound_keys(
+    levels: list[_Level], mask: int, decide: Decider, spec: ChainSpec
+) -> tuple[int, ...]:
+    """The chain's keys, deepest first, as the decider chooses them — the same
+    keys :func:`_choose` takes, without reading their links."""
     if not levels:
         return ()
     _prune(levels)
+    if not (decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)):
+        return tuple(_slot_chain(levels, decide, mask, spec))
     below = _floor(levels)
-    raw = decide is LEFTMOST_LONGEST or isinstance(decide, LeftmostLongest)
     out: list[int] = []
     for level in reversed(levels):
-        below = (
-            max(k for k, edges in level.items() if any(p == below for p, _, _ in edges))
-            if raw
-            else _slot_max(level, below, decide, mask)
+        below = max(
+            k for k, edges in level.items() if any(p == below for p, _, _ in edges)
         )
-        out.append(below & mask)
+        out.append(below)
     return tuple(out)
 
 

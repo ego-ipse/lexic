@@ -549,10 +549,15 @@ class Verdicts[Carry](Sides[Carry]):
 
     def _kept(self, stop: tuple[int, ...], take: tuple[int, ...]) -> int:
         """The side the decider keeps, by the rank of the steps the two differ
-        in — each a carving, a zero-width step dropped, as Earley ranks a
-        node's: the only place a boundary verdict asks the decider."""
+        in, each read as Earley reads a carving: the only place a boundary
+        verdict asks the decider. A step here is one node's end and never an
+        iteration the carving drops; a step that could be one, an empty
+        iteration at a loop that took nothing, forks before it is ranked
+        (:meth:`_child_step`)."""
         decide = self.policy.config.decide
-        if decide.rank(carving(stop)) > decide.rank(carving(take)):
+        stop_rank = decide.rank(carving(stop, self.pos, (False,) * len(stop)))
+        take_rank = decide.rank(carving(take, self.pos, (False,) * len(take)))
+        if stop_rank > take_rank:
             return STOP_FORCED
         return TAKE
 

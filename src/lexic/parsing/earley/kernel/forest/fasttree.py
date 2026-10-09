@@ -152,7 +152,14 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         chain = predecessor_chain(
             self._links,
             handle,
-            ChainSpec(base, bits, t.code_choice, t.codes.code_arm, t.codes.arm_base),
+            ChainSpec(
+                base,
+                bits,
+                t.code_choice,
+                t.codes.code_arm,
+                t.codes.arm_base,
+                t.decode.code_droppable,
+            ),
             self.choices,
             self.decide,
         )

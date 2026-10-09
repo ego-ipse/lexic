@@ -1030,12 +1030,14 @@ The decider is leftmost-longest over authored slots, top-down
 - every family at a key competes, whatever arm its child names, so the
   boundary is decided before the arm;
 - families from ONE predecessor whose children name one authored choice are
-  ranked by `decide.rank` of each child's own boundaries (a zero-width step
-  dropped, fewer steps winning a tie), read off the level DAG without resolving
-  the child's own ties, so it never recurses. The steps are measured from where
-  the child starts, so a first step that takes nothing is dropped too: over an
-  empty span `X X+` with an empty `X` is the reading `X+` again, and a decider
-  that preferred it sent the tree build round the same node forever;
+  ranked by `decide.rank` of each child's own carving (fewer steps winning a
+  tie), read off the level DAG without resolving the child's own ties, so it
+  never recurses. The carving is `decider.carving`, the one definition: steps
+  measured from where the child starts, and a step that takes nothing dropped
+  only where it is a repetition's iteration beyond the repetition's minimum
+  (`DecodeTables.code_droppable`). Over an empty span `X X+` with an empty `X`
+  is the reading `X+` again, and a decider that preferred it sent the tree build
+  round the same node forever;
 - `dominant` settles two families from one predecessor the same way, so the
   pairwise primitive answers what the chain reader answers.
 
@@ -1094,10 +1096,26 @@ children by the new order: `root ::= x+` / `x ::= [a]+` on `aaa` came out
 `Root((X('aa'), X('a')))`, which neither order gives. With the slot final, every
 `LeftmostLongest` instance IS that order, so `splits.py` reads it by raw
 maximum (the default by identity first). Any other decider is read by its
-slots: each chain level's key is the one whose end its slot ranks highest
-(`_choose_slots` / `_slot_max`), greedy from the left being the whole rank since
-every key a level holds reaches the bottom. The raw loop is kept apart from
-the slot loop on purpose, so the default decider pays no call per level.
+slots: the chain chosen is the one whose carving its rank puts highest
+(`_choose_slots` / `_slot_chain`), found by one pass down the level DAG. A key
+whose step the carving drops — an iteration beyond its repetition's minimum
+that takes nothing — is transparent: the next end up the chain stands in its
+place. An authored slot, or an iteration the minimum needs, stays a step even
+when it takes nothing: `root ::= x{2,} "b"` with `x ::= "a"*` reads `ab` as
+`("", "a")` under a shortest decider. Greedy by each level's own slot was not
+the rank once a droppable iteration exists: it picked the empty iteration as
+the shortest, and `X+` stepped through an empty `X` into itself forever.
+
+**One definition of a carving.** `decider.carving(ends, start, droppable)` is
+read by every chooser — `_slot_chain`, `_step_rank` (`_child_rank`,
+`dominant`) and the predictive engine's `_kept`. Which steps are droppable is
+a table the builder derives from the quantifier helpers normalisation mints
+(`records.code_droppables`): every step of a helper with an empty arm (`*`,
+`?`, an opt-chain), every step of an arm `unit self` (`+`'s recursion, whose
+tail meets the minimum), and a reference to a helper with an empty arm. A
+mandatory copy — `m*`'s leading copies, `{n}`'s, `+`'s single-unit arm — never
+is. The predictive engine's steps are a node's end and never droppable. The raw loop is kept apart from the
+slot pass on purpose, so the default decider pays no call per level.
 
 ## A boundary's side settles the sub-runs it stands inside as their callers would
 

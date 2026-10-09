@@ -179,7 +179,9 @@ def _agreeing_keys(kernel: Kernel, tables) -> int:
     for handle, bucket in links.items():
         if len(bucket) < 2 or is_arm_choice(bucket, bits, tables.code_choice):
             continue
-        spec = spec_for(codes, bits, tables.code_choice, handle)
+        spec = spec_for(
+            codes, bits, tables.code_choice, tables.decode.code_droppable, handle
+        )
         chain = leftmost_chain(links, handle, spec, {}, LEFTMOST_LONGEST)
         if chain is None:
             continue

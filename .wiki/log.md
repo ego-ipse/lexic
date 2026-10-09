@@ -1,5 +1,16 @@
 # Log
 
+## A decider's chain is its best carving, not its best step per level (2026-10-09)
+
+`decisions.md` records that `_choose_slots` reads any decider but
+leftmost-longest by `_slot_chain`, the chain whose carving the rank puts
+highest, and that `decider.carving` is the one definition every chooser
+reads: an empty step is dropped only where it is a repetition's iteration
+beyond its minimum (`code_droppable`), so an authored slot or an iteration the
+minimum needs stays a step. Greedy by each level's
+slot picked such a step as the shortest under a shortest decider, and `X+` built
+itself forever.
+
 ## A stop side the text refutes is not sampled (2026-10-09)
 
 `decisions.md` records the text refutation inside a probe: a both-viable
