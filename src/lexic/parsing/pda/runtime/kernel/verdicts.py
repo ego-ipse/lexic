@@ -52,6 +52,9 @@ from lexic.parsing.pda.runtime.build import (
 from lexic.parsing.pda.runtime.matchers import chase_dispatch
 
 __all__ = [
+    "FORKED",
+    "STOP_FORCED",
+    "TAKE",
     "Verdicts",
     "auditing",
     "descending",
@@ -69,7 +72,7 @@ _LOCKSTEP_STEP = 8
 different control states — small, because convergence is usually one element
 away and every character driven past it is wasted."""
 
-_TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
+TAKE, STOP_FORCED, FORKED = 0, 1, 2
 """A both-viable boundary's resolutions (:meth:`Verdicts._fork_verdict`)."""
 
 
@@ -161,9 +164,9 @@ class Verdicts[Carry]:
                 self._caches.uncertain = True
         elif cls in (REST_ADMITS, REST_ADMITS_HARD):
             verdict = self._fork_verdict(arm, i, pos, got)
-            if verdict == _STOP_FORCED:
+            if verdict == STOP_FORCED:
                 return False
-            if verdict == _FORKED:
+            if verdict == FORKED:
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable",
                     pos,
@@ -224,20 +227,20 @@ class Verdicts[Carry]:
         the boundary's, so it decides nothing and forks.
 
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
-        :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
+        :returns: :data:`TAKE` / :data:`STOP_FORCED` / :data:`FORKED`.
         """
         settled = self._lockstep_verdict(arm, i, pos, taken)
         if settled is not None:
             return settled
         stop, stop_unc = self._probe(arm, i, pos, None)
         if stop is None:
-            return _FORKED if stop_unc else _TAKE
+            return FORKED if stop_unc else TAKE
         take, take_unc = self._probe(arm, i, pos, taken)
         if take is None:
-            return _FORKED if take_unc else _STOP_FORCED
+            return FORKED if take_unc else STOP_FORCED
         if stop_unc or take_unc or not same_value(take, stop):
-            return _FORKED
-        return _TAKE
+            return FORKED
+        return TAKE
 
     def _lockstep_verdict(
         self,
@@ -266,12 +269,12 @@ class Verdicts[Carry]:
         - **converged, values differ** — the remainder is COMMON, so it is run
           ONCE (not twice) to see whether it completes at all: completing makes
           the difference real (a fork); dying means neither side completes, and
-          a dead stop side is :data:`_TAKE` exactly as before. A REFUSAL there
+          a dead stop side is :data:`TAKE` exactly as before. A REFUSAL there
           is the exception: a completion that refuses reads the values it
           gathered, which differ between the sides, so running the left side's
           remainder says nothing about the right's, and the boundary is
           undecidable (:meth:`_advance` raises :class:`ProbeFork`).
-        - **the STOP side dies** — :data:`_TAKE`, since the caller tests
+        - **the STOP side dies** — :data:`TAKE`, since the caller tests
           ``stop is None`` first regardless; a dead TAKE side does not settle
           it, turning on the stop side reaching end-of-input, unestablished.
 
@@ -290,7 +293,7 @@ class Verdicts[Carry]:
         left_unc = right_unc = False
         for _round in range(_LOCKSTEP_ROUNDS):
             if left is None:
-                return _FORKED if left_unc else _TAKE
+                return FORKED if left_unc else TAKE
             if right is None:
                 return None
             target = max(left[1], right[1])
@@ -324,11 +327,11 @@ class Verdicts[Carry]:
         :param guessed: Whether either side's drive guessed on the way here.
         """
         if same_value(pending_values(left[0], shape), pending_values(right[0], shape)):
-            return _FORKED if guessed and left[0] else _TAKE
+            return FORKED if guessed and left[0] else TAKE
         done, sampled = self._advance(left, -1, shared=True)
         if done is None:  # the common remainder completes on neither side
-            return _FORKED if guessed or sampled else _TAKE
-        return _FORKED
+            return FORKED if guessed or sampled else TAKE
+        return FORKED
 
     def _side(
         self,

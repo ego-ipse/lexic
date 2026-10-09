@@ -15,8 +15,8 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaCompiler, compile_clones
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
-    _model_product,
     earley_model,
+    model_product,
     parse_model,
     pda_model,
 )
@@ -27,7 +27,7 @@ PRODUCTS_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
 def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
     pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""
-    return _model_product(cg.codegen_grammar, cg.product)
+    return model_product(cg.codegen_grammar, cg.product)
 
 
 def clone_specs(cg: CompiledGrammar) -> PdaCompiler:

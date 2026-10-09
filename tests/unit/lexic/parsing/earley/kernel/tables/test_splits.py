@@ -26,7 +26,7 @@ from lexic.parsing.earley.kernel.tables.splits import (
     dominant,
     is_arm_choice,
 )
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 
 
 def test_is_arm_choice_is_false_when_every_family_names_the_same_arm():
@@ -221,7 +221,7 @@ _WITNESSES = (
 def _earley(source: str, text: str, decide: Decider) -> str:
     """Earley's model of ``text`` under ``decide``, as its repr."""
     compiled = compile_text(source, cache_key=f"splits-{source}")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     config = ParseConfig(decide=decide)
     model = earley_model(
         product.instance_grammar, text, compiled.product, product.tables, config

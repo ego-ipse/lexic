@@ -38,7 +38,7 @@ from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.clone_walk import walk_program_clones
 from tools.benchmark.cases.engine_reach import INTERIOR_DELEGATE
 from tools.benchmark.cases.grammars import BENCHES
@@ -309,7 +309,7 @@ without saying so.
 
 def wide_dispatch_clones(compiled) -> int:
     """Wide-selecting dispatch clones reachable in the final program."""
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     return sum(
         1
         for one in walk_program_clones(product.pda.program.start).values()

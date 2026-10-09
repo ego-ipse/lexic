@@ -19,8 +19,8 @@ from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
 from lexic.parsing.pda.runtime.kernel import verdicts
 from lexic.parsing.products import (
-    _model_product,
     earley_model,
+    model_product,
     parse_model,
     pda_model,
 )
@@ -298,7 +298,7 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     without exercising anything.
     """
     bench = next(one for one in BENCHES if one.name == "vyx")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     seen = [0]
     real = verdicts.frames_copy
 

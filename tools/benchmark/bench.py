@@ -48,7 +48,7 @@ from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.model import GrammarModel
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, refusals
 from tools.benchmark.engines.seats import SPECIALISTS, candidates
@@ -195,7 +195,7 @@ def _lexic(
     if "lexic-pda" in wanted:
         engines["lexic-pda"] = lambda text: sequential(text, cores=1)
     if "lexic-earley" in wanted:
-        product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+        product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
             product.instance_grammar, text, binding, product.tables
         )

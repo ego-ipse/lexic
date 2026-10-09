@@ -55,7 +55,7 @@ from lexic.parsing.pda.runtime.islands import (
     island_value,
 )
 from lexic.parsing.product.tree import EMPTY_RESULT, Completed, ProductExecutor
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.paths import GROUND_TRUTH
 
 # ── island_run ────────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ def test_island_value_lets_non_library_exceptions_surface():
 def _vyx_span(seed: int):
     """A vyx parse whose forest holds >2 derivations, and its kernel."""
     compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     rules = {r.name: r for r in compiled.grammar.rules}
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12

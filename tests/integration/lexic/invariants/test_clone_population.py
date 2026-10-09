@@ -39,7 +39,7 @@ import pytest
 from lexic.compile import compile_text
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tools.benchmark.cases.grammars import BENCHES, Bench
 
 EDGES = (
@@ -164,7 +164,7 @@ def _names(found: dict[int, FlatClone], ids: set[int]) -> list[str]:
 @pytest.mark.parametrize("bench", BENCHES, ids=lambda one: one.name)
 def test_the_walk_reaches_every_clone_the_artefact_holds(bench: Bench) -> None:
     """Per grammar, the field walk and the reference closure are one set."""
-    tables = _model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
+    tables = model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
     oracle = referenced(tables)
     found = walked(tables.program)
 
@@ -189,7 +189,7 @@ def test_a_crippled_walk_is_caught() -> None:
     field, which is what reported a third of the roster missing.
     """
     bench = next(one for one in BENCHES if one.name == "gbnf-meta")
-    tables = _model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
+    tables = model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
 
     blind = walked(tables.program, edges=("selectors",))
 
@@ -206,7 +206,7 @@ def test_no_clone_hides_in_a_closure_cell(bench: Bench) -> None:
     hypothetical — ``clone.build`` and a fold's ``step`` are composed closures
     already. True today, so it is asserted rather than assumed.
     """
-    tables = _model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
+    tables = model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
     _reached, dropped = _closure(tables)
 
     captured: list[object] = []
@@ -274,7 +274,7 @@ def test_the_walk_follows_an_island_into_the_interiors_it_compiled(
     """A parse that reaches the island compiles its interior clones; the walk
     reaches them through the island's reference and nowhere else."""
     compiled = compile_text(ISLAND_WITH_INTERIOR, cache_key="walk-island-interior")
-    tables = _model_product(compiled.codegen_grammar, compiled.product).pda
+    tables = model_product(compiled.codegen_grammar, compiled.product).pda
     compiled.parse("<abxxandacyyorabx>", cores=1)
     held = tables.program.delegates.held("expr")
     assert held, "the parse compiled no interior: the edge under test never ran"

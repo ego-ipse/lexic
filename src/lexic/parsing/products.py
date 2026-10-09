@@ -58,6 +58,11 @@ from lexic.parsing.product import (
 __all__ = [
     "parse_model",
     "earley_model",
+    "model_product",
+    "grants_program",
+    "owned_text",
+    "ModelProduct",
+    "MODEL_CACHE",
     "pda_tables",
     "reset_product_cache",
 ]
@@ -66,7 +71,7 @@ __all__ = [
 # ── the document's thread ownership ────────────────────────────────────────
 
 
-def _owned_text(text: str) -> str:
+def owned_text(text: str) -> str:
     """``text`` copied onto the calling thread, so the parse's increfs stay local.
 
     Every terminal match takes the document as its first argument, so one
@@ -144,7 +149,7 @@ def token_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
     """
-    text = _owned_text(text)
+    text = owned_text(text)
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
     if accept_item(kernel) < 0:
@@ -171,7 +176,7 @@ def token_model[M](
 
 
 @dataclass(frozen=True)
-class _ModelProduct:
+class ModelProduct:
     """An instance product compiled once — the model PDA + collapsed tables.
 
     :ivar grammar: The authored codegen grammar (held to pin its identity key).
@@ -189,7 +194,7 @@ class _ModelProduct:
     tables: ParserTables
 
 
-_MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = memo({}, 0, 1)
+MODEL_CACHE: dict[tuple[int, int, int], ModelProduct] = memo({}, 0, 1)
 _TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
 _PROGRAMS: dict[
     tuple[int, int, frozenset[str]], tuple[IrAst, ModelExecutable, PdaTables]
@@ -204,7 +209,7 @@ _LL_GRANTS = LEFTMOST_LONGEST.grants
 
 def reset_product_cache() -> None:
     """Test seam: drop the per-identity product caches."""
-    _MODEL_CACHE.clear()
+    MODEL_CACHE.clear()
     _TOKEN_TABLES.clear()
     _PROGRAMS.clear()
 
@@ -227,31 +232,31 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
     return tables
 
 
-def _model_product(
+def model_product(
     grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
-) -> _ModelProduct:
+) -> ModelProduct:
     """The compiled instance product for ``(grammar, binding, bits)``, memoised.
 
     Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
     at it). The PDA half is tier-independent but rides the key — a second
     tier for the same pair only ever compiles for a beyond-first-tier input.
     Its PDA is compiled under leftmost-longest's grants; another decider's
-    program is :func:`_program`'s.
+    program is :func:`grants_program`'s.
     """
     key = (id(grammar), id(binding), bits)
-    cached = _MODEL_CACHE.get(key)
+    cached = MODEL_CACHE.get(key)
     if cached is not None and cached.grammar is grammar and cached.binding is binding:
         return cached
     lifted = lift_optional_nullables(grammar)
     instance = normalize(lifted)
-    product = _ModelProduct(
+    product = ModelProduct(
         grammar,
         binding,
         compile_pda(lifted, instance, binding),
         instance,
         collapsed_product_tables(instance, binding.routines, bits),
     )
-    _MODEL_CACHE[key] = product
+    MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
     # key on; they exist only inside this product, so they release with it.
     #
@@ -270,7 +275,7 @@ def _model_product(
 def _for_decider(
     grammar: IrAst,
     binding: ModelExecutable,
-    product: _ModelProduct,
+    product: ModelProduct,
     config: ParseConfig,
 ) -> PdaTables:
     """The program a non-default configuration parses with: the product's own
@@ -278,10 +283,10 @@ def _for_decider(
     grants = config.decide.grants
     if grants == _LL_GRANTS:
         return product.pda
-    return _program(grammar, binding, product.instance_grammar, grants)
+    return grants_program(grammar, binding, product.instance_grammar, grants)
 
 
-def _program(
+def grants_program(
     grammar: IrAst, binding: ModelExecutable, instance: IrAst, grants: frozenset[str]
 ) -> PdaTables:
     """The predictive program for a decider granting ``grants``, memoised.
@@ -360,8 +365,8 @@ def parse_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
-    text = _owned_text(text)
-    product = _model_product(grammar, binding, tier_for(len(text)))
+    text = owned_text(text)
+    product = model_product(grammar, binding, tier_for(len(text)))
     pda = (
         product.pda
         if config is DEFAULT_CONFIG
@@ -399,4 +404,4 @@ def pda_tables(
         tier-independent).
     :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
     """
-    return _model_product(grammar, binding, bits).pda
+    return model_product(grammar, binding, bits).pda

@@ -41,11 +41,11 @@ from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import (
-    _MODEL_CACHE,
-    _model_product,
-    _owned_text,
-    _program,
+    MODEL_CACHE,
     earley_model,
+    grants_program,
+    model_product,
+    owned_text,
     parse_model,
     pda_tables,
     reset_product_cache,
@@ -69,7 +69,7 @@ def test_earley_model_returns_model_and_round_trips():
     """earley_model parses instance text over the instance grammar + fold,
     with pre-built run-collapsed tables supplied."""
     cg = compiled()
-    product = _model_product(cg.codegen_grammar, cg.product)
+    product = model_product(cg.codegen_grammar, cg.product)
     model = earley_model(product.instance_grammar, "ab", cg.product, product.tables)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
@@ -79,7 +79,7 @@ def test_earley_model_compiles_its_own_tables_when_none_supplied():
     """earley_model's tables parameter is optional — omitting it compiles plain
     (non-collapsed) tables internally rather than requiring the caller to."""
     cg = compiled()
-    product = _model_product(cg.codegen_grammar, cg.product)
+    product = model_product(cg.codegen_grammar, cg.product)
     model = earley_model(product.instance_grammar, "ab", cg.product)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
@@ -103,7 +103,7 @@ def test_parse_model_matches_earley_model_completion():
     on the same instance-text input."""
     cg = compiled()
     got = parse_model(cg.codegen_grammar, "ab", cg.product)
-    product = _model_product(cg.codegen_grammar, cg.product)
+    product = model_product(cg.codegen_grammar, cg.product)
     expected = earley_model(product.instance_grammar, "ab", cg.product, product.tables)
     assert isinstance(got, GrammarModel)
     assert isinstance(expected, GrammarModel)
@@ -195,7 +195,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
         "noise-sk": "noise",
     }
 
-    product = _model_product(variant.codegen_grammar, variant.product)
+    product = model_product(variant.codegen_grammar, variant.product)
     assert earley_model(product.instance_grammar, "a!", variant.product, product.tables)
     assert pda_model(product.pda, "a!", variant.executor)
 
@@ -204,8 +204,8 @@ def test_model_product_is_the_same_object_for_the_same_identity():
     """Two calls with the identical (grammar, fold) objects return the SAME
     compiled product — no recompilation."""
     cg = compiled()
-    first = _model_product(cg.codegen_grammar, cg.product)
-    second = _model_product(cg.codegen_grammar, cg.product)
+    first = model_product(cg.codegen_grammar, cg.product)
+    second = model_product(cg.codegen_grammar, cg.product)
     assert first is second
 
 
@@ -223,9 +223,9 @@ def test_reset_product_cache_forces_model_product_recompilation():
     """reset_product_cache drops the model cache — the next call for the same
     identity recompiles rather than reusing the stale product."""
     cg = compiled()
-    first = _model_product(cg.codegen_grammar, cg.product)
+    first = model_product(cg.codegen_grammar, cg.product)
     reset_product_cache()
-    second = _model_product(cg.codegen_grammar, cg.product)
+    second = model_product(cg.codegen_grammar, cg.product)
     assert first is not second
     assert first.grammar is second.grammar
     assert first.binding is second.binding
@@ -242,11 +242,11 @@ def test_pda_tables_returns_pda_tables():
 
 def test_pda_tables_is_the_model_products_pda():
     """pda_tables is identity-memoised with the parse path — the same object
-    _model_product's .pda field holds."""
+    model_product's .pda field holds."""
     cg = compiled()
     assert (
         pda_tables(cg.codegen_grammar, cg.product)
-        is _model_product(cg.codegen_grammar, cg.product).pda
+        is model_product(cg.codegen_grammar, cg.product).pda
     )
 
 
@@ -300,11 +300,11 @@ def test_model_product_is_distinct_per_tier():
     """The model cache keys the packing tier — per-tier products coexist and
     each replays from its own key."""
     cg = compiled()
-    small = _model_product(cg.codegen_grammar, cg.product, 8)
-    default = _model_product(cg.codegen_grammar, cg.product)
+    small = model_product(cg.codegen_grammar, cg.product, 8)
+    default = model_product(cg.codegen_grammar, cg.product)
     assert small is not default
     assert small.tables.packing.bits == 8
-    assert _model_product(cg.codegen_grammar, cg.product, 8) is small
+    assert model_product(cg.codegen_grammar, cg.product, 8) is small
 
 
 def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
@@ -315,7 +315,7 @@ def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
     reset_product_cache()
     model = parse_model(cg.codegen_grammar, "ab", cg.product)
     assert model.to_text() == "ab"
-    assert (id(cg.codegen_grammar), id(cg.product), 8) in _MODEL_CACHE
+    assert (id(cg.codegen_grammar), id(cg.product), 8) in MODEL_CACHE
     reset_product_cache()
 
 
@@ -461,7 +461,7 @@ def _free_threaded() -> bool:
 
 
 class _StrSubclass(str):
-    """A ``str`` subclass, to pin that ``_owned_text`` normalizes to exact
+    """A ``str`` subclass, to pin that ``owned_text`` normalizes to exact
     ``str`` regardless of what subtype a caller hands in."""
 
 
@@ -478,7 +478,7 @@ def _parse_into(
 
 
 def test_owned_text_returns_a_distinct_but_equal_object():
-    """``_owned_text`` copies an exact ``str`` — same value, different object.
+    """``owned_text`` copies an exact ``str`` — same value, different object.
 
     Why this is pinned at all: CPython shortcuts ten different "copy" idioms back
     to the SAME object for an exact ``str`` (``s[:]``, ``str(s)``, ``s + ""``,
@@ -487,7 +487,7 @@ def test_owned_text_returns_a_distinct_but_equal_object():
     this module stayed green — this is the one that goes red instead.
     """
     text = "abc" * 100
-    owned = _owned_text(text)
+    owned = owned_text(text)
     assert owned is not text
     assert owned == text
     assert len(owned) == len(text)
@@ -502,7 +502,7 @@ def test_owned_text_copy_is_owned_by_the_calling_thread():
     ``ob_ref_shared`` is zero — the local fast-refcount path every terminal
     match takes, which is the whole reason the copy exists."""
     text = "abc" * 100
-    owned = _owned_text(text)
+    owned = owned_text(text)
     tid, _local, shared = _header(owned)
     assert tid == _this_thread()
     assert shared == 0
@@ -510,7 +510,7 @@ def test_owned_text_copy_is_owned_by_the_calling_thread():
 
 def test_owned_text_normalizes_a_str_subclass_to_exact_str():
     """A ``str`` subclass in yields an exact ``str`` out."""
-    owned = _owned_text(_StrSubclass("ab"))
+    owned = owned_text(_StrSubclass("ab"))
     assert owned.__class__ is str
     assert owned == "ab"
 
@@ -528,14 +528,14 @@ def test_parse_model_parses_a_str_subclass_identically_to_the_exact_str():
 
 
 def test_parse_model_result_is_unaffected_by_pre_owning_the_text():
-    """Composing ``_owned_text`` before calling ``parse_model`` changes
+    """Composing ``owned_text`` before calling ``parse_model`` changes
     nothing — the entry's own copy is transparent to the result, which is the
     behavioural half of "the entry consumed a copy, not the caller's object"
-    (identity itself is pinned directly against ``_owned_text``, above)."""
+    (identity itself is pinned directly against ``owned_text``, above)."""
     cg = compiled()
     text = "ab"
     direct = parse_model(cg.codegen_grammar, text, cg.product)
-    pre_owned = parse_model(cg.codegen_grammar, _owned_text(text), cg.product)
+    pre_owned = parse_model(cg.codegen_grammar, owned_text(text), cg.product)
     assert direct.semantic_dump() == pre_owned.semantic_dump()
     assert direct.to_text() == pre_owned.to_text() == text
 
@@ -558,7 +558,7 @@ def test_token_model_result_is_unaffected_by_pre_owning_the_text():
     )
     pre_owned = token_model(
         token_grammar.codegen_grammar,
-        _owned_text(text),
+        owned_text(text),
         token_grammar.product,
         bounds,
         ParseConfig(resolve=lambda first, _other: first),
@@ -593,9 +593,9 @@ def test_a_decider_with_other_grants_gets_its_own_program():
     drives the product's own program, a decider granting nothing gets a
     program of its own, memoised in turn, and the Earley half is one."""
     cg = compile_text("root ::= x+\nx ::= [a]+\n", cache_key="products-grants")
-    product = _model_product(cg.codegen_grammar, cg.product)
+    product = model_product(cg.codegen_grammar, cg.product)
     instance = product.instance_grammar
-    bare = _program(cg.codegen_grammar, cg.product, instance, frozenset())
+    bare = grants_program(cg.codegen_grammar, cg.product, instance, frozenset())
     assert bare is not product.pda
-    assert _program(cg.codegen_grammar, cg.product, instance, frozenset()) is bare
-    assert _model_product(cg.codegen_grammar, cg.product) is product
+    assert grants_program(cg.codegen_grammar, cg.product, instance, frozenset()) is bare
+    assert model_product(cg.codegen_grammar, cg.product) is product

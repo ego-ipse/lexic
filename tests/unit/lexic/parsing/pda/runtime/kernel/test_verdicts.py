@@ -31,9 +31,9 @@ from lexic.parsing.pda.runtime.kernel import verdicts
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.pda.runtime.kernel.verdicts import (
-    _FORKED,
-    _STOP_FORCED,
-    _TAKE,
+    FORKED,
+    STOP_FORCED,
+    TAKE,
     Verdicts,
     descending,
     entered,
@@ -89,7 +89,7 @@ def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
 
     ``ProbeFork`` subclasses :class:`PdaFail`, so the ordinary handler would
     swallow it and hand back ``None`` — indistinguishable from a side that
-    died. The lockstep answers :data:`_TAKE` on a dead STOP side, so a
+    died. The lockstep answers :data:`TAKE` on a dead STOP side, so a
     swallowed fork would commit a take the gated engine never got to refuse.
 
     Injected at the seam deliberately: the contract under test is the
@@ -227,7 +227,7 @@ def _converged_tally(compiled, text: str, monkeypatch) -> dict[str, int]:
     converged, advance = defined["_converged"], defined["_advance"]
     tally = {"converged": 0, "agree": 0, "dead": 0, "fork": 0, "other": 0, "nested": 0}
     inside = {"depth": 0, "drove": 0}
-    classes = {(False, _TAKE): "agree", (True, _TAKE): "dead", (True, _FORKED): "fork"}
+    classes = {(False, TAKE): "agree", (True, TAKE): "dead", (True, FORKED): "fork"}
 
     def counting_converged(self, *args, **kwargs):
         """`_converged`, classifying which of its three answers it gave."""
@@ -301,7 +301,7 @@ def test_a_converged_boundary_takes_when_the_common_remainder_dies(
     The two sides reconverge, but each built a different value getting there,
     which is the question a fork exists to ask. The remainder past the
     convergence is COMMON, so it is run ONCE rather than twice: dying means
-    neither side completes, and the boundary is :data:`_TAKE` exactly as a
+    neither side completes, and the boundary is :data:`TAKE` exactly as a
     dead stop side is.
 
     The document is a generated vyx packet, a natural witness: neither side
@@ -367,7 +367,7 @@ def test_a_refusal_on_a_converged_remainder_is_undecidable(monkeypatch) -> None:
     read the values the left side built. A refusal there is a verdict about
     those values, not about the right side's: it is neither a death of both
     sides nor a completion, so ``_converged`` raises :class:`ProbeFork` and
-    the gated engine answers. Read as a death, it would settle :data:`_TAKE`.
+    the gated engine answers. Read as a death, it would settle :data:`TAKE`.
 
     The document is the convergence witness above: its remainder completes
     ``inline-content``, and that completion is made to refuse
@@ -448,9 +448,9 @@ def test_converged_sides_whose_records_differ_in_class_do_not_agree(
     converged = vars(Verdicts)["_converged"]
     left = (_holding(_Left(IrStr("x"))), end, None, [], [])
     right = (_holding(_Right(IrStr("x"))), end, None, [], [])
-    assert converged(kern, left, right, (), False) == _FORKED
+    assert converged(kern, left, right, (), False) == FORKED
     same = (_holding(_Left(IrStr("x"))), end, None, [], [])
-    assert converged(kern, left, same, (), False) == _TAKE
+    assert converged(kern, left, same, (), False) == TAKE
 
 
 # ── the sampled-death rule ──────────────────────────────────────────────────
@@ -459,12 +459,12 @@ def test_converged_sides_whose_records_differ_in_class_do_not_agree(
 @pytest.mark.parametrize(
     ("stop", "take", "verdict"),
     [
-        ((None, True), (["s"], False), _FORKED),
-        ((None, False), (["s"], False), _TAKE),
-        ((["s"], False), (None, True), _FORKED),
-        ((["s"], False), (None, False), _STOP_FORCED),
-        ((["s"], True), (["s"], False), _FORKED),
-        ((["s"], False), (["s"], False), _TAKE),
+        ((None, True), (["s"], False), FORKED),
+        ((None, False), (["s"], False), TAKE),
+        ((["s"], False), (None, True), FORKED),
+        ((["s"], False), (None, False), STOP_FORCED),
+        ((["s"], True), (["s"], False), FORKED),
+        ((["s"], False), (["s"], False), TAKE),
     ],
     ids=[
         "stop-guessed",
@@ -494,7 +494,7 @@ def test_an_outcome_a_guess_reached_decides_nothing(
 
 @pytest.mark.parametrize(
     ("stop_guessed", "take_guessed", "verdict"),
-    [(True, False, _FORKED), (False, True, _TAKE), (False, False, _TAKE)],
+    [(True, False, FORKED), (False, True, TAKE), (False, False, TAKE)],
     ids=["stop-guessed", "only-take-guessed", "clean"],
 )
 def test_a_stop_side_death_is_judged_by_its_own_drive(
@@ -518,7 +518,7 @@ def test_a_stop_side_death_is_judged_by_its_own_drive(
 
 
 @pytest.mark.parametrize(
-    ("stack", "verdict"), [("mid-parse", _FORKED), ("completed", _TAKE)]
+    ("stack", "verdict"), [("mid-parse", FORKED), ("completed", TAKE)]
 )
 def test_only_a_mid_parse_convergence_is_unsettled_by_a_guess(
     monkeypatch, stack: str, verdict: int
@@ -537,7 +537,7 @@ def test_only_a_mid_parse_convergence_is_unsettled_by_a_guess(
 
 
 @pytest.mark.parametrize(
-    ("sampled", "verdict"), [(True, _FORKED), (False, _TAKE)], ids=["sampled", "clean"]
+    ("sampled", "verdict"), [(True, FORKED), (False, TAKE)], ids=["sampled", "clean"]
 )
 def test_a_shared_remainder_that_dies_after_a_guess_decides_nothing(
     monkeypatch, sampled: bool, verdict: int
@@ -556,7 +556,7 @@ def test_a_shared_remainder_that_dies_after_a_guess_decides_nothing(
 
 
 @pytest.mark.parametrize(
-    ("floors", "verdict"), [([], _FORKED), ([None], _TAKE)], ids=["same", "apart"]
+    ("floors", "verdict"), [([], FORKED), ([None], TAKE)], ids=["same", "apart"]
 )
 def test_sides_converge_only_inside_the_same_sub_runs(
     monkeypatch, floors: list[None], verdict: int
@@ -569,7 +569,7 @@ def test_sides_converge_only_inside_the_same_sub_runs(
     frames = _holding("v")
     sides = iter([(frames, 1, None, [], []), (frames, 1, None, [], floors)])
     monkeypatch.setattr(Verdicts, "_side", lambda *_a: next(sides))
-    monkeypatch.setattr(Verdicts, "_converged", lambda *_a: _FORKED)
+    monkeypatch.setattr(Verdicts, "_converged", lambda *_a: FORKED)
     monkeypatch.setattr(
         Verdicts, "_advance", lambda _self, side, _limit, shared=False: (None, False)
     )
@@ -598,7 +598,7 @@ def test_sides_that_converge_by_completing_compare_their_root_outputs(
     )
     converged = vars(Verdicts)["_converged"]
     left = ([], end, None, ["x", "y"], [])
-    assert converged(kern, left, ([], end, None, ["xy"], []), (), False) == _FORKED
+    assert converged(kern, left, ([], end, None, ["xy"], []), (), False) == FORKED
 
 
 TAIL_CARVING = (

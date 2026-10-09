@@ -16,7 +16,12 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.products import _model_product, _program, earley_model, pda_model
+from lexic.parsing.products import (
+    earley_model,
+    grants_program,
+    model_product,
+    pda_model,
+)
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 WITNESSES = {
@@ -108,8 +113,8 @@ def test_the_public_parse_keeps_a_shortest_deciders_carving(case: str) -> None:
     source, text, want = SHORTEST[case]
     decide = _Shortest(frozenset())
     compiled = compile_text(source, cache_key=f"shortest-{case}")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
-    program = _program(
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    program = grants_program(
         compiled.codegen_grammar,
         compiled.product,
         product.instance_grammar,

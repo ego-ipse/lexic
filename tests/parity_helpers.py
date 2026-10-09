@@ -21,9 +21,9 @@ from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
-    _model_product,
-    _ModelProduct,
+    ModelProduct,
     earley_model,
+    model_product,
     pda_model,
 )
 
@@ -34,10 +34,10 @@ REFUSED = "refused"
 """What an engine said when the document is not in the language."""
 
 
-def built(source: str, key: str) -> tuple[CompiledGrammar, _ModelProduct]:
+def built(source: str, key: str) -> tuple[CompiledGrammar, ModelProduct]:
     """Compile ``source`` and pair it with the model product to parse with."""
     compiled = compile_text(source, cache_key=key)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 def answers(source: str, key: str, text: str) -> tuple[str, str]:

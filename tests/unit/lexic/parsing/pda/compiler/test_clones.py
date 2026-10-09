@@ -50,7 +50,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import PINNED_ISLANDS
 
@@ -73,7 +73,7 @@ def pda_for(path: Path) -> PdaTables:
     compiled = compile_from_path(path)
     return compile_pda(
         lifted,
-        _model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
+        model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
         compiled.product,
     )
 
@@ -99,7 +99,7 @@ def pda_from_text(text: str) -> PdaTables:
     compiled = compile_text(text, flavour="gbnf")
     return compile_pda(
         lifted,
-        _model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
+        model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
         compiled.product,
     )
 

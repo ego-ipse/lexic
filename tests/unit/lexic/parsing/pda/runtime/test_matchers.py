@@ -41,7 +41,7 @@ from lexic.parsing.pda.runtime.matchers import (
     select_arm,
     vstr_once,
 )
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.clone_walk import walk_program_clones
 
 
@@ -325,7 +325,7 @@ _WIDE_NOISE = "resources/ground_truth/commands.gbnf"
 def _wide_parse(source: str, document: str):
     """``(model, wide hops, lead hops)`` for one parse of ``source``."""
     compiled = compile_text(source, cache_key=f"wide-{hash(source)}")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     real = matchers_mod.chase_dispatch
     hops = {"wide": 0, "lead": 0}
 
@@ -362,7 +362,7 @@ def test_a_window_selected_target_is_entered_with_the_parents_sink():
 
 def wide_selection_kinds(compiled) -> set[str]:
     """Every wide-selection kind reachable in one compiled program."""
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     return {
         type(one.wide_selectors).__name__
         for one in walk_program_clones(product.pda.program.start).values()
@@ -393,7 +393,7 @@ def test_a_wide_miss_refuses_with_the_rule_that_holds_the_selection():
     refused by a path a reader could not identify.
     """
     compiled = compile_from_path(Path(_WIDE_NOISE))
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
 
     with pytest.raises(PdaFail) as refusal:
         pda_model(product.pda, "   put alpha = 1\n", compiled.product.executor)
@@ -410,7 +410,7 @@ def test_a_lead_char_miss_keeps_the_words_it_always_had():
     compiled = compile_text(
         'root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n', cache_key="lead-miss"
     )
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
 
     with pytest.raises(PdaFail) as refusal:
         pda_model(product.pda, "9", compiled.product.executor)

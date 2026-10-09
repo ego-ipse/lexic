@@ -23,7 +23,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.model import GrammarModel
-from lexic.parsing.products import _model_product, pda_model
+from lexic.parsing.products import model_product, pda_model
 
 SRC = Path(__file__).resolve().parents[4] / "src" / "lexic"
 UNCHECKED = frozenset({"fast_construct", "_from_values"})
@@ -127,7 +127,7 @@ def by_running() -> tuple[set[tuple[str, str]], int]:
     setattr(GrammarModel, "_from_values", classmethod(counting))
     try:
         compiled = compile_text(PROBE_GRAMMAR, cache_key="unchecked-callers")
-        product = _model_product(compiled.codegen_grammar, compiled.product)
+        product = model_product(compiled.codegen_grammar, compiled.product)
         pda_model(product.pda, "abc\ndef\n", compiled.product.executor)
     finally:
         setattr(GrammarModel, "_from_values", classmethod(original))

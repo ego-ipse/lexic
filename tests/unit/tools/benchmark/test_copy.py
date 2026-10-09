@@ -28,7 +28,9 @@ from tools.benchmark.measurement.copy import (
     _unwrap_config,
     digest,
     exports_config,
+    exports_model_product,
     materialise,
+    respell_model_product,
 )
 
 BENCHMARK = Path(__file__).resolve().parents[4] / "tools" / "benchmark"
@@ -122,11 +124,14 @@ def test_the_declared_vocabulary_carries_nothing_unused():
 
 def _revision(root: Path, exports: bool) -> Path:
     """Give ``root`` a ``lexic.parsing`` package root that does, or does not,
-    export the parse configuration."""
+    export the parse configuration, beside a current ``products.py``."""
     package = root / "src" / "lexic" / "parsing"
     package.mkdir(parents=True)
     names = ["Resolver", PARSE_CONFIG] if exports else ["Resolver"]
     (package / "__init__.py").write_text(f"__all__ = {names!r}\n".replace("'", '"'))
+    (package / "products.py").write_text(
+        "def model_product(grammar, binding):\n    pass\n"
+    )
     return root
 
 
@@ -388,3 +393,26 @@ def test_a_copied_module_imports_nothing_the_base_checkout_lacks() -> None:
         "a copied module imports a module this branch introduced and does not "
         f"copy — the base arm cannot import it: {missing}"
     )
+
+
+@pytest.mark.parametrize(
+    ("defines", "spelled"), [(False, "_model_product"), (True, "model_product")]
+)
+def test_a_base_that_kept_the_model_product_private_imports_it_privately(
+    tmp_path: Path, defines: bool, spelled: str
+) -> None:
+    """A base whose ``products.py`` has no public ``model_product`` gets its
+    protocol modules spelled with the private name it does have; one that
+    defines it keeps them as they are."""
+    root = _copy_of(tmp_path)
+    products = root / "src" / "lexic" / "parsing" / "products.py"
+    products.parent.mkdir(parents=True)
+    name = "model_product" if defines else "_model_product"
+    products.write_text(
+        f"def {name}(grammar, binding):\n    return grammar\n", encoding="utf-8"
+    )
+    assert exports_model_product(root) is defines
+    if not defines:
+        respell_model_product(root)
+    bench = (root / "tools" / "benchmark" / "bench.py").read_text(encoding="utf-8")
+    assert f"import earley_model, {spelled}" in bench

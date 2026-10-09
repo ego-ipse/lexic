@@ -16,7 +16,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.paths import GROUND_TRUTH
 
 
@@ -33,7 +33,7 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
     grammar meant.
     """
     compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     executor = compiled.product.executor
     builder = MeaningBuilder(executor.build, executor.replay)
     rules = {r.name: r for r in compiled.grammar.rules}
