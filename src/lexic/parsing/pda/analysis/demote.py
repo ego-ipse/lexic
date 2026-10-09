@@ -27,7 +27,7 @@ from typing import Any, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrItem
-from lexic.parsing.earley.kernel.tables.decider import SPLIT_GREEDY
+from lexic.parsing.earley.kernel.tables.decider import SCAN_SKIP, SPLIT_GREEDY
 from lexic.parsing.pda.analysis.cursors import Notes, Scope, Site
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.greedy import greedy_loop_gate
@@ -111,7 +111,12 @@ def demote_struct_arm(
 ) -> bool:
     """The empty-arm structured-noise demotion: store the scan gate + escape
     arm index in its taxonomy channel plus the soft note. ``False`` ⇒ no
-    licence (the caller keeps today's greedy behavior)."""
+    licence (the caller keeps today's greedy behavior).
+
+    Every such gate skips its run possessively (``SG_SCAN``, ``SG_PROBE``), so
+    it is withheld where the parse's decider does not grant :data:`SCAN_SKIP`."""
+    if SCAN_SKIP not in notes.grants:
+        return False
     gate = structured_arm_gate(analysis, list(arms), label)
     if gate is None:
         return False
@@ -186,7 +191,7 @@ def _separable_loop(
         analysis.taxonomy.pn_loop_gates[key] = (w, take)
         notes.soft.append(f"{scope.rule}[{k}]: loop noise-skip (demoted)")
         return True
-    struct = structured_loop_gate(analysis, items, k, scope)
+    struct = structured_loop_gate(analysis, items, k, scope, SCAN_SKIP in notes.grants)
     if struct is not None:
         analysis.taxonomy.store_ready_loop(id(items[k]), struct)
         notes.soft.append(f"{scope.rule}[{k}]: loop structured-noise (demoted)")

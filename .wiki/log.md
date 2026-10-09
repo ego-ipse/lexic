@@ -1,5 +1,12 @@
 # Log
 
+## A gate that reads a run whole is a leftmost-longest licence (2026-10-09)
+
+`decisions.md` records the `SCAN_SKIP` grant: the structured scan and probe
+gates, and the empty-arm gate, are issued only where the decider grants it,
+with every gate kind listed by whether its answer assumes leftmost-longest.
+`public-api.md` lists the new grant.
+
 ## A routed interior's neighbours are read at exactly-once only (2026-10-09)
 
 `parallel-parsing.md` records that a whole-extent routed interior's

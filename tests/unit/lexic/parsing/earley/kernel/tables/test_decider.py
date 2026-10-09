@@ -20,6 +20,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
     GREEDY_SPLIT,
     LEFTMOST_LONGEST,
     NOISE_GREEDY,
+    SCAN_SKIP,
     SPLIT_GREEDY,
     STOP_SET,
     Carving,
@@ -90,7 +91,7 @@ def test_another_decider_is_only_another_value() -> None:
 def test_leftmost_longest_grants_only_what_is_proven_for_it() -> None:
     """Every kind proven for this order is granted; the greedy arm take still
     owes its proof, so it is not."""
-    proven = {SPLIT_GREEDY, ATTEMPT, STOP_SET, NOISE_GREEDY, GREEDY_SPLIT}
+    proven = {SPLIT_GREEDY, ATTEMPT, STOP_SET, NOISE_GREEDY, GREEDY_SPLIT, SCAN_SKIP}
     assert proven == LEFTMOST_LONGEST.grants
     assert GREEDY_ARM not in LEFTMOST_LONGEST.grants
 

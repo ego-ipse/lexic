@@ -311,7 +311,7 @@ def _root_idxs(rec: Recognizer, names: frozenset[str]) -> tuple[int, ...]:
 
 
 def structured_loop_gate(
-    analysis: Any, items: Sequence[IrItem], k: int, scope: Any
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Any, scans: bool
 ) -> "ScanGate | None":
     """A folding-aware loop gate for a comment-bearing / folding decision, or
     ``None`` when it does not separate (the loop stays an island).
@@ -324,10 +324,14 @@ def structured_loop_gate(
 
     Each of :func:`root_candidates`' skip alphabets is tried in turn, so a
     declaration can only ever ADD a licence.
+
+    :param scans: Whether the parse's decider grants the possessive skip
+        ``SG_SCAN`` and ``SG_PROBE`` read their run by; without it only the
+        exact match is tried.
     """
     for roots in root_candidates(analysis):
         gate = _match_gate(analysis, roots, items, k, scope)
-        if gate is None:
+        if gate is None and scans:
             gate = _scan_or_probe_gate(analysis, roots, items, k, scope)
         if gate is not None:
             return gate

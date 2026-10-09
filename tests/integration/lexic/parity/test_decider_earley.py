@@ -15,6 +15,9 @@ from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.decider import Decider
+from lexic.parsing.pda.compiler.program.flatten import clone_arms
+from lexic.parsing.pda.compiler.program.opcodes import GATE_SCAN
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     earley_model,
@@ -22,6 +25,7 @@ from lexic.parsing.products import (
     model_product,
     pda_model,
 )
+from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 WITNESSES = {
@@ -139,3 +143,41 @@ def test_a_leftmost_longest_program_refuses_a_decider_it_was_not_compiled_for(
     with pytest.raises(PdaFail, match="licences"):
         pda_model(compiled.pda_tables(), text, compiled.executor, config=config)
     assert repr(pda_model(compiled.pda_tables(), text, compiled.executor)) != want
+
+
+SECTIONS = (
+    'doc ::= sec+ tail?\nsec ::= part* sepr\npart ::= [a;]\ntail ::= ("a")*\n'
+    'sepr ::= ";"\n'
+)
+"""Under a shortest decider ``;;`` is two sections, each an empty ``part*`` and
+its separator. Leftmost-longest gates ``sec+`` by skipping a whole ``part*``
+run and peeking for the separator, which eats the second ``;``."""
+
+
+def _scans(tables: PdaTables) -> bool:
+    """Whether any item of the program is gated by a scan gate."""
+    clones = walk_program_clones(tables.program.start).values()
+    return any(
+        GATE_SCAN in arm.gate_kinds[: arm.n] for c in clones for arm in clone_arms(c)
+    )
+
+
+def test_a_scan_gate_is_a_conflict_for_a_decider_that_does_not_grant_it() -> None:
+    """The program compiled for the shortest decider's grants carries no scan
+    gate, so the predictive parse refuses rather than read ``part*`` the
+    leftmost-longest way; the public parse is the gated engine's model."""
+    decide = _Shortest(frozenset())
+    compiled = compile_text(SECTIONS, cache_key="shortest-sections")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    program = grants_program(
+        compiled.codegen_grammar,
+        compiled.product,
+        product.instance_grammar,
+        decide.grants,
+    )
+    assert _scans(product.pda)
+    assert not _scans(program)
+    with pytest.raises(PdaFail):
+        pda_model(program, ";;", compiled.executor, config=ParseConfig(decide=decide))
+    want = "Doc((Sec((), Sepr(';')), Sec((), Sepr(';'))), Tail(''))"
+    assert repr(compiled.parse(";;", cores=1, decide=decide)) == want

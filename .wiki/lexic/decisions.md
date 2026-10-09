@@ -1160,3 +1160,34 @@ the two followable ends wait on the decider's ranking, or the loop before them
 takes greedily because the audit set never names the same-arm rest:
 `sec ::= stmt+ end` with `stmt ::= "!" | ";"? [a;]` on `a;`, where `stmt` now
 derives `;` and the loop takes it from `end`.
+
+## A gate that reads a run whole is a leftmost-longest licence
+
+**Decision:** a structured gate that skips a run of rules before it peeks
+(`SG_SCAN`, `SG_PROBE`, and the empty-arm gate built on them) is issued only
+where the parse's decider grants `SCAN_SKIP`, which `LEFTMOST_LONGEST` does.
+Elsewhere the analysis tries the remaining tiers, and a decision none of them
+separates is a conflict, as any withheld licence leaves it: the rule islands,
+and the gated engine answers. A program compiled for leftmost-longest is
+unchanged.
+
+Every gate kind, and whether its answer assumes the decider:
+
+| gate | decides by | assumes leftmost-longest |
+|---|---|---|
+| `GATE_STOP`, plain | FIRST against the continuation, disjoint | no — one side is viable |
+| `GATE_STOP`, applied over an overlap | the loop's first exit | yes — `STOP_SET`, `NOISE_GREEDY`, `GREEDY_SPLIT` |
+| `GATE_KWIN`, k-window and FOLLOW-window, loops and arms | exact windows, disjoint | no — one side is viable |
+| `GATE_PEEK`, loops and arms | the first character past a run of the noise alphabet | no — the run is nullable noise either side may hold, and only one side's content can follow it |
+| `GATE_SCAN` `SG_MATCH` | a whole instance of a non-semantic rule here | no — an over-take re-splits noise only, so every carving builds one model |
+| `GATE_SCAN` `SG_SCAN` / `SG_PROBE`, and the empty-arm gate | the first character past a run skipped whole | yes — `SCAN_SKIP` |
+| `GATE_ATTEMPT` | an attempted iteration audited | yes — `ATTEMPT` |
+| `GATE_GREEDY` | where the split rule lets the loop stop | yes — `SPLIT_GREEDY` |
+
+**Why:** the run a scan gate skips is made of rules that may be semantic and
+whose characters may begin what follows the run, and the skip gives nothing
+back. `doc ::= sec+ tail?` with `sec ::= part* sepr` and `part ::= [a;]` gates
+`sec+` by skipping a whole `part*` run and peeking for the separator; under a
+decider that keeps the shortest first slot, `;;` is two sections, and the
+skip eats the second section's separator. Leftmost-longest carves the run as
+the skip does, so for it the gate stands.
