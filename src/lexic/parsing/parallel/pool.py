@@ -301,7 +301,7 @@ concurrent call to find one warm without retaining threads a workload never
 asks for again.
 """
 
-_IDLE: dict[int, list[WorkPool]] = {}
+IDLE_POOLS: dict[int, list[WorkPool]] = {}
 _IDLE_LOCK = Lock()
 
 
@@ -314,7 +314,7 @@ class PoolLease:
     unknown state is not worth the microseconds it saves — that one is closed.
 
     Ownership is explicit: every pool is either lent to exactly one caller or
-    idle in :data:`_IDLE`, and :func:`reset_pools` empties the cache.
+    idle in :data:`IDLE_POOLS`, and :func:`reset_pools` empties the cache.
     """
 
     def __init__(self, cores: int = AUTO) -> None:
@@ -325,7 +325,7 @@ class PoolLease:
     def __enter__(self) -> WorkPool:
         """Take a warm pool of the right width, or start one."""
         with _IDLE_LOCK:
-            waiting = _IDLE.get(self.workers)
+            waiting = IDLE_POOLS.get(self.workers)
             self._pool = waiting.pop() if waiting else None
         if self._pool is None:
             self._pool = WorkPool(self.workers)
@@ -345,7 +345,7 @@ class PoolLease:
             pool.close()
             return
         with _IDLE_LOCK:
-            waiting = _IDLE.setdefault(self.workers, [])
+            waiting = IDLE_POOLS.setdefault(self.workers, [])
             spare = len(waiting) < RETAINED
             if spare:
                 waiting.append(pool)
@@ -356,7 +356,7 @@ class PoolLease:
 def reset_pools() -> None:
     """Close every idle pool — the deterministic seam tests and callers use."""
     with _IDLE_LOCK:
-        idle = [pool for waiting in _IDLE.values() for pool in waiting]
-        _IDLE.clear()
+        idle = [pool for waiting in IDLE_POOLS.values() for pool in waiting]
+        IDLE_POOLS.clear()
     for pool in idle:
         pool.close()

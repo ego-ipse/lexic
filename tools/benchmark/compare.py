@@ -208,7 +208,7 @@ def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:
     )
 
 
-def _pair(first: Job, second: Job, row: str) -> tuple[Arm, Arm]:
+def run_pair(first: Job, second: Job, row: str) -> tuple[Arm, Arm]:
     """Run one ordered pair to completion and return both arms, checked."""
     results = (run_job(first), run_job(second))
     one, other = (
@@ -238,7 +238,7 @@ def _ratio(
     becoming a fixed advantage for whichever arm always occupies it.
     """
     pair = (numerator, denominator) if numerator_first else (denominator, numerator)
-    arms = dict(zip((job.label for job in pair), _pair(*pair, row), strict=True))
+    arms = dict(zip((job.label for job in pair), run_pair(*pair, row), strict=True))
     top, bottom = arms[numerator.label], arms[denominator.label]
     reading = primary_reading(top.observation, row)
     return math.log(reading / primary_reading(bottom.observation, row)), top

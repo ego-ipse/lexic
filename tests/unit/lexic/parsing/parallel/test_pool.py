@@ -21,8 +21,7 @@ from lexic.exceptions import TargetRefusalError, UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
-from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE
-from tests.unit.lexic.parsing.parallel.test_orchestrate import _doc as _split_doc
+from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE, sample_doc
 
 GRAMMAR = 'root ::= "(" [a-z]+ ")"\n'
 
@@ -387,7 +386,7 @@ def test_explicit_cores_is_the_worker_count():
 
 def test_auto_sizing_follows_the_policy(monkeypatch: pytest.MonkeyPatch):
     """The pool's default is the policy's auto — one worker under the GIL."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     compiled = compile_text(GRAMMAR)
     assert ParsePool(compiled.parse).workers == 1
     assert ParsePool(compiled.parse, cores=1).workers == 1
@@ -552,7 +551,7 @@ def test_reset_pools_returns_thread_count_to_baseline():
 def test_split_parse_matches_sequential_across_many_warm_pool_reuses():
     """Warm-pool state never leaks between documents on the public seam."""
     compiled = compile_text(LEAD_RULE)
-    texts = [_split_doc(400 + 25 * i) for i in range(12)]
+    texts = [sample_doc(400 + 25 * i) for i in range(12)]
     for text in texts:
         parallel = compiled.parse(text, cores=4)
         sequential = compiled.parse(text, cores=1)

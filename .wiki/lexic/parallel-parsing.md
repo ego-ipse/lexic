@@ -90,7 +90,7 @@ The two mirror clauses that license a construct carrying the mark:
 
 - `_ends_once` — the mark is the construct's **final** edge (a comment closed by
   its newline).
-- `_leads_once` — the mark is its **leading** edge (a continuation separator like
+- `leads_once` — the mark is its **leading** edge (a continuation separator like
   `"\n  | "`). Stated as per-arm CharSet disjointness: every arm leading with the
   mark must have `FIRST(what follows it, through nullables)` disjoint from the
   prefix head. An arm the walk cannot decide answers "reachable" and the plan

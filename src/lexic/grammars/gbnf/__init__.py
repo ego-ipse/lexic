@@ -563,7 +563,7 @@ GBNF_REDUCER = Reducer(
 """The configured GBNF reducer: reductions plus the cleaning policy."""
 
 
-class _GbnfFlavour(IrFlavour):
+class GbnfFlavour(IrFlavour):
     """GBNF flavour singleton class."""
 
     actions: IrTypeMap = GBNF_ACTIONS
@@ -576,5 +576,5 @@ class _GbnfFlavour(IrFlavour):
     reducer: ClassVar[Reducer] = GBNF_REDUCER
 
 
-GBNF_FLAVOUR = _GbnfFlavour()
+GBNF_FLAVOUR = GbnfFlavour()
 """Singleton GBNF flavour."""

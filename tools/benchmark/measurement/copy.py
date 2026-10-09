@@ -109,7 +109,7 @@ ARM_SPELLED = frozenset(
 )
 """``lexic`` names a protocol module may import though the base may LACK them,
 because :func:`materialise` spells them away in an arm whose ``src`` does not
-export them (:func:`_unwrap_config`, :func:`respell_model_product`). Declared,
+export them (:func:`unwrap_config`, :func:`respell_model_product`). Declared,
 like the shared vocabulary, so the gate reads it rather than trusting that the
 rewrite still covers a name."""
 
@@ -126,7 +126,7 @@ type _Edit = tuple[int, int, bytes]
 """One replacement in a module's UTF-8 text: start, end, the new bytes."""
 
 
-def _rewrite(root: Path, name: str) -> None:
+def rewrite_bench_name(root: Path, name: str) -> None:
     """Point one copy's benchmark at the build-object name ITS Lexic uses.
 
     Every protocol module is rewritten, not a listed subset: a module that
@@ -210,7 +210,7 @@ def respell_model_product(root: Path) -> None:
             path.write_text(respelled, encoding="utf-8")
 
 
-def _unwrap_config(root: Path) -> None:
+def unwrap_config(root: Path) -> None:
     """Spell a resolver the way a revision without the parse configuration takes
     it: every ``ParseConfig(...)`` call becomes the bare resolver it wrapped,
     and ``ParseConfig`` leaves every import.
@@ -342,9 +342,9 @@ def materialise(root: Path, name: str, here: Path) -> None:
     for module in RETIRED_MODULES:
         (target / module).unlink(missing_ok=True)
     if name != BUILD_OBJECT:
-        _rewrite(root, name)
+        rewrite_bench_name(root, name)
     if not exports_config(root):
-        _unwrap_config(root)
+        unwrap_config(root)
     if not exports_model_product(root):
         respell_model_product(root)
 

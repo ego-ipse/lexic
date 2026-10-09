@@ -377,7 +377,7 @@ class CompiledGrammar:
             raise UnsupportedConstructError(
                 f"compile: reducer is {type(reducer).__name__!r}, not a Reducer"
             )
-        entry = _reduce_entry(self, reducer)
+        entry = derived_reduce_entry(self, reducer)
         model = entry.variant.parse(text, cores=cores)
         return entry.fold.reduce(model, cores=cores)
 
@@ -494,7 +494,7 @@ class CompiledGrammar:
         return TokenMaskCursor.of(self.codegen_grammar, tok)
 
 
-class _ReduceEntry(NamedTuple):
+class ReduceEntry(NamedTuple):
     """One artefact + reducer pair's derived reduce machinery.
 
     Pins ``reducer`` live so the ``id``-keyed cache entry can never be
@@ -513,7 +513,7 @@ class _ReduceEntry(NamedTuple):
     fold: ReduceFold
 
 
-_REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = memo({}, 0)
+_REDUCE_ENTRIES: dict[tuple[int, int], ReduceEntry] = memo({}, 0)
 
 
 def reset_reduction_cache() -> None:
@@ -570,7 +570,7 @@ def _variant_artifact(
     )
 
 
-def _sub_run(
+def sub_run(
     compiled: CompiledGrammar, reducer: Reducer, run_name: str, spec: RunSpec
 ) -> SubRun:
     """A run's escape hatch: its group-named sub-grammar, compiled and folded."""
@@ -587,7 +587,7 @@ def _sub_run(
     return SubRun(partial(sub.parse, cores=1), fold)
 
 
-def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
+def derived_reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> ReduceEntry:
     """The memoised derived machinery for one artefact + reducer pair."""
     key = (id(compiled), id(reducer))
     entry = _REDUCE_ENTRIES.get(key)
@@ -599,7 +599,7 @@ def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
     recognition_roots = frozenset(f"{name}-sk" for name in derivation.elide)
     variant = _variant_artifact(compiled, prepared, "reduce", recognition_roots)
     subs = {
-        name: _sub_run(compiled, reducer, name, spec)
+        name: sub_run(compiled, reducer, name, spec)
         for name, spec in derivation.runs.items()
     }
     fold = ReduceFold(
@@ -612,6 +612,6 @@ def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
             aliases=aliases,
         ),
     )
-    entry = _ReduceEntry(reducer, variant, fold)
+    entry = ReduceEntry(reducer, variant, fold)
     _REDUCE_ENTRIES[key] = entry
     return entry

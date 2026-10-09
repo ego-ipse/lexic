@@ -48,13 +48,13 @@ class _Memo(NamedTuple):
     ids: tuple[int, ...]
 
 
-_MEMOS: list[_Memo] = []
+MEMOS: list[_Memo] = []
 """Every registered memo, in import order. Appended at import time only."""
 
-_ADOPTED: dict[int, set[int]] = {}
+ADOPTED: dict[int, set[int]] = {}
 """owner id → the identities minted under it, for transitive release."""
 
-_CLAIMED: set[int] = set()
+CLAIMED: set[int] = set()
 """Identities a live owner has claimed — see :func:`track`. Bounded by the
 number of live owners, and drained by :func:`release`."""
 
@@ -71,7 +71,7 @@ def memo[T: dict[Any, Any]](entries: T, *ids: int) -> T:
         when the key is the identity itself.
     :returns: ``entries``, unchanged.
     """
-    _MEMOS.append(_Memo(entries, ids))
+    MEMOS.append(_Memo(entries, ids))
     return entries
 
 
@@ -85,7 +85,7 @@ def adopt(owner: int, *derived: object) -> None:
     :param owner: The identity the storing entry is keyed by.
     :param derived: The objects that entry brings into existence.
     """
-    _ADOPTED.setdefault(owner, set()).update(id(obj) for obj in derived)
+    ADOPTED.setdefault(owner, set()).update(id(obj) for obj in derived)
 
 
 def track(owner: object, *identities: object) -> None:
@@ -105,11 +105,11 @@ def track(owner: object, *identities: object) -> None:
     :param identities: The objects whose memo entries ``owner`` may own.
     """
     fresh = tuple(
-        dict.fromkeys(id(obj) for obj in identities if id(obj) not in _CLAIMED)
+        dict.fromkeys(id(obj) for obj in identities if id(obj) not in CLAIMED)
     )
     if not fresh:
         return
-    _CLAIMED.update(fresh)
+    CLAIMED.update(fresh)
     final = weakref.finalize(owner, release, fresh)
     final.atexit = False
 
@@ -127,7 +127,7 @@ def _expand(roots: tuple[int, ...]) -> frozenset[int]:
     out = set(roots)
     frontier = list(roots)
     while frontier:
-        for ident in _ADOPTED.pop(frontier.pop(), ()):
+        for ident in ADOPTED.pop(frontier.pop(), ()):
             if ident not in out:
                 out.add(ident)
                 frontier.append(ident)
@@ -145,15 +145,15 @@ def release(identities: tuple[int, ...]) -> None:
     :param identities: The released owner ``id`` values.
     """
     dropped = _expand(identities)
-    _CLAIMED.difference_update(dropped)
+    CLAIMED.difference_update(dropped)
     # An identity can be adopted by more than one owner — a replica's binding
     # is minted under its grammar AND released on its own when the thread that
     # held it exits. Releasing it must clear the record the OTHER owner still
     # keeps, or that owner accumulates one dead id per released child for as
     # long as it lives, and a recycled address later reads as still owned.
-    for owned in tuple(_ADOPTED.copy().values()):
+    for owned in tuple(ADOPTED.copy().values()):
         owned.difference_update(dropped)
-    for entry in _MEMOS:
+    for entry in MEMOS:
         for key in tuple(entry.entries.copy()):
             if _owned(key, entry.ids, dropped):
                 entry.entries.pop(key, None)
@@ -161,12 +161,12 @@ def release(identities: tuple[int, ...]) -> None:
 
 def reset_caches() -> None:
     """Test seam: empty every registered memo and the ownership bookkeeping."""
-    for entry in _MEMOS:
+    for entry in MEMOS:
         entry.entries.clear()
-    _ADOPTED.clear()
-    _CLAIMED.clear()
+    ADOPTED.clear()
+    CLAIMED.clear()
 
 
 def cached_entries() -> int:
     """How many entries every registered memo holds — the leak probe's meter."""
-    return sum(len(entry.entries) for entry in _MEMOS)
+    return sum(len(entry.entries) for entry in MEMOS)

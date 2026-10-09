@@ -24,16 +24,16 @@ from lexic.parsing.parallel.discovery.regions import (
     Region,
     Roles,
     Vocab,
-    _bounds,
-    _roles,
-    _sweep,
-    _vocabulary,
-    _walk,
     find,
     merge_windows,
     pair_rules,
     par_find,
+    scan_vocabulary,
     separators,
+    sweep_offsets,
+    walk_regions,
+    walk_roles,
+    window_bounds,
 )
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
@@ -140,7 +140,7 @@ def test_a_closer_with_no_matching_opener_is_ignored():
     assert find(JSON_GRAMMAR, ']}{"a": 1, "b": 2}') == [Region(2, 17, "object", (9,))]
 
 
-# ── _bounds ───────────────────────────────────────────────────────────────
+# ── window_bounds ───────────────────────────────────────────────────────────────
 
 
 def _covers_exactly_once(bounds: list[tuple[int, int]], size: int) -> bool:
@@ -171,20 +171,20 @@ def _covers_exactly_once(bounds: list[tuple[int, int]], size: int) -> bool:
 )
 def test_bounds_covers_every_offset_exactly_once(size: int, windows: int) -> None:
     """Every requested edge case, from an empty document to a prime size."""
-    bounds = _bounds(size, windows)
+    bounds = window_bounds(size, windows)
     assert len(bounds) == windows
     assert _covers_exactly_once(bounds, size)
 
 
 def test_bounds_last_window_takes_the_tail() -> None:
     """An uneven division piles the remainder on the LAST window."""
-    bounds = _bounds(17, 5)
+    bounds = window_bounds(17, 5)
     assert bounds[:-1] == [(0, 3), (3, 6), (6, 9), (9, 12)]
     assert bounds[-1] == (12, 17)
     assert bounds[-1][1] - bounds[-1][0] > bounds[0][1] - bounds[0][0]
 
 
-# ── _roles ────────────────────────────────────────────────────────────────
+# ── walk_roles ────────────────────────────────────────────────────────────────
 
 
 def _vocab(
@@ -199,7 +199,7 @@ def _vocab(
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert _roles(_vocab()) == Roles("", "", (), (), 0, 0, "")
+    assert walk_roles(_vocab()) == Roles("", "", (), (), 0, 0, "")
 
 
 def test_watched_deduplicates_a_two_role_character() -> None:
@@ -215,7 +215,7 @@ def test_watched_deduplicates_a_two_role_character() -> None:
         closers={"]": "[", "|": "("},
         marks=frozenset({"|"}),
     )
-    roles = _roles(vocab)
+    roles = walk_roles(vocab)
     assert roles.spelling.count("|") == 2
     assert roles.watched.count("|") == 1
     assert set(roles.watched) == set(roles.spelling)
@@ -226,7 +226,7 @@ def test_names_is_padded_across_the_skip_section() -> None:
     position and never subtracts an offset before reading it."""
     skip: Skip = (";", "", 0, "", 1)
     vocab = _vocab(pairs={"(": (")", "paren")}, closers={")": "("}, skips={"'": skip})
-    roles = _roles(vocab)
+    roles = walk_roles(vocab)
     assert roles.n_skip == 1
     assert roles.spelling[: roles.n_skip] == "'"
     assert roles.names[: roles.n_skip] == ("",)
@@ -247,20 +247,20 @@ def test_a_closer_that_is_also_a_mark_closes_when_it_matches_the_open_frame() ->
     """Closers are spelled before marks, so ``find`` always lands on the
     closer entry first; when it matches the frame on top, CLOSE wins — the
     old elif chain's first test for this character."""
-    roles = _roles(TWO_ROLE_VOCAB)
+    roles = walk_roles(TWO_ROLE_VOCAB)
     text = "(a,b|"
-    offsets = _sweep(text, TWO_ROLE_VOCAB.watched)
-    assert _walk(text, offsets, roles, 0) == [Region(0, 4, "paren", (2,))]
+    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
+    assert walk_regions(text, offsets, roles, 0) == [Region(0, 4, "paren", (2,))]
 
 
 def test_an_unmatched_closer_that_is_also_a_mark_falls_through_to_mark() -> None:
     """The same ``|``, but the open frame wants ``]`` — the closer test
     fails, and the fallthrough treats it as a separator instead, exactly as
     the old ``elif char in vocab.marks and stack`` branch did."""
-    roles = _roles(TWO_ROLE_VOCAB)
+    roles = walk_roles(TWO_ROLE_VOCAB)
     text = "[a|]"
-    offsets = _sweep(text, TWO_ROLE_VOCAB.watched)
-    assert _walk(text, offsets, roles, 0) == [Region(0, 3, "brak", (2,))]
+    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
+    assert walk_regions(text, offsets, roles, 0) == [Region(0, 3, "brak", (2,))]
 
 
 # ── merge_windows ─────────────────────────────────────────────────────────
@@ -370,7 +370,7 @@ the windows turns only on the worker count and the document length."""
 def test_a_skip_bearing_vocabulary_never_touches_the_pool() -> None:
     """A grammar carrying an opaque interior takes the serial walk, and the
     refusal decides this BEFORE the pool is ever asked to do anything."""
-    assert _vocabulary(JSON_GRAMMAR).skips, "the fixture must carry a skip"
+    assert scan_vocabulary(JSON_GRAMMAR).skips, "the fixture must carry a skip"
     doc = '{"a": [1,2,3], "b": {"c": 1, "d": 2}}'
     result = par_find(JSON_GRAMMAR, doc, 0, 8, pool=_RAISING_POOL)
     assert result == find(JSON_GRAMMAR, doc, 0)

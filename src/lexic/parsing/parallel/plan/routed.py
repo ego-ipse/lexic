@@ -128,7 +128,7 @@ class RoutedPlan(NamedTuple):
     after: str = ""
 
 
-def _optional_ref(item: IrItem) -> str | None:
+def optional_ref(item: IrItem) -> str | None:
     """The rule an optional single-occurrence item references."""
     atom = item.atom
     optional = item.quantifier.lo == 0 and not unbounded(item)
@@ -276,7 +276,7 @@ def _derive_routed(grammar: IrAst) -> RoutedPlan | None:
     arms = tuple(start.body) if start is not None else ()
     items = tuple(arms[0]) if len(arms) == 1 else ()
     for at, item in enumerate(items):
-        found = _routed_at(grammar, rules, items, at) if _optional_ref(item) else None
+        found = _routed_at(grammar, rules, items, at) if optional_ref(item) else None
         if found is not None:
             return found
     for at, item in enumerate(items):
@@ -445,7 +445,7 @@ def _routed_at(
     at: int,
 ) -> RoutedPlan | None:
     """The plan the optional item at ``at`` admits, if every proof holds."""
-    target = rules.get(_optional_ref(items[at]) or "")
+    target = rules.get(optional_ref(items[at]) or "")
     if target is None:
         return None
     for index, arm in enumerate(target.body):

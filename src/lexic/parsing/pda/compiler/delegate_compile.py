@@ -40,7 +40,7 @@ against the synthetic long-interior grammar + the four bench grammars (Task 6.2
 perf gate); raise it if short-interior delegation regresses perf."""
 
 
-def _delegable(analysis: GrammarAnalysis, name: str) -> bool:
+def is_delegable(analysis: GrammarAnalysis, name: str) -> bool:
     """Whether rule ``name`` may be delegated: one end, island-free, above the floor.
 
     Three conditions over the rule's reachable interior (:func:`_interior`,
@@ -164,7 +164,7 @@ def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:
     span would bypass the normal completer's non-empty-completion path — see
     :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel._inject_delegate`), semantic (a
     noise rule carries no model / reduction the splice can pass through), not the
-    island root itself, and :func:`_delegable` (island-free + above the floor).
+    island root itself, and :func:`is_delegable` (island-free + above the floor).
 
     :param analysis: The island sub-grammar analysis.
     :param island_name: The island root (excluded — it is the conflicted rule).
@@ -177,7 +177,7 @@ def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:
         and rname not in analysis.islands
         and rname not in analysis.nullable
         and analysis.rules[rname].semantic
-        and _delegable(analysis, rname)
+        and is_delegable(analysis, rname)
     ]
 
 

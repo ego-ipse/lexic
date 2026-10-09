@@ -284,13 +284,13 @@ def locate(text: str, plan: FoldedPlan) -> Region | None:
     lo = len(plan.before)
     hi = len(text) - len(plan.after)
     return (
-        Region(lo, hi, plan.rule, _marks_in(text, lo, hi, plan.marks))
+        Region(lo, hi, plan.rule, marks_in(text, lo, hi, plan.marks))
         if lo < hi
         else None
     )
 
 
-def _marks_in(text: str, lo: int, hi: int, marks: tuple[str, ...]) -> tuple[int, ...]:
+def marks_in(text: str, lo: int, hi: int, marks: tuple[str, ...]) -> tuple[int, ...]:
     """Every separator offset inside the extent, in document order.
 
     Marks are read longest first at each position, so a spelling whose prefix
@@ -358,7 +358,7 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
     if workers < 2 or not region.marks:
         return None
     target = (hi - lo) / workers
-    chosen = _chosen_marks(region.marks, lo, hi, target, workers)
+    chosen = chosen_marks(region.marks, lo, hi, target, workers)
     leads = tuple(mark_at(text, at, plan.marks) for at in chosen)
     bounds = [lo, *chosen, hi]
     widest = max(bounds[at + 1] - bounds[at] for at in range(len(bounds) - 1))
@@ -372,7 +372,7 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
     return Pieces(parts, leads)
 
 
-def _chosen_marks(
+def chosen_marks(
     marks: tuple[int, ...], lo: int, hi: int, target: float, workers: int
 ) -> list[int]:
     """The separator offsets ``workers`` even pieces would cut at.
@@ -384,7 +384,7 @@ def _chosen_marks(
 
     The nearest mark is the sweep path's own :func:`~...discovery.regions.
     nearest_mark`, which bisects. The marks arrive in document order from
-    :func:`_marks_in`, which is the precondition that makes a bisect legal
+    :func:`marks_in`, which is the precondition that makes a bisect legal
     here — and the reason to care is cost: reading every mark for every cut
     makes cut selection dearer as the WORKER COUNT rises, measured at 1.06 ms
     of a 7.6 ms sixteen-worker parse before this call replaced a linear min.

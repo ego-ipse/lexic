@@ -13,8 +13,8 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.bake.lowering import (
     UNROLL_LIMIT,
-    _general,
     field_read,
+    general_build,
     no_shape_build,
     shape_build,
 )
@@ -88,7 +88,7 @@ def test_the_unrolled_template_agrees_with_the_general_builder(arity: int) -> No
         field_read(mode, item, lo, default) for mode, item, lo, default in plan
     )
     unrolled = shape_build(Shape, plan)(text, ends, sinks)
-    general = _general(Shape, reads)(text, ends, sinks)
+    general = general_build(Shape, reads)(text, ends, sinks)
     assert unrolled == general
     assert type(unrolled) is type(general)
 
@@ -127,7 +127,7 @@ def test_a_fused_sub_model_shape_builds_what_the_bound_reads_build(
     build = shape_build(Shape, plan)
     assert build.__qualname__.startswith("_fused_")  # no bound read per field
     fused = build("", (), sinks)
-    general = _general(Shape, reads)("", (), sinks)
+    general = general_build(Shape, reads)("", (), sinks)
     assert fused == general
     assert type(fused) is type(general)
 

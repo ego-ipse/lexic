@@ -9,7 +9,7 @@ import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.generate import _Generator, _pick_count, _pick_mean, generate
+from lexic.generate import Generator, generate, pick_count, pick_mean
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
     IrAlternation,
@@ -177,12 +177,12 @@ def test_depth_budget_bounds_recursion_instead_of_overflowing():
         assert result in {"b", "ba", "baa", "baaa"}
 
 
-# ── _pick_count: the lo==0 roll (Phase-2 behaviour change) ──────────────
+# ── pick_count: the lo==0 roll (Phase-2 behaviour change) ──────────────
 
 
 def quantifier_counts(q: IrQuantifier) -> set[int]:
-    """The set of counts _pick_count rolls for ``q`` across many seeds."""
-    return {_pick_count(q, random.Random(s)) for s in range(200)}
+    """The set of counts pick_count rolls for ``q`` across many seeds."""
+    return {pick_count(q, random.Random(s)) for s in range(200)}
 
 
 def test_pick_count_star_reaches_zero_and_expands():
@@ -215,7 +215,7 @@ def test_pick_count_plus_never_zero():
 
 def test_pick_count_fixed_is_verbatim():
     """A fixed count (hi==lo) returns lo without rolling the rng."""
-    assert _pick_count(IrQuantifier(3, 3), random.Random(0)) == 3
+    assert pick_count(IrQuantifier(3, 3), random.Random(0)) == 3
 
 
 # ── open dispatch table: raising default ────────────────────────────────
@@ -227,7 +227,7 @@ def test_generate_unknown_atom_raises():
     ``IrNot`` is dead on canonical input (the canonicaliser rewrites it away),
     so the raising default is the honest response to a stray one.
     """
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     item = IrItem(IrNot(IrCharClass(IrChr('"'))))
     with pytest.raises(UnsupportedConstructError):
         gen.atom(item)
@@ -235,7 +235,7 @@ def test_generate_unknown_atom_raises():
 
 def test_generate_unknown_atom_error_names_the_type():
     """The raising default's message identifies the offending node type."""
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     item = IrItem(IrNot(IrCharClass(IrChr('"'))))
     with pytest.raises(UnsupportedConstructError, match="IrNot"):
         gen.atom(item)
@@ -281,7 +281,7 @@ def test_generate_armless_alternation_raises_naming_the_rule() -> None:
 
 def test_generate_armless_inline_group_raises() -> None:
     """An arm-less inline group refuses too — same defect, same words."""
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     with pytest.raises(UnsupportedConstructError, match="inline group"):
         gen.atom(IrItem(IrAlternation()))
 
@@ -297,13 +297,13 @@ def test_generate_single_empty_arm_still_yields_empty_string() -> None:
 
 def test_generate_atom_dispatches_literal():
     """A literal atom expands to itself under the unit quantifier."""
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     assert gen.atom(IrItem(IrLiteral("abc"))) == "abc"
 
 
 def test_generate_atom_dispatches_charclass():
     """A char-class atom expands to one sampled covered character."""
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     result = gen.atom(IrItem(IrCharClass(IrChr("x"))))
     assert result == "x"
 
@@ -311,14 +311,14 @@ def test_generate_atom_dispatches_charclass():
 def test_generate_atom_dispatches_ruleref():
     """A ruleref atom recurses into the named rule's expansion."""
     rules = {"greeting": IrRule("greeting", IrLiteral("hi"))}
-    gen = _Generator(rng=random.Random(0), rules=rules, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules=rules, heights={}, max_depth=3)
     assert gen.atom(IrItem(IrRuleRef("greeting"))) == "hi"
 
 
 def test_generate_atom_dispatches_alternation_group():
     """An inline group atom expands its chosen arm."""
     group = IrAlternation(IrSequence(IrItem(IrLiteral("only"))))
-    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    gen = Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     assert gen.atom(IrItem(group)) == "only"
 
 
@@ -333,10 +333,10 @@ def test_generate_atom_dispatches_alternation_group():
     ],
 )
 def test_the_expected_count_is_the_mean_of_the_drawn_one(q):
-    """`_pick_mean` is what `_pick_count` averages to, drawn 40,000 times."""
+    """`pick_mean` is what `pick_count` averages to, drawn 40,000 times."""
     rng = random.Random(0)
-    drawn = sum(_pick_count(q, rng) for _ in range(40_000)) / 40_000
-    assert abs(drawn - _pick_mean(q)) < 0.02
+    drawn = sum(pick_count(q, rng) for _ in range(40_000)) / 40_000
+    assert abs(drawn - pick_mean(q)) < 0.02
 
 
 HEAD_DEFAULT_PATH = {

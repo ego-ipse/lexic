@@ -146,3 +146,21 @@ supported.
 - You cannot open a new runtime→codegen import edge.
 - You cannot make an interior boundary resolve by forking without teaching
   `adopt_inherited` to walk the `inherited` chain first.
+
+## No module reaches into another module's private names
+
+A name two modules share is its defining module's public surface: it drops its
+underscore there and joins that module's `__all__` when it has one, or it moves
+to the module that owns the behaviour. Nothing under `src/`, `tests/`, `tools/`
+or `ext/` imports `_name` from another module or reaches it there in any other
+spelling: an attribute read, a `getattr`/`setattr`/`monkeypatch` string, a key
+of the module's `vars()` or `__dict__`, or a dotted patch target. `__dunder__`
+names are not private. A module's own private stand-in for a public name it
+patches keeps its underscore.
+
+The rule covers a module's names only. A test may reach into a class's or an
+object's private attributes to see what a method did, and that does not make
+them public. Outside tests, such a reach means a public interface may be missing
+— a design question, not a renaming. Enforced by
+`tests/integration/lexic/invariants/test_no_private_imports.py`, an AST walk
+over every file.

@@ -12,7 +12,7 @@ Grammar text → `IrAst` → canonicalize → **THE codegen grammar** → model 
 
 ```
 grammar text
-  ├─► compile._scan_directives (private helper)   (start, non_semantic) tuple
+  ├─► compile.scan_directives   (start, non_semantic) tuple
   └─► compile_ast(flavour.grammar).reduce(        IrAst
         text, flavour.reducer)                     (compiled pruned-model variant + thin reducer fold)
         └─► canonicalize(ast)                      canonical IrAst
@@ -114,7 +114,7 @@ A pass is an `IrTypeMap` of `IrAction`s — not a closed subclass of `IrDispatch
 
 ## Flavour as `IrEmitter` + `Reducer`
 
-`IrFlavour` IS-AN `IrEmitter` with **zero methods** beyond the inherited emitter protocol (R1 — see [[flavour-system]]). Each flavour exposes a **private** class (`_GbnfFlavour`, `_AbnfFlavour`) and a **public singleton** (`GBNF_FLAVOUR`, `ABNF_FLAVOUR`) in a single flat module (`grammars/gbnf.py`, `grammars/abnf.py` — no subpackages). `apply(root)` walks an IR tree to a flavour string (the emit half); `flavour.grammar` + `flavour.reducer` drive parsing the other direction (the text→IR half).
+`IrFlavour` IS-AN `IrEmitter` with **zero methods** beyond the inherited emitter protocol (R1 — see [[flavour-system]]). Each flavour exposes a class (`GbnfFlavour`, `AbnfFlavour`) and a **public singleton** (`GBNF_FLAVOUR`, `ABNF_FLAVOUR`) in a single flat module (`grammars/gbnf.py`, `grammars/abnf.py` — no subpackages). `apply(root)` walks an IR tree to a flavour string (the emit half); `flavour.grammar` + `flavour.reducer` drive parsing the other direction (the text→IR half).
 
 Escape codecs follow the same pattern: `_GbnfEscapes` / `_AbnfEscapes` (private) → `GBNF_ESCAPES` / `ABNF_ESCAPES` (singleton instances), `ClassVar[EscapeCodec]` — an instance, not a class.
 

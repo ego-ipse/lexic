@@ -20,12 +20,12 @@ from lexic.compile import compile_text
 from lexic.parsing.parallel.discovery.regions import nearest_mark
 from lexic.parsing.parallel.plan.folded import (
     FoldedPlan,
-    _chosen_marks,
-    _marks_in,
+    chosen_marks,
     divide,
     folded_plan,
     locate,
     mark_at,
+    marks_in,
 )
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
@@ -350,7 +350,7 @@ def interleaved(terms: int) -> tuple[str, tuple[int, ...]]:
     The offsets are computed from the CONSTRUCTION — term ``k`` starts at
     ``k * (len(TERM) + 3)`` and the mark follows it — rather than by searching
     the text. An expectation derived by searching would be the same operation
-    :func:`_marks_in` performs, so the two could be wrong together.
+    :func:`marks_in` performs, so the two could be wrong together.
     """
     width = len(TERM) + 3
     parts = [TERM]
@@ -363,7 +363,7 @@ def interleaved(terms: int) -> tuple[str, tuple[int, ...]]:
 def test_the_interleaved_marks_are_found_in_document_order() -> None:
     """Both spellings alternating, at the offsets the construction puts them.
 
-    This is what exercises the MERGE. ``_marks_in`` runs one cursor per
+    This is what exercises the MERGE. ``marks_in`` runs one cursor per
     spelling and picks the earliest at each step, so a single-spelling
     document never reaches :func:`_earliest` at all — and every other case in
     this file is either one spelling or a handful of marks.
@@ -377,7 +377,7 @@ def test_the_interleaved_marks_are_found_in_document_order() -> None:
     text, expected = interleaved(400)
     plan = plan_for(SERVED, "served")
     assert plan is not None
-    found = _marks_in(text, 0, len(text), plan.marks)
+    found = marks_in(text, 0, len(text), plan.marks)
     assert len(found) == 399
     assert found == expected
     assert [text[at : at + 3] for at in found[:4]] == [" + ", " - ", " + ", " - "]
@@ -387,7 +387,7 @@ def test_the_interleaved_marks_are_found_in_document_order() -> None:
 def test_the_bisect_cuts_where_the_linear_reading_cut() -> None:
     """The differential, on the document whose order the merge produces.
 
-    The bisect is only correct because ``_marks_in`` emits in ascending order,
+    The bisect is only correct because ``marks_in`` emits in ascending order,
     and that precondition is a fact about the MERGE of two cursors. So the
     differential runs on interleaved marks rather than on a hand-written list:
     a merge that emitted one spelling's run before the other's would leave the
@@ -397,7 +397,7 @@ def test_the_bisect_cuts_where_the_linear_reading_cut() -> None:
     lo, hi = marks[0], marks[-1] + 3
     for workers in (2, 3, 4, 8, 16):
         target = (hi - lo) / workers
-        chosen = _chosen_marks(marks, lo, hi, target, workers)
+        chosen = chosen_marks(marks, lo, hi, target, workers)
         scanned = scanned_cuts(marks, lo, hi, target, workers)
         assert chosen == scanned, f"{workers} workers: {chosen} != {scanned}"
         assert len(chosen) == workers - 1, "the document must offer every cut"
@@ -406,7 +406,7 @@ def test_the_bisect_cuts_where_the_linear_reading_cut() -> None:
 def scanned_cuts(
     marks: tuple[int, ...], lo: int, hi: int, target: float, workers: int
 ) -> list[int]:
-    """``_chosen_marks`` as it read before the bisect — a linear ``min``.
+    """``chosen_marks`` as it read before the bisect — a linear ``min``.
 
     The reference arm of the differential, kept flat rather than closed over
     the loop variable it compares against: the point is that it is a separate,

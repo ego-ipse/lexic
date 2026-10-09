@@ -51,7 +51,7 @@ class Window(NamedTuple):
     marks: tuple[tuple[int, int, int], ...]
 
 
-def _occurrences(text: str, spelling: str, lo: int, hi: int) -> list[int]:
+def spelling_offsets(text: str, spelling: str, lo: int, hi: int) -> list[int]:
     """Every offset in ``[lo, hi)`` where ``spelling`` STARTS, ascending.
 
     The search runs past the window end by the spelling's own width so that a
@@ -108,12 +108,12 @@ class Scanner:
             return self._flat(text, lo, hi)
         found: list[tuple[int, int]] = []
         for char in self.openers:
-            found += [(at, 1) for at in _occurrences(text, char, lo, hi)]
+            found += [(at, 1) for at in spelling_offsets(text, char, lo, hi)]
         for char in self.closers:
-            found += [(at, -1) for at in _occurrences(text, char, lo, hi)]
+            found += [(at, -1) for at in spelling_offsets(text, char, lo, hi)]
         seen: set[int] = set()
         for mark in self.separators:
-            seen.update(_occurrences(text, mark, lo, hi))
+            seen.update(spelling_offsets(text, mark, lo, hi))
         found += [(at, 0) for at in seen]
         found.sort()
         depth = 0
@@ -141,7 +141,7 @@ class Scanner:
         ascending and without duplicates. Derived from the grammar's roles, not
         from the document.
         """
-        found = [_occurrences(text, mark, lo, hi) for mark in self.separators]
+        found = [spelling_offsets(text, mark, lo, hi) for mark in self.separators]
         merged = found[0] if len(found) == 1 else sorted(set().union(*found))
         return Window(lo, 0, 0, 0, tuple((at, 0, 0) for at in merged))
 

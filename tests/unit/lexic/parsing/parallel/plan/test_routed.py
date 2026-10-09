@@ -17,9 +17,9 @@ from lexic.compile import compile_text
 from lexic.grammars import ABNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel.plan.routed import (
-    _optional_ref,
     divide,
     locate,
+    optional_ref,
     routed_plan,
     rule_emits_item,
     terminates_once_ref,
@@ -189,7 +189,7 @@ def test_the_native_json_grammar_derives_no_route():
     items = tuple(tuple(start.body)[0])
 
     assert routed_plan(JSON_GRAMMAR) is None
-    assert all(_optional_ref(item) is None for item in items)
+    assert all(optional_ref(item) is None for item in items)
 
 
 def test_a_markdown_shaped_mandatory_repetition_derives_no_route():
@@ -201,7 +201,7 @@ def test_a_markdown_shaped_mandatory_repetition_derives_no_route():
     items = tuple(tuple(start.body)[0])
 
     assert routed_plan(grammar) is None
-    assert all(_optional_ref(item) is None for item in items)
+    assert all(optional_ref(item) is None for item in items)
 
 
 def test_the_real_abnf_self_grammar_derives_no_route():
@@ -213,7 +213,7 @@ def test_the_real_abnf_self_grammar_derives_no_route():
     rules = {str(rule.name): rule for rule in grammar.rules}
     start = rules[str(grammar.start)]
     items = tuple(tuple(start.body)[0])
-    candidate = next(item for item in items if _optional_ref(item) == "c-nl")
+    candidate = next(item for item in items if optional_ref(item) == "c-nl")
     emitting = next(item for item in items if str(item.atom) == "rule")
 
     assert routed_plan(grammar) is None

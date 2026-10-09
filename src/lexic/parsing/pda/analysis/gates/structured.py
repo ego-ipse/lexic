@@ -40,6 +40,9 @@ __all__ = [
     "run_roots",
     "structured_loop_gate",
     "structured_arm_gate",
+    "exit_is_noise",
+    "probe_candidate",
+    "sem_follow_clear",
 ]
 
 
@@ -226,7 +229,7 @@ def _post_noise_follow(
     :param skip: ``id()`` of one :class:`~lexic.ir.grammar.nodes.IrItem` occurrence to
         exclude from the feed — the P5 probe licence removes the candidate
         *header* occurrence itself when asking what else can follow the name
-        rule (:func:`_probe_candidate`).
+        rule (:func:`probe_candidate`).
     """
     follow: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     while _grow_post_noise(analysis, roots, follow, skip):
@@ -277,7 +280,7 @@ def _follow_content(
     return out
 
 
-def _exit_is_noise(analysis: Any, items: Sequence[IrItem], k: int) -> bool:
+def exit_is_noise(analysis: Any, items: Sequence[IrItem], k: int) -> bool:
     """Whether everything after ``k`` up to (and including) the first required
     item is non-semantic references.
 
@@ -339,8 +342,8 @@ def _match_gate(
     Take another iteration iff a *complete* instance of the loop atom's rule
     matches at the cursor — exact recognition, no greed. Licensed for a loop
     over a non-semantic rule whose over-take is provably noise↔noise, via
-    either arm-local structure (:func:`_exit_is_noise` — ABNF ``rule[5]``) or
-    the P6 precision clause (:func:`_sem_follow_clear` — every over-takeable
+    either arm-local structure (:func:`exit_is_noise` — ABNF ``rule[5]``) or
+    the P6 precision clause (:func:`sem_follow_clear` — every over-takeable
     char cannot follow the rule as semantic content; GBNF ``n``'s
     ``nunit+`` loop, whose ``#``-overlap with the trailing ``tail-comment``
     the exact match resolves: an incomplete ``comment-line`` simply does not
@@ -353,8 +356,7 @@ def _match_gate(
     if target is None or target.semantic:
         return None
     if not (
-        _exit_is_noise(analysis, items, k)
-        or _sem_follow_clear(analysis, items, k, scope)
+        exit_is_noise(analysis, items, k) or sem_follow_clear(analysis, items, k, scope)
     ):
         return None
     rec = build_recognizer(analysis.rules, roots | {str(atom)})
@@ -363,7 +365,7 @@ def _match_gate(
     return ScanGate(SG_MATCH, rec, (rec.index[str(atom)],))
 
 
-def _sem_follow_clear(
+def sem_follow_clear(
     analysis: Any, items: Sequence[IrItem], k: int, scope: Any
 ) -> bool:
     """The P6 precision clause for an exact-match gate.
@@ -506,7 +508,7 @@ def _probe_gate(
     grammar-wide, or the decision stays an island.
     """
     overlap = take.subtract(take.subtract(exit_cs))
-    spec = _probe_candidate(analysis, lead, overlap)
+    spec = probe_candidate(analysis, lead, overlap)
     if spec is None:
         return None
     r_name, mid_root, lit = spec
@@ -523,7 +525,7 @@ def _probe_gate(
     )
 
 
-def _probe_candidate(
+def probe_candidate(
     analysis: Any, lead: frozenset[str], overlap: CharSet
 ) -> tuple[str, str, str] | None:
     """The unique ``(R, noise root, L)`` header spec explaining ``overlap``.

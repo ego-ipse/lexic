@@ -2369,3 +2369,11 @@ site left, `_side`.
 `invariants.md`'s probes-never-nest entry names `verdicts.py`: the verdict, its
 sides and their floors moved there from `decisions.py`, whose `Attempting`
 inherits them.
+
+## No cross-module private names (2026-10-09)
+
+`invariants.md` entry: no module imports or reads another module's private
+names, in src, tests, tools or ext and in any spelling, enforced by an AST
+invariant test that replaces the src-only import check in the layering
+invariants; a class's or an object's private attributes are outside it. The names shared that way
+were made public at home; the wiki pages naming them now use the public names.

@@ -12,7 +12,7 @@ from lexic.compile import CompiledGrammar, compile_text
 from lexic.ir import IrAst
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, _delegable
+from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, is_delegable
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -38,7 +38,7 @@ class NoDelegates(DelegateSource):
 def test_delegable_accepts_island_free_long_run() -> None:
     """A long island-free run (``digits`` = ``[0-9]+``) clears the floor."""
     analysis, _source, _cg = compiled()
-    assert _delegable(analysis, "digits")
+    assert is_delegable(analysis, "digits")
 
 
 def test_delegable_rejects_island_referencing_interior() -> None:
@@ -50,13 +50,13 @@ def test_delegable_rejects_island_referencing_interior() -> None:
     """
     analysis, _source, _cg = compiled()
     assert "item" in analysis.islands
-    assert not _delegable(analysis, "wrapped")
+    assert not is_delegable(analysis, "wrapped")
 
 
 def test_delegable_rejects_short_interior() -> None:
     """A short bounded interior (``short`` = ``"z"``) sits below the floor."""
     analysis, _source, _cg = compiled()
-    assert not _delegable(analysis, "short")
+    assert not is_delegable(analysis, "short")
 
 
 def test_source_for_island_returns_flat_clones_for_delegables() -> None:
@@ -121,7 +121,7 @@ def test_delegable_rejects_a_rule_whose_end_a_policy_picks() -> None:
     analysis = island_analysis(STOP_SET, "delegate-stop-set")
     assert "term" not in analysis.islands
     assert "term" in analysis.taxonomy.policy_ends
-    assert not _delegable(analysis, "term")
+    assert not is_delegable(analysis, "term")
 
 
 def test_an_exact_lookahead_demotion_still_delegates() -> None:
@@ -144,7 +144,7 @@ def test_an_island_reached_only_through_a_group_disqualifies() -> None:
     grammar = compile_text(source, cache_key="delegate-island-in-group").codegen_grammar
     analysis = GrammarAnalysis(lift_optional_nullables(grammar))
     assert "item" in analysis.islands
-    assert not _delegable(analysis, "w")
+    assert not is_delegable(analysis, "w")
 
 
 # ── the floor measures ONE match, never a sum across alternatives ───────────
@@ -155,7 +155,7 @@ def floor_clears(body: str) -> bool:
     nothing else stops it from delegating."""
     source = f"root ::= x\nx ::= {body}\n"
     grammar = compile_text(source, cache_key=f"floor-{hash(body)}").codegen_grammar
-    return _delegable(GrammarAnalysis(lift_optional_nullables(grammar)), "x")
+    return is_delegable(GrammarAnalysis(lift_optional_nullables(grammar)), "x")
 
 
 def test_many_short_alternatives_stay_below_the_floor() -> None:

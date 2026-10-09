@@ -38,7 +38,7 @@ model would never surface. It must escape both, and a `RuntimeError` does.
   member of this family.
 
 Not `BaseException`. The precedent that suggests it is
-`lexic.ir.action.flow.control._Return`, which is CONTROL FLOW and must escape
+`lexic.ir.action.flow.control.ReturnSignal`, which is CONTROL FLOW and must escape
 everything including `except Exception`. This is an error: it must escape the
 two fallback catches, and it must stay visible to a top-level
 `except Exception` so a breach reaches a bug report instead of killing the

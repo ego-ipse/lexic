@@ -21,14 +21,14 @@ from lexic.compile import (
     compile_from_path,
     compile_text,
 )
-from lexic.compile.artifact import _reduce_entry
+from lexic.compile.artifact import derived_reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.parsing import DEFAULT_CONFIG, parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
-from tools.benchmark.bench import _lexic, _mt_check
+from tools.benchmark.bench import lexic_rows, mt_check
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.measurement import occupancy
 
@@ -111,7 +111,7 @@ def test_reducer_derived_variant_really_splits(
 ) -> None:
     """The reducer's pruned variant reaches the same model split seam."""
     name, compiled = json_compiled
-    entry = _reduce_entry(compiled, JSON_REDUCER)
+    entry = derived_reduce_entry(compiled, JSON_REDUCER)
     grammar, binding = entry.variant.codegen_grammar, entry.variant.product
     sequential = parse_model(grammar, DOCUMENT, binding)
     split = split_model(
@@ -145,7 +145,7 @@ def test_public_reduce_worker_counts_equal_sequential(
 def test_reducer_variant_uses_source_interiors_for_region_discovery() -> None:
     """Elided quote models must not expose structural-looking string text."""
     compiled = compile_ast(JSON_GRAMMAR)
-    entry = _reduce_entry(compiled, JSON_REDUCER)
+    entry = derived_reduce_entry(compiled, JSON_REDUCER)
     entries = ",".join(
         f"{json.dumps(f'key{{,[{chr(34)}{i:04d}')}:{i}" for i in range(1000)
     )
@@ -286,7 +286,7 @@ def test_benchmark_mt_status_covers_base_and_lex_ns_rows(
 ) -> None:
     """Both benchmark MT rows must pass the split-status check independently."""
     bench = next(candidate for candidate in BENCHES if candidate.name == "json")
-    engines, artifacts = _lexic(bench, 4)
+    engines, artifacts = lexic_rows(bench, 4)
     assert {"lexic-mt", "lexic-mt-lex-ns"} <= engines.keys()
     assert set(artifacts) == {"lexic-mt", "lexic-mt-lex-ns"}
     probed: list[object] = []
@@ -300,7 +300,7 @@ def test_benchmark_mt_status_covers_base_and_lex_ns_rows(
     # The split entry is patched where the occupancy probe reaches it: the
     # status check asks the real seam, and this is that seam.
     monkeypatch.setattr(occupancy, "split_model", recording_split)
-    notes = _mt_check(artifacts, bench.full, 4)
+    notes = mt_check(artifacts, bench.full, 4)
 
     assert len(probed) == 2
     assert {id(grammar) for grammar in probed} == {

@@ -217,7 +217,9 @@ def field_read[Carry](
 # ── the builders: arity is the only thing selected on ─────────────────
 
 
-def _general[Carry](cls: type, reads: tuple[Read[Carry], ...]) -> ShapeBuild[Carry]:
+def general_build[Carry](
+    cls: type, reads: tuple[Read[Carry], ...]
+) -> ShapeBuild[Carry]:
     """Any arity, any mode mix. The comprehension is inlined by PEP 709."""
 
     def build(text, ends, sinks):
@@ -371,7 +373,7 @@ _TEMPLATES: dict[int, Callable[..., ShapeBuild]] = {
 }
 """One per arity up to :data:`UNROLL_LIMIT`, keyed by arity.
 
-Hand-written, never generated. A wider shape takes :func:`_general`.
+Hand-written, never generated. A wider shape takes :func:`general_build`.
 """
 
 
@@ -487,4 +489,4 @@ def shape_build[Carry](cls: type[Carry], plan: Plan[Carry]) -> ShapeBuild[Carry]
         field_read(mode, item, lo, default) for mode, item, lo, default in plan
     )
     template = _TEMPLATES.get(len(reads))
-    return _general(cls, reads) if template is None else template(cls, reads)
+    return general_build(cls, reads) if template is None else template(cls, reads)

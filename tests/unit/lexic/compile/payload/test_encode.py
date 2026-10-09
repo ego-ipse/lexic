@@ -13,7 +13,7 @@ import pytest
 from lexic.compile.payload.encode import (
     EXACT_PLAIN,
     SENTINEL,
-    _in_place_mutable,
+    in_place_mutable,
     project,
     project_checked,
 )
@@ -69,16 +69,16 @@ def test_two_equal_lists_at_distinct_identities_do_not_share_a_record():
     a, b = [1, 2], [1, 2]
     payload = project({"a": a, "b": b})
     assert len(payload.nodes) > 0
-    assert _in_place_mutable(a) and _in_place_mutable(b)
+    assert in_place_mutable(a) and in_place_mutable(b)
 
 
 def test_in_place_mutable_is_true_for_list_dict_set_false_for_tuple_and_str():
     """The mutable-container predicate over the vocabulary's builtin types."""
-    assert _in_place_mutable([1])
-    assert _in_place_mutable({"a": 1})
-    assert _in_place_mutable({1})
-    assert not _in_place_mutable((1,))
-    assert not _in_place_mutable("x")
+    assert in_place_mutable([1])
+    assert in_place_mutable({"a": 1})
+    assert in_place_mutable({1})
+    assert not in_place_mutable((1,))
+    assert not in_place_mutable("x")
 
 
 def test_project_checked_passes_for_an_ordinary_value():

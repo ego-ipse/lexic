@@ -182,13 +182,13 @@ class CharSet:
         to the conservative :attr:`ANY` only when BOTH sides exceed
         :data:`MAX_RANGE_EXPANSION`: exact by construction otherwise.
 
-        Memoised by VALUE — see :func:`_expanded`.
+        Memoised by VALUE — see :func:`expanded`.
 
         :param cc: The character class to expand.
         :returns: The exact positive or negated set, or :attr:`ANY` when
             both the class and its complement exceed the expansion cap.
         """
-        return _expanded(cc)
+        return expanded(cc)
 
     @classmethod
     def from_not(cls, inner: IrCharClass) -> CharSet:
@@ -234,7 +234,7 @@ range past :data:`MAX_RANGE_EXPANSION`)."""
 
 
 @lru_cache(maxsize=4096)
-def _expanded(cc: IrCharClass) -> CharSet:
+def expanded(cc: IrCharClass) -> CharSet:
     """:meth:`CharSet.from_charclass`'s body, memoised on the class's VALUE.
 
     An ``IrCharClass`` IS its value, so equal classes expand to equal sets and

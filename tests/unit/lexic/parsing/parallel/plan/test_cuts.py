@@ -11,10 +11,10 @@ from __future__ import annotations
 from lexic.compile import compile_text
 from lexic.parsing.parallel.discovery.scan import clustered
 from lexic.parsing.parallel.plan.cuts import (
-    _widths,
     after_mark,
     cut_offsets,
     cut_spans,
+    mark_widths,
     rebase,
     scan_marks,
     scan_windows,
@@ -207,7 +207,7 @@ def test_a_one_character_mark_set_selects_exactly_what_widths_would() -> None:
 
     with WorkPool(4) as pool:
         at_depth = rebase(plan.scanner, text, 4, pool)
-        widths = _widths(text, at_depth, spellings(plan.mark))
+        widths = mark_widths(text, at_depth, spellings(plan.mark))
 
         assert scan_marks(plan, text, 4, pool, at_depth) == clustered(
             sorted(widths), widths, plan.trailing

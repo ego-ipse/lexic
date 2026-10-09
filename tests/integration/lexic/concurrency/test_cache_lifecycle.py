@@ -2,12 +2,12 @@
 
 ``caches.py`` mutates three plain containers from whatever thread dropped the
 last reference to an artefact: each registered memo dict, ``_ADOPTED``
-(``setdefault(...).update(...)`` against ``pop(...)``) and ``_CLAIMED``
+(``setdefault(...).update(...)`` against ``pop(...)``) and ``CLAIMED``
 (``update`` against ``difference_update``). On a free-threaded build those are
 genuine races, and they fail in three ways: an exception out of the sweep
 (``RuntimeError: dictionary changed size during iteration``, a ``KeyError``
 from a double pop), a lost adoption edge stranding an entry that should have
-been released, and — the quiet one — a stale ``_CLAIMED`` identity, which
+been released, and — the quiet one — a stale ``CLAIMED`` identity, which
 matters because ``id()`` is reused after collection, so a claim left behind
 makes a LATER object's ``track()`` a silent no-op.
 
@@ -36,7 +36,7 @@ from functools import partial
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
 from lexic.ir import IrAst
-from lexic.parsing.caches import _CLAIMED, cached_entries, memo, release, track
+from lexic.parsing.caches import CLAIMED, cached_entries, memo, release, track
 from tests.integration.lexic.concurrency.concurrency import clean, parallel
 from tests.integration.lexic.concurrency.fixtures import FLAT, flat_doc
 
@@ -201,7 +201,7 @@ def test_release_survives_a_real_concurrent_writer_on_the_same_memo() -> None:
 
 
 def test_concurrent_track_and_release_drains_every_claim() -> None:
-    """``_CLAIMED`` returns to its floor, so no identity stays spoken for.
+    """``CLAIMED`` returns to its floor, so no identity stays spoken for.
 
     A stale claim is the failure that hides: ``id()`` is reused, so a claim
     outliving its owner silently disarms the NEXT artefact's ``track()``.
@@ -210,8 +210,8 @@ def test_concurrent_track_and_release_drains_every_claim() -> None:
     """
     entries: dict[tuple[int, str], str] = memo({}, 0)
     _quiesce()
-    floor = len(_CLAIMED)
+    floor = len(CLAIMED)
     clean(parallel(partial(_churn_claims, entries=entries), 8))
     _quiesce()
-    assert len(_CLAIMED) == floor, "claims outlived the owners that made them"
+    assert len(CLAIMED) == floor, "claims outlived the owners that made them"
     assert not entries, "released owners left memo entries behind"

@@ -83,7 +83,7 @@ def specialize_terminals(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
-def _inline_value_strs(arm: FlatArm) -> None:
+def inline_value_strs(arm: FlatArm) -> None:
     """Rewrite refs the runtime can match inline to ``OP_VSTR`` in place.
 
     A terminal-only ``value_str`` clone qualifies, and so does any TABLED clone
@@ -524,7 +524,7 @@ def optimize_program(
     bake_chartables(clones)
     for clone in clones:
         for arm in clone_arms(clone):
-            _inline_value_strs(arm)
+            inline_value_strs(arm)
     for clone in clones:
         _mark_leaves(clone)
     for clone in clones:

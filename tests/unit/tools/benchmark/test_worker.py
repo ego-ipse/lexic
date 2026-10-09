@@ -59,7 +59,7 @@ def test_one_engine_requests_only_the_exact_lexic_variant(
         seen.append(only)
         return {"lexic-lex-ns": parse}, {}
 
-    monkeypatch.setattr(benchmark, "_lexic", lexic)
+    monkeypatch.setattr(benchmark, "lexic_rows", lexic)
     monkeypatch.setattr(benchmark, "unfaithful", lambda *_args: None)
 
     built = benchmark.one_engine(bench, "lexic-lex-ns", 8, False)

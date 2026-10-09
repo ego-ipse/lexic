@@ -67,7 +67,7 @@ LITERAL_NAMES: dict[str, str] = {
     ";": "semicolon",
     "=": "eq",
 }
-_RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
+RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
     {
         "GrammarModel",
         "ClassVar",
@@ -156,7 +156,7 @@ def class_name_for(rule_name: str) -> str:
         ``true`` → ``True_``, ``ir-rule`` → ``IrRule_``).
     """
     pascal = "".join(part[:1].upper() + part[1:] for part in _name_parts(rule_name))
-    reserved = keyword.iskeyword(pascal) or pascal in _RESERVED_CLASS_NAMES
+    reserved = keyword.iskeyword(pascal) or pascal in RESERVED_CLASS_NAMES
     return pascal + "_" if reserved else pascal
 
 
@@ -274,13 +274,13 @@ def has_ruleref(node: IrNode) -> bool:
     :param node: Root of the subtree to scan.
     :returns: ``True`` if an :class:`IrRuleRef` was found, else ``False``.
     """
-    memo = _RULEREF_MEMO.get()
+    memo = RULEREF_MEMO.get()
     if memo is None:
-        return _HAS_RULEREF.apply(node) is not IrNone
+        return HAS_RULEREF.apply(node) is not IrNone
     held = memo.get(id(node))
     if held is not None and held[0] is node:
         return held[1]
-    found = _HAS_RULEREF.apply(node) is not IrNone
+    found = HAS_RULEREF.apply(node) is not IrNone
     memo[id(node)] = (node, found)
     return found
 
@@ -292,17 +292,17 @@ def ruleref_memo() -> Iterator[None]:
     Nested scopes share the outermost one's memo; it is dropped when the
     outermost scope ends, so nothing outlives the compile.
     """
-    if _RULEREF_MEMO.get() is not None:
+    if RULEREF_MEMO.get() is not None:
         yield
         return
-    token = _RULEREF_MEMO.set({})
+    token = RULEREF_MEMO.set({})
     try:
         yield
     finally:
-        _RULEREF_MEMO.reset(token)
+        RULEREF_MEMO.reset(token)
 
 
-_RULEREF_MEMO: ContextVar[dict[int, tuple[IrNode, bool]] | None] = ContextVar(
+RULEREF_MEMO: ContextVar[dict[int, tuple[IrNode, bool]] | None] = ContextVar(
     "ruleref_memo", default=None
 )
 """The running compile's :func:`has_ruleref` answers, or ``None`` outside one."""
@@ -318,7 +318,7 @@ def _group_hint(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
     return IrStr(str(_HINT.eval(d, n[0][0].atom, ())))
 
 
-_HAS_RULEREF: IrVisitor = IrVisitor(
+HAS_RULEREF: IrVisitor = IrVisitor(
     actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())),
 )
 TIER2: IrDispatch = IrDispatch(

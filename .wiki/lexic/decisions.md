@@ -313,7 +313,7 @@ reachable interior picks an EXTENT by policy. That covers a stop-set exit, a
 greedy loop split, a split-greedy licence, and a greedy arm over an empty
 one. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
 decision is made (`Notes.picks_extent`), never read back from note text, and
-`_delegable` refuses a reachable member.
+`is_delegable` refuses a reachable member.
 
 **Why:** a delegate injects ONE completion into the island's chart, at the end
 its PDA run reaches, and skips the rule's own seeding. Being conflict-free
@@ -566,11 +566,11 @@ fold-refusal reroute stays as the last line of defence.
 
 ---
 
-## 2026-05-28 — P16: Short-circuit is intrinsic to `IrReturn` via `_Return`
+## 2026-05-28 — P16: Short-circuit is intrinsic to `IrReturn` via `ReturnSignal`
 
-**Decision:** `IrReturn` mixes `IrLeaf` and a private `_Return(BaseException)`. `eval` raises `self`; the surrounding `IrDispatch.apply` catches it and surfaces `.value` (or the instance, depending on the bound).
+**Decision:** `IrReturn` mixes `IrLeaf` and a private `ReturnSignal(BaseException)`. `eval` raises `self`; the surrounding `IrDispatch.apply` catches it and surfaces `.value` (or the instance, depending on the bound).
 
-**Why:** Short-circuit needs no protocol participation from every other node. Any nested action can raise `IrReturn` and unwind to the dispatcher. `_Return` is a `BaseException` subclass so `IrCallable` handlers' `except Exception:` clauses cannot swallow it.
+**Why:** Short-circuit needs no protocol participation from every other node. Any nested action can raise `IrReturn` and unwind to the dispatcher. `ReturnSignal` is a `BaseException` subclass so `IrCallable` handlers' `except Exception:` clauses cannot swallow it.
 
 **Impact:** Conditional emission becomes trivial: `IrCond(field, IrReturn(IrStr("")), normal_op)` short-circuits cleanly. The `IrReturn` instance IS-AN `IrNode`, fitting the dispatcher's bound when surfaced.
 

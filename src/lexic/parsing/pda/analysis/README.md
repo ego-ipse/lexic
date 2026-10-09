@@ -61,7 +61,7 @@ analysis property, not a compiler fallback.
 5. **noise-greedy licence** (`noise.py`) — a greedy over-eat is safe when it
    is provably noise↔noise re-splitting only. The raw soft-FOLLOW set cannot
    answer that (it forgets where its chars came from), so `noise.py` runs the
-   FOLLOW fixpoint with **decomposed semantic attribution**: `_sem_first_table`
+   FOLLOW fixpoint with **decomposed semantic attribution**: `sem_first_table`
    counts a terminal only inside a `semantic=True` rule and excludes any
    ref to a non-semantic rule (its subtree is dropped from `semantic_dump`
    wholesale), and `sem_follow_table` re-runs FOLLOW over those semantic

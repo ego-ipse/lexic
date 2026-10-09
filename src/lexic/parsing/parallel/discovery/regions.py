@@ -219,7 +219,7 @@ removes.
 """
 
 
-def _roles(vocab: Vocab) -> Roles:
+def walk_roles(vocab: Vocab) -> Roles:
     """Spell a vocabulary for the walk, sections in precedence order.
 
     Each section's characters and its values come from ONE iteration of the
@@ -247,7 +247,7 @@ def _roles(vocab: Vocab) -> Roles:
     )
 
 
-def _vocabulary(grammar: IrAst) -> Vocab:
+def scan_vocabulary(grammar: IrAst) -> Vocab:
     """What the scan watches for: bracket pairs, separators, interiors.
 
     A region is carried only when it can carry a watched character and its
@@ -268,7 +268,7 @@ def _vocabulary(grammar: IrAst) -> Vocab:
     return Vocab(pairs, closers, marks, skip_leads(skips))
 
 
-def _sweep(text: str, watched: set[str]) -> list[int]:
+def sweep_offsets(text: str, watched: set[str]) -> list[int]:
     """Every offset in ``text`` holding one of ``watched``, in order.
 
     One C-level ``str.find`` pass per character: a Python loop over every
@@ -302,11 +302,15 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
         work use this to avoid retaining runs that cannot clear their floor.
     :returns: The regions, in closing order.
     """
-    vocab = _vocabulary(grammar)
-    return _walk(text, _sweep(text, vocab.watched), _roles(vocab), min_span)
+    vocab = scan_vocabulary(grammar)
+    return walk_regions(
+        text, sweep_offsets(text, vocab.watched), walk_roles(vocab), min_span
+    )
 
 
-def _walk(text: str, offsets: list[int], roles: Roles, min_span: int) -> list[Region]:
+def walk_regions(
+    text: str, offsets: list[int], roles: Roles, min_span: int
+) -> list[Region]:
     """The stack walk over the swept structural offsets.
 
     ONE ``find`` per structural character classifies it: which section of
@@ -359,7 +363,7 @@ def _closed(stack: list[Frame], at: int, min_span: int) -> Region | None:
 def _close(stack: list[Frame], found: list[Region], at: int, min_span: int) -> None:
     """Record the closed region, if it clears the floor.
 
-    Appends rather than returning so :func:`_walk` spends no name on an outcome
+    Appends rather than returning so :func:`walk_regions` spends no name on an outcome
     it only forwards.
     """
     region = _closed(stack, at, min_span)
@@ -412,12 +416,12 @@ def par_find(
         runs without one.
     :returns: The regions, in closing order.
     """
-    vocab = _vocabulary(grammar)
-    roles = _roles(vocab)
+    vocab = scan_vocabulary(grammar)
+    roles = walk_roles(vocab)
     windows = max(1, min(workers, len(text)))
     if vocab.skips or windows < 2:
-        return _walk(text, _sweep(text, vocab.watched), roles, min_span)
-    spans = _bounds(len(text), windows)
+        return walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+    spans = window_bounds(len(text), windows)
     run = partial(_run_window, text, roles, min_span)
     chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]
     return merge_windows(chunks, min_span)
@@ -435,7 +439,7 @@ def _run_window(
     return _window(text, span[0], span[1], roles, min_span)
 
 
-def _bounds(size: int, windows: int) -> list[tuple[int, int]]:
+def window_bounds(size: int, windows: int) -> list[tuple[int, int]]:
     """Arithmetic bounds covering ``[0, size)``, the last one taking the tail."""
     step = size // windows
     return [
@@ -444,7 +448,7 @@ def _bounds(size: int, windows: int) -> list[tuple[int, int]]:
 
 
 def _sweep_window(text: str, watched: str, lo: int, hi: int) -> list[int]:
-    """:func:`_sweep` restricted to ``[lo, hi)``.
+    """:func:`sweep_offsets` restricted to ``[lo, hi)``.
 
     Sound because every watched spelling is ONE character, so no occurrence can
     straddle an arithmetic boundary and every offset belongs to exactly one
@@ -468,7 +472,7 @@ def _sweep_window(text: str, watched: str, lo: int, hi: int) -> list[int]:
 def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tuple]:
     """Walk ``[lo, hi)`` with a stack that may underflow, as ordered events.
 
-    A mirror of :func:`_walk`, branch for branch and in the same order, with
+    A mirror of :func:`walk_regions`, branch for branch and in the same order, with
     two differences: the stack starts empty and may go below its own floor, and
     what it cannot resolve alone becomes an event instead of being dropped.
 

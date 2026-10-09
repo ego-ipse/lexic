@@ -7,7 +7,7 @@ from lexic.exceptions import UnsupportedConstructError
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS
 from tools.benchmark.measurement.language import (
     BOUNDARY_SUFFIXES,
-    _candidates,
+    candidates,
     disagreement,
     probes,
 )
@@ -32,8 +32,8 @@ def _reference(text: str) -> object:
 
 def test_the_probe_set_is_deterministic_and_deduplicated() -> None:
     """Two derivations of one grammar's probes agree exactly, string for string."""
-    first = _candidates(_ast(), _CORPUS)
-    second = _candidates(_ast(), _CORPUS)
+    first = candidates(_ast(), _CORPUS)
+    second = candidates(_ast(), _CORPUS)
 
     assert first == second
     assert len(set(first)) == len(first)
@@ -46,7 +46,7 @@ def test_the_probes_poke_the_boundaries_of_the_timed_document() -> None:
     This is the family the authored `rejects` never held, and the one an
     end-of-input anchor built outside the emitter's whitespace window accepts.
     """
-    built = _candidates(_ast(), _CORPUS)
+    built = candidates(_ast(), _CORPUS)
 
     for suffix in BOUNDARY_SUFFIXES:
         assert _CORPUS + suffix in built

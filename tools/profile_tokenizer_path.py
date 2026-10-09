@@ -177,7 +177,7 @@ class ReaderOriginals:
 
     path_read_text: Callable[..., str]
     compile_ast: Callable[..., CompiledGrammar]
-    reduce_entry: Callable[..., artifact._ReduceEntry]
+    reduce_entry: Callable[..., artifact.ReduceEntry]
     parse: Callable[..., GrammarModel]
     reduce: Callable[..., IrSelf]
     tokenizer_of: Callable[..., IrTokenizer]
@@ -242,14 +242,14 @@ class OnePathObserver:
             ReaderOriginals(
                 Path.read_text,
                 json_tokenizer.compile_ast,
-                artifact._reduce_entry,
+                artifact.derived_reduce_entry,
                 artifact.CompiledGrammar.parse,
                 reduction_fold.ReduceFold.reduce,
                 json_tokenizer.tokenizer_of,
             ),
             ExportOriginals(
                 payload_export.project_checked,
-                payload_export._sidecar,
+                payload_export.emit_sidecar,
                 payload_export.render,
                 payload_export.write_module,
             ),
@@ -262,12 +262,12 @@ class OnePathObserver:
         _ACTIVE.set(self)
         setattr(Path, "read_text", _read_text)
         setattr(json_tokenizer, "compile_ast", _compile_ast)
-        setattr(artifact, "_reduce_entry", _reduce_entry)
+        setattr(artifact, "derived_reduce_entry", _reduce_entry)
         setattr(artifact.CompiledGrammar, "parse", _parse)
         setattr(reduction_fold.ReduceFold, "reduce", _reduce)
         setattr(json_tokenizer, "tokenizer_of", _tokenizer_of)
         setattr(payload_export, "project_checked", _project_checked)
-        setattr(payload_export, "_sidecar", _sidecar)
+        setattr(payload_export, "emit_sidecar", _sidecar)
         setattr(payload_export, "render", _render)
         setattr(payload_export, "write_module", _write_module)
 
@@ -277,12 +277,12 @@ class OnePathObserver:
             raise RuntimeError("one-path observer is not active")
         setattr(Path, "read_text", self.originals.path_read_text)
         setattr(json_tokenizer, "compile_ast", self.originals.compile_ast)
-        setattr(artifact, "_reduce_entry", self.originals.reduce_entry)
+        setattr(artifact, "derived_reduce_entry", self.originals.reduce_entry)
         setattr(artifact.CompiledGrammar, "parse", self.originals.parse)
         setattr(reduction_fold.ReduceFold, "reduce", self.originals.reduce)
         setattr(json_tokenizer, "tokenizer_of", self.originals.tokenizer_of)
         setattr(payload_export, "project_checked", self.originals.project_checked)
-        setattr(payload_export, "_sidecar", self.originals.sidecar)
+        setattr(payload_export, "emit_sidecar", self.originals.sidecar)
         setattr(payload_export, "render", self.originals.render)
         setattr(payload_export, "write_module", self.originals.write_module)
         _ACTIVE.set(None)
@@ -327,7 +327,7 @@ class OnePathObserver:
 
     def entry(
         self, compiled: CompiledGrammar, reducer: Reducer
-    ) -> artifact._ReduceEntry:
+    ) -> artifact.ReduceEntry:
         """Time derived reduction setup and retain its exact boundaries."""
         if compiled is not self.variant:
             return self.originals.reduce_entry(compiled, reducer)
@@ -468,7 +468,7 @@ def _compile_ast(
     )
 
 
-def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> artifact._ReduceEntry:
+def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> artifact.ReduceEntry:
     return _observer().entry(compiled, reducer)
 
 

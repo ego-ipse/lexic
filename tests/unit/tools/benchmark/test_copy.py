@@ -24,13 +24,13 @@ from tools.benchmark.measurement.copy import (
     PROTOCOL_MODULES,
     RETIRED_MODULES,
     SHARED_VOCABULARY,
-    _rewrite,
-    _unwrap_config,
     digest,
     exports_config,
     exports_model_product,
     materialise,
     respell_model_product,
+    rewrite_bench_name,
+    unwrap_config,
 )
 
 BENCHMARK = Path(__file__).resolve().parents[4] / "tools" / "benchmark"
@@ -163,7 +163,7 @@ def test_the_rename_reaches_every_module_that_names_the_build_object(
     }
     assert len(naming) > 1, "the fixture must cover more than one naming module"
 
-    _rewrite(root, "fold")
+    rewrite_bench_name(root, "fold")
 
     for module in naming:
         rewritten = (root / "tools" / "benchmark" / module).read_text(encoding="utf-8")
@@ -181,7 +181,7 @@ def test_a_module_naming_nothing_is_left_byte_identical(tmp_path: Path) -> None:
     ]
     before = {module: module_source(module) for module in quiet}
 
-    _rewrite(root, "fold")
+    rewrite_bench_name(root, "fold")
 
     for module, text in before.items():
         assert (root / "tools" / "benchmark" / module).read_text(
@@ -279,7 +279,7 @@ def _unwrapped(tmp_path: Path, text: str) -> str:
     root = _copy_of(tmp_path)
     module = root / "tools" / "benchmark" / "diagnostics" / "split_ab.py"
     module.write_text(text, encoding="utf-8")
-    _unwrap_config(root)
+    unwrap_config(root)
     return module.read_text(encoding="utf-8")
 
 
@@ -327,7 +327,7 @@ def test_the_digest_moves_with_the_renamed_copy(tmp_path: Path) -> None:
     root = _copy_of(tmp_path)
     before = digest(root)
 
-    _rewrite(root, "fold")
+    rewrite_bench_name(root, "fold")
 
     assert digest(root) != before
 

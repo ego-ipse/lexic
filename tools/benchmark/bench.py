@@ -160,7 +160,7 @@ LEXIC_ROWS = frozenset(
 """Every Lexic row, shared by the report and regression guard."""
 
 
-def _lexic(
+def lexic_rows(
     bench: Bench, cores: int | None, only: frozenset[str] | None = None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
     """Both lexic engines over one compiled product — the PDA and Earley.
@@ -389,7 +389,7 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
     document = bench.full if full or name in MT_ROWS else bench.corpus
     artifact = None
     if name in LEXIC_ROWS:
-        built, artifacts = _lexic(bench, cores, frozenset({name}))
+        built, artifacts = lexic_rows(bench, cores, frozenset({name}))
         parse = built.get(name)
         artifact = artifacts.get(name)
         if parse is None:
@@ -470,7 +470,7 @@ def result_identity(build: EngineBuild) -> Result:
     return Result(rendered, shape(product))
 
 
-def _mt_check(
+def mt_check(
     artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
 ) -> dict[str, str]:
     """Why each exact mt artifact did not thread; absent rows engaged."""

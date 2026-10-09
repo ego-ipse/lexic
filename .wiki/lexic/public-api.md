@@ -151,7 +151,7 @@ The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `
 
 The public **front half** of `compile_text`/`compile_from_path`: parse + canonicalize + directive flags. Returns the canonical, semantic-flagged `IrAst` directly — no `RuleSpec`, no generated classes. This is the successor of the retired `compile_grammar` (which returned `(start_name, list[RuleSpec])`); `generate.py` builds on `canonical_grammar` directly (it needs only the grammar's rules-by-name shape, not generated classes).
 
-Internally: resolves `(start, non_semantic)` from source comments (the private `_scan_directives` helper in the compile package), calls `parse_grammar(text, flavour)` for the raw `IrAst`, runs `canonicalize(ast)` (`ir/canonical.py` — the language-preserving normal form two flavours of the same language converge on), resolves the start rule (precedence below; canonicalize folds names, so directive/arg names fold too), and reconstructs each named rule with `semantic=False`.
+Internally: resolves `(start, non_semantic)` from source comments (the private `scan_directives` helper in the compile package), calls `parse_grammar(text, flavour)` for the raw `IrAst`, runs `canonicalize(ast)` (`ir/canonical.py` — the language-preserving normal form two flavours of the same language converge on), resolves the start rule (precedence below; canonicalize folds names, so directive/arg names fold too), and reconstructs each named rule with `semantic=False`.
 
 Directive/start resolution precedence (highest first):
 
@@ -186,7 +186,7 @@ Takes the canonical grammar and applies the three codegen-only passes (`hoist_gr
 
 ### `CompileMoments` / `GrammarMoments` — `compile/__init__.py`
 
-Implemented in `compile/pipeline/moments.py`. The retaining product the compile pipeline itself runs through — `_assemble_core` builds one and reads the artefact out of it, so `CompiledGrammar.moments` is what the compilation DID rather than a re-run of it.
+Implemented in `compile/pipeline/moments.py`. The retaining product the compile pipeline itself runs through — `assemble_core` builds one and reads the artefact out of it, so `CompiledGrammar.moments` is what the compilation DID rather than a re-run of it.
 
 ```python
 GrammarMoments(canonical, grouped, armed, relaxed, resolved)   # five IrAst states, in order

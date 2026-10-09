@@ -151,11 +151,13 @@ def scan_marks(
     at_depth = rebase(plan.scanner, text, workers, pool) if rebased is None else rebased
     if all(len(mark) == 1 for mark in plan.mark):
         return [at for at in at_depth if text[at] in plan.mark]
-    widths = _widths(text, at_depth, plan.ordered)
+    widths = mark_widths(text, at_depth, plan.ordered)
     return clustered(sorted(widths), widths, plan.trailing)
 
 
-def _widths(text: str, at_depth: list[int], ordered: tuple[str, ...]) -> dict[int, int]:
+def mark_widths(
+    text: str, at_depth: list[int], ordered: tuple[str, ...]
+) -> dict[int, int]:
     """Each kept mark's matched spelling width, in document order."""
     return {at: len(hit) for at in at_depth if (hit := matched(text, at, ordered))}
 

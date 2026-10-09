@@ -51,7 +51,7 @@ untouched by it.
 """
 
 
-def _free_threaded() -> bool:
+def free_threaded() -> bool:
     """Whether this interpreter runs without the GIL (free-threaded build)."""
     gil_enabled = getattr(sys, "_is_gil_enabled", None)
     return gil_enabled is not None and not gil_enabled()
@@ -62,7 +62,7 @@ def available_workers() -> int:
 
     :returns: The cpu count on a free-threaded build, else 1.
     """
-    if not _free_threaded():
+    if not free_threaded():
         return 1
     return os.process_cpu_count() or 1
 

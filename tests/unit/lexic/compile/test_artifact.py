@@ -29,7 +29,7 @@ import lexic.compile.artifact as artifact_module
 from lexic.compile import (
     CompiledGrammar,
     Vocabulary,
-    _assemble_core,
+    assemble_core,
     canonical_grammar,
     compile_from_path,
     compile_text,
@@ -41,7 +41,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing import DEFAULT_CONFIG, PdaTables, parse_model
-from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
+from lexic.parsing.caches import CLAIMED, MEMOS, cached_entries, reset_caches
 from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE, lead_rule_document
@@ -267,7 +267,7 @@ def _fresh_artifact(text: str, stem: str) -> CompiledGrammar:
     two different things (the compile memo, the identity memos this file
     exists to pin) into one assertion."""
     ast = canonical_grammar(text, GBNF_FLAVOUR)
-    return _assemble_core(
+    return assemble_core(
         ast, stem=stem, source=text, flavour_name="gbnf", vocabulary=Vocabulary()
     )
 
@@ -279,14 +279,14 @@ def _memo_lengths() -> tuple[int, ...]:
     that grew while a sibling shrank by the same amount would pass an
     aggregate comparison and fail this one.
     """
-    return tuple(len(entry.entries) for entry in _MEMOS)
+    return tuple(len(entry.entries) for entry in MEMOS)
 
 
 def _owned_count(owner: object) -> int:
     """How many entries across every registered memo name ``id(owner)``."""
     oid = id(owner)
     total = 0
-    for entry in _MEMOS:
+    for entry in MEMOS:
         for key in entry.entries:
             if not entry.ids:
                 total += key == oid
@@ -348,8 +348,8 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     tok = _bind_tokenizer()
     source = _fresh_artifact(_DRAIN_GRAMMAR, "claim-source")
     source.parse(_DRAIN_TEXT, cores=1)
-    assert id(source.grammar) in _CLAIMED
-    assert id(source.product) in _CLAIMED
+    assert id(source.grammar) in CLAIMED
+    assert id(source.product) in CLAIMED
     before = _owned_count(source.product)
     assert before > 0  # the parse actually populated product-identity-keyed entries
 
@@ -360,8 +360,8 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     del derived
     gc.collect()
 
-    assert id(source.grammar) in _CLAIMED  # still claimed -- by source
-    assert id(source.product) in _CLAIMED
+    assert id(source.grammar) in CLAIMED  # still claimed -- by source
+    assert id(source.product) in CLAIMED
     assert _owned_count(source.product) == before  # nothing the source owns was evicted
     reset_cache_for_tests()
 

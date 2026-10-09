@@ -20,11 +20,11 @@ from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery.interiors import skip_delimited
 from lexic.parsing.parallel.discovery.regions import (
     Region,
-    _roles,
-    _sweep,
-    _vocabulary,
-    _walk,
     find,
+    scan_vocabulary,
+    sweep_offsets,
+    walk_regions,
+    walk_roles,
 )
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
@@ -98,10 +98,10 @@ def walk_through_dicts(text, offsets, vocab, min_span) -> list[Region]:
 
 def both_walks(grammar, text: str, min_span: int):
     """`(spelled, dicts)` over one grammar and document."""
-    vocab = _vocabulary(grammar)
-    offsets = _sweep(text, vocab.watched)
+    vocab = scan_vocabulary(grammar)
+    offsets = sweep_offsets(text, vocab.watched)
     return (
-        _walk(text, offsets, _roles(vocab), min_span),
+        walk_regions(text, offsets, walk_roles(vocab), min_span),
         walk_through_dicts(text, offsets, vocab, min_span),
     )
 
@@ -159,14 +159,14 @@ def test_a_sabotaged_spelling_is_caught() -> None:
         "item ::= [a-z]+\n"
         'arr ::= "[" item ("," item)* "]"\n'
     )
-    vocab = _vocabulary(compiled.codegen_grammar)
+    vocab = scan_vocabulary(compiled.codegen_grammar)
     text = "{a,b,c}"
-    offsets = _sweep(text, vocab.watched)
-    roles = _roles(vocab)
-    honest = _walk(text, offsets, roles, 0)
+    offsets = sweep_offsets(text, vocab.watched)
+    roles = walk_roles(vocab)
+    honest = walk_regions(text, offsets, roles, 0)
     assert honest == walk_through_dicts(text, offsets, vocab, 0)
     assert honest, "the fixture must produce a region for sabotage to mean anything"
 
     assert len(set(roles.names)) > 1, "the fixture must carry distinct values"
     sabotaged = roles._replace(names=tuple(reversed(roles.names)))
-    assert _walk(text, offsets, sabotaged, 0) != honest
+    assert walk_regions(text, offsets, sabotaged, 0) != honest

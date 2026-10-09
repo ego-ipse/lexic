@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
-from lexic.compile.artifact import _reduce_entry, _sub_run
+from lexic.compile.artifact import derived_reduce_entry, sub_run
 from lexic.compile.reduce.variant import reachable_rules
 from lexic.compile.reduction import RunSpec, derive_reduction
 from lexic.exceptions import UnsupportedConstructError
@@ -123,15 +123,15 @@ def test_reduce_variant_handles_optional_nullable_rules():
 def test_reduce_product_is_the_same_object_for_the_same_identity():
     """The derived variant entry is memoised per artefact and reducer."""
     artifact = compile_ast(GBNF_FLAVOUR.grammar)
-    first = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
-    second = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    first = derived_reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    second = derived_reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     assert first is second
 
 
 def test_reduce_variant_elides_noise_models_without_changing_source_product():
     """Recognition twins belong only to the reducer-derived variant artefact."""
     artifact = compile_ast(JSON_GRAMMAR)
-    entry = _reduce_entry(artifact, JSON_REDUCER)
+    entry = derived_reduce_entry(artifact, JSON_REDUCER)
     elide = derive_reduction(JSON_GRAMMAR, JSON_REDUCER).elide
     assert elide
     roots = frozenset(f"{name}-sk" for name in elide)
@@ -180,7 +180,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
             )
         ),
     )
-    escape = _sub_run(
+    escape = sub_run(
         compile_ast(grammar),
         reducer,
         "element-run",
@@ -212,9 +212,9 @@ def test_model_product_is_the_same_object_for_the_same_identity():
 def test_reset_product_cache_forces_reduce_product_recompilation():
     """The compile reset clears the derived reduction-entry cache."""
     artifact = compile_ast(GBNF_FLAVOUR.grammar)
-    first = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    first = derived_reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     reset_cache_for_tests()
-    second = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    second = derived_reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     assert first is not second
     assert first.reducer is second.reducer
 

@@ -62,9 +62,9 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     CHARTABLE_CAP,
     NO_CONSULTS,
-    _inline_value_strs,
     bake_consults,
     consult_arm,
+    inline_value_strs,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
@@ -418,7 +418,7 @@ def test_an_attempt_gated_dispatch_gets_the_attempt_aware_inline_opcode():
     assert vdisp_target(arm.payloads[0])  # the clone licence is unchanged
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_AVDISP
 
 
@@ -442,12 +442,12 @@ def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
 
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_AVSTR
 
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_STOP, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_VSTR  # un-gated again: inlines
 
 
@@ -629,7 +629,7 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
 
 def test_dispatch_conversion_survives_value_str_inlinable_arms():
     """An alternation whose arms target terminal-only value_str clones still
-    dispatches: convert_dispatch runs BEFORE _inline_value_strs, so the unit
+    dispatches: convert_dispatch runs BEFORE inline_value_strs, so the unit
     refs it reads are still OP_REF.
 
     The two specialisations compete for one arm and both remove exactly one

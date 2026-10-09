@@ -414,8 +414,8 @@ does not belong to that host.
 
 ## Directives
 
-Scanned from source comments *before* the grammar is parsed, by the private
-`compile._scan_directives`:
+Scanned from source comments *before* the grammar is parsed, by
+`compile.scan_directives`:
 
 ```
 # @start my_rule          — override the start rule (default: first defined)

@@ -91,7 +91,7 @@ def interior_route[M: IrNamedTuple](
     return None if child is None else (tuple(steps), child)
 
 
-def _walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None:
+def walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None:
     """The model the steps address, or ``None`` when the shape surprises.
 
     A slot the model does not have is a chain/model disagreement and RAISES; a
@@ -139,7 +139,7 @@ def stitch_interior[S: GrammarModel](
 ) -> S | None:
     """Put the pieces' runs back into the shell; ``None`` = shape surprise."""
     steps, child = route
-    stand = _walk_down(shell, steps)
+    stand = walk_down(shell, steps)
     if stand is None:
         return None
     merged = (
@@ -168,7 +168,7 @@ def _merged_whole(
     """
     merged: list[IrSelf] = []
     for piece in pieces:
-        node = _walk_down(piece, steps)
+        node = walk_down(piece, steps)
         if node is None:
             return None
         inner = list(node.children())
@@ -412,7 +412,7 @@ def _folded_stitch[M: IrNamedTuple](
     out of whichever fields happened to line up.
     """
     roots, leads = parsed
-    spines = [_walk_down(root, route) for root in roots]
+    spines = [walk_down(root, route) for root in roots]
     if any(spine is None for spine in spines):
         return None
     found = cast(list[GrammarModel], spines)

@@ -80,7 +80,7 @@ class Request[M: IrNamedTuple](NamedTuple):
     config: ParseConfig = DEFAULT_CONFIG
 
 
-def _split_parse[M: IrNamedTuple](
+def split_parse[M: IrNamedTuple](
     parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
@@ -373,7 +373,7 @@ def _parse_units[M: IrNamedTuple](
     return _Units(works, plan, pieces, run.shell[0])
 
 
-def _split_regions[M: IrNamedTuple](
+def split_regions[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
@@ -484,11 +484,11 @@ def split_model[M: IrNamedTuple](
             model = (
                 _speculate(parse, plan, ask, chosen, pool)
                 if plan.opening
-                else _split_parse(parse, plan, ask, chosen.offsets, pool)
+                else split_parse(parse, plan, ask, chosen.offsets, pool)
             )
             if model is not None:
                 return model
-        return _split_regions(parse, grammar, ask, analysis, pool)
+        return split_regions(parse, grammar, ask, analysis, pool)
 
 
 def _envelope_join[M: IrNamedTuple](

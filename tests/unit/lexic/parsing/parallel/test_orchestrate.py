@@ -28,7 +28,7 @@ from lexic.parsing.parallel.plan.cuts import (
 )
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
-from lexic.parsing.parallel.planner import _certified, safe_plans, split_plans
+from lexic.parsing.parallel.planner import certified_plan, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import roles
@@ -85,7 +85,8 @@ factor ::= [0-9]+
 """
 
 
-def _doc(count: int = 40) -> str:
+def sample_doc(count: int = 40) -> str:
+    """A comma-separated document of ``count`` keyed entries."""
     return ", ".join(f"key{'x' * (i % 7)}:{i}" for i in range(count))
 
 
@@ -160,7 +161,7 @@ def test_split_equals_sequential_and_round_trips():
     """The headline: same model, exactly, and the text comes back."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    text = _doc(1000)
+    text = sample_doc(1000)
     parallel = split_model(parse_model, grammar, Request(text, binding), 4)
     assert parallel is not None
     assert parallel == parse_model(grammar, text, binding)
@@ -177,7 +178,7 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
     are mapped work: below it the scan is one sweep and never reaches a pool.
     """
     compiled = compile_text(LEAD_RULE)
-    text = _doc(2000)
+    text = sample_doc(2000)
     created = 0
     map_calls = 0
 
@@ -225,7 +226,7 @@ def test_every_worker_count_gives_one_answer(cores: int):
     """Worker count moves wall-clock, never the value."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    text = _doc(1000)
+    text = sample_doc(1000)
     assert split_model(
         parse_model, grammar, Request(text, binding), cores
     ) == parse_model(grammar, text, binding)
@@ -502,7 +503,7 @@ def test_split_model_settles_too_few_workers_before_entering_poollease(
     monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    assert split_model(parse_model, grammar, Request(_doc(), binding), 1) is None
+    assert split_model(parse_model, grammar, Request(sample_doc(), binding), 1) is None
 
 
 def test_a_bad_input_declines_rather_than_inventing_a_refusal():
@@ -510,7 +511,7 @@ def test_a_bad_input_declines_rather_than_inventing_a_refusal():
     split declines and the caller's sequential parse is what raises."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    bad = _doc() + ", 12:not-a-pair"
+    bad = sample_doc() + ", 12:not-a-pair"
     assert split_plan(grammar) is not None, "the decline must not be 'no plan'"
     assert split_model(parse_model, grammar, Request(bad, binding), 4) is None
     with pytest.raises(UnsupportedConstructError):
@@ -618,7 +619,7 @@ def _certified_cont_plan() -> SplitPlan:
     grammar = compiled.codegen_grammar
     plan = split_plan(grammar)
     assert plan is not None
-    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
+    certified = certified_plan(plan, compiled.split_analysis or compiled.grammar)
     assert certified is not None and certified.bound is not None
     return certified
 

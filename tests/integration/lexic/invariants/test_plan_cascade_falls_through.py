@@ -65,8 +65,8 @@ def test_the_first_plan_finds_nothing_and_the_second_produces() -> None:
     fell_through: list[int] = []
 
     real_offsets = orchestrate.cut_offsets
-    real_split = orchestrate._split_parse
-    real_regions = orchestrate._split_regions
+    real_split = orchestrate.split_parse
+    real_regions = orchestrate.split_regions
 
     def offsets(plan, text, cores, pool, seen):
         chosen = real_offsets(plan, text, cores, pool, seen)
@@ -84,15 +84,15 @@ def test_the_first_plan_finds_nothing_and_the_second_produces() -> None:
         return real_regions(*args, **kwargs)
 
     orchestrate.cut_offsets = offsets
-    orchestrate._split_parse = split
-    orchestrate._split_regions = regions
+    orchestrate.split_parse = split
+    orchestrate.split_regions = regions
     try:
         sequential = bench.compiled.parse(ONE_ROW, cores=1)
         split_model = bench.compiled.parse(ONE_ROW, cores=WORKERS)
     finally:
         orchestrate.cut_offsets = real_offsets
-        orchestrate._split_parse = real_split
-        orchestrate._split_regions = real_regions
+        orchestrate.split_parse = real_split
+        orchestrate.split_regions = real_regions
 
     assert considered, "the loop never asked a plan for offsets"
     assert considered[0] == ("row", 0), f"plan one was not skipped: {considered}"

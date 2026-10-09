@@ -20,13 +20,13 @@ from lexic.parsing.parallel import worker_count
 @pytest.fixture(name="eight_cores")
 def _eight_cores(monkeypatch: pytest.MonkeyPatch) -> None:
     """A free-threaded machine with eight cpus."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: True)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: True)
     monkeypatch.setattr(os, "process_cpu_count", lambda: 8)
 
 
 def test_auto_is_one_under_the_gil(monkeypatch: pytest.MonkeyPatch):
     """Threaded parsing measured a net loss under the GIL — auto declines."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert available_workers() == 1
     assert doc_workers(AUTO) == 1
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=AUTO) == 1
@@ -51,7 +51,7 @@ def test_an_explicit_count_is_a_ceiling_with_a_chunk_floor(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """An explicit N is honored once each requested chunk clears the floor."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert doc_workers(4) == 4
     assert worker_count(1000 * MIN_CHUNK, splits=100, cores=4) == 4
     assert worker_count(1000, splits=100, cores=4) == 1

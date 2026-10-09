@@ -29,19 +29,25 @@ __all__ = [
     "IrQwenSplit",
     "IrDigits",
     "IrSplitMerged",
+    "CONTRACTIONS",
+    "gpt2_piece",
+    "is_letter",
+    "is_number",
+    "is_space",
+    "qwen_piece",
 ]
 
 
-_CONTRACTIONS = ("'s", "'t", "'re", "'ve", "'m", "'ll", "'d")
+CONTRACTIONS = ("'s", "'t", "'re", "'ve", "'m", "'ll", "'d")
 """The GPT-2 pattern's literal contraction alternatives, in pattern order."""
 
 
-def _is_letter(ch: str) -> bool:
+def is_letter(ch: str) -> bool:
     """Unicode ``\\p{L}`` membership."""
     return unicodedata.category(ch).startswith("L")
 
 
-def _is_number(ch: str) -> bool:
+def is_number(ch: str) -> bool:
     """Unicode ``\\p{N}`` membership."""
     return unicodedata.category(ch).startswith("N")
 
@@ -56,14 +62,14 @@ which changes real ids.
 """
 
 
-def _is_space(ch: str) -> bool:
+def is_space(ch: str) -> bool:
     """Unicode ``White_Space`` — what ``\\s`` means, not what Python means."""
     return ch.isspace() and ch not in _NOT_WHITE_SPACE
 
 
 def _is_other(ch: str) -> bool:
     """The patterns' ``[^\\s\\p{L}\\p{N}]`` class."""
-    return not _is_space(ch) and not _is_letter(ch) and not _is_number(ch)
+    return not is_space(ch) and not is_letter(ch) and not is_number(ch)
 
 
 def _run_end(text: str, i: int, pred: Callable[[str], bool]) -> int:
@@ -74,7 +80,7 @@ def _run_end(text: str, i: int, pred: Callable[[str], bool]) -> int:
     return i
 
 
-def _gpt2_piece(text: str, i: int) -> str:
+def gpt2_piece(text: str, i: int) -> str:
     """One GPT-2 pre-token at ``i`` — the pattern's first-match alternative.
 
     The alternatives in order: a literal contraction; an optional single
@@ -83,18 +89,18 @@ def _gpt2_piece(text: str, i: int) -> str:
     is left to prefix the next piece); a whitespace run.
     """
     n = len(text)
-    for word in _CONTRACTIONS:
+    for word in CONTRACTIONS:
         if text.startswith(word, i):
             return word
     j = i + 1 if text[i] == " " and i + 1 < n else i
     head = text[j] if j < n else ""
-    if head and _is_letter(head):
-        return text[i : _run_end(text, j, _is_letter)]
-    if head and _is_number(head):
-        return text[i : _run_end(text, j, _is_number)]
+    if head and is_letter(head):
+        return text[i : _run_end(text, j, is_letter)]
+    if head and is_number(head):
+        return text[i : _run_end(text, j, is_number)]
     if head and _is_other(head):
         return text[i : _run_end(text, j, _is_other)]
-    k = _run_end(text, i, _is_space)
+    k = _run_end(text, i, is_space)
     if k < n and k - i >= 2:
         return text[i : k - 1]
     return text[i:k]
@@ -105,7 +111,7 @@ def _gpt2_split(text: str) -> list[str]:
     pieces: list[str] = []
     i = 0
     while i < len(text):
-        piece = _gpt2_piece(text, i)
+        piece = gpt2_piece(text, i)
         pieces.append(piece)
         i += len(piece)
     return pieces
@@ -143,14 +149,14 @@ def _contraction_at(text: str, i: int) -> str:
     """
     if text[i] != "'":
         return ""
-    for word in _CONTRACTIONS:
+    for word in CONTRACTIONS:
         for length in range(1, len(word) + 2):
             if text[i : i + length].casefold() == word:
                 return text[i : i + length]
     return ""
 
 
-def _qwen_piece(text: str, i: int) -> str:
+def qwen_piece(text: str, i: int) -> str:
     """One Qwen pre-token at ``i`` — the pattern's first-match alternative.
 
     In order: a case-insensitive contraction; an optional single non-newline
@@ -164,13 +170,13 @@ def _qwen_piece(text: str, i: int) -> str:
     if contraction:
         return contraction
     head = text[i]
-    if _is_letter(head):
-        return text[i : _run_end(text, i, _is_letter)]
+    if is_letter(head):
+        return text[i : _run_end(text, i, is_letter)]
     # an optional single prefix char that is neither newline nor alphanumeric
-    if head not in "\r\n" and not _is_number(head) and i + 1 < n:
-        if _is_letter(text[i + 1]):
-            return text[i : _run_end(text, i + 1, _is_letter)]
-    if _is_number(head):
+    if head not in "\r\n" and not is_number(head) and i + 1 < n:
+        if is_letter(text[i + 1]):
+            return text[i : _run_end(text, i + 1, is_letter)]
+    if is_number(head):
         return head
     j = i + 1 if head == " " and i + 1 < n else i
     if j < n and _is_other(text[j]):
@@ -186,7 +192,7 @@ def _qwen_space(text: str, i: int) -> str:
     ``\\s+(?!\\S)`` (leaving one space to prefix the next piece), then a
     plain ``\\s+``.
     """
-    k = _run_end(text, i, _is_space)
+    k = _run_end(text, i, is_space)
     nl = _last_newline_run(text, i, k)
     if nl > i:
         return text[i:nl]
@@ -213,7 +219,7 @@ def _qwen_split(text: str) -> list[str]:
     pieces: list[str] = []
     i = 0
     while i < len(text):
-        piece = _qwen_piece(text, i)
+        piece = qwen_piece(text, i)
         pieces.append(piece)
         i += len(piece)
     return pieces
@@ -265,12 +271,12 @@ class IrDigits(IrNamedTuple[bool], IrPretoken):
         start = 0
         i = 0
         while i < len(text):
-            if not _is_number(text[i]):
+            if not is_number(text[i]):
                 i += 1
                 continue
             if start < i:
                 pieces.append(text[start:i])
-            end = i + 1 if self.individual else _run_end(text, i, _is_number)
+            end = i + 1 if self.individual else _run_end(text, i, is_number)
             pieces.append(text[i:end])
             start = i = end
         if start < len(text):

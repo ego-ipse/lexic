@@ -51,8 +51,8 @@ An `IrFlavour` IS-AN `IrEmitter` (from `lexic.ir`) carrying, as class data:
   dangling-ref resolution only (ABNF ships the RFC 5234 B.1 core rules; a
   referenced-but-undefined core rule is appended, nothing else ever is).
 
-Each module exposes the class as **private** (`_GbnfFlavour`) and the
-constructed singleton as **public** (`GBNF_FLAVOUR`).
+Each module exposes the class (`GbnfFlavour`) and the constructed singleton
+(`GBNF_FLAVOUR`).
 
 ## 3. The flavours
 
@@ -61,7 +61,7 @@ grammars/
   __init__.py    the registry (§1)
   gbnf.py        GBNF — one flat module: GBNF_GRAMMAR + GBNF_REDUCTIONS +
                  GBNF_REDUCER (parse half, full surface, native — no meta-grammar),
-                 GBNF_ESCAPES, GBNF_ACTIONS (emit half), the _GbnfFlavour class +
+                 GBNF_ESCAPES, GBNF_ACTIONS (emit half), the GbnfFlavour class +
                  GBNF_FLAVOUR singleton
   abnf.py        ABNF — same shape; full RFC 5234 + 7405 subset (num-seq incl.
                  %d/%b dot-sequences, [...] option, comments/folding, %s/%i and
@@ -92,8 +92,8 @@ text, equal `non_semantic`).
 
 ## 5. Adding a flavour
 
-Either write a flat `grammars/<name>.py` (private `_XFlavour` + public
-`X_FLAVOUR`, registered via `register_flavour`) or author a text manifest and
+Either write a flat `grammars/<name>.py` (an `XFlavour` class + its
+`X_FLAVOUR` singleton, registered via `register_flavour`) or author a text manifest and
 load it with `lexic.compile.load_flavour`. Either way you supply only the four
 data pieces in §2 — no methods.
 
