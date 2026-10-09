@@ -1239,7 +1239,10 @@ engine reads a carving:
   zero-width, which the loop's carving drops, so it forks.
 - **An open child** at a convergence ends somewhere in the sides' common
   future; it is ranked only where every end it can reach ranks the same way
-  (`_kept_open`), whatever the decider.
+  (`_kept_open`), whatever the decider. Leftmost-longest's slot is the end
+  itself, so the first reachable end answers for all of them; any other order
+  is asked at every end the step can reach. A carving choice is the decider's
+  and is answered on the predictive engine, however many ends there are.
 - **An island with two followable ends** raises `IslandEnds` carrying each
   completion, and its holder (a frame's item, an attempted iteration whose
   whole sub-run is the island, a steal) builds one side per end and ranks them.

@@ -1,5 +1,11 @@
 # Log
 
+## An open child is ranked at its first end under leftmost-longest (2026-10-09)
+
+`decisions.md` records that `_kept_open` ranks leftmost-longest's open child by
+its first reachable end, which stands for every later one, and any other
+decider's at every end it can reach, never forking on the count.
+
 ## A decider's chain is its best carving, not its best step per level (2026-10-09)
 
 `decisions.md` records that `_choose_slots` reads any decider but

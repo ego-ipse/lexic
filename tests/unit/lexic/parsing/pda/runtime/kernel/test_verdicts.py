@@ -761,3 +761,88 @@ def test_a_parse_whose_allowance_is_spent_forks_as_before_the_retry(
     compiled, product = parity_helpers.built(SECTIONS, "verdicts-sections")
     with pytest.raises(ProbeFork):
         pda_model(product.pda, ";aaaa!", compiled.product.executor)
+
+
+def _open_rank(
+    monkeypatch: pytest.MonkeyPatch,
+    decide: Decider,
+    length: int,
+    ends: tuple[int, int] = (3, PENDING),
+    at: int = 4,
+) -> tuple[int, list[int]]:
+    """``_kept_open`` at a convergence at ``at`` of two steps ``ends``, one
+    still open, over a text of ``length``: its verdict, and the open step's
+    end at each rank it asked."""
+    kern = _boundary(decide=decide)
+    kern.text = "x" * length
+    real = vars(Verdicts)["_kept"]
+    open_side = ends.index(PENDING)
+    asked: list[int] = []
+
+    def counted(self: PdaKernel, stop: tuple[int, ...], take: tuple[int, ...]) -> int:
+        asked.append((stop, take)[open_side][0])
+        return real(self, stop, take)
+
+    monkeypatch.setattr(Verdicts, "_kept", counted)
+    return vars(Verdicts)["_kept_open"](kern, ends, at), asked
+
+
+def test_an_open_step_under_leftmost_longest_is_ranked_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every end from the convergence on is past the closed step, and
+    leftmost-longest's slot is the end itself, so the first end answers for
+    all of them: one rank, whatever the text's length."""
+    assert _open_rank(monkeypatch, LEFTMOST_LONGEST, 10_000) == (TAKE, [4])
+
+
+def test_an_open_step_under_another_decider_is_ranked_end_by_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another decider's order is asked at every end the step can reach; the
+    shortest keeps the closed step against each of them."""
+    verdict, asked = _open_rank(monkeypatch, _Shortest(frozenset()), 20)
+    assert verdict == STOP_FORCED
+    assert sorted(asked) == list(range(4, 21))
+
+
+def test_an_open_step_with_many_ends_is_still_answered_on_the_pda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """However many ends the step can reach, another decider's order is asked
+    at each of them and answered here: which carving to keep is the decider's
+    question, settled on the predictive engine, never sent to Earley."""
+    verdict, asked = _open_rank(monkeypatch, _Shortest(frozenset()), 500)
+    assert verdict == STOP_FORCED
+    assert sorted(asked) == list(range(4, 501))
+
+
+def test_an_open_stop_step_under_leftmost_longest_is_ranked_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stop side's step still open, the take side's closed at 3: the open
+    one ends at the convergence or later, past 3, so leftmost-longest keeps
+    the stop side, asking once."""
+    assert _open_rank(monkeypatch, LEFTMOST_LONGEST, 10_000, (PENDING, 3)) == (
+        STOP_FORCED,
+        [4],
+    )
+
+
+@pytest.mark.parametrize("open_side", [0, 1])
+@pytest.mark.parametrize(("closed", "at", "length"), [(0, 1, 1), (2, 3, 9), (3, 7, 12)])
+def test_leftmost_longests_one_rank_answers_as_every_end_would(
+    monkeypatch: pytest.MonkeyPatch, open_side: int, closed: int, at: int, length: int
+) -> None:
+    """The single rank at the convergence gives what ranking every reachable
+    end gives — leftmost-longest's slot is the end, so they all rank alike."""
+    ends = (PENDING, closed) if open_side == 0 else (closed, PENDING)
+    kept = vars(Verdicts)["_kept"]
+    kern = _boundary()
+    every = {
+        kept(kern, *((end if end != PENDING else reach,) for end in ends))
+        for reach in range(at, length + 1)
+    }
+    one, asked = _open_rank(monkeypatch, LEFTMOST_LONGEST, length, ends, at)
+    assert asked == [at]
+    assert every == {one}

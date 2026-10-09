@@ -530,12 +530,15 @@ class Verdicts[Carry](Sides[Carry]):
         convergence at ``at``: it ends at ``at`` or later, and the sides share
         what follows. Settled only where it cannot end where the other step
         did, and every end it can reach ranks the same way against it —
-        whatever the decider's order."""
+        whatever the decider's order. Leftmost-longest's slot is the end itself,
+        so every end from ``at`` on ranks alike and ``at`` stands for them all;
+        any other order is asked at every end the step can reach."""
         if max(ends) >= at:
             return FORKED
+        reach = range(at, at + 1 if self._takes_longest() else len(self.text) + 1)
         found = {
             self._kept(*((at_end if end == PENDING else end,) for end in ends))
-            for at_end in range(at, len(self.text) + 1)
+            for at_end in reach
         }
         return found.pop() if len(found) == 1 else FORKED
 
