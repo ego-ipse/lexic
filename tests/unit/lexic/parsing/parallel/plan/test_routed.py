@@ -258,3 +258,16 @@ def test_a_multi_arm_head_unit_not_ending_at_the_mark_declines():
 
     assert not terminates_once_ref("head", "\n", rules)
     assert routed_plan(grammar) is None
+
+
+def test_a_neighbour_of_varying_width_declines_the_whole_extent_route():
+    """``pre{1,2}`` before a whole-extent interior spells ``#`` or ``##``: no
+    fixed width bounds where the interior starts, so no plan is derived. The
+    same grammar with ``pre`` exactly once is bounded by its one ``#``."""
+    varying = (
+        'root ::= pre{1,2} para*\npre ::= "#"\n'
+        'para ::= line+ "\\n"\nline ::= [a-z# ]+ "\\n"\n'
+    )
+    assert routed_plan(_grammar(varying)) is None
+    plan = routed_plan(_grammar(varying.replace("pre{1,2}", "pre")))
+    assert plan is not None and plan.whole and plan.before == "#"

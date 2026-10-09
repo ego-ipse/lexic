@@ -1,5 +1,11 @@
 # Log
 
+## A routed interior's neighbours are read at exactly-once only (2026-10-09)
+
+`parallel-parsing.md` records that a whole-extent routed interior's
+neighbours are spelled by `shapes.exact_text`, so a bounded repetition such as
+`pre{1,2}` declines the route instead of being read as one occurrence.
+
 ## A text extent has one answerer (2026-10-08)
 
 `decisions.md` records how a text-only rule's extent is answered: the proof's

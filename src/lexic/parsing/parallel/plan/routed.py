@@ -34,6 +34,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
     emit_charset,
+    exact_text,
     first_charset,
     literal_text,
     rule_emits,
@@ -421,54 +422,20 @@ def _spelled_run(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> str | N
     """What a run of arm items spells, or ``None`` when any of them cannot.
 
     A whole-extent interior is bounded by its neighbours' widths, so every
-    neighbour has to spell a fixed string. One that does not — a repetition, a
-    character class — leaves the interior's start unknowable without parsing,
-    and the plan declines rather than guessing at it.
+    neighbour has to spell ONE fixed string every time it occurs:
+    :func:`~...discovery.shapes.exact_text`, which reads an item only at its
+    exactly-once quantifier. A repetition, a bounded one included, or a
+    character class leaves the interior's start unknowable without parsing,
+    and the plan declines rather than guessing at it — ``pre{1,2}`` read as
+    one ``pre`` placed every piece behind a prefix the document did not have.
     """
     out: list[str] = []
     for item in items:
-        spelled = _spelled_item(item, rules, frozenset())
-        if spelled is None:
+        spelled = exact_text(item, rules, frozenset())
+        if not spelled:
             return None
         out.append(spelled)
     return "".join(out)
-
-
-def _spelled_item(
-    item: IrItem, rules: dict[str, IrRule], seen: frozenset[str]
-) -> str | None:
-    """What one item spells, resolving a single-armed rule of its own.
-
-    :func:`literal_text` resolves through a rule whose arm is ONE item, which
-    is what a delimiter needs. A neighbour is not a delimiter: ``open ::= "<<<"
-    nl`` spells a fixed string through two items, and refusing it leaves a
-    whole-extent interior unservable for a reason that has nothing to do with
-    its terminator. So a single-armed rule is spelled item by item here.
-
-    Only where every item spells one — a repetition or a character class still
-    declines, because the interior's start would then be unknowable without
-    parsing. ``seen`` bounds a recursive neighbour.
-    """
-    direct = literal_text(item, rules)
-    if direct is not None:
-        return direct
-    atom = item.atom
-    if not isinstance(atom, IrRuleRef) or item.quantifier.lo != 1:
-        return None
-    name = str(atom)
-    target = rules.get(name)
-    arms = tuple(target.body) if target is not None else ()
-    if len(arms) != 1 or name in seen or unbounded(item):
-        return None
-    parts = []
-    for inner in tuple(arms[0]):
-        if not isinstance(inner, IrItem):
-            return None
-        spelled = _spelled_item(inner, rules, seen | {name})
-        if spelled is None:
-            return None
-        parts.append(spelled)
-    return "".join(parts)
 
 
 def _routed_at(

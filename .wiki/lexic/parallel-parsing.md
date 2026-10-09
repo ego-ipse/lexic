@@ -47,6 +47,13 @@ document and are never cached across two of them**.
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
 
+**A whole-extent routed interior is bounded by its neighbours' text**, read
+by `shapes.exact_text`: one string every time, an exactly-once item through
+single-armed rules and nothing else. Every piece wears that text in front, so a
+neighbour that varies — `pre{1,2}` spelling `#` or `##` — must decline: read
+as one `#`, a piece whose interior opens with `#` parsed `pre` as two and the
+stitched model lost a character per piece.
+
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
 same `parallel -> pda` edge `plan/speculation.py` already uses for
