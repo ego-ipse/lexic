@@ -28,16 +28,13 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
-from lexic.parsing.pda.runtime.admission import (
-    REST_ADMITS,
-    REST_ADMITS_HARD,
-    composes,
-)
+from lexic.parsing.pda.runtime.admission import composes
 from lexic.parsing.pda.runtime.build import (
     Frame,
 )
 from lexic.parsing.pda.runtime.islands import IslandEnds
 from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
 __all__ = ["Attempting", "claim"]
 
@@ -329,12 +326,13 @@ class Attempting[Carry](Verdicts[Carry]):
         the answer cannot be a false positive. Only reachable when the greedy
         extent OVERSHOOTS — an arm that stopped short could not reach ``end``.
         """
-        whole = self.text
+        whole, scope = self.text, self._caches.scope
+        cut, scope.cut = scope.cut, True
         self.text = whole[:end]
         try:
             bounded = self._attempt_run(sub, pos, -2)
         finally:
-            self.text = whole
+            self.text, scope.cut = whole, cut
         return bounded is not None and bounded[0] == end
 
     def _attempt_run(

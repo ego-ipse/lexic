@@ -111,8 +111,8 @@ def test_a_program_that_cannot_fork_marks_no_sub_run(monkeypatch) -> None:
             seen["records"] += 1
             super().append(record)
 
-    def init(self, nesting=None) -> None:
-        real_init(self, nesting)
+    def init(self, scope=None) -> None:
+        real_init(self, scope)
         self.audits = Audits()
 
     def drive(self, floor: int = 0, limit: int = -1) -> None:

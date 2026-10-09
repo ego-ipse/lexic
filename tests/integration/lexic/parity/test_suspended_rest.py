@@ -16,9 +16,9 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.pda.compiler.program.opcodes import OP_CC, OP_LIT1, OP_REF, OP_REF1
-from lexic.parsing.pda.runtime.admission import REST_ADMITS, REST_ADMITS_HARD, REST_DEAD
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD, REST_DEAD
 from tests.parity_helpers import DECLINED, REFUSED, answers
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 

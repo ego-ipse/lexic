@@ -6,24 +6,17 @@ import pytest
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
-from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_REF1
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
     NESTING_DEPTH,
     PARSE_NESTING,
-    REST_ADMITS_HARD,
-    REST_ASCEND,
-    REST_DEAD,
     KernelCaches,
-    Nesting,
+    RunScope,
     admits,
-    arm_rest_scan,
     composes,
     frames_copy,
-    item_admits,
 )
 from lexic.parsing.pda.runtime.build import Frame
-from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 # ── admits — the FIRST pre-filter ─────────────────────────────────────
@@ -278,81 +271,7 @@ def test_the_prefix_is_whole_because_one_origin_holds_it_all() -> None:
     assert original == [IrStr("was-there")], "and the original is untouched"
 
 
-# ── item / clone admission, the arm-rest walk, FOLLOW composability ──
-
-MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
-
-
-def test_item_admits_a_literal_only_its_own_character():
-    """A literal item admits only its exact character."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 0, "a") is True
-    assert item_admits(arm, 0, "z") is False
-
-
-def test_item_admits_never_admits_the_empty_string():
-    """An empty lookahead character never admits, regardless of item kind."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 0, "") is False
-
-
-def test_item_admits_a_charclass_by_membership():
-    """A char class item admits by set membership."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 2, "5") is True
-    assert item_admits(arm, 2, "x") is False
-
-
-def test_item_admits_delegates_a_clone_reference_to_clone_admits():
-    """A clone-reference item defers to the target clone's own admission."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 1, "m") is True
-    assert item_admits(arm, 1, "z") is False
-
-
-def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
-    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
-    settling the walk before item 2 is even reached."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "m", 0) == (REST_ADMITS_HARD, False)
-
-
-def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
-    """A mandatory item refusing the char kills the stop side."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "5", 0) == (REST_DEAD, False)
-
-
-def test_arm_rest_scan_ascends_past_the_arms_final_item():
-    """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, arm.n - 1, "q", 0) == (REST_ASCEND, False)
-
-
-def _closing_arm():
-    """``x " " ">"``: an inline body, then its two-literal closer."""
-    return flat_arm(
-        3,
-        kinds=(OP_REF1, OP_LIT1, OP_LIT1),
-        payloads=(None, " ", ">"),
-        los=(1, 1, 1),
-    )
-
-
-def test_a_run_of_exactly_once_literals_is_read_whole():
-    """The stop side after ``x`` must spell ``" >"`` at the boundary: a space
-    followed by anything else is no closer, and the walk is dead there."""
-    arm = _closing_arm()
-    assert arm_rest_scan(arm, 0, "ab >", 2) == (REST_ADMITS_HARD, False)
-    assert arm_rest_scan(arm, 0, "ab c >", 2) == (REST_DEAD, False)
-    assert arm_rest_scan(arm, 0, "ab", 2) == (REST_DEAD, False)
+# ── FOLLOW composability ──────────────────────────────────────────────
 
 
 def test_composes_is_true_at_end_of_input():
@@ -368,12 +287,12 @@ def test_composes_checks_the_next_character_against_follow():
     assert composes(follow, "ayb", 1) is False
 
 
-# ── Nesting — a retry's nested verdicts, drawn from the parse's allowance ──
+# ── RunScope — a retry's nested verdicts, the parse's allowance, wholeness ──
 
 
 def test_a_retry_draws_from_the_parse_and_gives_back_what_it_did_not_ask():
     """Two of a retry's sixty-four are asked; the other sixty-two go back."""
-    nesting = Nesting()
+    nesting = RunScope()
     assert nesting.open(64) and nesting.retry == 64
     assert nesting.take() and nesting.take()
     nesting.close()
@@ -383,7 +302,7 @@ def test_a_retry_draws_from_the_parse_and_gives_back_what_it_did_not_ask():
 def test_a_spent_allowance_opens_no_retry_and_outside_one_nothing_is_taken():
     """Past the parse's allowance a retry is not opened at all; outside a
     retry no nested verdict is ever granted."""
-    nesting = Nesting()
+    nesting = RunScope()
     assert not nesting.take()
     nesting.left = 1
     assert nesting.open(64) and nesting.retry == 1
@@ -396,8 +315,19 @@ def test_a_delegate_kernel_draws_on_the_parse_s_own_allowance():
     """A kernel run inside a parse keeps a retry of its own but spends the
     same allowance, so delegate sub-runs cannot multiply the parse's bound."""
     parse = KernelCaches()
-    delegate = KernelCaches(parse.nesting)
-    assert delegate.nesting is not parse.nesting
-    assert delegate.nesting.root is parse.nesting.root
-    delegate.nesting.open(64)
-    assert parse.nesting.left == PARSE_NESTING - 64
+    delegate = KernelCaches(parse.scope)
+    assert delegate.scope is not parse.scope
+    assert delegate.scope.root is parse.scope.root
+    delegate.scope.open(64)
+    assert parse.scope.left == PARSE_NESTING - 64
+
+
+def test_only_the_parse_s_own_run_over_its_whole_text_is_whole():
+    """A delegate's root may end anywhere in its window, and a truncated
+    text's end is not the document's: neither may refute a stop side against
+    the text."""
+    parse = KernelCaches()
+    assert parse.scope.whole()
+    assert not KernelCaches(parse.scope).scope.whole()
+    parse.scope.cut = True
+    assert not parse.scope.whole()

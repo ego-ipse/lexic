@@ -18,6 +18,7 @@ import lexic.parsing.pda.runtime.matchers as matchers_mod
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrSelf
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
@@ -27,22 +28,36 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     OP_CC,
     OP_CONSULT,
+    OP_ISLAND,
     OP_LIT,
+    OP_LIT1,
+    OP_REF,
+    OP_REF1,
     OP_VSTR,
 )
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
+    REST_ADMITS_HARD,
+    REST_ASCEND,
+    REST_DEAD,
+    arm_rest_scan,
     consult_extent,
+    item_admits,
     match_arm,
     match_cc,
     match_chartable,
     match_lit,
     select_arm,
+    spelled_run,
+    stop_side_dead,
     vstr_once,
 )
 from lexic.parsing.products import model_product
 from tests.clone_walk import walk_program_clones
+from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 
 def pda_for(text: str):
@@ -416,3 +431,236 @@ def test_a_lead_char_miss_keeps_the_words_it_always_had():
         pda_model(product.pda, "9", compiled.product.executor)
 
     assert str(refusal.value).startswith("no arm at 0")
+
+
+# ── item / clone admission and the arm-rest walk ──────────────────────
+
+MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
+
+
+def test_item_admits_a_literal_only_its_own_character():
+    """A literal item admits only its exact character."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "a") is True
+    assert item_admits(arm, 0, "z") is False
+
+
+def test_item_admits_never_admits_the_empty_string():
+    """An empty lookahead character never admits, regardless of item kind."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "") is False
+
+
+def test_item_admits_a_charclass_by_membership():
+    """A char class item admits by set membership."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 2, "5") is True
+    assert item_admits(arm, 2, "x") is False
+
+
+def test_item_admits_delegates_a_clone_reference_to_clone_admits():
+    """A clone-reference item defers to the target clone's own admission."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 1, "m") is True
+    assert item_admits(arm, 1, "z") is False
+
+
+def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
+    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
+    settling the walk before item 2 is even reached."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "m", 0) == (REST_ADMITS_HARD, False)
+
+
+def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
+    """A mandatory item refusing the char kills the stop side."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "5", 0) == (REST_DEAD, False)
+
+
+def test_arm_rest_scan_ascends_past_the_arms_final_item():
+    """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, arm.n - 1, "q", 0) == (REST_ASCEND, False)
+
+
+def _closing_arm():
+    """``x " " ">"``: an inline body, then its two-literal closer."""
+    return flat_arm(
+        3,
+        kinds=(OP_REF1, OP_LIT1, OP_LIT1),
+        payloads=(None, " ", ">"),
+        los=(1, 1, 1),
+    )
+
+
+def test_a_run_of_exactly_once_literals_is_read_whole():
+    """The stop side after ``x`` must spell ``" >"`` at the boundary: a space
+    followed by anything else is no closer, and the walk is dead there."""
+    arm = _closing_arm()
+    assert arm_rest_scan(arm, 0, "ab >", 2) == (REST_ADMITS_HARD, False)
+    assert arm_rest_scan(arm, 0, "ab c >", 2) == (REST_DEAD, False)
+    assert arm_rest_scan(arm, 0, "ab", 2) == (REST_DEAD, False)
+
+
+# ── spelled_run — a run of exactly-once literals, read at a position ──────
+
+
+def test_spelled_run_says_where_the_run_ends_and_where_it_refuses():
+    """``" " ">"`` then a reference: the run ends at the reference, past
+    ``" >"``; a space followed by anything else refuses at the second item."""
+    arm = flat_arm(
+        3,
+        kinds=(OP_LIT1, OP_LIT1, OP_REF1),
+        payloads=(" ", ">", None),
+        los=(1, 1, 1),
+    )
+    assert spelled_run(arm, 0, "a >b", 1) == (2, 3)
+    assert spelled_run(arm, 0, "a  b", 1) == (1, -1)
+
+
+# ── stop_side_dead — the stop side read against the text ──────────────────
+
+_ONE, _MANY = 1, -1
+"""Upper bounds: exactly or at most once, and unbounded."""
+
+
+def rest_arm(*items: tuple[int, object, int, int]):
+    """An arm whose item 0 is the stopped loop and whose rest is ``items``,
+    each ``(kind, payload, lo, hi)``."""
+    loop = (OP_LIT, "z", 0, _MANY)
+    kinds, payloads, los, his = zip(loop, *items, strict=True)
+    return flat_arm(len(kinds), kinds=kinds, payloads=payloads, los=los, his=his)
+
+
+def dead(arm, text: str, stack: list | None = None) -> bool:
+    """The walk from the stopped loop at item 0, at the start of ``text``,
+    under ``stack`` (the arm's own frame on top, and the frames below it)."""
+    return stop_side_dead(stack or [], arm, 0, text, 0)
+
+
+def test_a_mandatory_literal_the_text_cannot_match_kills_the_stop_side():
+    """``" >"`` against ``" n"``: no continuation begins with this text,
+    though its first character admits."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " n:7")
+
+
+def test_a_mandatory_empty_literal_matches_everywhere_and_never_kills():
+    """``""`` then ``" >"`` against ``" >"``: the empty literal consumes
+    nothing."""
+    arm = rest_arm((OP_LIT1, "", 1, _ONE), (OP_LIT1, " >", 1, _ONE))
+    assert not dead(arm, " >")
+
+
+def test_a_continuation_that_spends_the_document_lives():
+    """``" >"`` against ``" >"``, then the end of the document."""
+    assert not dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " >")
+
+
+def test_text_left_past_the_root_is_dead():
+    """The rest matches, but the document goes on where nothing may follow."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " > more")
+
+
+def test_skipping_a_matching_optional_item_can_be_the_reading_that_lives():
+    """``"a"? "ab"`` on ``ab``: taking the optional ``a`` leaves ``b`` against
+    ``ab`` and dies; skipping it matches. A walk that skips an optional item
+    only on a mismatch takes ``a``, dies, and calls a live stop side dead."""
+    arm = rest_arm((OP_LIT, "a", 0, _ONE), (OP_LIT1, "ab", 1, _ONE))
+    assert not dead(arm, "ab")
+    assert dead(arm, "ac")
+
+
+def test_an_optional_class_is_tried_both_ways_too():
+    """``[ab]? "b"`` on ``b``: the class takes the ``b`` and the literal then
+    meets the end; skipping the class is the reading that lives."""
+    arm = rest_arm((OP_CC, (frozenset("ab"), False), 0, _ONE), (OP_LIT1, "b", 1, _ONE))
+    assert not dead(arm, "b")
+    assert dead(arm, "c")
+
+
+def test_a_variable_width_item_stops_the_walk_undecided():
+    """``"x"+ "!"``: after a matching first ``x`` the walk cannot know where
+    the run ends, so the ``y`` that kills ``"!"`` later proves nothing; a
+    mandatory run that cannot even start kills."""
+    arm = rest_arm((OP_LIT, "x", 1, _MANY), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "xxy")
+    assert dead(arm, "y")
+
+
+def test_a_reference_that_could_start_stops_the_walk_undecided():
+    """A reference whose clone admits the character may derive anything."""
+    clone = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=None,
+    )
+    arm = rest_arm((OP_REF, clone, 1, _ONE), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "q?")
+    assert dead(arm, "?")  # it cannot start: read as empty, and "!" refuses
+
+
+def test_a_mandatory_reference_that_may_derive_empty_does_not_kill_at_the_end():
+    """A reference to a clone with a nullable default, at the end of input,
+    leaves the walk undecided; a mandatory literal there kills."""
+    nullable = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=flat_arm(0),
+    )
+    assert not dead(rest_arm((OP_REF, nullable, 1, _ONE)), "")
+    assert dead(rest_arm((OP_LIT1, "q", 1, _ONE)), "")
+
+
+def test_an_island_stops_the_walk_undecided():
+    """An island carries no first set the walk reads: never dead past it."""
+    arm = rest_arm((OP_ISLAND, None, 1, _ONE), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "?")
+
+
+def _suspended_in(arm, i: int, count: int) -> Frame[IrSelf]:
+    """A frame over ``arm`` standing at item ``i`` with ``count`` iterations."""
+    frame: Frame[IrSelf] = Frame(arm, [], flat_clone(), 0)
+    frame.i, frame.count = i, count
+    return frame
+
+
+def test_the_walk_goes_on_into_the_enclosing_frame_s_rest():
+    """The top arm's rest is spelled through, so the enclosing frame's rest
+    decides: ``x "!"`` with ``x`` an exactly-once reference, suspended past
+    it, wants ``!``."""
+    top = rest_arm()
+    parent = flat_arm(
+        2, kinds=(OP_REF1, OP_LIT1), payloads=(None, "!"), los=(1, 1), his=(1, 1)
+    )
+    stack = [_suspended_in(parent, 1, 0), _suspended_in(top, 0, 0)]
+    assert dead(top, "?", stack)
+    assert not dead(top, "!", stack)
+
+
+def test_a_further_iteration_of_the_enclosing_item_leaves_it_undecided():
+    """The enclosing frame is inside ``q*`` then ``"!"``: another ``q`` could
+    follow, so a ``q`` that ``"!"`` refuses proves nothing; a character no
+    iteration can start falls through to ``"!"``."""
+    top = rest_arm()
+    clone = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=None,
+    )
+    parent = flat_arm(
+        2, kinds=(OP_REF, OP_LIT1), payloads=(clone, "!"), los=(0, 1), his=(_MANY, 1)
+    )
+    stack = [_suspended_in(parent, 0, 1), _suspended_in(top, 0, 0)]
+    assert not dead(top, "q", stack)
+    assert dead(top, "?", stack)

@@ -21,18 +21,10 @@ from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest, carving
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
 )
-from lexic.parsing.pda.compiler.program.opcodes import (
-    OP_REF1,
-)
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     NESTING_DEPTH,
-    REST_ADMITS,
-    REST_ADMITS_HARD,
-    REST_ASCEND,
-    REST_DEAD,
     Side,
-    arm_rest_scan,
     control_signature,
     pending_values,
     value_shape,
@@ -47,6 +39,14 @@ from lexic.parsing.pda.runtime.kernel.sides import (
     iterating,
     once,
     recorded,
+)
+from lexic.parsing.pda.runtime.matchers import (
+    REST_ADMITS,
+    REST_ADMITS_HARD,
+    REST_ASCEND,
+    REST_DEAD,
+    arm_rest_scan,
+    stop_side_dead,
 )
 from lexic.parsing.product import Completed
 from lexic.parsing.product.tree import CompletionResult
@@ -119,8 +119,11 @@ class Verdicts[Carry](Sides[Carry]):
             else self._beyond_class(arm, i, pos)
         )
         if self._caches.probing:
-            if cls == REST_DEAD:
-                return True
+            if cls == REST_DEAD or (
+                self._caches.scope.whole()
+                and stop_side_dead(self.stack, arm, i, self.text, pos)
+            ):
+                return True  # stopping is dead: taking is forced, not sampled
             settled = self._nested_verdict(arm, i, pos, got)
             if settled is not None:
                 return settled
@@ -160,13 +163,13 @@ class Verdicts[Carry](Sides[Carry]):
         would hand the whole document to the gated engine, and does once the
         parse's allowance (:data:`~...admission.PARSE_NESTING`) is spent.
         """
-        nesting = self._caches.nesting
-        if not nesting.open(_NESTING_BUDGET):
+        scope = self._caches.scope
+        if not scope.open(_NESTING_BUDGET):
             return FORKED
         try:
             return ask(*args)
         finally:
-            nesting.close()
+            scope.close()
 
     def _nests(self) -> bool:
         """Whether a verdict may be asked inside a side here, spending one of
@@ -177,7 +180,7 @@ class Verdicts[Carry](Sides[Carry]):
         sides carry the sub-runs the side still has to settle
         (:meth:`_inherited_floors`)."""
         caches = self._caches
-        return caches.probing <= NESTING_DEPTH and caches.nesting.take()
+        return caches.probing <= NESTING_DEPTH and caches.scope.take()
 
     def _nested_verdict(
         self,
@@ -218,13 +221,7 @@ class Verdicts[Carry](Sides[Carry]):
         verdict, opt = arm_rest_scan(arm, i, text, pos)
         if verdict == REST_ASCEND:
             for frame in self.stack[-2::-1]:
-                # OP_REF1 advances past itself before descending; such a frame
-                # holds no loop count, a quantified descent always does. An
-                # attempt with none committed reads as the reference: a superset.
-                at, up = frame.i, frame.arm
-                if at and frame.count == 0 and up.kinds[at - 1] == OP_REF1:
-                    at -= 1
-                verdict, seen = arm_rest_scan(up, at, text, pos)
+                verdict, seen = arm_rest_scan(frame.arm, frame.suspended(), text, pos)
                 opt = opt or seen
                 if verdict != REST_ASCEND:
                     break

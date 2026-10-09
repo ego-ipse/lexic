@@ -45,6 +45,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -159,6 +160,19 @@ class Frame[Carry]:
         """
         ends = self.ends
         return -1 if ends is None else ends[0]
+
+    def suspended(self) -> int:
+        """The item this frame is suspended in while a frame above it runs.
+
+        ``OP_REF1`` moves the frame on before it descends, so such a frame,
+        which holds no loop count, is in the item before :attr:`i`; a
+        quantified descent always holds one. An attempt with none committed
+        reads as the reference: a superset.
+        """
+        at = self.i
+        if at and self.count == 0 and self.arm.kinds[at - 1] == OP_REF1:
+            return at - 1
+        return at
 
     def close_loop(self, i: int, pos: int) -> int:
         """Close item ``i``'s loop at the current count, and advance past it.

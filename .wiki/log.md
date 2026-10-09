@@ -1,5 +1,11 @@
 # Log
 
+## A stop side the text refutes is not sampled (2026-10-09)
+
+`decisions.md` records the text refutation inside a probe: a both-viable
+boundary whose stop side's continuation cannot match the text takes, exactly,
+instead of being guessed.
+
 ## A parse's nested verdicts are bounded, not only a retry's (2026-10-09)
 
 `invariants.md` records that every retry of one parse, delegate sub-runs

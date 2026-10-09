@@ -195,9 +195,15 @@ is settled by convergence"* below.
 - **Probes nest only on a retry.** Inside a probe, both-viable boundaries
   resolve greedily by viability class and mark the outcome `uncertain`, which
   forks the verdict that reads it. Only a forked verdict asked again
-  (`_retried`) settles them by verdicts of their own, three sides deep and 64
-  verdicts at most: nesting everywhere is exponential (measured — a 24-deep
-  probe chain), and a verdict that settles without it never pays for it.
+  (`_retried`) settles them by verdicts of their own, `NESTING_DEPTH` sides
+  deep and 64 verdicts at most: nesting everywhere is exponential (measured — a
+  24-deep probe chain), and a verdict that settles without it never pays for it.
+  Before either, a boundary whose stop side the TEXT refutes is no guess at all:
+  `matchers.stop_side_dead` reads the stop side's continuation against the
+  text — literals and once-only classes matched, optional ones both ways, the
+  walk undecided at anything wider — and a dead stop side makes taking forced.
+  Only where the run's text and root are the document's (`RunScope.whole`):
+  never in a delegate's window or over a truncated text.
 - **No memoization.** A sub-run's outcome depends on the enclosing
   continuation, so `(clone, pos)` is not a sound packrat key — and the memo
   measured zero hits before removal. The prototype's memoized numbers priced

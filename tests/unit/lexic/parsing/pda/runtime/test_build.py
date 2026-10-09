@@ -29,6 +29,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_TEXT,
     M_VALUE,
+    OP_LIT1,
+    OP_REF,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
@@ -502,3 +505,17 @@ def test_loops_build_earleys_model(source, text):
     and a capture-free fold — each answered on the PDA with Earley's model."""
     pda, earley = pda_and_earley(source, text, f"loop-count-{hash(source)}")
     assert pda == earley
+
+
+def test_a_frame_is_suspended_in_the_reference_it_advanced_past():
+    """``OP_REF1`` moves the frame on before it descends and keeps no count,
+    so the item it is in is the one before :attr:`Frame.i`; a quantified
+    descent keeps its count and stands at its own item."""
+    arm = flat_arm(3, kinds=(OP_REF1, OP_REF, OP_LIT1), payloads=(None, None, "!"))
+    frame = Frame(arm, [], flat_clone(), 0)
+    frame.i, frame.count = 1, 0
+    assert frame.suspended() == 0
+    frame.count = 2
+    assert frame.suspended() == 1
+    frame.i = 0
+    assert frame.suspended() == 0

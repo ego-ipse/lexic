@@ -15,15 +15,9 @@ from typing import Any, NamedTuple
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,
-    OP_CC,
-    OP_CC1,
-    OP_FAIL,
-    OP_ISLAND,
-    OP_LIT,
-    OP_LIT1,
 )
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -34,7 +28,7 @@ __all__ = [
     "NESTING_DEPTH",
     "NO_ROUTE",
     "PARSE_NESTING",
-    "Nesting",
+    "RunScope",
     "Audit",
     "Floor",
     "RouteLane",
@@ -44,14 +38,7 @@ __all__ = [
     "value_shape",
     "KernelCaches",
     "admits",
-    "item_admits",
-    "clone_admits",
-    "arm_rest_scan",
     "composes",
-    "REST_DEAD",
-    "REST_ASCEND",
-    "REST_ADMITS",
-    "REST_ADMITS_HARD",
     "frames_copy",
     "sole_admitted",
 ]
@@ -65,8 +52,8 @@ type Floor = tuple[
     int,
     list[Any],
     list[Any],
-    "Frame | None",
-    "tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None",
+    Frame | None,
+    tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None,
 ]
 """One attempt sub-run a boundary side was forked inside, as the side settles it.
 
@@ -146,94 +133,6 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     return sole
 
 
-REST_DEAD, REST_ASCEND, REST_ADMITS, REST_ADMITS_HARD = 0, 1, 2, 3
-"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
-stop side; a fully-skippable rest defers to the enclosing frame; an
-admitting OPTIONAL item is same-arm chain viability (the greedy split);
-an admitting MANDATORY item is the terminator-theft shape — a possessive
-take would steal the char the arm's own continuation requires, so the
-probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
-
-
-def item_admits(arm: FlatArm, j: int, char: str) -> bool:
-    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
-    if char == "":
-        return False
-    k = arm.kinds[j]
-    payload = arm.payloads[j]
-    if k in (OP_LIT, OP_LIT1):
-        return payload[0] == char
-    if k in (OP_CC, OP_CC1):
-        chars, negated = payload
-        return (char not in chars) if negated else char in chars
-    if k in (OP_FAIL, OP_ISLAND):
-        return True  # no FIRST at hand — MAY (a spurious probe is safe)
-    return clone_admits(payload, char)
-
-
-def clone_admits(clone: FlatClone, char: str) -> bool:
-    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
-    if clone.attempt is not None:
-        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
-    if clone.wide_selectors is not None:
-        return True  # windowed selection — MAY
-    if clone.default is not None:
-        return True  # a nullable default may defer admission further down
-    for chars, negated, _arm in clone.selectors:
-        if (char not in chars) if negated else char in chars:
-            return True
-    return False
-
-
-def arm_rest_scan(arm: FlatArm, i: int, text: str, pos: int) -> tuple[int, bool]:
-    """The rest-of-arm walk past item ``i``, at ``pos`` — ``(verdict,
-    optional-admit seen)``.
-
-    An optional admitting item does NOT settle the walk (both the chain and
-    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
-    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
-    mandatory item settles it either way (admits → the terminator class;
-    refuses → the char cannot flow past, the stop side is dead).
-
-    A run of exactly-once literals is read whole, at ``pos``: the stop side
-    must spell all of it there, so ``" " ">"`` closing a body admits a space
-    only where ``" >"`` follows, not at every space inside the body.
-    """
-    char = text[pos : pos + 1]
-    kinds, los, n = arm.kinds, arm.los, arm.n
-    opt = False
-    for j in range(i + 1, n):
-        if kinds[j] == OP_LIT1:  # the first literal in place; a run past it rarely
-            lit = arm.payloads[j]
-            admitted = text.startswith(lit, pos) and (
-                j + 1 == n
-                or kinds[j + 1] != OP_LIT1
-                or _spells_run(arm, j + 1, text, pos + len(lit))
-            )
-        else:
-            admitted = item_admits(arm, j, char)
-        if admitted:
-            if los[j] > 0:
-                return REST_ADMITS_HARD, opt
-            opt = True
-        elif los[j] > 0:
-            return REST_DEAD, opt
-    return REST_ASCEND, opt
-
-
-def _spells_run(arm: FlatArm, j: int, text: str, pos: int) -> bool:
-    """Whether the exactly-once literals from item ``j`` on are spelled at
-    ``pos``, one after another — the first refusal ends it."""
-    kinds, payloads, n = arm.kinds, arm.payloads, arm.n
-    while j < n and kinds[j] == OP_LIT1:
-        literal = payloads[j]
-        if not text.startswith(literal, pos):
-            return False
-        pos += len(literal)
-        j += 1
-    return True
-
-
 def composes(follow: Any, text: str, end: int) -> bool:
     """Whether an arm ending at ``end`` can be extended in ANY context.
 
@@ -253,28 +152,41 @@ forked verdict goes to the gated engine as without a retry. The most any of
 vyx documents, the roster)."""
 
 
-class Nesting:
-    """One kernel's nested verdicts: what its retry may still run, and the
-    parse's allowance, shared with the delegate sub-runs the parse starts.
+class RunScope:
+    """Where one kernel's run stands in its parse: the nested verdicts its
+    retry may still ask, the parse's allowance — shared with the delegate
+    sub-runs the parse starts — and whether its text and root are the
+    document's.
 
     :ivar retry: How many nested verdicts the retry being asked may still run;
         ``0`` outside a retry (no boundary inside a side forks).
-    :ivar root: The parse's own record, whose ``left`` is the allowance.
-    :ivar left: What is left of the allowance, read on the root.
+    :ivar root: The parse's own scope, whose ``left`` is the allowance.
+    :ivar left: What is left of the allowance; a delegate's is never read.
+    :ivar cut: Whether the run reads a truncated text, whose end is not the
+        document's.
     """
 
-    __slots__ = ("left", "retry", "root")
+    __slots__ = ("cut", "left", "retry", "root")
 
+    cut: bool
     left: int
     retry: int
-    root: Nesting
+    root: RunScope
 
-    def __init__(self, root: Nesting | None = None) -> None:
+    def __init__(self, root: RunScope | None = None) -> None:
         """A kernel outside any retry, drawing on ``root``'s allowance — a
         fresh one (:data:`PARSE_NESTING`) for a parse of its own."""
-        self.left = PARSE_NESTING
+        self.cut = False
+        self.left = PARSE_NESTING if root is None else 0
         self.retry = 0
         self.root = self if root is None else root
+
+    def whole(self) -> bool:
+        """Whether the text is the whole document and the stack's root its
+        root: not a delegate's run, whose root may end anywhere in a window,
+        nor a run over a truncated text. Only then may a stop side be refuted
+        against the text (:func:`~...matchers.stop_side_dead`)."""
+        return self.root is self and not self.cut
 
     def open(self, most: int) -> bool:
         """Start a retry with up to ``most`` of the allowance; whether any was
@@ -305,7 +217,7 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         built once and shared within one run).
     :ivar probing: How many probes are live. Non-zero means a boundary is
         resolved GREEDILY by class rather than by forking again, unless a
-        forked verdict asked again nests a verdict there (``nesting``). A
+        forked verdict asked again nests a verdict there (``scope``). A
         counter rather than a flag because :meth:`_advance` counts its own
         drive too, and the nesting depth is read off it.
     :ivar audits: The audit runs in flight, innermost last — one record per
@@ -319,16 +231,16 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         fallback, never a wrong commit.
     :ivar side: The side being driven, or ``None`` outside a side's drive —
         what a fork inside it copies its unsettled sub-runs and root from.
-    :ivar nesting: The nested verdicts a forked verdict asked again may still
-        run, and the parse's allowance they are drawn from (:class:`Nesting`).
+    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`)
+        — its retry's nested verdicts, the allowance, whether it is whole.
     """
 
     __slots__ = (
         "audits",
         "deleg",
         "intern",
-        "nesting",
         "probing",
+        "scope",
         "side",
         "uncertain",
     )
@@ -336,19 +248,19 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     audits: list[Audit]
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
-    nesting: Nesting
     probing: int
+    scope: RunScope
     side: Side | None
     uncertain: bool
 
-    def __init__(self, nesting: Nesting | None = None) -> None:
+    def __init__(self, scope: RunScope | None = None) -> None:
         """Seed the memos empty, the probe depth zero, certainty clean, and the
-        nesting record — one drawing on ``nesting``'s allowance when a parse
-        runs this kernel inside it."""
+        run's scope — one inside ``scope``'s parse when a parse runs this
+        kernel inside it."""
         self.audits = []
         self.deleg = {}
         self.intern = {}
-        self.nesting = Nesting(None if nesting is None else nesting.root)
+        self.scope = RunScope(None if scope is None else scope.root)
         self.probing = 0
         self.side = None
         self.uncertain = False

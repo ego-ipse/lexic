@@ -392,7 +392,7 @@ class KernelExecutionMixin[Carry]:
             window_text,
             self.policy.executor,
             config=self.policy.config,
-            nesting=self._caches.nesting,
+            scope=self._caches.scope,
         )
         return finish_delegate(sub, clone, window_text, pos)
 

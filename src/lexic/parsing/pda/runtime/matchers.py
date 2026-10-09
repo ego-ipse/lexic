@@ -31,12 +31,15 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
     OP_CC,
     OP_CC1,
+    OP_FAIL,
+    OP_ISLAND,
     OP_LIT,
     OP_LIT1,
 )
 from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
-from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
+from lexic.parsing.pda.runtime.admission import admits
+from lexic.parsing.pda.runtime.build import Frame, InternMemo, build_vstr
 
 
 def chase_dispatch[Carry](
@@ -515,3 +518,183 @@ def vstr_once[Carry](
     )
     sink.append(build_vstr(clone, text[pos:end], intern))
     return end
+
+
+REST_DEAD, REST_ASCEND, REST_ADMITS, REST_ADMITS_HARD = 0, 1, 2, 3
+"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
+stop side; a fully-skippable rest defers to the enclosing frame; an
+admitting OPTIONAL item is same-arm chain viability (the greedy split);
+an admitting MANDATORY item is the terminator-theft shape — a possessive
+take would steal the char the arm's own continuation requires, so the
+probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
+
+
+def item_admits(arm: FlatArm, j: int, char: str) -> bool:
+    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
+    if char == "":
+        return False
+    k = arm.kinds[j]
+    payload = arm.payloads[j]
+    if k in (OP_LIT, OP_LIT1):
+        return payload[0] == char
+    if k in (OP_CC, OP_CC1):
+        chars, negated = payload
+        return (char not in chars) if negated else char in chars
+    if k in (OP_FAIL, OP_ISLAND):
+        return True  # no FIRST at hand — MAY (a spurious probe is safe)
+    return clone_admits(payload, char)
+
+
+def clone_admits(clone: FlatClone, char: str) -> bool:
+    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
+    if clone.attempt is not None:
+        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
+    if clone.wide_selectors is not None:
+        return True  # windowed selection — MAY
+    if clone.default is not None:
+        return True  # a nullable default may defer admission further down
+    for chars, negated, _arm in clone.selectors:
+        if (char not in chars) if negated else char in chars:
+            return True
+    return False
+
+
+def arm_rest_scan(arm: FlatArm, i: int, text: str, pos: int) -> tuple[int, bool]:
+    """The rest-of-arm walk past item ``i``, at ``pos`` — ``(verdict,
+    optional-admit seen)``.
+
+    An optional admitting item does NOT settle the walk (both the chain and
+    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
+    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
+    mandatory item settles it either way (admits → the terminator class;
+    refuses → the char cannot flow past, the stop side is dead).
+
+    A run of exactly-once literals is read whole, at ``pos``: the stop side
+    must spell all of it there, so ``" " ">"`` closing a body admits a space
+    only where ``" >"`` follows, not at every space inside the body.
+    """
+    char = text[pos : pos + 1]
+    kinds, los, n = arm.kinds, arm.los, arm.n
+    opt = False
+    for j in range(i + 1, n):
+        if kinds[j] == OP_LIT1:  # the first literal in place; a run past it rarely
+            lit = arm.payloads[j]
+            admitted = text.startswith(lit, pos) and (
+                j + 1 == n
+                or kinds[j + 1] != OP_LIT1
+                or spelled_run(arm, j + 1, text, pos + len(lit))[1] >= 0
+            )
+        else:
+            admitted = item_admits(arm, j, char)
+        if admitted:
+            if los[j] > 0:
+                return REST_ADMITS_HARD, opt
+            opt = True
+        elif los[j] > 0:
+            return REST_DEAD, opt
+    return REST_ASCEND, opt
+
+
+def spelled_run(arm: FlatArm, j: int, text: str, pos: int) -> tuple[int, int]:
+    """The exactly-once literals from item ``j`` on, spelled at ``pos`` one
+    after another: ``(the item after the run, the position after it)``, or a
+    position of ``-1`` at the first refusal."""
+    kinds, payloads, n = arm.kinds, arm.payloads, arm.n
+    while j < n and kinds[j] == OP_LIT1:
+        literal = payloads[j]
+        if not text.startswith(literal, pos):
+            return j, -1
+        pos += len(literal)
+        j += 1
+    return j, pos
+
+
+_DEAD, _OPEN, _LIVE, _ON = 0, 1, 2, 3
+"""What a stop side's walk against the text proves: no continuation it
+derives begins with the text, one might, or one spends the document — and,
+for one arm's rest, that it was spelled through and the walk goes on."""
+
+type _Link = tuple[FlatArm, int, int]
+"""One frame of a stop side: its arm, where its rest starts, and the item it is
+suspended in when that may iterate again, else ``-1``."""
+
+
+def stop_side_dead(
+    stack: list[Frame], arm: FlatArm, i: int, text: str, pos: int
+) -> bool:
+    """Whether stopping the loop at item ``i`` of the top frame provably dies.
+
+    The stop side's continuation is read against the TEXT, past the one
+    character :func:`arm_rest_scan` classifies: the rest of the top arm, then
+    each enclosing frame's rest from the item it is suspended in. A literal or
+    a class that occurs at most once is matched and stepped over, an optional
+    one that matches both ways; a mandatory one that cannot match kills. A
+    repetition, a reference that could start here, an island and a further
+    iteration of an enclosing item stop the walk undecided; a reference that
+    cannot start here is read as deriving empty. Past the root the document
+    must be spent. So ``True`` is a proof that no text any stop continuation
+    derives begins at ``pos`` — for a run whose text and root are the
+    document's (:meth:`~...admission.RunScope.whole`).
+    """
+    chain: list[_Link] = [(arm, i + 1, -1)]
+    for frame in stack[-2::-1]:
+        at = frame.suspended()
+        chain.append((frame.arm, at + 1, at if frame.arm.his[at] != 1 else -1))
+    return _walk(chain, 0, i + 1, text, pos) == _DEAD
+
+
+def _walk(chain: list[_Link], f: int, j: int, text: str, pos: int) -> int:
+    """The stop side from item ``j`` of link ``f`` at ``pos``."""
+    while True:
+        verdict, pos = _arm_walk(chain, f, j, text, pos)
+        if verdict != _ON:
+            return verdict
+        f += 1
+        if f == len(chain):
+            return _LIVE if pos == len(text) else _DEAD
+        arm, j, again = chain[f]
+        if again != -1 and item_admits(arm, again, text[pos : pos + 1]):
+            return _OPEN
+
+
+def _arm_walk(
+    chain: list[_Link], f: int, j: int, text: str, pos: int
+) -> tuple[int, int]:
+    """Link ``f``'s rest from item ``j``: ``(_ON, where it ends)`` once spelled
+    through, else the walk's verdict."""
+    arm = chain[f][0]
+    while j < arm.n:
+        if arm.kinds[j] == OP_LIT1:
+            j, pos = spelled_run(arm, j, text, pos)
+            if pos < 0:
+                return _DEAD, pos
+            continue
+        width = _terminal_width(arm, j, text, pos)
+        if width == -2:  # not a terminal: a reference, island or fail
+            if item_admits(arm, j, text[pos : pos + 1]):
+                return _OPEN, pos
+        elif width < 0:
+            if arm.los[j] > 0:
+                return _DEAD, pos
+        elif arm.his[j] != 1:
+            return _OPEN, pos  # a run: where it ends is not the walk's to know
+        elif arm.los[j] == 0 and width:
+            taken = _walk(chain, f, j + 1, text, pos + width)
+            if taken == _DEAD:
+                taken = _walk(chain, f, j + 1, text, pos)
+            return taken, pos
+        else:
+            pos += width
+        j += 1
+    return _ON, pos
+
+
+def _terminal_width(arm: FlatArm, j: int, text: str, pos: int) -> int:
+    """How much one occurrence of literal or class item ``j`` matches at
+    ``pos``: its width, ``-1`` when it cannot, ``-2`` when it is no terminal."""
+    kind, payload = arm.kinds[j], arm.payloads[j]
+    if kind in (OP_LIT, OP_LIT1):
+        return len(payload) if text.startswith(payload, pos) else -1
+    if kind in (OP_CC, OP_CC1):
+        return 1 if admits(text[pos : pos + 1], *payload) else -1
+    return -2
