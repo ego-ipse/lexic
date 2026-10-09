@@ -346,7 +346,7 @@ The signal is object lifetime. `ThreadPoolExecutor` has an initializer and no
 per-worker exit callback, so the first time a thread claims, a bare sentinel
 goes into that thread's own local state with a `weakref.finalize` armed on it;
 the thread's state is freed when the thread ends, the sentinel is collected,
-and the finalizer retires what that thread held. Three details are load-bearing:
+and the finalizer retires what that thread held. Four details are load-bearing:
 
 - the owning `Thread` is captured at claim time and passed to the finalizer,
   never read inside it — `threading.current_thread()` during a worker's
@@ -354,7 +354,14 @@ and the finalizer retires what that thread held. Three details are load-bearing:
 - the sentinel declares `__slots__ = ("__weakref__",)`; with `__slots__ = ()`
   it cannot be weakly referenced at all and the arming raises;
 - arming happens at CLAIM time rather than in the pool's initializer, so a
-  worker that never touches the registry pays nothing and holds nothing.
+  worker that never touches the registry pays nothing and holds nothing;
+- the finalizer never waits on the claim lock (`_MINTING`). A finalizer runs
+  on whatever thread frees the sentinel or anything else, and that may be the
+  thread already holding the lock: mid-claim, or releasing another thread's
+  claim, where the release frees the next sentinel. Waiting there deadlocked
+  the thread on itself. So `retire_thread` only queues the thread and takes
+  the lock if it is free, and every holder drains the queue before it
+  releases, then asks again once released.
 
 Synthesized model classes stay shared by necessity — two workers building two
 different classes for one rule would break model equality, which is the thing

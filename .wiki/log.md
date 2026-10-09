@@ -1,5 +1,12 @@
 # Log
 
+## A replica's exit signal never waits on the claim lock (2026-10-09)
+
+`parallel-parsing.md` records that `retire_thread` queues an exited thread and
+releases its claims only when the claim lock is free, every holder draining the
+queue before it releases: a finalizer firing on the lock's own holder
+deadlocked a free-threaded test run.
+
 ## A sole chain is read without the level DAG (2026-10-09)
 
 `decisions.md` records that `leftmost_chain` walks a chain whose every key

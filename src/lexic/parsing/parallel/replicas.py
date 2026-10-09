@@ -33,6 +33,9 @@ not where the remaining ceiling sits.
 from __future__ import annotations
 
 import threading
+from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import NamedTuple
 from weakref import finalize
 
@@ -103,7 +106,19 @@ thread-local on every parse afterwards, so no lock and no shared lookup is on
 the paid path. Without it, N threads first-touching one pair all read the same
 old population and mint against it: 16 concurrent requests for 17 replicas
 produced 23 to 32 of them.
+
+**Never awaited by a finalizer.** A thread's exit is signalled by a weakref
+finalizer (:func:`_arm`), and a finalizer runs on whatever thread the collector
+happens to run on — including one that already holds this lock, mid-claim or
+mid-release, where releasing a claim frees the very object whose finalizer
+retires another thread. A finalizer that waited here waited on itself. So it
+only queues (:data:`_RETIRING`), and takes the lock only if it is free; every
+holder drains the queue before it lets go (:func:`_minted`).
 """
+
+_RETIRING: deque[threading.Thread] = deque()
+"""Exited threads whose claims are still to be released, queued by their
+finalizers and drained by whichever thread holds :data:`_MINTING` next."""
 
 
 # A sentinel has no interface by design: nothing is ever read off it, and its
@@ -215,6 +230,9 @@ def retire_thread(thread: threading.Thread) -> None:
     being torn down, where the call returns a dummy thread and would match
     nothing.
 
+    It never waits: the thread is queued, and released here only if the lock
+    is free — otherwise by the thread holding it, before it lets go.
+
     This is what makes the release independent of any later parse.
     :func:`_reclaim` prunes only the pair being claimed against, so a pair no
     document touches again keeps its dead claims for the life of the process —
@@ -222,16 +240,68 @@ def retire_thread(thread: threading.Thread) -> None:
 
     :param thread: The worker whose claims are to be dropped.
     """
-    with _MINTING:
-        # A SNAPSHOT, because releasing a claim can pop entries from the
-        # registry being walked: a second document thread's binding replica is
-        # another entry's key, and its release drops that entry. Iterating the
-        # live view raised `dictionary changed size during iteration` inside
-        # the finalizer, where the exception is printed and swallowed — so the
-        # loop stopped and every later entry kept this thread's claims, which
-        # is the leak this function exists to remove.
-        for entry in tuple(_REPLICAS.values()):
-            _drop(entry, [held for held in entry.held if held.owner is thread])
+    _RETIRING.append(thread)
+    _drain_if_free()
+
+
+def _retire(thread: threading.Thread) -> None:
+    """Drop every claim ``thread`` holds; the caller holds :data:`_MINTING`."""
+    # A SNAPSHOT, because releasing a claim can pop entries from the registry
+    # being walked: a second document thread's binding replica is another
+    # entry's key, and its release drops that entry. Iterating the live view
+    # raised `dictionary changed size during iteration` inside the finalizer,
+    # where the exception is printed and swallowed — so the loop stopped and
+    # every later entry kept this thread's claims, which is the leak
+    # `retire_thread` exists to remove.
+    for entry in tuple(_REPLICAS.values()):
+        _drop(entry, [held for held in entry.held if held.owner is thread])
+
+
+@contextmanager
+def _minted() -> Iterator[None]:
+    """Hold :data:`_MINTING` for one synchronised step, and leave it drained."""
+    _MINTING.acquire()
+    try:
+        yield
+    finally:
+        _release_minting()
+
+
+def _release_minting() -> None:
+    """Retire every thread queued while the lock was held, then release it.
+
+    Asked again once released: a finalizer that queued in between found the
+    lock taken and left its thread for the holder. A retirement that queues
+    DURING the drain — a released claim freeing another exited thread's
+    marker — is picked up by the same loop.
+    """
+    try:
+        while _RETIRING:
+            _retire(_RETIRING.popleft())
+    finally:
+        _MINTING.release()
+    if _RETIRING:
+        _drain_if_free()
+
+
+def _drain_if_free() -> None:
+    """Release the queued retirements now, unless another holder will."""
+    with _drained_if_free():
+        return
+
+
+@contextmanager
+def _drained_if_free() -> Iterator[None]:
+    """Hold :data:`_MINTING` only if it is free right now, and leave it
+    drained; a lock held elsewhere is drained by its holder before it lets go,
+    so this never waits."""
+    if not _MINTING.acquire(blocking=False):
+        yield
+        return
+    try:
+        yield
+    finally:
+        _release_minting()
 
 
 def _arm(thread: threading.Thread) -> None:
@@ -281,7 +351,7 @@ def _claim[M](
     live thread holds it, which also means a single-threaded program compiles
     no second set of tables.
     """
-    with _MINTING:
+    with _minted():
         entry = _REPLICAS.get(key)
         if entry is None:
             entry = _Issued(grammar, binding, [])
@@ -423,7 +493,7 @@ def claim_census() -> tuple[int, int]:
 
     :returns: ``(live, dead)`` claim counts.
     """
-    with _MINTING:
+    with _minted():
         owners = [held.owner for entry in _REPLICAS.values() for held in entry.held]
     live = sum(owner.is_alive() for owner in owners)
     return live, len(owners) - live
