@@ -25,11 +25,11 @@ reached the paid path that should not have.
 prints the current table. Paste it over `WITNESS` and commit that change on its
 own, so the pin's history reads as a list of deliberate decisions.
 
-**What is NOT pinned, and why.** ``matchers.chase_dispatch`` and
-``matchers.select_arm`` loop over a clone's DISPATCH HOPS and its arms — once
-per entry, not once per character — so their instructions are not the paid
-path this file guards and a pin on them would misstate what a red row means.
-They are edited freely; the functions above are not.
+**What is NOT pinned, and why.** ``gating.chase_dispatch`` loops over a
+clone's DISPATCH HOPS — once per entry, not once per character — so its
+instructions are not the paid path this file guards and a pin on it would
+misstate what a red row means. It is edited freely; the functions above are
+not.
 
 **Interpreter sensitivity, stated.** Opnames are a property of the CPython
 version that compiled them, so an interpreter upgrade will move every row at
@@ -61,10 +61,11 @@ PAID: dict[str, tuple[object, str]] = {
     "matchers.match_chartable": (matchers, "match_chartable"),
     "matchers.vstr_once": (matchers, "vstr_once"),
     "matchers.run_span_once": (matchers, "run_span_once"),
-    "matchers.select_arm": (matchers, "select_arm"),
     "matchers.match_runtable": (matchers, "match_runtable"),
     # The gates the per-character loops consult on every iteration.
     "gating.gate_take": (gating, "gate_take"),
+    # The arm a value-string iteration matches, selected by its lookahead.
+    "gating.select_arm": (gating, "select_arm"),
     "scanner.scan_gate_take": (scanner, "scan_gate_take"),
     # The attempt loops: a per-character loop each, frame-lessly.
     "AttemptInlineMixin.attempt_inline_loop": (
@@ -112,14 +113,14 @@ WITNESS: dict[str, str] = {
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
     "PdaKernel._quant_step": "765183f27d5bf30a",
     "gating.gate_take": "76e35db5019cf024",
+    "gating.select_arm": "ff51ffda2566a8bb",
     "matchers.match_arm": "a268cdcc3a202248",
     "matchers.match_cc": "2f81af2235e50891",
     "matchers.match_cc1": "3021fe234a615f8f",
     "matchers.match_chartable": "01c1fbcefda52106",
     "matchers.match_lit": "7f52bb4e5f7bf5aa",
     "matchers.match_runtable": "11b9846c122f07b0",
-    "matchers.run_span_once": "4ad4f40a11fa6667",
-    "matchers.select_arm": "ff51ffda2566a8bb",
+    "matchers.run_span_once": "81713ac950ff9aed",
     "matchers.vstr_once": "5295662d12197161",
     "scanner.scan_gate_take": "d4d3e62975559ffd",
 }

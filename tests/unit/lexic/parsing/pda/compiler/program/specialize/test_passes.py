@@ -903,22 +903,55 @@ def test_a_one_arm_clone_opening_on_a_terminal_is_entered_straight() -> None:
     assert root.entry is root.selectors[0][2]
 
 
-def test_a_leaf_or_a_defaulting_clone_has_no_entry() -> None:
-    """A leaf is run, not entered; a default means the walk can choose."""
-    pda = pda_from_text(ENTERED)
-    assert _clone_named(pda, "pair").entry is None
-    nullable = pda_from_text('root ::= "<" x ">"\nx ::= y?\ny ::= "a" z\nz ::= "b"\n')
-    assert all(
-        one.entry is None
-        for one in walk_program_clones(nullable.program.start).values()
-        if one.default is not None
-    )
+ENTRY_GRAMMARS = ("json.gbnf", "arithmetic.gbnf", "markdown.gbnf", "vyx.gbnf", "c.gbnf")
+"""Ground-truth programs swept whole: dispatches, leaves, defaults, attempts
+and gated selections all occur among them, so the licence is asked of every
+shape a real program has rather than of one hand-built clone."""
+
+SELF_REFUSING_FIRST = (OP_LIT1, OP_CC1, OP_LIT, OP_CC, OP_VRUN, OP_V1)
+"""The first-item codes that can refuse a lookahead on their own."""
 
 
-def test_a_first_item_that_cannot_refuse_alone_keeps_the_walk() -> None:
-    """A reference's descent refuses deeper, after a push: not the walk's
-    refusal, so the walk stays."""
-    root = _clone_named(pda_from_text('root ::= pair ">"\npair ::= "<" "a"\n'), "root")
-    assert root.selectors[0][2].kinds[0] not in (OP_LIT1, OP_CC1, OP_VRUN, OP_V1)
-    mark_entry(root)
-    assert root.entry is None
+@pytest.mark.parametrize("name", ENTRY_GRAMMARS)
+def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> None:
+    """Wherever an entry is set, the walk it skips could only have found that
+    arm or refused: one selector, no default, no other selection, not a leaf
+    nor a dispatch — and the arm opens on an item that refuses alone."""
+    for clone in walk_program_clones(
+        pda_for(GROUND_TRUTH / name).program.start
+    ).values():
+        if clone.entry is None:
+            continue
+        assert clone.mode != BUILD_DISPATCH and not clone.leaf, clone.name
+        assert clone.default is None and clone.attempt is None, clone.name
+        assert clone.wide_selectors is None and clone.struct_arm is None, clone.name
+        assert len(clone.selectors) == 1 and clone.selectors[0][2] is clone.entry
+        assert clone.entry.kinds[0] in SELF_REFUSING_FIRST, clone.name
+
+
+@pytest.mark.parametrize("name", ENTRY_GRAMMARS)
+def test_a_walk_that_can_choose_or_descend_first_keeps_its_selectors(name: str) -> None:
+    """A default, a leaf, a dispatch, several arms, or an arm opening on a
+    reference (whose descent refuses deeper, after a push): no entry."""
+    clones = walk_program_clones(pda_for(GROUND_TRUTH / name).program.start).values()
+    for clone in clones:
+        choosing = (
+            clone.default is not None
+            or clone.leaf
+            or clone.mode == BUILD_DISPATCH
+            or len(clone.selectors) != 1
+        )
+        if choosing:
+            assert clone.entry is None, clone.name
+            continue
+        first = clone.selectors[0][2].kinds[0]
+        if first in (OP_REF, OP_REF1, OP_GRP, OP_LEAF1):
+            assert clone.entry is None, clone.name
+
+
+def test_marking_twice_grants_nothing_new() -> None:
+    """The pass reads only the clone, so re-asking it answers the same."""
+    for clone in walk_program_clones(pda_from_text(ENTERED).program.start).values():
+        before = clone.entry
+        mark_entry(clone)
+        assert clone.entry is before

@@ -29,6 +29,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.gating import (
     gate_take,
+    select_arm,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,
@@ -70,7 +71,6 @@ from lexic.parsing.pda.runtime.matchers import (
     match_chartable,
     match_lit,
     run_span_once,
-    select_arm,
     vdisp_once,
     vstr_once,
 )

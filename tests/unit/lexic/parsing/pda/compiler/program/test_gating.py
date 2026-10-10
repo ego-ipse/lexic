@@ -21,6 +21,7 @@ from lexic.parsing.pda.compiler.program.gating import (
     NoiseSkipSelect,
     continuation_windows,
     gate_take,
+    select_arm,
     select_gated,
     window_admits,
     window_select,
@@ -33,6 +34,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
 EOF_GATE = (";", "", None)
 
@@ -335,3 +337,22 @@ def test_a_continuation_window_holding_eof_is_refused():
     a window holding it is a broken invariant, not a reading."""
     with pytest.raises(EngineInvariantError, match="EOF"):
         continuation_windows((((CharSet(frozenset({""})),), MORE),))
+
+
+# ── arm selection ──────────────────────────────────────────────────────────
+
+
+def test_select_arm_picks_the_arm_whose_first_admits_the_char() -> None:
+    """Two arms with disjoint FIRST sets select by the lookahead char."""
+    tables = pda_from_text('root ::= a | b\na ::= "x"\nb ::= "y"\n')
+    start = tables.program.start
+    assert select_arm(start, "x", 0) is not select_arm(start, "y", 0)
+
+
+def test_select_arm_refuses_when_no_arm_matches_and_no_default() -> None:
+    """No viable arm and no default raises by name, carrying the position."""
+    tables = pda_from_text('root ::= "x"\n')
+    start = tables.program.start
+    assert start.default is None  # else the refusal below could not fire
+    with pytest.raises(PdaFail, match="no arm at 3"):
+        select_arm(start, "q", 3)

@@ -49,7 +49,6 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_chartable,
     match_lit,
-    select_arm,
     spelled_run,
     stop_side_dead,
     vstr_once,
@@ -162,25 +161,6 @@ def test_match_arm_refuses_a_mid_arm_mismatch() -> None:
     tables, _ = pda_for('root ::= "0x" [0-9a-f]+\n')
     with pytest.raises(PdaFail):
         match_arm("0xzz", start_arm(tables), 0)
-
-
-# ── arm selection ──────────────────────────────────────────────────────────
-
-
-def test_select_arm_picks_the_arm_whose_first_admits_the_char() -> None:
-    """Two arms with disjoint FIRST sets select by the lookahead char."""
-    tables, _ = pda_for('root ::= a | b\na ::= "x"\nb ::= "y"\n')
-    start = tables.program.start
-    assert select_arm(start, "x", 0) is not select_arm(start, "y", 0)
-
-
-def test_select_arm_refuses_when_no_arm_matches_and_no_default() -> None:
-    """No viable arm and no default raises by name, carrying the position."""
-    tables, _ = pda_for('root ::= "x"\n')
-    start = tables.program.start
-    assert start.default is None  # else the refusal below could not fire
-    with pytest.raises(PdaFail, match="no arm at 3"):
-        select_arm(start, "q", 3)
 
 
 # ── one value_str iteration ────────────────────────────────────────────────

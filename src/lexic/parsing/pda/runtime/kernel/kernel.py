@@ -57,6 +57,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.gating import (
+    chase_dispatch,
     gate_take,
     select_gated,
 )
@@ -97,7 +98,6 @@ from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.matchers import (
-    chase_dispatch,
     match_cc,
     match_cc1,
     match_lit,

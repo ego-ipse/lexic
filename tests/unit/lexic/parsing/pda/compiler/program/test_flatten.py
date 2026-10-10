@@ -139,12 +139,14 @@ def test_flatclone_declares_exactly_the_selector_and_build_fields():
     ``sub_root`` is the other: a both-viable fork reads it on every frame of
     the stack, whatever the frame's mode, to find the attempt sub-runs it sits
     inside without asking each frame for a start it mostly never had.
+    ``entry`` is the third: every entry reads it before anything else it asks,
+    and the arm it names is the clone's own, which no build field holds.
     """
     expected = {"name", "selectors", "wide_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "longest", "sub_root"}
+    expected |= {"runarm", "needs_ends", "longest", "sub_root", "entry"}
     assert set(FlatClone.__slots__) == expected
 
 

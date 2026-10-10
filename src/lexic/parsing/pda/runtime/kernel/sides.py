@@ -17,6 +17,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
+from lexic.parsing.pda.compiler.program.gating import chase_dispatch
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     BUILD_TRANSPARENT,
@@ -40,7 +41,6 @@ from lexic.parsing.pda.runtime.build import (
     Frame,
 )
 from lexic.parsing.pda.runtime.islands import IslandPolicy
-from lexic.parsing.pda.runtime.matchers import chase_dispatch
 
 __all__ = [
     "PENDING",
