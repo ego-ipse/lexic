@@ -343,9 +343,10 @@ def walk_regions(
         elif pos < n_open:
             stack.append((at, char, [], names[pos]))
         elif stack and stack[-1][1] == names[pos]:
-            top = stack.pop()
-            if top[2] and at - top[0] >= min_span:
-                found.append(_region(top, at))
+            if stack[-1][2] and at - stack[-1][0] >= min_span:
+                found.append(_region(stack.pop(), at))
+            else:
+                stack.pop()
         elif stack and (not names[pos] or char in roles.mark_at):
             stack[-1][2].append(at)  # a mark, or a closer nothing wanted
     return found
@@ -359,6 +360,15 @@ def _region(frame: Frame, at: int) -> Region:
     every close — so the walks test that inline and pay no call for it.
     """
     return Region(frame[0], at, frame[3], tuple(frame[2]))
+
+
+def _close(stack: list[Frame], found: list[Region], at: int, min_span: int) -> None:
+    """Pop the opener ``at`` closes and keep its region, if it is one — the
+    floor rule as the merge applies it, once per replayed event. The two walks
+    test the same thing inline because they run it once per structural offset."""
+    frame = stack.pop()
+    if frame[2] and at - frame[0] >= min_span:
+        found.append(_region(frame, at))
 
 
 # ── the windowed find: the same answer, discovered in parallel ────────────
@@ -479,9 +489,10 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
         if pos < n_open:
             stack.append((at, char, [], names[pos]))
         elif stack and stack[-1][1] == names[pos]:
-            top = stack.pop()
-            if top[2] and at - top[0] >= min_span:
-                events.append((R_DONE, at, _region(top, at)))
+            if stack[-1][2] and at - stack[-1][0] >= min_span:
+                events.append((R_DONE, at, _region(stack.pop(), at)))
+            else:
+                stack.pop()
         elif stack and (not names[pos] or char in roles.mark_at):
             stack[-1][2].append(at)  # a mark, or a closer nothing wanted
         elif not stack:
@@ -518,9 +529,7 @@ def merge_windows(chunks: list[list[tuple]], min_span: int) -> list[Region]:
                 stack.append(event[2])
             elif kind == R_CLOSE:
                 if stack and stack[-1][1] == event[2]:
-                    top, at = stack.pop(), event[1]
-                    if top[2] and at - top[0] >= min_span:
-                        found.append(_region(top, at))
+                    _close(stack, found, event[1], min_span)
                 elif stack and event[3]:
                     stack[-1][2].append(event[1])
             elif stack:  # R_MARK

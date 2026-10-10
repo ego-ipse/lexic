@@ -712,15 +712,15 @@ def test_a_piece_the_calling_thread_takes_back_parses_through_its_document_view(
         finally:
             gate.set()
 
-    release = threading.Event()
+    let_go = threading.Event()
     with WorkPool(3) as pool:
-        holder = hold_workers(pool, 2, release)
+        holder = hold_workers(pool, 2, let_go)
         try:
             held, taken = pool.map(
                 work, [0, 1], lambda _submit: started.wait(timeout=30)
             )
         finally:
-            release.set()
+            let_go.set()
             holder.join(timeout=30)
 
     assert seen == [binding], "the taken-back piece read the document's view"

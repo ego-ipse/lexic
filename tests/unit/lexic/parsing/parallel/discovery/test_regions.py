@@ -415,3 +415,33 @@ def test_the_pool_receives_every_span_exactly_once_and_matches_serial() -> None:
     assert serial, (
         "the fixture must produce a region for the comparison to mean anything"
     )
+
+
+NESTED_SOURCE = (
+    'root ::= arr\narr ::= "[" item ("," item)* "]"\nitem ::= arr | [a-z0-9]+\n'
+)
+"""Arrays of arrays: small inner runs the floor drops, inside one big one."""
+
+
+def test_the_floor_holds_on_both_window_paths_at_its_boundary() -> None:
+    """A run one short of the floor is dropped and one AT the floor is kept,
+    whichever path closes it: inside one window, or replayed by the merge
+    because its brackets straddle a window boundary. Every inner run here
+    spans exactly 4 and the window count forces both paths."""
+    grammar = compile_text(NESTED_SOURCE, cache_key="test-regions-floor").grammar
+    doc = "[" + ",".join("[a,b]" for _ in range(60)) + "]"
+    windows = 7
+    bounds = window_bounds(len(doc), windows)
+
+    def window(at: int) -> int:
+        return next(k for k, (lo, hi) in enumerate(bounds) if lo <= at < hi)
+
+    inner = find(grammar, doc, 0)[:-1]
+    assert {r.closer - r.opener for r in inner} == {4}
+    straddles = [window(r.opener) != window(r.closer) for r in inner]
+    assert any(straddles) and not all(straddles), "the fixture must take both paths"
+
+    outer = Region(0, len(doc) - 1, "arr", tuple(range(6, len(doc) - 1, 6)))
+    assert par_find(grammar, doc, 5, windows) == find(grammar, doc, 5) == [outer]
+    kept = par_find(grammar, doc, 4, windows)
+    assert kept == find(grammar, doc, 4) and len(kept) == len(inner) + 1

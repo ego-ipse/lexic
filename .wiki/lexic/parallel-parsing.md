@@ -235,10 +235,12 @@ time.
 Window bounds are arithmetic, which is sound because every watched spelling is
 one character: no occurrence straddles a boundary, and every offset belongs to
 exactly one window. A region split asks for as many windows as it plans pieces
-(`piece_count`): on a pool that claims every CPU, one window per worker left a
-woken worker waiting for a CPU behind the rest, and the find waited on its
-window. A close pops its frame inline and builds a `Region` only for a frame
-that holds a mark and clears the floor — on deep nesting nearly no close does.
+(`piece_count`): on a pool that claims every CPU, one window per worker leaves a
+woken worker waiting for a CPU behind the rest, and the find waits on its
+window. The two walks pop a close inline and build a `Region` only for a frame
+that holds a mark and clears the floor — on deep nesting nearly no close does;
+the merge, which runs once per replayed event, applies the same rule through
+one helper (`_close`).
 
 **A grammar whose vocabulary carries an opaque interior takes the serial walk.**
 A window cannot know whether it begins inside one without a pass over everything
