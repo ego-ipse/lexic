@@ -1435,3 +1435,18 @@ refusal is the first item's own, at the same position, so the walk was a
 second asking of the item's question on every structural entry. A longest
 take is excluded because its miss can ask an island the selector would never
 have reached.
+
+## The calling thread takes back the items no worker started
+
+**Decision:** once a `WorkPool.map` caller's `beside` share returns, the
+calling thread cancels every submitted item no worker has started
+(`Future.cancel` succeeds only on a queued item, so each runs exactly once) and
+runs it itself, latest first, marked by `taking_back` so `worker_parse` reads
+the submitting thread's own view rather than minting a worker copy for it.
+Only maps given a `beside` do it.
+
+**Why:** the calling thread works through its share while the workers wake,
+so on a pool as wide as the machine one woken worker could wait milliseconds
+for a CPU before taking its item, and the split waited on that one piece. The
+calling thread is the thread certain to be running then. A map without a
+`beside` leaves the calling thread idle, so its workers get the CPUs.

@@ -83,6 +83,72 @@ def _leased[T, M](lease: int, work: Callable[[T], M], item: T) -> M:
     return work(item)
 
 
+class _Phase[T, M]:
+    """One map's work in flight: each submitted item's future with its result
+    slot and its item, the result slots, and the refusals by slot.
+
+    :ivar futures: Each pending future → its result slot.
+    :ivar held: Each pending future → the item it runs.
+    :ivar results: The result slots, in input order, late items after.
+    :ivar failures: The refusals so far, by result slot.
+    """
+
+    __slots__ = ("futures", "held", "results", "failures", "_send")
+
+    def __init__(self, size: int, send: Callable[[T], Future[M]]) -> None:
+        """Start a phase of ``size`` items, each handed to ``send``."""
+        self.futures: dict[Future[M], int] = {}
+        self.held: dict[Future[M], T] = {}
+        self.results: list[M | None] = [None] * size
+        self.failures: dict[int, LexicError] = {}
+        self._send = send
+
+    def send(self, item: T, slot: int) -> None:
+        """Submit ``item`` for result slot ``slot``."""
+        future = self._send(item)
+        self.futures[future], self.held[future] = slot, item
+
+    def submit(self, more: Sequence[T]) -> None:
+        """Submit late items, their slots after every slot so far."""
+        for item in more:
+            self.send(item, len(self.results))
+            self.results.append(None)
+
+    def take_back(self, work: Callable[[T], M]) -> None:
+        """Run on the calling thread every submitted item no worker has
+        started, latest first; a refusal is filed like a worker's.
+
+        ``Future.cancel`` succeeds only on an item still queued, so an item is
+        run exactly once, here or there.
+        """
+        futures = self.futures
+        for future in sorted(futures, key=futures.__getitem__, reverse=True):
+            if not future.cancel():
+                continue
+            slot = futures.pop(future)
+            try:
+                self.results[slot] = _taken_back(work, self.held[future])
+            except LexicError as refusal:
+                self.failures[slot] = refusal
+
+
+def _taken_back[T, M](work: Callable[[T], M], item: T) -> M:
+    """Run ``item`` on the calling thread, marked as taken back — and the mark
+    restored after, since the item may itself take back a nested phase's."""
+    outer = taking_back()
+    _RUNNING.back = True
+    try:
+        return work(item)
+    finally:
+        _RUNNING.back = outer
+
+
+def taking_back() -> bool:
+    """Whether the calling thread is running an item it took back from its
+    own phase — work that reads the submitting thread's view, not a worker's."""
+    return getattr(_RUNNING, "back", False)
+
+
 class WorkPool:
     """One executor reused by differently typed phases of a split parse.
 
@@ -167,7 +233,11 @@ class WorkPool:
         idle it. Its refusal drains the phase like an item's. It is handed a
         ``submit``: items it learns of there go to the pool at once, and their
         results follow ``items``' in the order submitted — so work that needs
-        what the calling thread decides still overlaps what did not.
+        what the calling thread decides still overlaps what did not. Once it
+        returns, the calling thread takes back every item no worker has
+        started and runs it itself (:func:`taking_back`): it was busy while
+        the workers woke, and a woken worker the scheduler leaves waiting would
+        otherwise start its item milliseconds after the rest.
         Should it return ``False``, the phase is ABANDONED: nothing submitted
         will be read, so the queued items are cancelled, the running ones are
         left to finish unread, the pool is retired rather than lent again, and
@@ -188,40 +258,37 @@ class WorkPool:
             # chunk that would not parse. RuntimeError is what the executor
             # underneath raises for the same misuse, for the same reason.
             raise RuntimeError("this pool failed and cannot take further work")
-        results: list[M | None] = [None] * len(items)
-        futures: dict[Future[M], int] = {}
-        failures: dict[int, LexicError] = {}
-        next_item = 0
-
         lease = self.lease
-
-        def submit(more: Sequence[T]) -> None:
-            for item in more:
-                futures[self._pool.submit(_leased, lease, work, item)] = len(results)
-                results.append(None)
-
+        phase = _Phase[T, M](
+            len(items), lambda item: self._pool.submit(_leased, lease, work, item)
+        )
+        futures, failures = phase.futures, phase.failures
+        next_item = 0
         try:
             while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
-                    future = self._pool.submit(_leased, lease, work, items[next_item])
-                    futures[future] = next_item
+                    phase.send(items[next_item], next_item)
                     next_item += 1
                 own, beside = beside, None
-                if own is not None and own(submit) is False:
+                if own is not None and own(phase.submit) is False:
                     _cancel(futures)
                     self._retired = "abandoned"
                     return []
+                if own is not None:
+                    phase.take_back(work)
                 if not futures:
+                    if failures:
+                        raise _drained(futures, phase.results, failures)
                     continue
                 completed = wait(futures, return_when=FIRST_COMPLETED)[0]
                 for future in sorted(completed, key=futures.__getitem__):
                     index = futures.pop(future)
                     try:
-                        results[index] = future.result()
+                        phase.results[index] = future.result()
                     except LexicError as refusal:
                         failures[index] = refusal
                 if failures:
-                    raise _drained(futures, results, failures)
+                    raise _drained(futures, phase.results, failures)
         except LexicError:
             # A refusal drains its phase: cancel what never started, wait out
             # what is running — nothing is, unless the refusal was the calling
@@ -237,7 +304,7 @@ class WorkPool:
             self._retired = "failed"
             _cancel(futures)
             raise
-        return cast(list[M], results)
+        return cast(list[M], phase.results)
 
     def close(self) -> None:
         """Shut the executor down after every submitted phase completes.

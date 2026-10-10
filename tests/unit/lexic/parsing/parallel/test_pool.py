@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
-from threading import Barrier, Event, Lock, Thread, active_count
+from threading import Barrier, Event, Lock, Thread, active_count, current_thread
 from threading import enumerate as enumerate_threads
 from time import monotonic, sleep
 
@@ -748,6 +748,72 @@ def test_beside_submits_late_items_whose_results_follow_in_order() -> None:
             24,
         ]
     assert seen == ["beside"]
+
+
+def _held_worker(gate: Event, started: Event, ran: dict[int, tuple[str, bool]]):
+    """Work for a one-worker pool whose worker is held on item 0 until the
+    calling thread runs item 1 — the last it takes back, latest first — so
+    nothing after item 0 can reach the worker."""
+    caller = current_thread()
+
+    def work(item: int) -> int:
+        ran[item] = (current_thread().name, pool_module.taking_back())
+        if item == 0:
+            started.set()
+            gate.wait(timeout=30)
+        if item == 1 and current_thread() is caller:
+            gate.set()
+        return item * 2
+
+    return work
+
+
+def test_items_no_worker_started_are_taken_back_by_the_calling_thread() -> None:
+    """Once ``beside`` returns, every item still queued runs on the calling
+    thread, marked as taken back, and the results keep their order."""
+    gate, started = Event(), Event()
+    ran: dict[int, tuple[str, bool]] = {}
+
+    with WorkPool(1) as pool:
+        got = pool.map(
+            _held_worker(gate, started, ran),
+            [0, 1, 2],
+            lambda _submit: started.wait(timeout=30),
+        )
+
+    me = current_thread().name
+    assert got == [0, 2, 4]
+    assert ran[0][0] != me and ran[0][1] is False
+    assert ran[1] == (me, True) and ran[2] == (me, True)
+    assert pool_module.taking_back() is False, "the mark outlived the item"
+
+
+def test_a_taken_back_items_refusal_drains_the_phase() -> None:
+    """An item the calling thread took back refuses like one a worker ran."""
+    gate, started = Event(), Event()
+    ran: dict[int, tuple[str, bool]] = {}
+    work = _held_worker(gate, started, ran)
+
+    def refusing(item: int) -> int:
+        if item == 1:
+            gate.set()
+            raise TargetRefusalError("no 1")
+        return work(item)
+
+    with WorkPool(1) as pool:
+        with pytest.raises(TargetRefusalError, match="no 1"):
+            pool.map(refusing, [0, 1], lambda _submit: started.wait(timeout=30))
+        assert pool.map(lambda item: item, [7]) == [7], "a refusal broke the pool"
+
+
+def test_without_beside_the_calling_thread_takes_nothing_back() -> None:
+    """A phase with no calling-thread share leaves every item to the pool."""
+    threads: list[str] = []
+
+    with WorkPool(1) as pool:
+        pool.map(lambda item: threads.append(current_thread().name), [0, 1, 2])
+
+    assert current_thread().name not in threads and len(threads) == 3
 
 
 def test_a_late_items_refusal_drains_after_the_earlier_ones() -> None:

@@ -171,7 +171,11 @@ stand-in. The pieces of every level parse in ONE pool map, and the calling
 thread parses the shell beside them (`WorkPool.map`'s `beside`): the shell is
 parsed under the whole grammar, whose view that thread already holds, where a
 pool worker drawing it would build a replica of the whole grammar for one
-small parse. The stitch then runs innermost first: it finds a stand-in by the
+small parse. When its share is done, the calling thread takes back every piece
+no worker has started and parses it through its own view (`taking_back`): it
+was busy while the workers woke, and a woken worker the scheduler leaves
+waiting otherwise started its piece milliseconds after the rest. The stitch
+then runs innermost first: it finds a stand-in by the
 holding item alone (`held_route`), and lays the span's merged items over the
 stand-in's node together with its true edge slots. An edge slot can straddle
 the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and

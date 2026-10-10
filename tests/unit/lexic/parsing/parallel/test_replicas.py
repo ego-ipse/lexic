@@ -686,3 +686,34 @@ def test_a_collected_pool_leaves_no_due_pairs() -> None:
     gc.collect()
 
     assert key not in replica_module.due_census()
+
+
+def test_a_piece_the_calling_thread_takes_back_parses_through_its_document_view() -> (
+    None
+):
+    """A piece no worker started, run by the submitting thread, reads that
+    thread's own view — the original while no live thread holds it — and
+    builds the model a worker would have."""
+    grammar, binding = _pair("taken-back-piece")
+    gate, started = threading.Event(), threading.Event()
+    seen: list[ModelExecutable] = []
+
+    def spy(view_grammar, text, view_binding, config):
+        seen.append(view_binding)
+        return parse_model(view_grammar, text, view_binding, config)
+
+    def work(item: int) -> IrSelf:
+        if item == 0:
+            started.set()
+            gate.wait(timeout=30)
+            return parse_model(grammar, TEXT, binding, DEFAULT_CONFIG)
+        try:
+            return worker_parse(spy, grammar, TEXT, binding, DEFAULT_CONFIG)
+        finally:
+            gate.set()
+
+    with WorkPool(1) as pool:
+        held, taken = pool.map(work, [0, 1], lambda _submit: started.wait(timeout=30))
+
+    assert seen == [binding], "the taken-back piece read the document's view"
+    assert taken == held == parse_model(grammar, TEXT, binding, DEFAULT_CONFIG)

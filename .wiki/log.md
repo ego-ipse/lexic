@@ -2523,3 +2523,9 @@ split of that grammar on that pool warms every worker's copy before any piece.
 and document executable view rather than per document grammar, released with
 the view, and dropped with a collected pool — a churn of document threads had
 every split copy the previous, retired view's pairs.
+
+## The calling thread takes back unstarted items (2026-10-10)
+
+`decisions.md` entry and `parallel-parsing.md`'s region-split paragraph: after
+a map's `beside` share, the calling thread runs every item no worker started,
+through its own view.

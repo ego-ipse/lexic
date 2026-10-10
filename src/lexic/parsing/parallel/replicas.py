@@ -57,7 +57,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
-from lexic.parsing.parallel.pool import WorkPool, running_lease
+from lexic.parsing.parallel.pool import WorkPool, running_lease, taking_back
 from lexic.parsing.products import declare_replica, model_product
 
 type Replica[M] = tuple[IrAst, ModelExecutable[M]]
@@ -631,9 +631,9 @@ def worker_parse[M](
 ) -> M:
     """Parse ``text`` against the CALLING worker thread's own view of ``grammar``.
 
-    **Call it from inside the work, never from the submitting thread.** The
-    view belongs to the thread, not to the task, and the submitting thread has
-    its own — so no worker ever reads objects that thread allocated.
+    **Call it from inside the work.** The view belongs to the thread, not to
+    the task, so no worker ever reads objects the submitting thread allocated;
+    an item the submitting thread takes back reads that thread's own view.
 
     :param parse: The model product, injected by the caller.
     :param grammar: The grammar this chunk is parsed against.
@@ -642,7 +642,7 @@ def worker_parse[M](
     :param config: The caller's resolver and split decider.
     :returns: The chunk's model.
     """
-    view_grammar, view_binding = worker_replica(grammar, binding)
+    view_grammar, view_binding = _view(grammar, binding, taking_back())
     return parse(view_grammar, text, view_binding, config)
 
 
