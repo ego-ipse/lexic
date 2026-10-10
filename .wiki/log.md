@@ -2584,10 +2584,3 @@ warm and is counted (`replicas.warm_census`).
 
 `decisions.md`'s take-back entry in the present tense; a pin that a taken-back
 item a worker already started is never run twice.
-
-## The serial region find skips interiors in one pass (2026-10-10)
-
-`parallel-parsing.md`'s interiors section: `outside_interiors` compiles the
-vocabulary's interiors into one pattern, so the walk sees only the structural
-characters outside them.
-

@@ -261,16 +261,6 @@ Certification is derived on the grammar the parser actually runs. That matters:
 the codegen passes hoist groups and arms, so shapes present in the authored
 grammar are not always the shapes the analysis meets.
 
-The serial region find skips interiors in ONE compiled pass
-(`regions.outside_interiors`): each interior's `Skip` becomes a regular
-alternative that consumes it whole (`interiors.skip_pattern` — escapes consumed
-forward, a visible closer left by lookahead, an unclosed one run to the end,
-every repetition possessive so a megabyte interior is one linear pass in time
-and memory), so only structural characters outside interiors reach the walk.
-An interior whose escape is spelled inside a delimiter has no exact pattern;
-the find then sweeps every delimiter and the walk skips by hand, as it always
-can.
-
 ### Which plans may SHARE a sweep
 
 Several plans can be certified for one grammar, and the windowed ones sweep the

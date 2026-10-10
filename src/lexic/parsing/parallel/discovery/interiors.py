@@ -27,7 +27,6 @@ analyses that anchor an occurrence some other way.
 
 from __future__ import annotations
 
-import re
 from typing import NamedTuple
 
 from lexic.ir import (
@@ -608,33 +607,6 @@ def skip_opaque(text: str, at: int, candidates: tuple[Interior, ...]) -> int:
         if text.startswith(region.opening, at):
             return skip_delimited(text, at, as_skip(region))
     return at
-
-
-def skip_pattern(lead: str, skip: Skip) -> str | None:
-    """``skip`` as one regular-expression alternative consuming exactly what
-    :func:`skip_delimited` skips from ``lead`` — or ``None`` where the two
-    could disagree, an escape inside the opening or the closing.
-
-    Forward, an escape consumes the character after it; backward,
-    :func:`skip_delimited` counts the escape run before a closer. The two agree
-    on every closer whose escape run starts past the opening, which is why an
-    escape spelled inside either delimiter declines.
-    """
-    closing, escape, resume, guard, _width = skip
-    opening = guard or lead
-    if closing == escape:
-        return re.escape(opening) + r"[\s\S]*+"
-    if escape and (escape in closing or escape in opening[1:]):
-        return None
-    # Possessive throughout: the body never gives back what it took, so the
-    # match is linear in time AND in memory however long the interior runs —
-    # a lazy body kept one backtrack frame per character.
-    plain = "[^" + re.escape(closing[0] + escape) + "]++"
-    units = [plain, "(?!" + re.escape(closing) + r")[\s\S]"]
-    if escape:
-        units.insert(1, re.escape(escape) + r"[\s\S]")
-    end = re.escape(closing) if resume else "(?=" + re.escape(closing) + ")"
-    return f"{re.escape(opening)}(?:{'|'.join(units)})*+(?:{end}|\\Z)"
 
 
 def skip_delimited(text: str, start: int, skip: Skip) -> int:
