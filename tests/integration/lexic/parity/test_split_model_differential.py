@@ -370,8 +370,8 @@ def test_a_markdown_shaped_document_engages_the_walk_and_hides_interior_marks() 
     assert plan is not None
     assert plan.scanner.opaque, "the plan must carry the fence as an opaque region"
 
-    window = plan.scanner.walk(text)
-    assert 0 < len(window.marks) < text.count("\n")
+    walked = plan.scanner.walk(text)
+    assert 0 < len(walked) < text.count("\n")
 
     sequential = compiled.parse(text, cores=1)
     for workers in (8, 16):

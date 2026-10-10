@@ -68,8 +68,8 @@ def test_the_first_plan_finds_nothing_and_the_second_produces() -> None:
     real_split = orchestrate.split_parse
     real_regions = orchestrate.split_regions
 
-    def offsets(plan, text, cores, pool, seen):
-        chosen = real_offsets(plan, text, cores, pool, seen)
+    def offsets(plan, text, cores, scanner):
+        chosen = real_offsets(plan, text, cores, scanner)
         considered.append((plan.owner, len(chosen.offsets)))
         return chosen
 

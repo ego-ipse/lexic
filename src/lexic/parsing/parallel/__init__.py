@@ -9,7 +9,7 @@ orchestrator's own vocabulary, public for composition and tests.
 - :mod:`.anchors` — the characters no opaque interior can emit, and their
   site maps (the disambiguation hypothesis set).
 - :mod:`.roles` — what those characters DO: opener/closer pairs, separators.
-- :mod:`.scan` — the self-locating window scan and its prefix-sum rebase.
+- :mod:`.scan` — the structural scan: where a document's marks stand at depth 0.
 - :mod:`.policy` — what ``cores`` MEANS everywhere: 0 auto, 1 sequential,
   N that many.
 - :mod:`.pool` — N documents in flight against one parse callable; lexic
@@ -25,7 +25,7 @@ orchestrator's own vocabulary, public for composition and tests.
 """
 
 from lexic.parsing.parallel.discovery.anchors import SITE_EMITS, anchor_sites, anchors
-from lexic.parsing.parallel.discovery.scan import Scanner, Window
+from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.orchestrate import split_model
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.planner import split_plan
@@ -58,7 +58,6 @@ __all__ = [
     "Separator",
     "SplitPlan",
     "Terminator",
-    "Window",
     "anchor_sites",
     "anchors",
     "available_workers",

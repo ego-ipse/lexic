@@ -22,10 +22,9 @@ from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
+    Level,
     cut_offsets,
     reads_a_sweep,
-    rebase,
-    scan_marks,
     shared_scanner,
     sole_mark,
 )
@@ -33,7 +32,6 @@ from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.planner import certified_plan, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
-from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import roles
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE
@@ -209,13 +207,13 @@ def test_a_leftmost_longest_decider_granting_less_still_splits() -> None:
     assert parallel == parse_model(grammar, text, binding, config)
 
 
-def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPatch):
+def test_one_work_pool_is_leased_for_the_whole_split(monkeypatch: pytest.MonkeyPatch):
     """The split phases share one pool lifetime and executor.
 
     The seam is the LEASE: a split borrows one pool for all of its phases and
-    returns it, so intercepting the lease is intercepting every phase. The
-    document clears the SCAN floor as well as the chunk floor, so both phases
-    are mapped work: below it the scan is one sweep and never reaches a pool.
+    returns it, so intercepting the lease is intercepting every phase. The cut
+    search reads only the text near its targets on the calling thread, so the
+    pieces' parse is the mapped work.
     """
     compiled = compile_text(LEAD_RULE)
     text = sample_doc(2000)
@@ -261,7 +259,7 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
     assert parallel is not None
     assert parallel.to_text() == text
     assert created == 1
-    assert map_calls >= 2
+    assert map_calls >= 1
 
 
 @pytest.mark.parametrize("cores", [2, 3, 5, 8])
@@ -695,9 +693,13 @@ def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> No
     text = _continuation_doc(500)
     assert len(text) > 2 * MIN_CHUNK
 
-    with WorkPool(2) as pool:
-        raw_marks = scan_marks(certified, text, 2, pool)
-        cuts = cut_offsets(certified, text, 2, pool).offsets
+    raw_marks = [
+        at
+        for at in certified.scanner.level(text, 0, len(text), 0)
+        if text[at] in certified.mark
+    ]
+    chosen = cut_offsets(certified, text, 2, Level(certified.scanner, text))
+    cuts = chosen.offsets
 
     admitted = [
         at
@@ -705,6 +707,8 @@ def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> No
         if admits(text, at + 1, certified.bound, sole_mark(certified))
     ]
     assert len(admitted) < len(raw_marks), "continuation marks must be filtered out"
+    candidates = list(chosen.marks(0, 0, len(text) + 1))
+    assert candidates and set(candidates) <= set(admitted)
     assert cuts, "the certified plan must still find a usable cut"
     for cut in cuts:
         assert text[cut + 1 :].startswith("rule"), "a cut must land on a genuine head"
@@ -764,21 +768,22 @@ def test_the_shared_sweep_looks_only_for_marks_a_certified_plan_cuts_at() -> Non
 
 
 def test_the_shared_sweep_reports_every_mark_the_plan_scanners_would() -> None:
-    """Narrowing may not lose a candidate: for every certified plan, the marks
-    read out of the shared sweep are exactly the ones its own scanner finds."""
+    """Narrowing may not lose a candidate: for every certified plan, the
+    candidates searched in the shared scanner are exactly the ones its own
+    scanner finds, and so are the cuts."""
     plans, compiled = _certified_mixed_ends()
     text = _mixed_ends_doc(400)
     assert len(text) > 2 * MIN_CHUNK
     shared = shared_scanner(compiled.codegen_grammar, plans)
     assert shared is not None
 
-    with WorkPool(4) as pool:
-        narrowed = rebase(shared, text, 4, pool)
-        for plan in plans:
-            own = rebase(plan.scanner, text, 4, pool)
-            assert scan_marks(plan, text, 4, pool, narrowed) == scan_marks(
-                plan, text, 4, pool, own
-            )
+    for plan in plans:
+        narrowed = cut_offsets(plan, text, 4, Level(shared, text))
+        own = cut_offsets(plan, text, 4, Level(plan.scanner, text))
+        listed = list(narrowed.marks(0, 0, len(text) + 1))
+        assert listed, "the plan must find candidates, or nothing is compared"
+        assert listed == list(own.marks(0, 0, len(text) + 1))
+        assert narrowed.offsets == own.offsets
 
 
 def test_a_walking_scan_neither_reads_nor_feeds_the_shared_sweep() -> None:

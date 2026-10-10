@@ -14,10 +14,12 @@ the leading character would serve a mark whose occurrences are not aligned.
 
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 
 from lexic.compile import compile_text
-from lexic.parsing.parallel.discovery.regions import floor_cuts
+from lexic.parsing.parallel.discovery.regions import floor_cuts, listed
 from lexic.parsing.parallel.plan.folded import (
     FoldedPlan,
     divide,
@@ -314,7 +316,9 @@ def _halving_cut(want: int) -> int:
     """The one cut two workers take when the halfway target is ``want`` past
     :data:`_FAR` — the span is sized so its middle lands there."""
     marks = tuple(_FAR + mark for mark in NEAREST)
-    found = floor_cuts((marks, (0, 2 * (_FAR + want)), _at_mark, (False, 0)), 2)
+    found = floor_cuts(
+        (partial(listed, marks), (0, 2 * (_FAR + want)), _at_mark, (False, 0)), 2
+    )
     assert found is not None
     return found[0][0] - _FAR
 
@@ -414,7 +418,9 @@ def test_the_bisect_cuts_where_the_linear_reading_cut() -> None:
     lo, hi = marks[0], marks[-1] + 3
     for workers in (2, 3, 4, 8, 16):
         target = (hi - lo) / workers
-        found = floor_cuts((marks, (lo, hi), _past_separator, (False, 0)), workers)
+        found = floor_cuts(
+            (partial(listed, marks), (lo, hi), _past_separator, (False, 0)), workers
+        )
         scanned = scanned_cuts(marks, lo, hi, target, workers)
         assert found is not None, f"{workers} workers: the floor must not bind"
         chosen = found[0]

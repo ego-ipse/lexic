@@ -1,5 +1,12 @@
 # Log
 
+## A plan's cuts are searched for near their targets (2026-10-10)
+
+`parallel-parsing.md` records `PlanMarks`: depth counted at a stretch's start,
+only the stretch walked, candidates read nearest-first through `Around`; one
+`Level` per document, swept whole on the pool once a plan proves sparse. The
+prefix-sum rebase and `Window` are gone.
+
 ## A descent loop asks its wide gate straight (2026-10-10)
 
 `decisions.md` records why `_quant_step` calls `wide_gate_take` and

@@ -28,7 +28,12 @@ from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.regions import Cutting, Region, floor_cuts
+from lexic.parsing.parallel.discovery.regions import (
+    Cutting,
+    Region,
+    floor_cuts,
+    listed,
+)
 from lexic.parsing.parallel.discovery.shapes import UNIT, exact_text
 from lexic.parsing.parallel.plan.routed import REF, Descent
 from lexic.parsing.parallel.policy import capacity
@@ -355,7 +360,7 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
     # The cuts land on marks, so a piece can fall short of its share: fewer
     # workers are tried until every piece holds `MIN_PIECE`.
     cutting: Cutting = (
-        region.marks,
+        partial(listed, region.marks),
         (lo, hi),
         partial(past_separator, text, plan.marks),
         (False, 0),

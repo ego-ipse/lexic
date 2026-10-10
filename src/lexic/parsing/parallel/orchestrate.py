@@ -25,13 +25,13 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.partition import Division, Unit, partition, units
-from lexic.parsing.parallel.discovery.regions import par_find
+from lexic.parsing.parallel.discovery.regions import Around, par_find
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
+    Level,
     cut_offsets,
     cut_spans,
     reads_a_sweep,
-    rebase,
     shared_scanner,
 )
 from lexic.parsing.parallel.plan.envelope import (
@@ -166,9 +166,7 @@ def _attempt[M: IrNamedTuple](
     return found, next((k for k, one in enumerate(found) if one is None), -1)
 
 
-def _reselect(
-    text: str, marks: list[int], cuts: list[int], at: int
-) -> list[int] | None:
+def _reselect(text: str, marks: Around, cuts: list[int], at: int) -> list[int] | None:
     """``cuts`` with cut ``at`` moved to the next-nearest usable proposal.
 
     Only the two pieces this cut bounds may move, so its neighbours fix the
@@ -178,14 +176,16 @@ def _reselect(
     lo = cuts[at - 1] if at else 0
     hi = cuts[at + 1] if at + 1 < len(cuts) else len(text)
     taken = set(cuts)
-    room = [
-        candidate
-        for candidate in marks
-        if candidate not in taken and clears_floor((candidate - lo, hi - candidate))
-    ]
-    if not room:
+    nearest = next(
+        (
+            candidate
+            for candidate in marks(cuts[at], lo, hi + 1)
+            if candidate not in taken and clears_floor((candidate - lo, hi - candidate))
+        ),
+        None,
+    )
+    if nearest is None:
         return None
-    nearest = min(room, key=lambda candidate: (abs(candidate - cuts[at]), candidate))
     return [nearest if k == at else cut for k, cut in enumerate(cuts)]
 
 
@@ -477,18 +477,16 @@ def _split_on[M: IrNamedTuple](
     """The plans in order, then the regions, on one lent pool."""
     cores, analysis, licensed = setting
     shared = shared_scanner(grammar, licensed)
-    # The rebase belongs to the document, not to a plan: it reads only the
-    # windows' marks and deltas, so every plan reading the sweep recomputed
-    # the same offsets over every mark in the document. As many windows as
-    # pieces, for the reason the region find gives.
-    windows = piece_count(pool.workers)
-    rebased = rebase(shared, ask.text, windows, pool) if shared is not None else None
+    # The level belongs to the document, not to a plan: every plan reading the
+    # sweep searches the same depth-0 marks, so the depths one plan counts and
+    # the whole sweep a sparse one forces serve every plan after it.
+    level = Level(shared, ask.text, pool) if shared is not None else None
     for plan in licensed:
-        # Only a plan that reads a windowed sweep is handed the shared
-        # offsets; a walking scan owns its pass, and an envelope plan reads
-        # neither.
-        seen = rebased if reads_a_sweep(plan) else None
-        chosen = cut_offsets(plan, ask.text, cores, pool, seen)
+        # A walking scan owns its pass, and an envelope plan reads neither.
+        own = level if level is not None and reads_a_sweep(plan) else None
+        chosen = cut_offsets(
+            plan, ask.text, cores, own or Level(plan.scanner, ask.text, pool)
+        )
         if not chosen.offsets:
             continue
         model = (

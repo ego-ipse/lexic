@@ -31,7 +31,12 @@ from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.regions import Cutting, Region, floor_cuts
+from lexic.parsing.parallel.discovery.regions import (
+    Cutting,
+    Region,
+    floor_cuts,
+    listed,
+)
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
@@ -599,7 +604,8 @@ def divide(
     # piece can fall short of its share, and fewer workers are tried only when
     # one falls under `MIN_PIECE`. A cut lands just past a terminator, which
     # its unit owns: the piece before keeps it.
-    cutting: Cutting = (region.marks, (lo, hi), _after_terminator, (True, 1))
+    around = partial(listed, region.marks)
+    cutting: Cutting = (around, (lo, hi), _after_terminator, (True, 1))
     for count in range(min(workers, capacity(hi - lo)), 1, -1):
         found = floor_cuts(cutting, count)
         if found is None:

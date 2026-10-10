@@ -8,12 +8,20 @@ what decides whether the second is worth asking at all.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
+from collections.abc import Iterator
 from functools import partial
+from math import ceil
 from typing import NamedTuple
 
 from lexic.ir import IrAst
-from lexic.parsing.parallel.discovery.regions import Cutting, floor_cuts
-from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
+from lexic.parsing.parallel.discovery.regions import (
+    Around,
+    Cutting,
+    floor_cuts,
+    listed,
+)
+from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
 from lexic.parsing.parallel.policy import (
@@ -27,15 +35,15 @@ from lexic.parsing.parallel.roles import Roles, Terminator, roles
 
 
 def reads_a_sweep(plan: SplitPlan) -> bool:
-    """Whether this plan's cuts come from the shared windowed scan.
+    """Whether this plan's cuts are searched for by depth in the shared scan.
 
     Two shapes take their offsets elsewhere and must not put their marks into
     it. An ENVELOPE plan cuts on its own noise run
-    (:meth:`~...plan.envelope.EnvelopePlan.cuts`) and never reads a window at
-    all — its mark is whitespace on the meta grammars, so sweeping for it
-    enumerated a mark every few characters and discarded every one. An OPAQUE
+    (:meth:`~...plan.envelope.EnvelopePlan.cuts`) and never reads a depth at
+    all — its mark is whitespace on the meta grammars, so searching for it
+    would read a mark every few characters and discard every one. An OPAQUE
     plan WALKS the document unit by unit under its own region table, so its
-    pass is not a windowed sweep and is not interchangeable with one.
+    pass is not a depth search and is not interchangeable with one.
     """
     return plan.envelope is None and not plan.scanner.opaque
 
@@ -70,103 +78,6 @@ def shared_scanner(grammar: IrAst, plans: tuple[SplitPlan, ...]) -> Scanner | No
     return Scanner(Roles(roles(grammar).pairs, (), (Terminator(wanted, "", ""),)))
 
 
-def scan_windows(
-    scanner: Scanner, text: str, workers: int, pool: WorkPool
-) -> list[Window]:
-    """Scan windows once for every separator plan of one grammar.
-
-    A scanner carrying opaque regions walks instead: a window cannot know
-    whether it begins inside one, and only the previous mark can say.
-
-    How many windows is the SCAN's question, not the parse's: a window costs
-    what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
-    the count. Handing one worker per parse chunk put more time into dispatch
-    than into scanning on every document a cheap grammar sees.
-
-    A scan map with nothing in it is not dispatched at all. That is a second
-    bound beside the size one and it reads the vocabulary rather than the
-    document: a mark whose characters play a bracket role is not kept as a
-    separator, so a scanner left with none cannot report a mark for ANY input.
-    Every window such a sweep hands out is guaranteed to come back empty, at
-    every size, forever — and one empty window is the same answer for no work.
-    """
-    if scanner.opaque:
-        return [scanner.walk(text)]
-    if not scanner.separators:
-        return [Window(0, 0, 0, 0, ())]
-    windows = min(workers, max(1, len(text) // MIN_SCAN))
-    if windows < 2:
-        return [scanner.window(text, 0, len(text))]
-    step = len(text) // windows
-    bounds = [
-        (k * step, (k + 1) * step if k < windows - 1 else len(text))
-        for k in range(windows)
-    ]
-    return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
-
-
-def rebase(scanner: Scanner, text: str, workers: int, pool: WorkPool) -> list[int]:
-    """Scan the document and rebase its windows to absolute depth 0, once.
-
-    The two halves of a windowed scan that depend on the document and nothing
-    else: what the windows found, and where their marks stand once the prefix
-    sum has run. Every plan reading the sweep gets the same answer to both, so
-    the orchestrator asks once and hands the offsets down.
-
-    That the rebase is shareable is a property of
-    :meth:`~...discovery.scan.Scanner.offsets` rather than a coincidence: it
-    reads only the windows' own marks and deltas, so which scanner is asked
-    cannot change what comes back.
-
-    :param scanner: The scanner whose spellings the windows were swept for.
-    :param text: The whole document.
-    :param workers: The worker ceiling the window count is bounded by.
-    :param pool: The pool the windows are dispatched on.
-    :returns: The marks standing at absolute depth 0, in document order.
-    """
-    return scanner.offsets(scan_windows(scanner, text, workers, pool), depth=0)
-
-
-def scan_marks(
-    plan: SplitPlan,
-    text: str,
-    workers: int,
-    pool: WorkPool,
-    rebased: list[int] | None = None,
-) -> list[int]:
-    """Depth-0 marks of this plan's spelling, over ``workers`` windows.
-
-    Windows are arithmetic and each is scanned with no left context — a mark
-    is structural at every occurrence, so a window needs nothing from its
-    predecessor and the prefix-sum rebase recovers the absolute depths. One
-    window IS the sequential scan. A spelling that overlaps itself is thinned
-    to one boundary per run, after the rebase, so the answer does not depend
-    on where the windows fell.
-
-    The scanner reports every mark of the GRAMMAR; this plan keeps its own.
-    Where every spelling is one character that selection is a membership test
-    and nothing else: a one-character mark cannot overlap itself, so every
-    width is 1 and :func:`~...discovery.scan.clustered` is the identity —
-    which is that function's own stated contract, not a shortcut past it.
-
-    :param rebased: The shared depth-0 offsets, or ``None`` to scan for them.
-        An EMPTY list is an answer — a document carrying no mark at depth 0 —
-        so absence is stated rather than read off falsiness.
-    """
-    at_depth = rebase(plan.scanner, text, workers, pool) if rebased is None else rebased
-    if all(len(mark) == 1 for mark in plan.mark):
-        return [at for at in at_depth if text[at] in plan.mark]
-    widths = mark_widths(text, at_depth, plan.ordered)
-    return clustered(sorted(widths), widths, plan.trailing)
-
-
-def mark_widths(
-    text: str, at_depth: list[int], ordered: tuple[str, ...]
-) -> dict[int, int]:
-    """Each kept mark's matched spelling width, in document order."""
-    return {at: len(hit) for at in at_depth if (hit := matched(text, at, ordered))}
-
-
 def sole_mark(plan: SplitPlan) -> str:
     """The plan's one mark spelling, or ``""`` when it keys on a whole set.
 
@@ -177,77 +88,298 @@ def sole_mark(plan: SplitPlan) -> str:
     return next(iter(plan.mark)) if len(plan.mark) == 1 else ""
 
 
+STRETCH = 256
+"""The first stretch a candidate search reads on each side of its target, in
+characters; each further stretch on that side is twice the last."""
+
+SPARSE = (4 * STRETCH, 16 * STRETCH)
+"""How far into a document a plan's search reads before it calls the plan
+sparse: past the first bound with no candidate at all, or past the second
+without its first cuts' worth. A sparse plan is answered from the whole level
+instead (:meth:`Level.whole`): searching it out stretch by stretch in Python
+would walk the document alone, and once per plan."""
+
+
+class Level:
+    """One document's depth-0 marks under one scanner, shared by every plan
+    that reads it.
+
+    Read a stretch at a time where a search asks, from a depth counted at the
+    stretch's start and remembered for the next; or, once any plan proves
+    sparse, swept whole — in windows on the pool, each from its own counted
+    depth — and listed for every plan after it. An opaque scanner's marks are
+    the walk's, listed when first asked for: an envelope plan carries an opaque
+    scanner and never asks.
+    """
+
+    def __init__(self, scanner: Scanner, text: str, pool: WorkPool | None = None):
+        """Read ``text`` under ``scanner``; sweep it whole on ``pool``."""
+        self.scanner, self.text, self.pool = scanner, text, pool
+        self.known = ([0], [0])
+        self.listed: list[int] | None = None
+
+    def stretch(self, lo: int, hi: int) -> list[int]:
+        """The depth-0 marks starting in ``[lo, hi)``, ascending."""
+        if self.scanner.opaque:
+            self.whole()
+        whole = self.listed
+        if whole is not None:
+            return whole[bisect_left(whole, lo) : bisect_left(whole, hi)]
+        return self.scanner.level(self.text, lo, hi, self.depth(lo))
+
+    def whole(self) -> None:
+        """List every depth-0 mark of the document, once.
+
+        How many windows is the sweep's question, not the parse's: a window
+        costs what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN`
+        bounds the count, and a pool that claims every CPU spares one.
+        """
+        if self.listed is not None:
+            return
+        text, scanner = self.text, self.scanner
+        if scanner.opaque:
+            self.listed = scanner.walk(text)
+            return
+        workers = piece_count(self.pool.workers) if self.pool is not None else 1
+        windows = min(workers, max(1, len(text) // MIN_SCAN))
+        step = len(text) // windows
+        bounds = [k * step for k in range(windows)] + [len(text)]
+        spans = [(lo, hi, self.depth(lo)) for lo, hi in zip(bounds, bounds[1:])]
+        if self.pool is None or windows < 2:
+            found = [scanner.level(text, lo, hi, base) for lo, hi, base in spans]
+        else:
+            found = self.pool.map(lambda span: scanner.level(text, *span), spans)
+        self.listed = [at for part in found for at in part]
+
+    def depth(self, at: int) -> int:
+        """The absolute depth at ``at``: counted from the nearest depth already
+        known on either side of it, and remembered."""
+        offsets, depths = self.known
+        index = bisect_right(offsets, at) - 1
+        if offsets[index] == at:
+            return depths[index]
+        later = index + 1
+        scanner, text = self.scanner, self.text
+        if later < len(offsets) and offsets[later] - at < at - offsets[index]:
+            depth = depths[later] - scanner.drift(text, at, offsets[later])
+        else:
+            depth = depths[index] + scanner.drift(text, offsets[index], at)
+        offsets.insert(later, at)
+        depths.insert(later, depth)
+        return depth
+
+
+class PlanMarks:
+    """One plan's cut candidates in one document, found where they are asked for.
+
+    A candidate is a depth-0 occurrence of a plan spelling, thinned to one per
+    overlapping run, admitted by the plan's bound, and never the empty first or
+    last piece a cut there would leave. The depth at a stretch's start is a
+    count (:meth:`~...discovery.scan.Scanner.drift`), so a search reads only the
+    stretches around its targets: choosing fifteen cuts no longer walks every
+    mark in the document. Once its marks are listed — an envelope's own cuts,
+    an opaque walk, a sparse plan's whole level — they are filtered once, and
+    the candidates are read from that list by bisection.
+    """
+
+    def __init__(self, plan: SplitPlan, level: Level, held: list[int] | None) -> None:
+        """Read ``level``'s depth-0 marks, or ``held`` when given."""
+        self.plan, self.text, self.level, self.held = plan, level.text, level, held
+        self.margin = max((len(mark) for mark in plan.mark), default=1)
+        self.last: int | None = -1 if plan.terminated and not plan.opening else None
+        self.ready: list[int] | None = None
+
+    def around(self, want: float, lo: int, hi: int) -> Iterator[int]:
+        """The candidates in ``[lo, hi)``, nearest ``want`` first, the earlier
+        on a tie."""
+        ready = self._listed()
+        if ready is not None:
+            yield from listed(ready, want, lo, hi)
+            return
+        lo, hi = max(lo, 0), min(hi, len(self.text))
+        split = min(max(ceil(want), lo), hi)
+        left, right = self._leftward(lo, split), self._rightward(split, hi)
+        before, after = next(left, -1), next(right, -1)
+        while before >= 0 or after >= 0:
+            if after < 0 or (before >= 0 and want - before <= after - want):
+                at, before = before, next(left, -1)
+            else:
+                at, after = after, next(right, -1)
+            if self._kept(at):
+                yield at
+
+    def found(self, count: int) -> int:
+        """``count``, when the document holds that many candidates — read from
+        its start until they are found or the plan proves sparse
+        (:data:`SPARSE`) — else every candidate it holds, counted."""
+        ready = self._listed()
+        if ready is not None:
+            return min(count, len(ready))
+        found = 0
+        for lo, hi in ((0, SPARSE[0]), SPARSE):
+            for at in self._rightward(lo, min(hi, len(self.text))):
+                found += self._kept(at)
+                if found >= count:
+                    return count
+            if not found or hi >= len(self.text):
+                break
+        return self.counted()
+
+    def counted(self) -> int:
+        """Every candidate in the document, counted from the whole level."""
+        self.level.whole()
+        ready = self._listed()
+        return len(ready) if ready is not None else 0
+
+    def _listed(self) -> list[int] | None:
+        """Every candidate, filtered once — when the marks are listed already.
+
+        An envelope's own cuts need no plan filter, so they are taken as they
+        stand: each is a ``str.find`` hit, so they ascend and every one stands
+        inside the text. The rule that reads the whole document reads only its last
+        candidate, so it costs one test rather than one per mark.
+        """
+        held, plan, text = self.held, self.plan, self.text
+        if self.ready is not None or (held is None and self.level.listed is None):
+            return self.ready
+        if held is not None and plan.envelope is not None:
+            ready = held[1:] if plan.opening and held and not held[0] else held
+        else:
+            ready = self._stretch(0, len(text))
+        if self.last is not None:
+            self.last = ready[-1] if ready else None
+            if ready and after_mark(plan, text, ready[-1]) == len(text):
+                ready = ready[:-1]
+        self.ready = ready
+        return ready
+
+    def _kept(self, at: int) -> bool:
+        """Whether ``at`` survives the one rule that reads the whole document:
+        a terminated plan's last mark, when nothing but skip follows it."""
+        if self.last == -1:
+            self.last = next(self._leftward(0, len(self.text)), None)
+        return not (
+            at == self.last and after_mark(self.plan, self.text, at) == len(self.text)
+        )
+
+    def _rightward(self, lo: int, hi: int) -> Iterator[int]:
+        """The raw candidates in ``[lo, hi)``, ascending, a stretch at a time."""
+        size = STRETCH
+        while lo < hi:
+            yield from self._stretch(lo, min(lo + size, hi))
+            lo, size = lo + size, 2 * size
+
+    def _leftward(self, lo: int, hi: int) -> Iterator[int]:
+        """The raw candidates in ``[lo, hi)``, descending, a stretch at a time."""
+        size = STRETCH
+        while lo < hi:
+            yield from reversed(self._stretch(max(hi - size, lo), hi))
+            hi, size = hi - size, 2 * size
+
+    def _stretch(self, lo: int, hi: int) -> list[int]:
+        """The raw candidates in ``[lo, hi)``: the plan's depth-0 marks, thinned
+        and admitted. A run is thinned from its neighbours within one spelling's
+        width, so the stretch is read ``margin`` past each end."""
+        text, plan = self.text, self.plan
+        wide_lo, wide_hi = max(lo - self.margin, 0), min(hi + self.margin, len(text))
+        if self.held is not None:
+            level = self.held[
+                bisect_left(self.held, wide_lo) : bisect_left(self.held, wide_hi)
+            ]
+        else:
+            level = self.level.stretch(wide_lo, wide_hi)
+        if plan.envelope is not None:
+            marks = [at for at in level if lo <= at < hi]
+        elif self.margin == 1:
+            marks = [at for at in level if lo <= at < hi and text[at] in plan.mark]
+        else:
+            marks = _thinned(text, plan, level, lo, hi)
+        found = plan.bound
+        if found is not None and plan.envelope is None:
+            bound = sole_mark(plan)
+            after = len(bound)
+            marks = [at for at in marks if admits(text, at + after, found, bound)]
+        return [at for at in marks if at] if plan.opening else marks
+
+
+def _thinned(
+    text: str, plan: SplitPlan, level: list[int], lo: int, hi: int
+) -> list[int]:
+    """The plan's matched marks in ``[lo, hi)``, one per overlapping run.
+
+    A spelling that is its own border reads several times inside a run of its
+    characters, and the grammar has one boundary there — at the run's end or at
+    its start, whichever the owner's own edges settled. Marks overlap when the
+    later starts inside the earlier's own matched width, so whether a mark
+    opens (or closes) its run is read off its one neighbour, which ``level``
+    holds whenever it reaches a spelling's width past ``[lo, hi)``.
+    """
+    widths = {at: len(hit) for at in level if (hit := matched(text, at, plan.ordered))}
+    ordered = list(widths)
+    kept: list[int] = []
+    for index, at in enumerate(ordered):
+        if not lo <= at < hi:
+            continue
+        if plan.trailing:
+            later = ordered[index + 1] if index + 1 < len(ordered) else None
+            if later is None or later - at >= widths[at]:
+                kept.append(at)
+            continue
+        earlier = ordered[index - 1] if index else None
+        if earlier is None or at - earlier >= widths[earlier]:
+            kept.append(at)
+    return kept
+
+
 class Cuts(NamedTuple):
     """One document's chosen cuts, and the candidates they were chosen from.
 
-    The two travel together because they come out of one pass. A proposal
-    re-selects a failing cut within the candidate set, and asking for it
-    separately scanned, rebased and filtered every mark in the document a
-    second time to rebuild a list the choice had just finished reading.
+    The two travel together because a proposal re-selects a failing cut among
+    the same candidates, and asks for them where the failing cut stands.
 
     :ivar offsets: The chosen cut offsets, in document order; empty declines.
-    :ivar marks: Every candidate offset, in document order.
+    :ivar marks: The candidates, asked for nearest first.
     """
 
     offsets: list[int]
-    marks: list[int]
+    marks: Around
 
 
-def cut_offsets(
-    plan: SplitPlan,
-    text: str,
-    cores: int,
-    pool: WorkPool,
-    rebased: list[int] | None = None,
-) -> Cuts:
-    """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
+def cut_offsets(plan: SplitPlan, text: str, cores: int, level: Level) -> Cuts:
+    """The chosen cut offsets — depth-0 marks of this plan's spelling, thinned.
 
-    The worker CEILING is settled before anything is scanned: it depends
-    only on the build, the core count and the input size, so a document
-    that could never occupy two workers must not pay a scan to find that
-    out — that scan is a full pass over the input, and charging it to every
-    small parse is a regression on grammars that merely HAVE a plan.
+    The worker CEILING is settled before anything is read: it depends only on
+    the build, the core count and the input size, so a document that could
+    never occupy two workers pays nothing to find that out.
 
-    A terminated plan's final mark is dropped: cutting after the document's
-    last terminator leaves an empty chunk, which is not a document.
+    The candidates are searched for near each target rather than listed. Only
+    a document holding fewer candidates than the ceiling's cuts is counted
+    whole, since fewer marks bound the useful worker count.
 
-    :param rebased: The shared depth-0 offsets, or ``None`` to scan for them.
+    :param level: The document's depth-0 marks the candidates come from: the
+        shared scanner's for a plan that reads a sweep, the plan's own scanner's
+        (its walk, when opaque) otherwise.
     :returns: The chosen offsets and the candidates they came from.
     """
     ceiling = worker_count(len(text), len(text), cores)
     if ceiling < 2:
-        return Cuts([], [])
-    if plan.envelope is not None:
-        marks = plan.envelope.cuts(text)
-    else:
-        marks = scan_marks(plan, text, piece_count(ceiling), pool, rebased)
-        if plan.bound is not None:
-            # The unit emits its own mark, so a mark is a candidate rather than
-            # a boundary: keep the ones a unit actually begins after. A
-            # terminated unit starts immediately past its mark, with no
-            # separator run to extend over — the envelope path's one difference.
-            bound = sole_mark(plan)
-            marks = [
-                at for at in marks if admits(text, at + len(bound), plan.bound, bound)
-            ]
-    if plan.opening:
-        # A proposal at offset zero would leave an empty first piece, which is
-        # not a document; the tail needs no such guard, since a unit BEGINS at
-        # the last proposal and its piece runs to the end.
-        marks = [at for at in marks if at]
-    elif plan.terminated and marks and after_mark(plan, text, marks[-1]) == len(text):
-        marks.pop()
-    workers = piece_count(worker_count(len(text), len(marks), cores))
-    cutting = _cutting(plan, text, marks)
+        return Cuts([], partial(listed, []))
+    held = plan.envelope.cuts(text) if plan.envelope is not None else None
+    marks = PlanMarks(plan, level, held)
+    workers = piece_count(worker_count(len(text), marks.found(ceiling - 1), cores))
+    # Listed by now, the candidates are read by bisection straight off the list.
+    ready = marks.ready
+    around = marks.around if ready is None else partial(listed, ready)
+    cutting = _cutting(plan, text, around)
     while workers >= 2:
         cuts = _balanced_cuts(plan, text, workers, cutting)
         if cuts:
-            return Cuts(cuts, marks)
+            return Cuts(cuts, around)
         workers -= 1
-    return Cuts([], marks)
+    return Cuts([], around)
 
 
-def _cutting(plan: SplitPlan, text: str, marks: list[int]) -> Cutting:
+def _cutting(plan: SplitPlan, text: str, marks: Around) -> Cutting:
     """This plan's question to the cut chooser: the next piece starts at
     :func:`after_mark`, and a terminated piece keeps its mark."""
     # A terminated piece KEEPS its mark, so a candidate that close still

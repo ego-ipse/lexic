@@ -344,7 +344,7 @@ class ParsePool[T, M]:
     """A warm worker pool binding one callable for repeated maps.
 
     Generic in both ends: ``ParsePool[str, GrammarModel]`` parses documents,
-    ``ParsePool[tuple[int, int], Window]`` scans windows. The item type is
+    ``ParsePool[tuple[int, int], list[int]]`` scans stretches. The item type is
     the caller's, which is what keeps the pool from being a document-only
     thing that a second kind of work would have to duplicate.
 

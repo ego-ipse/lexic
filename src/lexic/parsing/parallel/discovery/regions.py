@@ -19,8 +19,8 @@ does not live beside the analysis.
 
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Sequence
+from bisect import bisect_left
+from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from typing import NamedTuple
 
@@ -542,14 +542,39 @@ type Starts = Callable[[int], int | None]
 cannot be cut at."""
 
 
-type Cutting = tuple[Sequence[int], tuple[int, int], Starts, tuple[bool, int]]
+type Around = Callable[[float, int, int], Iterator[int]]
+"""Cuttable marks, asked for nearest first — what :func:`floor_cuts` reads:
+``around(want, lo, hi)`` yields the marks in ``[lo, hi)``, nearest ``want``
+first, the earlier on a tie. A divider holding its marks as a list hands
+:func:`listed`; one that can find them where they are asked for need never
+list the rest."""
+
+
+def listed(marks: Sequence[int], want: float, lo: int, hi: int) -> Iterator[int]:
+    """The ascending ``marks`` in ``[lo, hi)``, nearest ``want`` first, the
+    earlier on a tie — an :data:`Around` over a list, by bisection."""
+    first, end = bisect_left(marks, lo), bisect_left(marks, hi)
+    right = bisect_left(marks, want, first, end)
+    left = right - 1
+    while left >= first or right < end:
+        if right >= end or (
+            left >= first and want - marks[left] <= marks[right] - want
+        ):
+            yield marks[left]
+            left -= 1
+        else:
+            yield marks[right]
+            right += 1
+
+
+type Cutting = tuple[Around, tuple[int, int], Starts, tuple[bool, int]]
 """One divider's question to :func:`floor_cuts`, asked at any worker count:
-``(marks, span, starts, keeps)`` — the cuttable marks, ascending; the text
-being divided, ``(lo, hi)``; where the piece after a cut at a mark starts, or
-``None`` where that mark cannot be cut at; and whether the piece before a cut
-keeps its mark, with how far past the mark it may then end (what lets the
-search skip the marks too early to cut at unread). A plain tuple: it is built
-once per document on the cut path."""
+``(marks, span, starts, keeps)`` — the cuttable marks; the text being divided,
+``(lo, hi)``; where the piece after a cut at a mark starts, or ``None`` where
+that mark cannot be cut at; and whether the piece before a cut keeps its mark,
+with how far past the mark it may then end (what lets the search skip the marks
+too early to cut at unread). A plain tuple: it is built once per document on
+the cut path."""
 
 
 def floor_cuts(cutting: Cutting, workers: int) -> tuple[list[int], list[int]] | None:
@@ -566,29 +591,20 @@ def floor_cuts(cutting: Cutting, workers: int) -> tuple[list[int], list[int]] | 
 
     :returns: ``(marks, starts)``, ascending, or ``None`` when no mark fits a cut.
     """
-    marks, (lo, hi), starts, keeps = cutting
+    lo, hi = cutting[1]
     cuts: list[int] = []
     begins: list[int] = []
     # The per-piece floor as one window per cut: the piece before must end at
-    # `need` or later, and the rest from `room` on feed every piece left. The
-    # nearest mark of all usually lies in the window and fits; only a cut
-    # where it does not walks the window (`_nearest_fit`).
+    # `need` or later, and the rest from `room` on feed every piece left.
     need = lo + MIN_PIECE
     for k in range(1, workers):
         room = hi - (workers - k) * MIN_PIECE
-        want = lo + (hi - lo) * k / workers
-        at = bisect_left(marks, want)
-        if at == len(marks) or (at and want - marks[at - 1] <= marks[at] - want):
-            at -= 1  # the earlier on a tie
-        at = marks[at]
-        start = starts(at) if need - keeps[1] <= at < room else None
-        if start is None or start > room or (start if keeps[0] else at) < need:
-            at, start = _nearest_fit(cutting, want, need, room) or (-1, -1)
-            if at < 0:
-                return None
-        cuts.append(at)
-        begins.append(start)
-        need = start + MIN_PIECE
+        fit = _nearest_fit(cutting, lo + (hi - lo) * k / workers, need, room)
+        if fit is None:
+            return None
+        cuts.append(fit[0])
+        begins.append(fit[1])
+        need = fit[1] + MIN_PIECE
     return cuts, begins
 
 
@@ -598,21 +614,11 @@ def _nearest_fit(
     """The mark nearest ``want`` (the earlier on a tie) whose piece ends at
     ``need`` or later and whose next piece starts by ``room``, with that
     start — walked nearest first over the floor's window, the marks in
-    ``[need - slack, room)``, so the first that fits is the one taken."""
-    marks, _span, starts, (kept, slack) = cutting
-    lo, hi = bisect_left(marks, need - slack), bisect_right(marks, room - 1)
-    right = bisect_left(marks, want, lo, hi)
-    left = right - 1
-    while left >= lo or right < hi:
-        if right >= hi or (left >= lo and want - marks[left] <= marks[right] - want):
-            candidate, left = marks[left], left - 1
-        else:
-            candidate, right = marks[right], right + 1
-        start = starts(candidate)
-        if (
-            start is not None
-            and start <= room
-            and (start if kept else candidate) >= need
-        ):
-            return candidate, start
+    ``[need - slack, room)``, so the first that fits is the one taken: usually
+    the nearest of all."""
+    around, _span, starts, (kept, slack) = cutting
+    for at in around(want, need - slack, room):
+        start = starts(at)
+        if start is not None and start <= room and (start if kept else at) >= need:
+            return at, start
     return None

@@ -261,28 +261,54 @@ Certification is derived on the grammar the parser actually runs. That matters:
 the codegen passes hoist groups and arms, so shapes present in the authored
 grammar are not always the shapes the analysis meets.
 
-### Which plans may SHARE a sweep
+### A plan's cuts are searched for near their targets
 
-Several plans can be certified for one grammar, and the windowed ones sweep the
-same document for their own marks. `plan/cuts.py` answers who may share:
+A plan route chooses about one cut per worker, and `PlanMarks` (`plan/cuts.py`)
+finds a plan's candidates only where a cut is asked for: the depth at a
+stretch's start is a COUNT — openers minus closers before it, `str.count` at C
+speed (`Scanner.drift`) — and only the stretch is walked (`Scanner.level`).
+`floor_cuts` reads candidates nearest-first through an `Around` callable, so a
+list-holding divider hands `partial(listed, marks)` and the plan route hands its
+search; choosing fifteen cuts no longer walks every mark of the document in
+Python. The answer is the whole-document one, filter for filter: the plan's own
+spelling, one boundary per overlapping run (decided from its one neighbour, so a
+stretch is read a spelling's width past each end), the bound's admission, no
+empty first piece for an opening mark, and no empty last piece after a
+terminated plan's final mark. An envelope's own cuts are a list already, and
+are read through the same filters.
+
+The depth-0 marks belong to the document, not to a plan, so `_split_on` builds
+one `Level` per document over the shared scanner: the depths one plan counts
+serve the next. A plan that finds no candidate in the first `SPARSE[0]`
+characters, or not its first cuts' worth in `SPARSE[1]`, is SPARSE, and a
+sparse plan is answered from the whole level, swept once in windows on the pool
+(each from its own counted depth, as many as `piece_count` and `MIN_SCAN`
+allow) and listed for every plan after it. Searching a sparse plan out stretch
+by stretch walked the whole document in Python, alone and once per plan:
+arithmetic's first two plans never stand at depth 0, and reading each of them
+out twice made its split 1.9 times slower. An opaque scanner's level is its
+walk, listed from the start.
+
+### Which plans may SHARE a scanner
+
+Several plans can be certified for one grammar. `plan/cuts.py` answers who may
+share one scanner:
 
 - **`reads_a_sweep(plan)`** — true only when the plan has no envelope and its
   scanner is not opaque. An **envelope** plan cuts on its own noise run and
-  reads no window at all; its mark is whitespace on the meta grammars, so
-  sweeping for it enumerates a mark every few characters and discards every
+  reads no depth at all; its mark is whitespace on the meta grammars, so
+  searching for it would read a mark every few characters and discard every
   one. An **opaque** plan WALKS the document unit by unit under its own region
-  table, which is not a windowed sweep and is not interchangeable with one.
+  table, which is not a depth count and is not interchangeable with one.
 - **`shared_scanner(grammar, plans)`** — one scanner over the UNION of the
   sweeping plans' spellings, or `None` when no certified plan reads a sweep.
-  Every plan that does not read one is handed `None` and takes its own pass.
+  Every plan that does not read one is searched with its own scanner.
 
 Two things make the union safe. Marks carry no depth, so merging two plans'
-spellings changes neither window's depth accounting; and each plan still
-narrows the union to its own spellings through `scan_marks`, so sharing cannot
-propose a cut a plan would not have proposed alone. Narrowing to the certified
-plans' marks is the point: a document is only ever cut at a mark some certified
-plan keys on, and every other occurrence costs a `find`, a window build, a
-depth rebase and a discard.
+spellings changes no depth count; and each plan still narrows the union to its
+own spellings, so sharing cannot propose a cut a plan would not have proposed
+alone. Narrowing to the certified plans' marks is the point: every other
+occurrence in a stretch costs a `find`, a sort and a discard.
 
 **A new plan shape must be checked against `reads_a_sweep`** — it is the rule
 that decides whether the shape's cuts come from the shared scan or from a pass
