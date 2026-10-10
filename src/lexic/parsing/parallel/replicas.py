@@ -468,50 +468,35 @@ def _thread_cache() -> dict[tuple[int, int], _Mine]:
 
 
 _MET: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
-"""``(lease, id(grammar), id(binding))`` → a pair some worker met for the FIRST
-time in that split, so still read through the original. Filled by
-:func:`_resolve`; moved to :data:`_DUE` when the split ends; released with the
-pair like every other memo here."""
+"""``(lease, id(grammar), id(binding))`` → a pair a worker met for the FIRST time
+in that split, still read through the original; settled into :data:`_DUE`."""
 
 _DUE: dict[
     tuple[int, int],
     tuple[ref[WorkPool], ModelExecutable, dict[tuple[int, int], Replica]],
 ] = memo({}, 1)
-"""``(id(pool), id(document binding))`` → the pairs that pool's workers met for
-the first time while splitting a document parsed through that binding: due a
-copy on every worker when the pool splits through the SAME binding again.
-
-Keyed by the binding because the pairs ARE that binding's: every piece is
-parsed through the document's own executable view, so the pairs retire with
-it — and are released from here with it, never copied for a document thread
-that has gone. A one-shot split (``compile_text`` splitting a long grammar
-source) is another artefact's binding, so its pairs are never copied for a
-later, unrelated split either. The pool is held weakly, checked by identity,
-and its entry dropped when it is collected, so a recycled ``id`` never warms
-another pool and a closed pool leaves nothing behind."""
+"""``(id(pool), id(document binding))`` → the pairs that pool's workers met first
+while splitting through that binding, due a copy on its next split through it.
+Keyed by the binding because every piece parses through it, so the pairs retire
+with it and a one-shot split's are never copied for an unrelated one; the pool
+is held weakly and its entry goes with it."""
 
 WARM_WAIT = 5.0
-"""Seconds a warm task waits for every worker of its pool to arrive. Past it
-the barrier breaks and the warm is skipped: a worker it did not reach copies
-on its own next meeting, exactly as without the warm. It bounds ARRIVAL — the
-copy itself runs after the barrier — so it is not sized to the copy; a break
-is counted (:func:`warm_census`), never silent."""
+"""Seconds a warm task waits for its pool's every worker to ARRIVE (the copy runs
+after); past it the barrier breaks, the warm is skipped and counted."""
 
 WARMED, BROKEN, REFUSED = 0, 1, 2
-"""How one pair's warm ended: every worker copied it, the barrier broke, or a
-copy refused (a :class:`~lexic.exceptions.LexicError`) and the warm stopped."""
+"""How one pair's warm ended: copied everywhere, barrier broken, or refused."""
 
 
 class _WarmTally:
-    """How every warm in the process ended, by outcome — the census the
-    5-second barrier wait would otherwise make look like a timing outlier."""
+    """Every warm's outcome so far, so a broken barrier is never silent."""
 
     __slots__ = ("counts", "lock")
 
     def __init__(self) -> None:
         """Start every outcome at zero."""
-        self.counts = [0, 0, 0]
-        self.lock = threading.Lock()
+        self.counts, self.lock = [0, 0, 0], threading.Lock()
 
     def add(self, outcome: int) -> None:
         """Count one pair's warm."""
@@ -519,7 +504,7 @@ class _WarmTally:
             self.counts[outcome] += 1
 
     def census(self) -> tuple[int, int, int]:
-        """``(warmed, broken, refused)`` so far, read under the lock."""
+        """``(warmed, broken, refused)`` so far."""
         with self.lock:
             return self.counts[WARMED], self.counts[BROKEN], self.counts[REFUSED]
 
@@ -528,15 +513,12 @@ _TALLY = _WarmTally()
 
 
 def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
-    """At the end of a split: the pairs its workers met for the first time
-    become due on ``pool``, for its next split through ``document``.
+    """At a split's end, its workers' first meetings become due on ``pool``.
 
     :param pool: The pool the split ran on.
     :param document: The split document's executable view.
     """
-    # A snapshot: other pools' workers file their first meetings into the same
-    # memo while this runs, and a free-threaded dict iterated live raises on
-    # a concurrent insert.
+    # A snapshot: other pools' workers file into the same memo meanwhile.
     met = [key for key in _MET.copy() if key[0] == pool.lease]
     pairs = {key[1:]: pair for key in met if (pair := _MET.pop(key, None)) is not None}
     key = (id(pool), id(document))
@@ -552,23 +534,17 @@ def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
 
 
 def _forget(key: tuple[int, int], gone: ref[WorkPool]) -> None:
-    """A collected pool's due entry goes with it — unless the key now names a
-    newer pool's entry, which a recycled ``id`` can make."""
+    """A collected pool's due entry goes with it, unless ``key`` was reused."""
     entry = _DUE.get(key)
     if entry is not None and entry[0] is gone:
         _DUE.pop(key, None)
 
 
 def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
-    """At the start of a split: every worker of ``pool`` takes its own copy of
-    each pair due for ``document`` — all at once, before any piece goes out.
-
-    One task per worker per pair, each waiting at a barrier for all the others,
-    so no thread runs two and every thread runs one: the copies are made on
-    the threads that will read them, in parallel, and never inside a piece.
-    A copy that refuses ends the warm and leaves the split to run as without
-    it; anything else is a bug, and leaves the way every phase's bug does
-    (:meth:`~lexic.parsing.parallel.pool.WorkPool.map`).
+    """At a split's start, every worker of ``pool`` copies each pair due for
+    ``document``: one task per worker per pair behind a barrier, so each thread
+    copies once, in parallel, and never inside a piece. A refusing copy ends
+    the warm; anything else is a bug and leaves as :meth:`WorkPool.map`'s do.
 
     :param pool: The pool about to split a document.
     :param document: That document's executable view.
@@ -587,9 +563,7 @@ def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
             pool.map(
                 partial(_warm, grammar, binding, arrive), list(range(pool.workers))
             )
-        except LexicError:
-            # An optimisation never decides the parse: a copy that refuses
-            # leaves its workers to meet the pair as without the warm.
+        except LexicError:  # an optimisation never decides the parse
             _TALLY.add(REFUSED)
             return
         _TALLY.add(BROKEN if arrive.broken else WARMED)
@@ -598,10 +572,8 @@ def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
 def _warm(
     grammar: IrAst, binding: ModelExecutable, arrive: threading.Barrier, _slot: int
 ) -> None:
-    """One worker's share of :func:`warm_due`: its own copy of the pair, the
-    product compiled through it at the tier every piece under 2**28 characters
-    parses at, and copies of every island the original met so far — so no
-    later piece copies one on first meeting either."""
+    """One worker's copy of the pair, its product at the tier every piece under
+    2**28 characters parses at, and every island the original has met."""
     try:
         arrive.wait()
     except threading.BrokenBarrierError:
@@ -611,19 +583,12 @@ def _warm(
 
 
 def warm_census() -> tuple[int, int, int]:
-    """How many pairs' warms ended warmed, with a broken barrier, and refused.
-
-    :returns: ``(warmed, broken, refused)``, process-wide.
-    """
+    """``(warmed, broken, refused)`` warms, process-wide."""
     return _TALLY.census()
 
 
 def due_census() -> tuple[tuple[int, int], ...]:
-    """Every ``(id(pool), id(document binding))`` a warm is owed for — the
-    meter that says what the due list still holds, and for whom.
-
-    :returns: The owed keys.
-    """
+    """Every ``(id(pool), id(document binding))`` a warm is still owed for."""
     return tuple(_DUE.copy())
 
 
