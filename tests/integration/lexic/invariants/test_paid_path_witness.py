@@ -117,7 +117,7 @@ WITNESS: dict[str, str] = {
     "matchers.match_arm": "a268cdcc3a202248",
     "matchers.match_cc": "2f81af2235e50891",
     "matchers.match_cc1": "3021fe234a615f8f",
-    "matchers.match_chartable": "025870428020168a",
+    "matchers.match_chartable": "d97dd5c272b47c34",
     "matchers.match_lit": "7f52bb4e5f7bf5aa",
     "matchers.match_runtable": "4508c90be403d70f",
     "matchers.run_span_once": "03e1b39d259939cc",
