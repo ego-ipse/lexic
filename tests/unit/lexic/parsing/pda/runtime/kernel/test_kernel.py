@@ -42,7 +42,7 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
-from lexic.parsing.pda.compiler.program.opcodes import OP_V1, OP_VRUN
+from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VRUN
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.kernel import execution as execution_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
@@ -350,3 +350,28 @@ def test_an_entry_with_one_self_refusing_arm_skips_the_walk() -> None:
     assert pda_model(product.pda, text, compiled.executor) == expected
     with pytest.raises(PdaFail):
         pda_model(product.pda, "(ab cd>", compiled.executor)
+
+
+DEFAULTED = 'root ::= opt "z"\nopt ::= "a" x | ""\nx ::= "(" root ")" | "p"\n'
+"""``opt``: one selector arm opening on a literal, and an empty default."""
+
+
+def test_a_walk_with_a_default_to_take_keeps_its_selectors() -> None:
+    """The walk is not undecided when a default answers what the selector
+    refuses: no entry, and a lookahead the default takes parses on the PDA —
+    an entry would push the literal's arm there and refuse."""
+    compiled = compile_text(DEFAULTED, flavour="gbnf", cache_key="entry-default")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    opt = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "opt"
+    )
+    assert opt.default is not None and len(opt.selectors) == 1
+    assert opt.selectors[0][2].kinds[0] == OP_LIT1
+    assert opt.entry is None
+    for text in ("z", "apz"):
+        expected = earley_model(
+            product.instance_grammar, text, compiled.product, product.tables
+        )
+        assert pda_model(product.pda, text, compiled.executor) == expected
