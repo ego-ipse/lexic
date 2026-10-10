@@ -20,6 +20,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     interior_shapes,
     interiors,
     skip_leads,
+    skip_pattern,
     skip_table,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -551,3 +552,12 @@ def test_disagreeing_escapes_across_the_three_items_decline_the_region():
     )
 
     assert _interiors_shapes(source) == ()
+
+
+def test_skip_pattern_declines_an_escape_spelled_inside_a_delimiter() -> None:
+    """Counting an escape run backward from a closer and consuming escapes
+    forward disagree only where the escape is part of a delimiter: there the
+    pattern declines and the walk keeps skipping by hand."""
+    assert skip_pattern('"', ('"', "\\", 1, "", 1)) is not None
+    assert skip_pattern("<", ("\\>", "\\", 0, "", 1)) is None
+    assert skip_pattern("r", ('"', "\\", 0, "r\\", 2)) is None

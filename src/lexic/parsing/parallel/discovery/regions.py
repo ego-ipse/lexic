@@ -19,6 +19,7 @@ does not live beside the analysis.
 
 from __future__ import annotations
 
+import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Sequence
 from functools import partial
@@ -31,6 +32,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     interiors,
     skip_delimited,
     skip_leads,
+    skip_pattern,
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_PIECE
@@ -286,14 +288,41 @@ def sweep_offsets(text: str, watched: set[str]) -> list[int]:
     return offsets
 
 
+def outside_interiors(text: str, vocab: Vocab) -> list[int]:
+    """Every structural offset in ``text`` that no interior hides, in order.
+
+    One compiled pattern consumes each interior whole and stops on each
+    structural character outside one, so a document of strings costs one
+    C-level pass rather than a sweep of every delimiter, a sort, and a skip
+    call per interior in the walk. Where an interior has no exact pattern
+    (:func:`~.interiors.skip_pattern`) the plain sweep answers, and the walk
+    skips as before.
+    """
+    alternatives = [skip_pattern(lead, skip) for lead, skip in vocab.skips.items()]
+    spelled = [one for one in alternatives if one is not None]
+    if not spelled or len(spelled) != len(alternatives):
+        return sweep_offsets(text, vocab.watched)
+    structural = "".join(c for c in vocab.watched if c not in vocab.skips)
+    if not structural:
+        return []
+    scan = re.compile(
+        "(?:"
+        + "|".join(spelled)
+        + ")|(["
+        + "".join(re.escape(c) for c in structural)
+        + "])"
+    )
+    return [match.start(1) for match in scan.finditer(text) if match.lastindex]
+
+
 def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     """Every bracketed run in ``text``, with the separators inside it.
 
-    One C-level sweep per watched character, merged by sort, then a stack
-    walk over the structural offsets alone — a Python loop over every
-    character of a 10 MB document is itself a second of the answer. Opaque
-    interiors are skipped whole, their delimiter matched in full so a lead
-    character that opens nothing here stays an ordinary character. A separator
+    One C-level pass finds the structural offsets outside every opaque
+    interior (:func:`outside_interiors`), then a stack walk visits those
+    alone — a Python loop over every character of a 10 MB document is itself
+    a second of the answer. An interior's delimiter is matched in full, so a
+    lead character that opens nothing here stays an ordinary character. A separator
     is attributed to the bracket that most recently opened, which is what
     makes the answer depth-agnostic: the caller asks for the BIGGEST runs
     rather than for a chosen level.
@@ -306,7 +335,7 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     """
     vocab = scan_vocabulary(grammar)
     return walk_regions(
-        text, sweep_offsets(text, vocab.watched), walk_roles(vocab), min_span
+        text, outside_interiors(text, vocab), walk_roles(vocab), min_span
     )
 
 
@@ -420,7 +449,7 @@ def par_find(
     roles = walk_roles(vocab)
     windows = max(1, min(workers, len(text)))
     if vocab.skips or windows < 2:
-        return walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+        return walk_regions(text, outside_interiors(text, vocab), roles, min_span)
     spans = window_bounds(len(text), windows)
     run = partial(_run_window, text, roles, min_span)
     chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]

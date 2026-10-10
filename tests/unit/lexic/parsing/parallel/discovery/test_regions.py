@@ -8,6 +8,7 @@ Model stitching is owned by the orchestrator, not this analysis leaf.
 
 from __future__ import annotations
 
+import random
 from typing import NamedTuple, cast
 
 import pytest
@@ -15,7 +16,7 @@ import pytest
 from lexic.compile import compile_from_path, compile_text
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
-from lexic.parsing.parallel.discovery.interiors import Skip
+from lexic.parsing.parallel.discovery.interiors import Skip, skip_pattern
 from lexic.parsing.parallel.discovery.regions import (
     R_CLOSE,
     R_DONE,
@@ -26,6 +27,7 @@ from lexic.parsing.parallel.discovery.regions import (
     Vocab,
     find,
     merge_windows,
+    outside_interiors,
     pair_rules,
     par_find,
     scan_vocabulary,
@@ -445,3 +447,98 @@ def test_the_floor_holds_on_both_window_paths_at_its_boundary() -> None:
     assert par_find(grammar, doc, 5, windows) == find(grammar, doc, 5) == [outer]
     kept = par_find(grammar, doc, 4, windows)
     assert kept == find(grammar, doc, 4) and len(kept) == len(inner) + 1
+
+
+_BRACKETS = {"[": ("]", "arr"), "{": ("}", "obj")}
+_CLOSERS = {"]": "[", "}": "{"}
+
+ONE_PASS_VOCABS = {
+    "escaped string": _vocab(
+        _BRACKETS, _CLOSERS, frozenset(","), {'"': ('"', "\\", 1, "", 1)}
+    ),
+    "line comment, visible closer": _vocab(
+        _BRACKETS, _CLOSERS, frozenset({",", "\n"}), {";": ("\n", "", 0, "", 1)}
+    ),
+    "guarded block comment": _vocab(
+        _BRACKETS, _CLOSERS, frozenset(","), {"/": ("*/", "", 0, "/*", 2)}
+    ),
+    "escape that closes": _vocab(
+        _BRACKETS, _CLOSERS, frozenset(","), {"`": ("\\", "\\", 1, "", 1)}
+    ),
+    "string and comment": _vocab(
+        _BRACKETS,
+        _CLOSERS,
+        frozenset({",", "\n"}),
+        {'"': ('"', "\\", 1, "", 1), ";": ("\n", "", 0, "", 1)},
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ONE_PASS_VOCABS))
+def test_the_one_pass_sweep_keeps_exactly_what_the_walk_keeps(name: str) -> None:
+    """The compiled interior pattern hands the walk exactly the structural
+    offsets it keeps when it sweeps every delimiter and skips interiors itself:
+    the same regions on random documents dense in delimiters, escapes and
+    unclosed interiors."""
+    vocab = ONE_PASS_VOCABS[name]
+    roles = walk_roles(vocab)
+    draw = random.Random(name)
+    alphabet = '[]{},"\\;\n/*`ab'
+    for _ in range(400):
+        doc = "".join(draw.choice(alphabet) for _ in range(draw.randrange(1, 60)))
+        swept = walk_regions(doc, sweep_offsets(doc, vocab.watched), roles, 0)
+        assert walk_regions(doc, outside_interiors(doc, vocab), roles, 0) == swept, doc
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        '[a,"' + "\\" * 1_000_000,  # a megabyte of escapes, never closed
+        '[a,"' + "\\" * 1_000_000 + '",b]',  # the same run, closed: an even count
+        '[a,"' + "\\a" * 500_000 + '",b]',  # escape, character, escape, ...
+        '[a,"' + "a" * 1_000_000,  # a megabyte of plain text, never closed
+    ],
+    ids=["escapes-unclosed", "escapes-closed", "escape-pairs", "text-unclosed"],
+)
+def test_the_one_pass_sweep_stays_linear_on_a_megabyte_interior(doc: str) -> None:
+    """Every interior pattern is possessive, so a megabyte inside one interior
+    is one forward pass with no backtracking: the find ends, and agrees with
+    the walk that skips by hand."""
+    vocab = ONE_PASS_VOCABS["escaped string"]
+    roles = walk_roles(vocab)
+    swept = walk_regions(doc, sweep_offsets(doc, vocab.watched), roles, 0)
+    assert walk_regions(doc, outside_interiors(doc, vocab), roles, 0) == swept
+
+
+def _possessive_only(pattern: str) -> bool:
+    """Whether every quantifier in ``pattern`` outside a character class is
+    possessive — a ``*``, ``+`` or ``?`` followed by ``+`` — leaving group
+    syntax (``(?:``, ``(?=``, ``(?!``) and escaped characters alone."""
+    at = 0
+    while at < len(pattern):
+        char = pattern[at]
+        if char == "\\":
+            at += 2
+        elif char == "[":
+            at += 2 if pattern[at + 1] == "^" else 1
+            while pattern[at] != "]" or pattern[at - 1] == "[":
+                at += 2 if pattern[at] == "\\" else 1
+            at += 1
+        elif char in "*+?" and pattern[at - 1] != "(":
+            if pattern[at + 1 : at + 2] != "+":
+                return False
+            at += 2
+        else:
+            at += 1
+    return True
+
+
+@pytest.mark.parametrize("name", sorted(ONE_PASS_VOCABS))
+def test_every_interior_pattern_repeats_possessively(name: str) -> None:
+    """No repetition in an interior's pattern can give back what it took: the
+    property that keeps a long interior one linear pass in time and memory,
+    pinned by spelling because a lazy body accepts the same language."""
+    for lead, skip in ONE_PASS_VOCABS[name].skips.items():
+        pattern = skip_pattern(lead, skip)
+        assert pattern is not None and _possessive_only(pattern), pattern
+    assert not _possessive_only(r'"(?:\\[\s\S]|[\s\S])*?(?:"|\Z)')
