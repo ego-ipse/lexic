@@ -41,7 +41,7 @@ from lexic.parsing import ParseConfig
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import clone_arms
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import OP_V1, OP_VRUN
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.kernel import execution as execution_module
@@ -259,11 +259,14 @@ def test_kernel_and_islands_share_one_policy_record():
 
 # ── an exactly-once tabled reference inside a frame ────────────────────
 
-FRAMED_ONCE = 'root ::= ws kw body\nws ::= [ ]*\nkw ::= "ab"\nbody ::= "<" kw ">"\n'
+FRAMED_ONCE = (
+    'root ::= ws sign body\nws ::= [ ]*\nsign ::= "+" | "-"\n'
+    'body ::= "<" kw ">"\nkw ::= "ab"\n'
+)
 """``root`` keeps a frame — ``body`` is still a descent when leaves are marked —
-and both of its value references are exactly once: ``ws`` a run the span table
-answers (``OP_VRUN``), ``kw`` a multi-character literal no table covers
-(``OP_V1``)."""
+and both of its value references are exactly once, to TABLED clones: ``ws`` a
+run the span table answers (``OP_VRUN``), ``sign`` a one-character language
+the char table answers (``OP_V1``)."""
 
 
 def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
@@ -271,10 +274,9 @@ def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
 ) -> None:
     """``OP_VRUN`` and ``OP_V1`` have no loop to run, in a frame as in a leaf.
 
-    The span-tabled ``ws`` went through the table loop's whole chain
-    (``match_chartable`` → ``match_runtable`` → its gate loop) for one
-    iteration; the pin is that the framed walk never enters that chain, and
-    that the model is still the Earley engine's.
+    Both targets carry a table, so through the loop driver each went into
+    ``match_chartable`` for one iteration; the pin is that the framed walk never
+    enters it for either code, and that the model is still the Earley engine's.
     """
     compiled = compile_text(FRAMED_ONCE, flavour="gbnf", cache_key="framed-once")
     product = model_product(compiled.codegen_grammar, compiled.product)
@@ -283,21 +285,44 @@ def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
         for clone in walk_program_clones(product.pda.program.start).values()
         if clone.name == "root"
     )
-    kinds = {kind for arm in clone_arms(root) for kind in arm.kinds}
-    assert {OP_VRUN, OP_V1} <= kinds, "the grammar no longer reaches both codes"
     assert not root.leaf, "root must keep a frame for this pin to mean anything"
-    text = "  ab<ab>"
-    expected = earley_model(
-        product.instance_grammar, text, compiled.product, product.tables
-    )
+    targets = {
+        kind: arm.payloads[i]
+        for arm in clone_arms(root)
+        for i, kind in enumerate(arm.kinds)
+        if kind in (OP_VRUN, OP_V1)
+    }
+    assert set(targets) == {OP_VRUN, OP_V1}, "the grammar no longer reaches both codes"
+    assert targets[OP_VRUN].runarm is not None
+    assert targets[OP_V1].runarm is None and targets[OP_V1].chartable is not None
+    expected = {
+        text: earley_model(
+            product.instance_grammar, text, compiled.product, product.tables
+        )
+        for text in ("  +<ab>", "-<ab>")
+    }
 
     def no_loop(*_args: object) -> int:
         raise AssertionError("an exactly-once reference ran the table loop")
 
+    runs: list[FlatClone] = []
+    real_run = execution_module.run_span_once
+
+    def counted_run(text: str, clone: FlatClone, sink: list, pos: int) -> int:
+        runs.append(clone)
+        return real_run(text, clone, sink, pos)
+
     monkeypatch.setattr(execution_module, "match_chartable", no_loop)
-    model = pda_model(product.pda, text, compiled.executor)
-    assert model == expected
-    assert model.to_text() == text
+    monkeypatch.setattr(execution_module, "run_span_once", counted_run)
+    for text, model in expected.items():
+        runs.clear()
+        assert pda_model(product.pda, text, compiled.executor) == model
+        assert model.to_text() == text
+        # the run's own matcher, called straight from the frame: not answered
+        # on a detour through `vstr_once` (a leaf may call it for its own items)
+        assert targets[OP_VRUN] in runs
+    with pytest.raises(PdaFail):  # the table's refusal, through the direct call
+        pda_model(product.pda, " *<ab>", compiled.executor)
 
 
 # ── an entry the selector walk cannot decide ───────────────────────────

@@ -208,16 +208,6 @@ class KernelExecutionMixin[Carry]:
         text = self.text
         intern = self._caches.intern
         clone = arm.payloads[i]
-        # An exactly-once code has no loop to run, reached through a frame as
-        # through a leaf: it calls the matcher `_run_leaf` calls for it.
-        k = arm.kinds[i]
-        if k == OP_VRUN:
-            return run_span_once(text, clone, sink, pos)
-        if k == OP_V1:
-            try:
-                return vstr_once(text, intern, clone, sink, pos)
-            except IslandEscape as escape:
-                return self._islanded(escape, sink)
         if clone.chartable is not None:
             return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]
@@ -230,6 +220,29 @@ class KernelExecutionMixin[Carry]:
                 pos = self._islanded(escape, sink)
             count += 1
         return pos
+
+    def _match_once(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
+        """A framed exactly-once value reference — ``OP_VRUN`` or ``OP_V1`` —
+        calls its matcher once: it has no loop for :meth:`_match_vstr` to run.
+
+        Every code but ``OP_VRUN`` is read as ``OP_V1``: :meth:`_match_span`
+        routes only those two here, the leaf and dispatch codes before them.
+
+        :meth:`_run_leaf` spells the same two calls inline rather than calling
+        this. Measured in-process against routing those items through one
+        shared method (A/A floor 1.000 ± 0.005), the extra call cost 1.03-1.11
+        on every bench cell with leaf-walk exactly-once items: backtrack pda
+        1.107, mixedends pda 1.062, announced pda 1.053, split-nullable and
+        wrapped-unit 1.04.
+
+        :raises PdaFail: On the matcher's refusal.
+        """
+        if arm.kinds[i] == OP_VRUN:
+            return run_span_once(self.text, arm.payloads[i], sink, pos)
+        try:
+            return vstr_once(self.text, self._caches.intern, arm.payloads[i], sink, pos)
+        except IslandEscape as escape:
+            return self._islanded(escape, sink)
 
     def _match_vdisp(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.

@@ -451,7 +451,12 @@ class PdaKernel[M](
                 sink = sinks[i]
                 if sink is None:
                     sinks[i] = sink = []
-            return self._match_vstr(sink, arm, i, pos)
+            # The loop code asked first, and each call spelled as a method call
+            # (no bound method built): a loop pays one compare for the codes
+            # it is not.
+            if k == OP_VSTR:
+                return self._match_vstr(sink, arm, i, pos)
+            return self._match_once(sink, arm, i, pos)
         if k == OP_LIT:
             return match_lit(self.text, arm, i, pos)
         return match_cc(self.text, arm, i, pos)
