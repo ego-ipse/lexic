@@ -54,17 +54,16 @@ def shared_scanner(grammar: IrAst, plans: tuple[SplitPlan, ...]) -> Scanner | No
     A grammar derives every repetition separator and terminator it has, and the
     plan scanners carry that whole set — but a document is only ever cut at a
     mark some CERTIFIED plan keys on, so an occurrence of any other spelling is
-    a position no cut can be proposed at. Sweeping it costs a ``find`` over the
-    document and a Python step per hit, three times over: once building the
-    window, once rebasing its depth, once discarding it. A record grammar whose
-    units are separated by spaces and terminated by three different closers
-    scanned 3920 marks to select from 1680.
+    a position no cut can be proposed at. Reading it costs a ``find`` and a
+    Python step per hit in every stretch a search reads, only to be discarded.
+    A record grammar whose units are separated by spaces and terminated by
+    three different closers scanned 3920 marks to select from 1680.
 
-    The union is what makes ONE sweep serve every plan that reads one,
+    The union is what makes ONE level serve every plan that reads one,
     proposals included: marks carry no depth, so merging two plans' spellings
-    changes neither window's depth accounting, and each plan still keeps its
-    own through :func:`scan_marks`. Pairs come from the grammar, because depth
-    does not belong to any one plan.
+    changes no depth count, and each plan still keeps its own
+    (:class:`PlanMarks`). Pairs come from the grammar, because depth does not
+    belong to any one plan.
 
     :param grammar: The codegen grammar the plans were derived from.
     :param plans: The certified plans, in cascade order.
