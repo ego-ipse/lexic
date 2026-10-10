@@ -21,6 +21,7 @@ from lexic.exceptions import TargetRefusalError, UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
+from tests.split_helpers import hold_workers
 from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE, sample_doc
 
 GRAMMAR = 'root ::= "(" [a-z]+ ")"\n'
@@ -751,9 +752,8 @@ def test_beside_submits_late_items_whose_results_follow_in_order() -> None:
 
 
 def _held_worker(gate: Event, started: Event, ran: dict[int, tuple[str, bool]]):
-    """Work for a one-worker pool whose worker is held on item 0 until the
-    calling thread runs item 1 — the last it takes back, latest first — so
-    nothing after item 0 can reach the worker."""
+    """Work whose item 0 holds its worker until the calling thread runs item
+    1, so item 1 can only ever reach the calling thread."""
     caller = current_thread()
 
     def work(item: int) -> int:
@@ -768,23 +768,36 @@ def _held_worker(gate: Event, started: Event, ran: dict[int, tuple[str, bool]]):
     return work
 
 
-def test_items_no_worker_started_are_taken_back_by_the_calling_thread() -> None:
-    """Once ``beside`` returns, every item still queued runs on the calling
-    thread, marked as taken back, and the results keep their order."""
+def _one_free_worker(work, items: list[int], beside) -> list[int]:
+    """``work`` over ``items`` on a three-worker pool with two workers held
+    elsewhere — one worker free, and one place the phase leaves unused."""
+    release = Event()
+    with WorkPool(3) as pool:
+        holder = hold_workers(pool, 2, release)
+        try:
+            return pool.map(work, items, beside)
+        finally:
+            release.set()
+            holder.join(timeout=30)
+
+
+def test_an_item_no_worker_started_is_taken_back_by_the_calling_thread() -> None:
+    """Once ``beside`` returns, an item still queued while the phase leaves a
+    worker's place unused runs on the calling thread, marked as taken back,
+    and the results keep their order."""
     gate, started = Event(), Event()
     ran: dict[int, tuple[str, bool]] = {}
 
-    with WorkPool(1) as pool:
-        got = pool.map(
-            _held_worker(gate, started, ran),
-            [0, 1, 2],
-            lambda _submit: started.wait(timeout=30),
-        )
+    got = _one_free_worker(
+        _held_worker(gate, started, ran),
+        [0, 1],
+        lambda _submit: started.wait(timeout=30),
+    )
 
     me = current_thread().name
-    assert got == [0, 2, 4]
+    assert got == [0, 2]
     assert ran[0][0] != me and ran[0][1] is False
-    assert ran[1] == (me, True) and ran[2] == (me, True)
+    assert ran[1] == (me, True)
     assert pool_module.taking_back() is False, "the mark outlived the item"
 
 
@@ -800,10 +813,24 @@ def test_a_taken_back_items_refusal_drains_the_phase() -> None:
             raise TargetRefusalError("no 1")
         return work(item)
 
-    with WorkPool(1) as pool:
-        with pytest.raises(TargetRefusalError, match="no 1"):
-            pool.map(refusing, [0, 1], lambda _submit: started.wait(timeout=30))
-        assert pool.map(lambda item: item, [7]) == [7], "a refusal broke the pool"
+    with pytest.raises(TargetRefusalError, match="no 1"):
+        _one_free_worker(refusing, [0, 1], lambda _submit: started.wait(timeout=30))
+
+
+def test_a_phase_with_an_item_for_every_worker_takes_nothing_back() -> None:
+    """The take-back never runs what a busy pool would have: with as many
+    items as workers, or more, every item is the pool's, queued or not."""
+    threads: list[str] = []
+
+    def work(item: int) -> int:
+        threads.append(current_thread().name)
+        return item
+
+    with WorkPool(2) as pool:
+        assert pool.map(work, list(range(6)), lambda _submit: None) == list(range(6))
+    assert _one_free_worker(work, [0, 1, 2], lambda _submit: None) == [0, 1, 2]
+
+    assert current_thread().name not in threads and len(threads) == 9
 
 
 def test_without_beside_the_calling_thread_takes_nothing_back() -> None:

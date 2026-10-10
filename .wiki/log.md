@@ -2529,3 +2529,8 @@ every split copy the previous, retired view's pairs.
 `decisions.md` entry and `parallel-parsing.md`'s region-split paragraph: after
 a map's `beside` share, the calling thread runs every item no worker started,
 through its own view.
+
+## The take-back fills only unused worker places (2026-10-10)
+
+`decisions.md` and `parallel-parsing.md`: the calling thread takes back at most
+as many unstarted items as the phase left workers without one.

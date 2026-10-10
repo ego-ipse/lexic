@@ -13,12 +13,14 @@ a stale second answer behind.
 from __future__ import annotations
 
 import time
+from threading import Barrier, Event, Thread
 
 from lexic.compile import CompiledGrammar
 from lexic.ir import IrAst
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import replica_count
 from lexic.parsing.products import parse_model
 
@@ -120,3 +122,22 @@ def settled_replica_count(
         time.sleep(0.01)
         count = replica_count(grammar, binding)
     return count
+
+
+def hold_workers(pool: WorkPool, count: int, release: Event) -> Thread:
+    """Occupy ``count`` of ``pool``'s workers until ``release`` is set.
+
+    The holding phase runs on a thread of its own, so the caller's next phase
+    finds only the rest of the pool free; returned once every held worker is
+    running, for the caller to join after setting ``release``.
+    """
+    running = Barrier(count + 1)
+
+    def hold(_slot: int) -> None:
+        running.wait(timeout=30)
+        release.wait(timeout=30)
+
+    holder = Thread(target=pool.map, args=(hold, list(range(count))))
+    holder.start()
+    running.wait(timeout=30)
+    return holder

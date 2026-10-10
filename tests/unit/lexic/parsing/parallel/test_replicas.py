@@ -42,7 +42,7 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler import delegate_compile as delegate_module
 from lexic.parsing.pda.compiler import tables as pda_tables_module
 from lexic.parsing.products import model_product
-from tests.split_helpers import settled_replica_count
+from tests.split_helpers import hold_workers, settled_replica_count
 
 TEXT = "- alpha\n- beta\n- gamma\n"
 
@@ -712,8 +712,16 @@ def test_a_piece_the_calling_thread_takes_back_parses_through_its_document_view(
         finally:
             gate.set()
 
-    with WorkPool(1) as pool:
-        held, taken = pool.map(work, [0, 1], lambda _submit: started.wait(timeout=30))
+    release = threading.Event()
+    with WorkPool(3) as pool:
+        holder = hold_workers(pool, 2, release)
+        try:
+            held, taken = pool.map(
+                work, [0, 1], lambda _submit: started.wait(timeout=30)
+            )
+        finally:
+            release.set()
+            holder.join(timeout=30)
 
     assert seen == [binding], "the taken-back piece read the document's view"
     assert taken == held == parse_model(grammar, TEXT, binding, DEFAULT_CONFIG)

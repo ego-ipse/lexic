@@ -114,17 +114,24 @@ class _Phase[T, M]:
             self.send(item, len(self.results))
             self.results.append(None)
 
-    def take_back(self, work: Callable[[T], M]) -> None:
-        """Run on the calling thread every submitted item no worker has
-        started, latest first; a refusal is filed like a worker's.
+    def take_back(self, work: Callable[[T], M], workers: int) -> None:
+        """Run on the calling thread the items no worker has started, latest
+        first — at most as many as the phase leaves of ``workers`` without an
+        item, so the calling thread only ever fills a worker's unused place
+        and never runs what a busy pool would have; a refusal is filed like a
+        worker's.
 
         ``Future.cancel`` succeeds only on an item still queued, so an item is
         run exactly once, here or there.
         """
+        spare = workers - len(self.results)
         futures = self.futures
         for future in sorted(futures, key=futures.__getitem__, reverse=True):
+            if spare <= 0:
+                return
             if not future.cancel():
                 continue
+            spare -= 1
             slot = futures.pop(future)
             try:
                 self.results[slot] = _taken_back(work, self.held[future])
@@ -234,10 +241,12 @@ class WorkPool:
         ``submit``: items it learns of there go to the pool at once, and their
         results follow ``items``' in the order submitted — so work that needs
         what the calling thread decides still overlaps what did not. Once it
-        returns, the calling thread takes back every item no worker has
-        started and runs it itself (:func:`taking_back`): it was busy while
-        the workers woke, and a woken worker the scheduler leaves waiting would
-        otherwise start its item milliseconds after the rest.
+        returns, the calling thread takes back items no worker has started
+        and runs them itself (:func:`taking_back`), as many as the phase left
+        workers without an item: it was busy while the workers woke, and a
+        woken worker the scheduler leaves waiting would otherwise start its
+        item milliseconds after the rest. A phase with an item for every
+        worker gets nothing taken back — its queue is the pool's to drain.
         Should it return ``False``, the phase is ABANDONED: nothing submitted
         will be read, so the queued items are cancelled, the running ones are
         left to finish unread, the pool is retired rather than lent again, and
@@ -275,7 +284,7 @@ class WorkPool:
                     self._retired = "abandoned"
                     return []
                 if own is not None:
-                    phase.take_back(work)
+                    phase.take_back(work, self.workers)
                 if not futures:
                     if failures:
                         raise _drained(futures, phase.results, failures)
