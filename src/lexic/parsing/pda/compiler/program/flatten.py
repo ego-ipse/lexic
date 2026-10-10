@@ -237,6 +237,11 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         land on (:func:`mark_sub_roots`), in a program that can fork. A sub-run
         marks its root frame's start only where this is set, and a fork reads
         one only there.
+    :ivar entry: The arm an entry pushes without walking :attr:`selectors`:
+        set where the clone has one gated arm, no default and no other
+        selection, and that arm's first item refuses every other lookahead
+        itself, at the same position (:func:`~lexic.parsing.pda.compiler
+        .program.specialize.passes.mark_entry`). ``None`` everywhere else.
 
     """
 
@@ -267,6 +272,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "needs_ends",
         "longest",
         "sub_root",
+        "entry",
     )
 
     name: str
@@ -291,6 +297,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     needs_ends: bool
     longest: Any  # LongestTake | None — the specs leaf holds the record
     sub_root: bool
+    entry: FlatArm | None
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

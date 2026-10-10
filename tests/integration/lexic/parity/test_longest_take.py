@@ -23,6 +23,7 @@ import pytest
 
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
+from lexic.parsing.pda.runtime import matchers
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import earley_model
 from tests.parity_helpers import DECLINED, answers
@@ -135,6 +136,20 @@ def test_a_span_holding_its_follower_asks_the_island(
     match ran over: the island answers."""
     _parity(CLOSED, "longest-closed", text)
     assert islands["x"] >= 1
+
+
+@pytest.mark.parametrize("text", ["vab;c", "va}b}c"])
+def test_a_proved_take_never_matches_item_by_item(
+    text: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``x``'s greedy match is proved, so its span is one pattern match on both
+    routes — committed and islanded — and the item-wise matcher never runs."""
+
+    def item_wise(*_args: object) -> int:
+        raise AssertionError("a proved take matched item by item")
+
+    monkeypatch.setattr(matchers, "match_arm", item_wise)
+    _parity(CLOSED, "longest-closed", text)
 
 
 def test_the_first_character_is_not_a_shorter_end(islands: Counter[str]) -> None:

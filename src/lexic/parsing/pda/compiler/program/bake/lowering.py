@@ -24,7 +24,9 @@ structural rule builds — is built by a template that reads its sinks in place
 instead of calling one bound read per field. Those two reads are the same
 expressions :func:`_read_model` and :func:`_read_models` bind; restating them
 here is what removes a call per field, the way the unrolled templates removed
-the plan walk. Any other mode, or a wider record, takes the arity template.
+the plan walk. A record of three or more such fields reads them in one
+comprehension instead (:func:`_fused_wide`). Any other mode takes the arity
+template.
 
 **Why the bindings are closures.** Per-shape binding IS the mechanism here,
 not an implementation of it: the whole saving is that ``item``, ``lo`` and
@@ -454,6 +456,33 @@ def _fused_rr[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
     return build
 
 
+def _fused_wide[Carry](cls: type, plan: Plan[Carry]) -> ShapeBuild[Carry]:
+    """Three or more sub-model and run fields, read in place in one pass.
+
+    The two reads :func:`_fused_m` and :func:`_fused_r` spell, chosen per field
+    by a flag bound here, in a comprehension PEP 709 inlines: one call per
+    record however wide, where the arity template paid one per field.
+    """
+    fields = tuple(
+        (item, mode == M_MODELS, default) for mode, item, _lo, default in plan
+    )
+    absent = tuple(() if run else default for _item, run, default in fields)
+
+    def build(_text, _ends, sinks):
+        if not sinks:
+            return tuple.__new__(cls, absent)
+        return tuple.__new__(
+            cls,
+            [
+                (tuple(got) if got else ()) if run else (got[0] if got else default)
+                for item, run, default in fields
+                for got in (sinks[item],)
+            ],
+        )
+
+    return build
+
+
 _FUSED: dict[tuple[int, ...], Callable[..., ShapeBuild]] = {
     (M_MODEL,): _fused_m,
     (M_MODELS,): _fused_r,
@@ -463,7 +492,11 @@ _FUSED: dict[tuple[int, ...], Callable[..., ShapeBuild]] = {
     (M_MODELS, M_MODELS): _fused_rr,
 }
 """Every sub-model shape of one or two fields, keyed by its modes in class
-order. Complete for that rule, so no shape is privileged within it."""
+order. Complete for that rule, so no shape is privileged within it; a wider
+all-sub-model shape takes :func:`_fused_wide`."""
+
+_SUB_MODEL_MODES = frozenset((M_MODEL, M_MODELS))
+"""The modes a fused build reads in place: a sub-model, or a run of them."""
 
 
 def shape_build[Carry](cls: type[Carry], plan: Plan[Carry]) -> ShapeBuild[Carry]:
@@ -482,7 +515,10 @@ def shape_build[Carry](cls: type[Carry], plan: Plan[Carry]) -> ShapeBuild[Carry]
     :returns: ``build(text, ends, sinks)``.
     :raises UnsupportedConstructError: On a mode outside the vocabulary.
     """
-    fused = _FUSED.get(tuple(mode for mode, _item, _lo, _default in plan))
+    modes = tuple(mode for mode, _item, _lo, _default in plan)
+    fused = _FUSED.get(modes)
+    if fused is None and len(modes) > 2 and _SUB_MODEL_MODES.issuperset(modes):
+        fused = _fused_wide
     if fused is not None:
         return fused(cls, plan)
     reads = tuple(

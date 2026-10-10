@@ -1163,7 +1163,11 @@ verdict compares sides' values, so they must be the values the parse builds.
 **Decision:** a text-only rule's extent is answered in one order. Where
 `prove_regular` proves it against the clone's continuation, the possessive
 consult answers. Otherwise the rule is matched item by item, and a match is
-checked by its `LongestTake` before it stands. A rule whose own proof declines
+checked by its `LongestTake` before it stands. A take whose rule is proved
+with nothing after it (`eligibility.greedy_extent`) carries that greedy match
+as one pattern (`LongestTake.extent`): its clone is compiled against the end of
+input, so the pattern ends where the item-wise match does, and `taken_end`
+runs it instead — the check after it is the same. A rule whose own proof declines
 with nothing after it (`eligibility.extent_declined`), and which
 `greedy_exact` does not cover (`GrammarAnalysis.may_steal`), carries a take
 with `steals` set. Its misses ask the island too, and so does a choice between
@@ -1410,3 +1414,19 @@ handful of splits) a copy could land in any pass, timed ones included. Keyed by
 document grammar so a one-shot split (a long grammar source in `compile_text`)
 never has its pairs copied for an unrelated parse, which is the retained-copy
 cost the reuse rule exists to avoid.
+
+## An entry the selector walk cannot decide pushes its arm straight
+
+**Decision:** a clone with one gated arm, no default and no other selection
+(no dispatch, attempt, wide or struct gate, and not a leaf) carries that arm as
+`FlatClone.entry` when the arm's first item refuses every other lookahead by
+itself at the same position: a mandatory terminal, or an exactly-once inline
+value-string reference to a clone with no empty match and no longest take
+(`specialize.passes.mark_entry`). `_enter` reads `entry` first and pushes the
+arm without slicing the lookahead or walking `selectors`.
+
+**Why:** the walk over one selector can only find that arm or refuse, and the
+refusal is the first item's own, at the same position, so the walk was a
+second asking of the item's question on every structural entry. A longest
+take is excluded because its miss can ask an island the selector would never
+have reached.

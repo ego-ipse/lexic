@@ -16,6 +16,7 @@ doubling climb.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Iterator
 
 from lexic.ir import IrAlternation, IrItem, IrNoneType, IrRule, IrRuleRef
@@ -35,10 +36,14 @@ from lexic.parsing.pda.analysis.predicates import (
     rule_spans,
     seq_span,
 )
-from lexic.parsing.pda.compiler.eligibility import extent_declined
+from lexic.parsing.pda.compiler.eligibility import (
+    extent_declined,
+    extent_pattern,
+    greedy_extent,
+)
 from lexic.parsing.pda.compiler.specs import LongestTake, arm_items, upper_bound
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import class_source, compile_source
+from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 _EOF = CharSet.from_chars("")
 
@@ -257,6 +262,7 @@ class IslandContinuations:
         analysis = self.analysis
         extend = analysis.taxonomy.longest.get(name)
         steals = extend is None
+        extent = None if steals else _greedy_pattern(analysis.rules, name)
         if steals:
             rule = analysis.rules[name]
             if not may_steal(analysis, rule) or not extent_declined(
@@ -277,6 +283,7 @@ class IslandContinuations:
             if self._runs_hold(name, extend)
             else compile_source(class_source(extend.chars, extend.negated)),
             steals,
+            extent,
         )
 
     def _runs_hold(self, name: str, extend: CharSet) -> bool:
@@ -463,3 +470,13 @@ def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[
             after = _after_repeats(deep.solver.group_prefixes(group, WINDOW), after)
         tail = after
     return tail
+
+
+def _greedy_pattern(rules: Mapping[str, IrRule], name: str) -> Pattern | None:
+    """Rule ``name``'s greedy match as one pattern, where its proof holds.
+
+    A longest take's clone is compiled against the end of input, so its
+    item-wise match IS the greedy one, whichever continuation it stands for.
+    """
+    proof = greedy_extent(rules, name)
+    return None if proof is None else extent_pattern(proof)

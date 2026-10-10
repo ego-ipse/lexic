@@ -1,5 +1,16 @@
 # Log
 
+## An undecidable entry walks no selectors (2026-10-10)
+
+`decisions.md` records `FlatClone.entry`: a one-arm clone whose first item
+refuses alone is entered without the selector walk.
+
+## A proved longest take matches in one pattern (2026-10-10)
+
+`decisions.md` records that a non-stealing `LongestTake` carries its rule's
+greedy match as one possessive pattern, proved once per rule against nothing
+after it, and that `taken_end` matches with it before the same check.
+
 ## A worker's replica is a private copy, made by one walk (2026-10-10)
 
 `decisions.md` records why `private_copy` is its own walk (the duplication

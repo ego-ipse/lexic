@@ -31,6 +31,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
     OP_CC,
     OP_CC1,
+    OP_CONSULT,
     OP_FAIL,
     OP_ISLAND,
     OP_LIT,
@@ -368,12 +369,19 @@ def run_span_once[Carry](
     :returns: The position after the extent.
     """
     runarm = clone.runarm
-    if runarm.kinds[0] == OP_CC:
+    kind = runarm.kinds[0]
+    if kind == OP_CONSULT:
+        # The proved pattern, matched in place; a miss goes to the refusal.
+        matched = runarm.payloads[0].match(text, pos)
+        end = (
+            matched.end()
+            if matched is not None
+            else consult_extent(text, clone, runarm, pos)
+        )
+    elif kind == OP_CC:
         end = match_cc(text, runarm, 0, pos)
-    elif runarm.kinds[0] == OP_LIT:
-        end = match_lit(text, runarm, 0, pos)
     else:
-        end = consult_extent(text, clone, runarm, pos)
+        end = match_lit(text, runarm, 0, pos)
     span = text[pos:end]
     table = clone.chartable
     model = table.get(span)
@@ -438,14 +446,23 @@ def taken_end(text: str, take: LongestTake, arm: FlatArm, pos: int) -> int:
         so the rule's island is asked.
     :raises PdaFail: When a rule that cannot steal misses.
     """
-    try:
-        end = match_arm(text, arm, pos)
-    except PdaFail:
-        if not take.steals:
-            raise
-        # A loop may have taken what the rest of the arm needed: the miss is
-        # no more the rule's answer than a match would be.
-        raise IslandEscape(take.island, pos) from None
+    extent = take.extent
+    if extent is not None:
+        # The proved greedy match: the span the item-wise match takes, in one
+        # C-level call.
+        matched = extent.match(text, pos)
+        if matched is None:
+            raise PdaFail(f"no match of {take.island[0]!r} at {pos}", pos)
+        end = matched.end()
+    else:
+        try:
+            end = match_arm(text, arm, pos)
+        except PdaFail:
+            if not take.steals:
+                raise
+            # A loop may have taken what the rest of the arm needed: the miss
+            # is no more the rule's answer than a match would be.
+            raise IslandEscape(take.island, pos) from None
     if take.exit_at.search(text, pos + take.lead, end) or (
         take.extends_at is not None and take.extends_at.match(text, end)
     ):

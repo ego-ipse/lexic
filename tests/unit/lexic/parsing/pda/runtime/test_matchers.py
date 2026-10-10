@@ -314,6 +314,29 @@ def test_consult_extent_refuses_with_the_arm_selections_own_words_and_position()
     assert (caught.value.expected, caught.value.negated) == arm_expected(clone)
 
 
+def test_a_consult_run_matches_in_place_and_refuses_through_the_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proved run answers its span with the pattern inline; only a miss
+    reaches ``consult_extent``, whose words the refusal keeps."""
+    tables, _ = pda_for('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n')
+    clone = _consult_clone(tables)
+    asked: list[int] = []
+    real = matchers_mod.consult_extent
+
+    def refusal(text, clone_, runarm, pos):
+        asked.append(pos)
+        return real(text, clone_, runarm, pos)
+
+    monkeypatch.setattr(matchers_mod, "consult_extent", refusal)
+    sink: list = []
+    assert matchers_mod.run_span_once("ab;!", clone, sink, 0) == 3
+    assert not asked and len(sink) == 1
+    with pytest.raises(PdaFail) as caught:
+        matchers_mod.run_span_once("!!!", clone, [], 0)
+    assert asked == [0] and caught.value.rule == clone.name
+
+
 def test_vstr_multi_item_arm_takes_the_cold_span_path():
     """A ``value_str`` rule whose sole arm has MORE than one terminal item
     (``"0x" [0-9a-f]+`` — a literal then a char class) routes through

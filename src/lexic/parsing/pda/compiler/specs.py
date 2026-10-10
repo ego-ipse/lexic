@@ -135,6 +135,10 @@ class LongestTake(NamedTuple):
     :ivar steals: Whether the rule's own extent proof declined, so an arm
         matched item by item may have taken what its rest needed: a miss is
         then no answer either, and asks :attr:`island` too.
+    :ivar extent: The greedy match itself as one possessive pattern, where the
+        rule's extent proof holds with nothing after it — the match its clone,
+        compiled against the end of input, makes item by item. ``None`` (every
+        stealing rule among them) keeps the item-wise match.
     """
 
     exits: CharSet
@@ -144,6 +148,7 @@ class LongestTake(NamedTuple):
     exit_at: Pattern
     extends_at: Pattern | None
     steals: bool
+    extent: Pattern | None = None
 
 
 # ── loop gates (pivot 4 / pivot 6) ────────────────────────────────────────

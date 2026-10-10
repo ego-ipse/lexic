@@ -35,7 +35,8 @@ def flat_clone[Carry](
     so a test that says nothing about spans gets the shape that has them. Pass
     ``needs_ends=False`` for the boundary-free clone. ``sub_root`` defaults to
     ``False``: a fork reads it on every frame, and a clone no attempt sub-run
-    can root is the common one.
+    can root is the common one. ``entry`` defaults to ``None``: an entry reads
+    it first, and a clone that walks its selectors is the general one.
 
     :param mode: The clone's build mode.
     :param of: A sink whose model type the clone carries, so the caller's frame
@@ -47,6 +48,7 @@ def flat_clone[Carry](
     clone.mode = mode
     clone.needs_ends = True
     clone.sub_root = False
+    clone.entry = None
     for name, value in lanes.items():
         setattr(clone, name, value)
     return clone

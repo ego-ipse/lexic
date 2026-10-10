@@ -482,6 +482,50 @@ def _mark_arm_leaf_refs(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
+SELF_REFUSING_OPS = frozenset((OP_LIT1, OP_CC1, OP_LIT, OP_CC))
+"""Terminal item codes that refuse a lookahead outside their own first set at
+the position they start at — with a mandatory iteration, for the looping two."""
+
+
+def mark_entry(clone: FlatClone) -> None:
+    """Grant :attr:`FlatClone.entry` where the selector walk decides nothing.
+
+    One gated arm, no default, and no other selection: the walk can only find
+    that arm or refuse. The refusal is the first item's own when that item is
+    a mandatory terminal, or an exactly-once inline value-string reference to
+    a clone with no empty match and no longest take — each refuses at the
+    entry position exactly the lookaheads outside the arm's FIRST, which is
+    what the selector holds. So the entry pushes the arm and lets the item
+    refuse. A take is excluded because its miss can ask an island the
+    selector would never have reached.
+    """
+    clone.entry = None
+    if clone.mode == BUILD_DISPATCH or clone.leaf or clone.default is not None:
+        return
+    gated = (
+        clone.attempt is not None
+        or clone.wide_selectors is not None
+        or clone.struct_arm is not None
+    )
+    if gated or len(clone.selectors) != 1:
+        return
+    arm = clone.selectors[0][2]
+    if arm.n and _refuses_alone(arm):
+        clone.entry = arm
+
+
+def _refuses_alone(arm: FlatArm) -> bool:
+    """Whether ``arm``'s first item refuses every lookahead outside its FIRST
+    by itself, at the arm's start."""
+    kind = arm.kinds[0]
+    if kind in SELF_REFUSING_OPS:
+        return arm.los[0] >= 1
+    if kind not in (OP_VRUN, OP_V1):
+        return False
+    target = arm.payloads[0]
+    return target.default is None and target.longest is None
+
+
 def optimize_program(
     roots: list[FlatClone], consults: Mapping[int, Pattern] = NO_CONSULTS
 ) -> None:
@@ -534,3 +578,5 @@ def optimize_program(
             _specialize_vruns(arm)
     for clone in clones:
         _specialize_leaf_refs(clone)
+    for clone in clones:
+        mark_entry(clone)

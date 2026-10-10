@@ -41,8 +41,13 @@ from lexic.parsing import ParseConfig
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
+from lexic.parsing.pda.compiler.program.flatten import clone_arms
+from lexic.parsing.pda.compiler.program.opcodes import OP_V1, OP_VRUN
 from lexic.parsing.pda.runtime.islands import IslandPolicy
+from lexic.parsing.pda.runtime.kernel import execution as execution_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
+from lexic.parsing.products import earley_model, model_product
+from tests.clone_walk import walk_program_clones
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -250,3 +255,73 @@ def test_kernel_and_islands_share_one_policy_record():
     assert kern.policy.executor is compiled.executor
     assert kern.policy.config is config
     assert kern.policy.delegates is None  # filled per island, at the reference
+
+
+# ── an exactly-once tabled reference inside a frame ────────────────────
+
+FRAMED_ONCE = 'root ::= ws kw body\nws ::= [ ]*\nkw ::= "ab"\nbody ::= "<" kw ">"\n'
+"""``root`` keeps a frame — ``body`` is still a descent when leaves are marked —
+and both of its value references are exactly once: ``ws`` a run the span table
+answers (``OP_VRUN``), ``kw`` a multi-character literal no table covers
+(``OP_V1``)."""
+
+
+def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``OP_VRUN`` and ``OP_V1`` have no loop to run, in a frame as in a leaf.
+
+    The span-tabled ``ws`` went through the table loop's whole chain
+    (``match_chartable`` → ``match_runtable`` → its gate loop) for one
+    iteration; the pin is that the framed walk never enters that chain, and
+    that the model is still the Earley engine's.
+    """
+    compiled = compile_text(FRAMED_ONCE, flavour="gbnf", cache_key="framed-once")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    kinds = {kind for arm in clone_arms(root) for kind in arm.kinds}
+    assert {OP_VRUN, OP_V1} <= kinds, "the grammar no longer reaches both codes"
+    assert not root.leaf, "root must keep a frame for this pin to mean anything"
+    text = "  ab<ab>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def no_loop(*_args: object) -> int:
+        raise AssertionError("an exactly-once reference ran the table loop")
+
+    monkeypatch.setattr(execution_module, "match_chartable", no_loop)
+    model = pda_model(product.pda, text, compiled.executor)
+    assert model == expected
+    assert model.to_text() == text
+
+
+# ── an entry the selector walk cannot decide ───────────────────────────
+
+ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
+"""``root``: one arm, opening on a literal, keeping a frame."""
+
+
+def test_an_entry_with_one_self_refusing_arm_skips_the_walk() -> None:
+    """With the walk's own selectors emptied, the entry still finds the arm —
+    it never walked them — and the literal still refuses what the walk did."""
+    compiled = compile_text(ENTERED, flavour="gbnf", cache_key="entry-straight")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    assert root.entry is not None
+    text = "<ab cd>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    root.selectors = ()  # the walk would now refuse every entry
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, "(ab cd>", compiled.executor)

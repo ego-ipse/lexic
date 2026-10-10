@@ -253,6 +253,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     )
     clone.struct_arm = None
     clone.sub_root = False
+    clone.entry = None
     clone.attempt = (
         (group.attempt_follow, ()) if group.attempt_follow is not None else None
     )
@@ -483,6 +484,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.needs_ends = clone.needs_ends
     sub.longest = None  # an attempt sub-run's rule has a choice to try, no take
     sub.sub_root = False
+    sub.entry = None  # entered through the attempt order, never straight
     return sub
 
 
@@ -592,6 +594,7 @@ def flatten_clones(
         )
         clone.longest = spec.longest
         clone.sub_root = False
+        clone.entry = None
     # Before the entries exist: the optimiser walks `all_clones`, which follows
     # attempt entries, and those are lowered and optimised on their own below.
     optimize_program(list(low.shells.values()), _consults(clones, low))

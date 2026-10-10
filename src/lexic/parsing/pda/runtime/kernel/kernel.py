@@ -441,8 +441,6 @@ class PdaKernel[M](
         if k == OP_VDISP:
             return self._match_vdisp(self._sink_for(frame, arm, i), arm, i, pos)
         if k == OP_VSTR or k >= OP_VRUN:
-            # A tabled reference's specialisation is the LEAF walk's; reached
-            # through a frame, it runs the ordinary loop (one iteration of it).
             if frame.clone.mode == BUILD_TRANSPARENT:  # `_sink_for`, read in place
                 sink = frame.out
             else:
@@ -507,6 +505,13 @@ class PdaKernel[M](
             if chased is None:
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
+        # Read after the chase, where it is the landed clone's: a dispatch
+        # clone never carries one, and its target may.
+        arm = clone.entry
+        if arm is not None:
+            # One arm whose first item refuses what the walk would: no walk.
+            self.stack.append(Frame(arm, out, clone, self.pos))
+            return True
         if clone.attempt is not None:
             # Most entries resolve to themselves; pay the call only when one of
             # the two substituting shapes is actually present (measured: the

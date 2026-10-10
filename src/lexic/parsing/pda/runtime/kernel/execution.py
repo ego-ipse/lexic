@@ -208,6 +208,16 @@ class KernelExecutionMixin[Carry]:
         text = self.text
         intern = self._caches.intern
         clone = arm.payloads[i]
+        # An exactly-once code has no loop to run, reached through a frame as
+        # through a leaf: it calls the matcher `_run_leaf` calls for it.
+        k = arm.kinds[i]
+        if k == OP_VRUN:
+            return run_span_once(text, clone, sink, pos)
+        if k == OP_V1:
+            try:
+                return vstr_once(text, intern, clone, sink, pos)
+            except IslandEscape as escape:
+                return self._islanded(escape, sink)
         if clone.chartable is not None:
             return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]

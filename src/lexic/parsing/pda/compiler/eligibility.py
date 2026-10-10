@@ -74,6 +74,21 @@ def extent_consult(
     return prove_regular(rules, name, tail.union(follow))
 
 
+def greedy_extent(rules: Mapping[str, IrRule], name: str) -> RegularProof | None:
+    """The rule's extent proof with nothing after it — its greedy match's own.
+
+    The narrowest continuation asks only the rule's own obligations: its arms
+    part on one character and no loop takes what the rest of its arm needs.
+    Where they hold, the possessive pattern consumes exactly what a greedy
+    item-wise match of the rule does.
+
+    :param rules: The grammar's rule table.
+    :param name: The rule asked about.
+    :returns: The proof, or ``None`` where the rule fails its own obligations.
+    """
+    return prove_regular(rules, name, CharSet.EMPTY)
+
+
 def extent_declined(rules: Mapping[str, IrRule], name: str) -> bool:
     """Whether the rule's extent has no proof even with nothing after it.
 
@@ -86,7 +101,7 @@ def extent_declined(rules: Mapping[str, IrRule], name: str) -> bool:
     :param name: The rule asked about.
     :returns: ``True`` when the proof declines.
     """
-    return prove_regular(rules, name, CharSet.EMPTY) is None
+    return greedy_extent(rules, name) is None
 
 
 def extent_pattern(proof: RegularProof) -> Pattern:

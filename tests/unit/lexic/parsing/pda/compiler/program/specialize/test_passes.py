@@ -65,8 +65,10 @@ from lexic.parsing.pda.compiler.program.specialize.passes import (
     bake_consults,
     consult_arm,
     inline_value_strs,
+    mark_entry,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from tests.clone_walk import walk_program_clones
 from tests.paths import GROUND_TRUTH
 from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
@@ -877,3 +879,46 @@ def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
         f"json_history.md §7 names), got {avstr} + {avdisp} — a "
         "de-specialisation regression"
     )
+
+
+# ── an entry that decides nothing walks nothing ────────────────────────
+
+ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
+"""``root`` has one arm opening on a literal, and keeps a frame: ``pair`` is a
+descent when leaves are marked. ``pair`` itself runs frame-lessly."""
+
+
+def _clone_named(pda, name: str) -> FlatClone:
+    """The program's clone for rule ``name``."""
+    return next(
+        one
+        for one in walk_program_clones(pda.program.start).values()
+        if one.name == name
+    )
+
+
+def test_a_one_arm_clone_opening_on_a_terminal_is_entered_straight() -> None:
+    """The walk could only find that arm or refuse, and the literal refuses."""
+    root = _clone_named(pda_from_text(ENTERED), "root")
+    assert root.entry is root.selectors[0][2]
+
+
+def test_a_leaf_or_a_defaulting_clone_has_no_entry() -> None:
+    """A leaf is run, not entered; a default means the walk can choose."""
+    pda = pda_from_text(ENTERED)
+    assert _clone_named(pda, "pair").entry is None
+    nullable = pda_from_text('root ::= "<" x ">"\nx ::= y?\ny ::= "a" z\nz ::= "b"\n')
+    assert all(
+        one.entry is None
+        for one in walk_program_clones(nullable.program.start).values()
+        if one.default is not None
+    )
+
+
+def test_a_first_item_that_cannot_refuse_alone_keeps_the_walk() -> None:
+    """A reference's descent refuses deeper, after a push: not the walk's
+    refusal, so the walk stays."""
+    root = _clone_named(pda_from_text('root ::= pair ">"\npair ::= "<" "a"\n'), "root")
+    assert root.selectors[0][2].kinds[0] not in (OP_LIT1, OP_CC1, OP_VRUN, OP_V1)
+    mark_entry(root)
+    assert root.entry is None
