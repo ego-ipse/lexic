@@ -1,5 +1,10 @@
 # Log
 
+## A descent loop asks its wide gate straight (2026-10-10)
+
+`decisions.md` records why `_quant_step` calls `wide_gate_take` and
+`scan_gate_take` reads its take-set in place.
+
 ## A leaf whose walk decides nothing runs its one arm (2026-10-10)
 
 `decisions.md` records why `_run_leaf` reads `FlatClone.entry` and leaves are

@@ -169,8 +169,9 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     ``matchers.match_lit``, ``matchers.match_chartable``,
     ``matchers.match_runtable``, ``PdaKernel._quant_step``,
     ``KernelExecutionMixin._match_vstr`` and
-    ``KernelExecutionMixin._match_vdisp``. A change to what a stop gate admits
-    is a change to all of them.
+    ``KernelExecutionMixin._match_vdisp`` — and ``scanner.scan_gate_take``
+    reads its post-noise take-set the same way. A change to what a stop gate
+    admits is a change to all of them.
 
     :raises PdaFail: A terminal attempt boundary whose char both sets accept.
     """
@@ -180,16 +181,18 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         return (ch != "" and ch not in chars) if negated else ch in chars
     if gk == GATE_ATTEMPT:
         return _attempt_admits(text, pos, gate)
-    return _wide_gate_take(text, pos, gk, gate)
+    return wide_gate_take(text, pos, gk, gate)
 
 
-def _wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
+def wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     """The gates that read more than two characters.
 
     Split from :func:`gate_take` so the three one- and two-character kinds —
     the ones a hot loop consults per iteration — keep their comparison and
     return with nothing in front of them. A gate that is about to scan a window,
-    a noise run or a whole tail can afford the call it costs to get here.
+    a noise run or a whole tail can afford the call it costs to get here. The
+    descent loop (``PdaKernel._quant_step``), which settles the stop and attempt
+    kinds itself, calls this one straight.
     """
     if gk == GATE_GREEDY:
         return not _at_the_unit_end(text, pos, gate)

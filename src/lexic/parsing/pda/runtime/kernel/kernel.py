@@ -58,8 +58,8 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.gating import (
     chase_dispatch,
-    gate_take,
     select_gated,
+    wide_gate_take,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -373,7 +373,8 @@ class PdaKernel[M](
                         (char != "" and char not in chars) if negated else char in chars
                     )
                 else:
-                    need = gate_take(self.text, pos, gk, arm.gate_data[i])
+                    # stop and attempt settled above: the wide kinds, straight
+                    need = wide_gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
             i += 1
             # A fold's LAST loop keeps its count — a capture-free fold's depth.

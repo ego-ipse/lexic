@@ -125,7 +125,7 @@ def test_every_gate_kind_still_answers_through_the_one_entry_point() -> None:
 
     The three one- and two-character kinds are answered in `gate_take` itself so
     a hot loop pays nothing to reach them; the wider kinds go on to
-    `_wide_gate_take`. A split like that is exactly where a kind can fall
+    `wide_gate_take`. A split like that is exactly where a kind can fall
     through a crack and start answering ``False`` for the wrong reason, so this
     drives one input of each kind through the single entry point and checks the
     answer against what that kind's own rule says.

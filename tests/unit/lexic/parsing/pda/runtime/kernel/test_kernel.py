@@ -43,9 +43,10 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VDISP, OP_VRUN
-from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime import matchers as matchers_module
+from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.kernel import execution as execution_module
+from lexic.parsing.pda.runtime.kernel import kernel as kernel_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
 from lexic.parsing.products import earley_model, model_product
 from tests.clone_walk import walk_program_clones
@@ -486,3 +487,31 @@ def test_a_leaf_with_one_self_refusing_arm_runs_it_without_the_walk() -> None:
     assert pda_model(product.pda, text, compiled.executor) == expected
     with pytest.raises(PdaFail):
         pda_model(product.pda, "<abc;b;>", compiled.executor)
+
+
+# ── a descent loop asks its wide gate straight ─────────────────────────
+
+
+def test_a_descent_loop_asks_its_wide_gate_without_the_dispatching_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_quant_step`` settles the stop and attempt kinds itself, so a wide
+    gate (json.gbnf's post-noise peeks) is asked through ``wide_gate_take``
+    straight, never through ``gate_take``'s kind dispatch; the model is still
+    the Earley engine's."""
+    compiled, _pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    text = '{"a": [1, 2, {"b": "c"}], "d": {}}'
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    asked: list[int] = []
+    real_wide = kernel_module.wide_gate_take
+
+    def counted_wide(text: str, pos: int, gk: int, gate: object) -> bool:
+        asked.append(gk)
+        return real_wide(text, pos, gk, gate)
+
+    monkeypatch.setattr(kernel_module, "wide_gate_take", counted_wide)
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    assert asked, "no wide gate was asked: the pin would pass vacuously"

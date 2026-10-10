@@ -1533,3 +1533,15 @@ same licence as to framed clones.
 default, a first item that refuses alone. A leaf opening on a literal (json's
 `string ::= quote chars quote ws`) walked its one selector on every occurrence
 for an answer the first item gives anyway.
+
+## A descent loop asks its wide gate straight
+
+**Decision:** `PdaKernel._quant_step`, which settles a stop gate and an attempt
+in place, asks every other gate kind through `gating.wide_gate_take` directly,
+not through `gate_take`'s kind dispatch. `scan_gate_take` reads its post-noise
+take-set inline.
+
+**Why:** both were a call per loop decision that decided nothing — the dispatch
+re-asked two kinds the caller had ruled out, and the take-set test is one
+membership. On a noise-structured grammar the descent loops ask a scan gate
+about once every four characters.
