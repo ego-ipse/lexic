@@ -1,5 +1,20 @@
 # Log
 
+## A worker's replica is a private copy, made by one walk (2026-10-10)
+
+`decisions.md` records why `private_copy` is its own walk (the duplication
+check: `replica()`, `frames_copy` and `copy.deepcopy` each fall short), what it
+keeps and rebuilds, and that each artefact compiles once under `caches.once`.
+
+## A replica's tables are copied, not compiled (2026-10-09)
+
+`parallel-parsing.md` records that a worker's or document thread's view
+takes a private structural copy of the original's compiled product, grants
+program, island tables and delegates, each compiled once on the original under
+a miss-only lock, what the copy keeps, and the bound: replicas are a runtime
+cache of at most one copy per pool thread. A copy is earned by reuse: a
+worker's first split of a pair runs on the original, which the document's own
+thread compiles.
 ## A replica's exit signal never waits on the claim lock (2026-10-09)
 
 `parallel-parsing.md` records that `retire_thread` queues an exited thread and

@@ -22,10 +22,11 @@ every other consumer) sees.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing.caches import adopt, memo
+from lexic.parsing.caches import adopt, memo, once
 from lexic.parsing.earley.engine import first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -60,6 +61,7 @@ __all__ = [
     "earley_model",
     "model_product",
     "grants_program",
+    "declare_replica",
     "owned_text",
     "ModelProduct",
     "MODEL_CACHE",
@@ -247,6 +249,25 @@ def model_product(
     cached = MODEL_CACHE.get(key)
     if cached is not None and cached.grammar is grammar and cached.binding is binding:
         return cached
+    origin = _replicated(grammar, binding)
+    if origin is not None:
+        return _replica_product(origin, bits)
+    with once(key):
+        cached = MODEL_CACHE.get(key)
+        if (
+            cached is not None
+            and cached.grammar is grammar
+            and cached.binding is binding
+        ):
+            return cached
+        return _compiled_product(grammar, binding, bits)
+
+
+def _compiled_product(
+    grammar: IrAst, binding: ModelExecutable, bits: int
+) -> ModelProduct:
+    """Compile and memoise ``(grammar, binding, bits)``'s product."""
+    key = (id(grammar), id(binding), bits)
     lifted = lift_optional_nullables(grammar)
     instance = normalize(lifted)
     product = ModelProduct(
@@ -299,12 +320,108 @@ def grants_program(
     cached = _PROGRAMS.get(key)
     if cached is not None and cached[0] is grammar and cached[1] is binding:
         return cached[2]
-    lifted = lift_optional_nullables(grammar)
-    pda = compile_pda(lifted, instance, binding, grants)
-    _PROGRAMS[key] = (grammar, binding, pda)
-    adopt(id(grammar), lifted, pda)
-    adopt(id(binding), lifted, pda)
+    origin = _replicated(grammar, binding)
+    if origin is not None:
+        held = grants_program(origin.grammar, origin.binding, instance, grants)
+        return _keep_program(key, origin, _replica_tables(origin, held))
+    with once(key):
+        cached = _PROGRAMS.get(key)
+        if cached is not None and cached[0] is grammar and cached[1] is binding:
+            return cached[2]
+        lifted = lift_optional_nullables(grammar)
+        pda = compile_pda(lifted, instance, binding, grants)
+        _PROGRAMS[key] = (grammar, binding, pda)
+        adopt(id(grammar), lifted, pda)
+        adopt(id(binding), lifted, pda)
     return pda
+
+
+# ── a worker's replica: private copies of the original's compiled products ──
+
+
+class _Replica(NamedTuple):
+    """A worker's view of a pair, and the pair it was minted from.
+
+    :ivar view: The view's grammar — the original's, or an equal copy.
+    :ivar view_binding: The view's own binding, a ``replica()`` of the original.
+    :ivar grammar: The original grammar.
+    :ivar binding: The original binding.
+    """
+
+    view: IrAst
+    view_binding: ModelExecutable
+    grammar: IrAst
+    binding: ModelExecutable
+
+
+_REPLICAS: dict[tuple[int, int], _Replica] = memo({}, 0, 1)
+"""``(id(view), id(view binding))`` → the pair the view replicates."""
+
+
+def declare_replica(
+    grammar: IrAst, binding: ModelExecutable, view: IrAst, view_binding: ModelExecutable
+) -> None:
+    """Make every product ``(view, view_binding)`` asks for a private copy of
+    ``(grammar, binding)``'s, compiled once there rather than per view.
+
+    :param grammar: The original grammar.
+    :param binding: The original binding.
+    :param view: The view's grammar.
+    :param view_binding: The view's binding, a ``replica()`` of ``binding``.
+    """
+    _REPLICAS[(id(view), id(view_binding))] = _Replica(
+        view, view_binding, grammar, binding
+    )
+
+
+def _replicated(grammar: IrAst, binding: ModelExecutable) -> _Replica | None:
+    """The pair ``(grammar, binding)`` replicates, when it is a declared view."""
+    entry = _REPLICAS.get((id(grammar), id(binding)))
+    if entry is None or entry.view is not grammar or entry.view_binding is not binding:
+        return None
+    return entry
+
+
+def _replica_tables(origin: _Replica, held: PdaTables) -> PdaTables:
+    """``held`` as the view's private copy, asking ``held`` for what it lacks."""
+    pda = origin.binding.copied(held, origin.view_binding)
+    _attach_origin(pda, held)
+    return pda
+
+
+def _attach_origin(pda: PdaTables, held: PdaTables) -> None:
+    """Point a copy's lazy caches at the tables it was copied from."""
+    pda.origin = held
+    if pda.program.delegates is not None:
+        pda.program.delegates.origin = held.program.delegates
+
+
+def _keep_program(
+    key: tuple[int, int, frozenset[str]], origin: _Replica, pda: PdaTables
+) -> PdaTables:
+    """Memoise a view's copied program under the view's own identities."""
+    _PROGRAMS[key] = (origin.view, origin.view_binding, pda)
+    adopt(id(origin.view), pda)
+    adopt(id(origin.view_binding), pda)
+    return pda
+
+
+def _replica_product(origin: _Replica, bits: int) -> ModelProduct:
+    """The view's product: the original's, copied for the view's own thread.
+
+    The original is compiled once, whichever view asked first; the copy is
+    made without a lock, on the thread that will parse through it.
+    """
+    held = model_product(origin.grammar, origin.binding, bits)
+    pda, tables = origin.binding.copied((held.pda, held.tables), origin.view_binding)
+    _attach_origin(pda, held.pda)
+    product = ModelProduct(
+        origin.view, origin.view_binding, pda, pda.instance_grammar, tables
+    )
+    MODEL_CACHE[(id(origin.view), id(origin.view_binding), bits)] = product
+    adopt(id(origin.view), pda, tables)
+    adopt(id(origin.view_binding), pda, tables)
+    return product
 
 
 # ── the public product entries ─────────────────────────────────────────────

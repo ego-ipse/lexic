@@ -25,6 +25,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.caches import once
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
@@ -203,9 +204,19 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         compiler and its lowering pass.
     :ivar grants: The licence kinds the program was compiled under; an
         interior is cut under the same ones.
+    :ivar origin: For a worker's private copy, the source it was copied from:
+        an island it has not met yet is compiled there and copied here.
     """
 
-    __slots__ = ("lifted", "name_to_rid", "binding", "seams", "grants", "_cache")
+    __slots__ = (
+        "lifted",
+        "name_to_rid",
+        "binding",
+        "seams",
+        "grants",
+        "_cache",
+        "origin",
+    )
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
@@ -213,6 +224,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     seams: tuple[Callable[..., Any], Callable[..., Any]]
     grants: frozenset[str]
     _cache: dict[str, dict[int, FlatClone]]
+    origin: DelegateSource | None
 
     def __init__(
         self,
@@ -229,6 +241,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         self.seams = seams
         self.grants = grants
         self._cache = {}
+        self.origin = None
 
     def for_island(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones for island ``name`` (rule_id → flat clone), cached.
@@ -248,9 +261,21 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
             delegable or the interior cannot compile).
         """
         cached = self._cache.get(name)
-        if cached is None:
-            cached = self._compile(name)
-            self._cache[name] = cached
+        return self._miss(name) if cached is None else cached
+
+    def _miss(self, name: str) -> dict[int, FlatClone]:
+        """Island ``name``'s delegates where none are held: a replica copies its
+        origin's, which compiles them once whichever replica asked first."""
+        origin = self.origin
+        if origin is not None:
+            made = origin.binding.copied(origin.for_island(name), self.binding)
+            self._cache[name] = made
+            return made
+        with once((id(self), name)):
+            cached = self._cache.get(name)
+            if cached is None:
+                cached = self._compile(name)
+                self._cache[name] = cached
         return cached
 
     def held(self, name: str) -> dict[int, FlatClone]:

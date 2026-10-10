@@ -64,11 +64,31 @@ def _drained[M](
 _POOLS = count()
 """Numbers the pools, so each one's threads are named after the pool alone."""
 
+_LEASES = count(1)
+"""Numbers every lending of a pool — one per split — process-wide."""
+
+_RUNNING = local()
+"""The lease a worker thread's current task runs under."""
+
+
+def running_lease() -> int | None:
+    """The lease of the split whose task the calling thread is running, or
+    ``None`` outside any pool task — what tells one split from the next."""
+    return getattr(_RUNNING, "lease", None)
+
+
+def _leased[T, M](lease: int, work: Callable[[T], M], item: T) -> M:
+    """Run one item with its lease visible to the thread running it."""
+    _RUNNING.lease = lease
+    return work(item)
+
 
 class WorkPool:
     """One executor reused by differently typed phases of a split parse.
 
     :ivar workers: The resolved worker ceiling.
+    :ivar lease: The split this pool is lent to, numbered process-wide; every
+        task it runs carries it (:func:`running_lease`).
     :ivar name: This pool's own thread-name prefix. Unique per pool, so a
         thread is attributable to the pool that made it — in a fault dump, a
         profile, or a test counting one pool's threads rather than the
@@ -86,8 +106,13 @@ class WorkPool:
         )
         self._slots = local()
         self._taken = count()
-        self._slot_lock = Lock()
         self._retired = ""
+        self.lease = next(_LEASES)
+
+    def lend(self) -> Self:
+        """Number this pool's next split: its tasks carry a fresh lease."""
+        self.lease = next(_LEASES)
+        return self
 
     @property
     def retired(self) -> bool:
@@ -110,7 +135,7 @@ class WorkPool:
         """
         mine = getattr(self._slots, "at", None)
         if mine is None:
-            with self._slot_lock:
+            with _IDLE_LOCK:
                 mine = next(self._taken) % self.workers
             self._slots.at = mine
         return mine
@@ -168,15 +193,17 @@ class WorkPool:
         failures: dict[int, LexicError] = {}
         next_item = 0
 
+        lease = self.lease
+
         def submit(more: Sequence[T]) -> None:
             for item in more:
-                futures[self._pool.submit(work, item)] = len(results)
+                futures[self._pool.submit(_leased, lease, work, item)] = len(results)
                 results.append(None)
 
         try:
             while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
-                    future = self._pool.submit(work, items[next_item])
+                    future = self._pool.submit(_leased, lease, work, items[next_item])
                     futures[future] = next_item
                     next_item += 1
                 own, beside = beside, None
@@ -329,7 +356,8 @@ class PoolLease:
             self._pool = waiting.pop() if waiting else None
         if self._pool is None:
             self._pool = WorkPool(self.workers)
-        return self._pool
+            return self._pool
+        return self._pool.lend()
 
     def __exit__(
         self,

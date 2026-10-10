@@ -11,15 +11,21 @@ same one, however many pools, documents or first-touches are in flight.
 
 from __future__ import annotations
 
+import gc
+import sys
 import threading
+from collections.abc import Callable
+from re import Pattern
+from types import CodeType, ModuleType
 
 import pytest
 
 from lexic.compile import compile_text
-from lexic.ir import IrAst, IrNamedTuple
+from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
+from lexic.parsing import products as products_module
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.executable import ModelExecutable, process_constants
 from lexic.parsing.parallel import (
     Replica,
     document_view,
@@ -31,6 +37,10 @@ from lexic.parsing.parallel import (
     worker_replica,
 )
 from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.compiler import delegate_compile as delegate_module
+from lexic.parsing.pda.compiler import tables as pda_tables_module
+from lexic.parsing.products import model_product
 from tests.split_helpers import settled_replica_count
 
 TEXT = "- alpha\n- beta\n- gamma\n"
@@ -47,9 +57,9 @@ def _pair(name: str) -> Replica:
     return compiled.codegen_grammar, compiled.product
 
 
-def _in_thread(work) -> Replica:
+def _in_thread[T](work: Callable[[], T]) -> T:
     """Run ``work`` on a thread and join it, so its claim is a dead thread's."""
-    got: list[Replica] = []
+    got: list[T] = []
     thread = threading.Thread(target=lambda: got.append(work()))
     thread.start()
     thread.join()
@@ -211,6 +221,15 @@ def _pool_views(
     pool.map(work, list(range(pool.workers)))
 
 
+def _both_pools(one: WorkPool, two: WorkPool, parse: _Recorder, ask: Replica) -> None:
+    """One split in each pool at once — four worker threads live together."""
+    arrived = threading.Barrier(4)
+    driver = threading.Thread(target=_pool_views, args=(one, parse, arrived, ask))
+    driver.start()
+    _pool_views(two, parse, arrived, ask)
+    driver.join(timeout=30)
+
+
 def test_two_overlapping_pools_never_share_a_replica() -> None:
     """Pool-local worker numbers are not identities.
 
@@ -219,17 +238,15 @@ def test_two_overlapping_pools_never_share_a_replica() -> None:
     same replica. Four live worker threads owe four distinct views.
     """
     grammar, binding = _pair("overlapping-pools")
-    parse = _Recorder()
-    arrived = threading.Barrier(4)
+    first, parse = _Recorder(), _Recorder()
 
     with WorkPool(2) as one, WorkPool(2) as two:
-        driver = threading.Thread(
-            target=_pool_views, args=(one, parse, arrived, (grammar, binding))
-        )
-        driver.start()
-        _pool_views(two, parse, arrived, (grammar, binding))
-        driver.join(timeout=30)
+        # A first split runs on the original; the copies are earned in the next.
+        _both_pools(one, two, first, (grammar, binding))
+        _both_pools(one.lend(), two.lend(), parse, (grammar, binding))
         live_count = replica_count(grammar, binding)
+
+    assert first.views() == {id(grammar)}
 
     assert len(parse.calls) == 4
     assert len(parse.views()) == 4
@@ -394,3 +411,191 @@ def test_a_document_thread_replicates_nothing_where_it_cannot_pay(
 
     assert view is binding
     assert replica_count(grammar, binding) == 0
+
+
+# ── a replica's products are private copies of the original's ─────────────
+
+ISLANDED = (
+    'root ::= "<" run ">"\nrun ::= item item+\nitem ::= "[" w "]"\n'
+    'w ::= v "x" | v "y"\nv ::= [a]*\n'
+)
+"""``run`` is an island whose interior delegates ``w``'s arms to clones: the
+product, an island's tables and its delegates are all compiled artefacts."""
+
+ISLANDED_TEXT = "<[aax][ay]>"
+
+
+def _islanded(name: str) -> Replica:
+    """An :data:`ISLANDED` pair no other test shares."""
+    compiled = compile_text(f"{ISLANDED}# {name}\n")
+    return compiled.codegen_grammar, compiled.product
+
+
+def _parsed_view(grammar: IrAst, binding: ModelExecutable) -> Replica:
+    """The calling thread's view, after parsing :data:`ISLANDED_TEXT` on it."""
+    view = worker_replica(grammar, binding)
+    parse_model(view[0], ISLANDED_TEXT, view[1])
+    return view
+
+
+def _worker_parse(grammar: IrAst, binding: ModelExecutable) -> Replica:
+    """Parse :data:`ISLANDED_TEXT` on a worker's own view, on a thread."""
+    return _in_thread(lambda: _parsed_view(grammar, binding))
+
+
+_KEPT_TYPES = (str, int, float, bool, type(None), Pattern, type, ModuleType, CodeType)
+
+
+def _ir_leaf(node: IrSelf) -> bool:
+    """An IR value the copy keeps: one that rebuilds as itself."""
+    if not isinstance(node, (tuple, str, int)):
+        return False
+    return node.rebuild(list(node.children())) is node
+
+
+def _reach(roots: tuple[object, ...], kept: set[int]) -> dict[int, object]:
+    """Every object reachable from ``roots`` that a copy would make anew.
+
+    Atoms, classes, IR leaves that rebuild as themselves, module namespaces
+    and the objects in ``kept`` end the walk; so does a lazy cache's ``origin``, the edge a copy
+    asks its original through on a miss and never on a hit.
+    """
+    seen: dict[int, object] = {}
+    stack = list(roots)
+    while stack:
+        part = stack.pop()
+        if id(part) in seen or id(part) in kept or isinstance(part, _KEPT_TYPES):
+            continue
+        if isinstance(part, IrSelf) and _ir_leaf(part):
+            continue
+        seen[id(part)] = part
+        origin = (
+            getattr(part, "origin", None) if hasattr(type(part), "__slots__") else None
+        )
+        stack.extend(one for one in gc.get_referents(part) if one is not origin)
+    return seen
+
+
+def test_a_replicas_product_shares_no_engine_object_with_the_original() -> None:
+    """The copy is private all the way down: past the atoms, the immutable IR
+    values and the binding's read-only projections, nothing the replica's
+    parse reads is an object the original's parse reads too."""
+    grammar, binding = _islanded("census")
+    parse_model(grammar, ISLANDED_TEXT, binding)
+    original = model_product(grammar, binding)
+    replica = _in_thread(lambda: model_product(*_parsed_view(grammar, binding)))
+    kept = {id(value) for value in process_constants().values()}
+    kept |= {id(binding.program), id(binding.codes), id(binding.routines)}
+    kept |= {id(routine) for routine in binding.routines.values()}
+    kept |= {id(vars(module)) for module in list(sys.modules.values()) if module}
+
+    ours = _reach((original.pda, original.tables), kept)
+    theirs = _reach((replica.pda, replica.tables), kept)
+
+    assert replica.pda.origin is original.pda
+    assert replica.pda.island_tables("run") is not original.pda.island_tables("run")
+    assert len(theirs) > 100, "the census walked nothing"
+    shared = [type(ours[at]).__qualname__ for at in set(ours) & set(theirs)]
+    assert not shared, shared
+
+
+def _counted(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Count every grammar analysis the test triggers — each program compile,
+    a delegate's included, starts with one."""
+    counts = {"analysis": 0}
+    analyse = GrammarAnalysis.__init__
+
+    def analysis(self, *args, **kwargs):
+        counts["analysis"] += 1
+        analyse(self, *args, **kwargs)
+
+    monkeypatch.setattr(GrammarAnalysis, "__init__", analysis)
+    return counts
+
+
+def test_a_replica_compiles_nothing_however_many_workers_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two workers meeting an uncompiled pair compile it once, on the original,
+    and copy it: the count is what one sequential parse compiles, whichever
+    thread got there first."""
+    counts = _counted(monkeypatch)
+    alone, alone_binding = _islanded("compiled-once-sequential")
+    parse_model(alone, ISLANDED_TEXT, alone_binding)
+    sequential = dict(counts)
+    counts.update(analysis=0)
+    grammar, binding = _islanded("compiled-once-workers")
+
+    threads = [
+        threading.Thread(target=_worker_parse, args=(grammar, binding))
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sequential["analysis"] > 1
+    assert counts == sequential
+
+
+def _refused(_key: tuple[object, ...]):
+    """A compile-once lock no hit may ask for."""
+    raise AssertionError("a held artefact asked for its compile lock")
+
+
+def test_a_held_artefact_is_read_without_a_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The miss lock is the miss path's: once the original and a replica hold
+    their product, island tables and delegates, parsing takes no lock."""
+    grammar, binding = _islanded("hit-without-lock")
+    parse_model(grammar, ISLANDED_TEXT, binding)
+    view = worker_replica(grammar, binding)
+    parse_model(view[0], ISLANDED_TEXT, view[1])
+    monkeypatch.setattr(pda_tables_module, "once", _refused)
+    monkeypatch.setattr(delegate_module, "once", _refused)
+    monkeypatch.setattr(products_module, "once", _refused)
+
+    assert parse_model(grammar, ISLANDED_TEXT, binding).to_text() == ISLANDED_TEXT
+    assert parse_model(view[0], ISLANDED_TEXT, view[1]).to_text() == ISLANDED_TEXT
+
+
+# ── a replica is earned by reuse ─────────────────────────────────────────
+
+
+def _split(pool: WorkPool, parse: _Recorder, ask: Replica) -> None:
+    """One split over both of a two-worker pool's threads."""
+    pool.lend()
+    _pool_views(pool, parse, threading.Barrier(pool.workers), ask)
+
+
+def test_a_one_shot_split_mints_nothing() -> None:
+    """Every worker of a pair's first split parses against the original: a copy
+    would cost more than the contention it saves, and outlive the split."""
+    grammar, binding = _pair("one-shot")
+    parse = _Recorder()
+
+    with WorkPool(2) as pool:
+        _split(pool, parse, (grammar, binding))
+        assert replica_count(grammar, binding) == 0
+
+    assert parse.views() == {id(grammar)}
+
+
+def test_a_pair_met_again_mints_once_per_thread() -> None:
+    """A thread that meets the pair in a later split copies it then, and keeps
+    that copy for every split after."""
+    grammar, binding = _pair("met-again")
+    second, third = _Recorder(), _Recorder()
+
+    with WorkPool(2) as pool:
+        _split(pool, _Recorder(), (grammar, binding))
+        _split(pool, second, (grammar, binding))
+        minted = replica_count(grammar, binding)
+        _split(pool, third, (grammar, binding))
+        assert replica_count(grammar, binding) == minted == 2
+
+    assert id(grammar) not in second.views()
+    assert len(second.views()) == 2
+    assert third.views() == second.views()

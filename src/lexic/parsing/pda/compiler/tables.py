@@ -14,8 +14,10 @@ from lexic.ir import (
     IrLeaf,
     IrSelf,
 )
+from lexic.parsing.caches import once
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
+from lexic.parsing.executable import private_copy
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     PdaProgram,
@@ -58,6 +60,9 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
         :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
+    :ivar origin: For a worker's private copy, the tables it was copied from:
+        an island it has not met yet is compiled there and copied here. ``None``
+        on the tables a compile built.
     """
 
     __slots__ = (
@@ -66,6 +71,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         "instance_grammar",
         "program",
         "_island_tables",
+        "origin",
     )
 
     start_key: CloneKey | IslandRef
@@ -73,6 +79,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     instance_grammar: IrAst
     program: PdaProgram
     _island_tables: dict[tuple[str, int], ParserTables]
+    origin: PdaTables | None
 
     def __init__(
         self,
@@ -93,6 +100,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self.instance_grammar = instance_grammar
         self.program = flatten_program(compiler.clones, start_key, compiler.folds)
         self._island_tables = {}
+        self.origin = None
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
         """The :class:`ParserTables` for island rule ``name``, built once per
@@ -101,9 +109,21 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         conflicted rule), at the run's packing tier ``bits`` (an island window
         can span the whole remaining input)."""
         cached = self._island_tables.get((name, bits))
-        if cached is None:
-            cached = compile_tables(IrAst(self.instance_grammar.rules, name), bits)
-            self._island_tables[(name, bits)] = cached
+        return self._island_miss(name, bits) if cached is None else cached
+
+    def _island_miss(self, name: str, bits: int) -> ParserTables:
+        """Island ``name``'s tables where none is held: a replica copies its
+        origin's, which compiles them once whichever replica asked first."""
+        if self.origin is not None:
+            held = self.origin.island_tables(name, bits)
+            made = private_copy(held)
+            self._island_tables[(name, bits)] = made
+            return made
+        with once((id(self), name, bits)):
+            cached = self._island_tables.get((name, bits))
+            if cached is None:
+                cached = compile_tables(IrAst(self.instance_grammar.rules, name), bits)
+                self._island_tables[(name, bits)] = cached
         return cached
 
     def island_delegates(self, name: str) -> "dict[int, FlatClone]":

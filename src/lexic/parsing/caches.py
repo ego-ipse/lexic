@@ -31,9 +31,18 @@ when an identity is released while some other holder still uses the object.
 from __future__ import annotations
 
 import weakref
+from threading import Lock
 from typing import Any, NamedTuple
 
-__all__ = ["adopt", "cached_entries", "memo", "release", "reset_caches", "track"]
+__all__ = [
+    "adopt",
+    "cached_entries",
+    "memo",
+    "once",
+    "release",
+    "reset_caches",
+    "track",
+]
 
 
 class _Memo(NamedTuple):
@@ -170,3 +179,31 @@ def reset_caches() -> None:
 def cached_entries() -> int:
     """How many entries every registered memo holds — the leak probe's meter."""
     return sum(len(entry.entries) for entry in MEMOS)
+
+
+_ONCE: dict[tuple[object, ...], Lock] = memo({}, 0, 1)
+"""Artefact key → the lock its compile runs under on a miss. A key leads with
+its owner's ``id``, so the lock is released with the artefact it guards."""
+
+_ONCE_GUARD = Lock()
+"""Mints the per-key locks; held for one lookup and one insert, never a compile."""
+
+
+def once(key: tuple[object, ...]) -> Lock:
+    """The lock a miss on ``key`` compiles under, so two threads missing one
+    artefact compile it once — and two artefacts never wait on each other.
+
+    Taken on a miss alone: a hit reads the memo it fills without a lock. Where
+    artefacts are copied from one original, a compile count that depended on
+    which thread missed first would make what a grammar compiles a fact about
+    the scheduler.
+
+    :param key: The owner's ``id`` first, then whatever else names the
+        artefact at that owner.
+    :returns: The key's lock.
+    """
+    with _ONCE_GUARD:
+        lock = _ONCE.get(key)
+        if lock is None:
+            lock = _ONCE[key] = Lock()
+    return lock

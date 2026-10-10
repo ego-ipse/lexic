@@ -324,6 +324,51 @@ first-touching one pair all mint against the same stale population.
   the grammar alone. `worker_parse` is the entry, and it is called from inside
   the work, never from the submitting thread.
 
+**A replica's tables are copied, not compiled.** `_mint` declares each view to
+the product layer (`products.declare_replica`). A product, grants program,
+island table or delegate set the view asks for is compiled ONCE on the
+original pair — under a per-key lock taken on the miss alone, so a hit reads
+lock-free — and the asking thread takes a structural private copy
+(`ModelExecutable.copied`, over `PrivateCopy`). The copy makes anew every
+object the compile minted: engine records, containers, baked closures and
+their cells, and the IR value records the tables hold (a decoded rule's
+reference is read on every tree node, and a shared one cost a copy 5% of an
+Earley-heavy split's wall). It keeps what is the process's: what a lexic
+module or class names (constants compared by identity, such as
+`CharSet.EMPTY`), atoms, compiled `re` patterns (re's own cache shares them
+between compiles anyway), and the binding's read-only projections. A copied
+`PdaTables` and its `DelegateSource` carry an `origin`, the edge a miss asks
+through. Recompiling per worker ran a full analysis of the grammar on every
+thread that won a chunk. On vyx's compile that was 2 to 5 analyses of the GBNF
+self-grammar at about 0.5 s of CPU each, and a clone-compile count that
+changed from process to process (344 to 860). With copies, that compile runs
+one analysis.
+
+**A copy is earned by reuse.** A worker's FIRST split of a pair parses against
+the original pair, shared; the copy is minted only when that thread meets the
+pair again in a LATER split. Each pool lease numbers its split
+(`WorkPool.lend`, `running_lease`), and a thread's cached first meeting
+carries that number. A one-shot split, such as `compile_text` splitting a long
+grammar source, therefore mints nothing. A copy costs 5 to 50 ms and is held
+for the thread's life, while contention on a shared product costs a one-shot
+split a fraction of that. Before this rule, vyx's benchmark worker kept 4 copies
+of the GBNF self-grammar that nothing read, and every collection of the timed
+parse walked them: retiring them was 0.904x CPU on vyx's Earley seat. A
+repeatedly split artefact copies once per thread, on its second split.
+
+**The shared original is the document thread's own.** `CompiledGrammar.parse`
+compiles its product on the calling thread before asking for a split. Built by
+the first worker to miss, it lived on in a pool thread's heap. The same 4 vyx
+programs cost 1.035x CPU and 31% more pause per observation when retained from
+pool threads rather than from the main thread, so on this interpreter an
+object's owning thread matters to every later collection, not only its count.
+
+**The bound.** What a grammar compiles is a function of the grammar and the
+documents parsed. How many copies exist is not: replicas are a runtime cache
+bounded by the pool size, at most one copy per thread that met the pair in two
+splits, released with that thread. The retained set therefore varies with
+scheduling, by whole copies, and that is by design.
+
 The FIRST document thread keeps the original pair, which is therefore never
 issued to a worker, so a single-threaded program compiles no second set of
 tables. Where `available_workers()` is 1 at all — a GIL build, a one-cpu

@@ -21,6 +21,17 @@ two live pools would issue the same numbers against one list, and a length read
 followed by an append over-allocates when several threads first-touch a pair at
 once.
 
+**A replica's tables are a COPY, not a compile.** A minted view is declared
+to the product layer (:func:`~lexic.parsing.products.declare_replica`), and
+every product it asks for is the original's, compiled once — whichever thread
+asked first — and copied onto the asking thread
+(:meth:`~lexic.parsing.executable.ModelExecutable.copied`). An island or a
+delegate the copy has not met yet is compiled on the original too and copied
+again. So what a grammar compiles is a function of the grammar and the
+documents; how many copies exist is not. Replicas are a runtime cache bounded
+by the pool: one copy per thread that took a chunk of the pair, released with
+that thread, which is a number the scheduler decides.
+
 The models stay identical because the replica is equal by value and holds the
 SAME synthesized classes. That sharing is a NECESSITY rather than a compromise
 — two workers building two different classes for one rule would break model
@@ -44,6 +55,8 @@ from lexic.parsing.caches import adopt, memo, release
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
+from lexic.parsing.parallel.pool import running_lease
+from lexic.parsing.products import declare_replica
 
 type Replica[M] = tuple[IrAst, ModelExecutable[M]]
 """One worker's private view: an equal grammar, and a binding copy."""
@@ -70,11 +83,15 @@ class _Mine[M](NamedTuple):
     :ivar grammar: The key grammar, identity-checked on read.
     :ivar binding: The key binding, likewise.
     :ivar replica: What this thread parses against for that pair.
+    :ivar met: The split this thread first met the pair in, while
+        :attr:`replica` is still the ORIGINAL pair; ``None`` once the thread
+        has earned a copy of its own.
     """
 
     grammar: IrAst
     binding: ModelExecutable[M]
     replica: Replica[M]
+    met: int | None
 
 
 class _Issued[M](NamedTuple):
@@ -158,6 +175,7 @@ def _mint[M](
     """
     view = grammar if document else IrAst(grammar.rules, grammar.start)
     replica = (view, binding.replica())
+    declare_replica(grammar, binding, *replica)
     # A minted half exists to get its OWN memo entries — tables, products, run
     # analyses. They live under this entry, so they release with it — under
     # BOTH key identities, because either one retires the entry and neither
@@ -280,8 +298,9 @@ def _release_minting() -> None:
             _retire(_RETIRING.popleft())
     finally:
         _MINTING.release()
-    if _RETIRING:
-        _drain_if_free()
+        # Even when a retirement raised: the rest of the queue is still owed.
+        if _RETIRING:
+            _drain_if_free()
 
 
 def _drain_if_free() -> None:
@@ -392,9 +411,24 @@ def _resolve[M](
     """
     for stale in [at for at in mine if at not in _REPLICAS]:
         del mine[stale]
+    lease = None if document else running_lease()
+    if lease is not None and key not in mine:
+        # A worker's first split of this pair runs on the original: a copy
+        # pays only where the thread meets the pair again, in a later split.
+        _register(key, grammar, binding)
+        mine[key] = _Mine(grammar, binding, (grammar, binding), lease)
+        return grammar, binding
     replica = _claim(key, grammar, binding, document)
-    mine[key] = _Mine(grammar, binding, replica)
+    mine[key] = _Mine(grammar, binding, replica, None)
     return replica
+
+
+def _register(key: tuple[int, int], grammar: IrAst, binding: ModelExecutable) -> None:
+    """Enter the pair in the registry without claiming a copy, so a thread's
+    cached first meeting lives exactly as long as the pair does."""
+    with _minted():
+        if _REPLICAS.get(key) is None:
+            _REPLICAS[key] = _Issued(grammar, binding, [])
 
 
 def _view[M](grammar: IrAst, binding: ModelExecutable[M], document: bool) -> Replica[M]:
@@ -408,7 +442,9 @@ def _view[M](grammar: IrAst, binding: ModelExecutable[M], document: bool) -> Rep
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
     if got is not None and got[0] is grammar and got[1] is binding:
-        return got[2]
+        met = got[3]
+        if met is None or met == running_lease():
+            return got[2]
     return _resolve(mine, key, grammar, binding, document)
 
 

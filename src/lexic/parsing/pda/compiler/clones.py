@@ -59,6 +59,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.caches import adopt
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
@@ -623,6 +624,8 @@ def _attach_delegates(
         (PdaCompiler, flatten_clones),
         grants,
     )
+    # Its compile-once locks are keyed on its identity: they go with the tables.
+    adopt(id(tables), tables.program.delegates)
 
 
 def compile_clones(

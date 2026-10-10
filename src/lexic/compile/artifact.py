@@ -302,6 +302,13 @@ class CompiledGrammar:
             if resolve is None and decide is LEFTMOST_LONGEST
             else ParseConfig(IrNone if resolve is None else resolve, decide)
         )
+        # Compiled HERE, before a split hands any work out: a worker's first
+        # split of a pair reads the original's product, and one compiled on
+        # a pool thread lives on in that thread's heap, which every later
+        # collection pays for. A segmented grammar parses through its token
+        # tables and never splits.
+        if tok is None or not self.tokens.segmented:
+            pda_tables(self.codegen_grammar, product)
         # Splitting is asked FIRST and of the grammar alone: whether the
         # input is split has nothing to do with which route reads it. A
         # segmented grammar simply never yields a plan (its terminals are

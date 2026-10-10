@@ -1345,3 +1345,33 @@ resolves through `leftmost_chain` (it passes a choice map), so before this
 change every handle of every parse paid for a DAG of dicts, a prune, a floor
 and a generator `max` per level. That cost 14-20% of an Earley parse's CPU on
 every roster grammar, and the Earley models are byte-identical.
+
+## A worker's replica is a private copy, made by one walk of its own
+
+**Decision:** a replica's compiled artefacts are made by a structural copy of
+the original's, `executable.private_copy` (over `PrivateCopy`), never by a
+second compile. `ModelExecutable.copied` is its entry for an artefact built
+against a binding, and passes the binding's remap. An island's Earley tables
+never reach a binding and pass none. Each artefact is compiled once, on the
+original, under its own key's lock (`caches.once`), which is taken only on a
+miss.
+
+**Why a walk of its own:** no existing mechanism copies a compiled program.
+The duplication check found four candidates, and each fails:
+
+- `ModelExecutable.replica()` is shallow by design: a fresh executor over
+  shared, read-only projections.
+- `admission.frames_copy` copies a runtime stack and nothing reachable from
+  it.
+- `copy.deepcopy` returns functions as atoms before it reads its memo on 3.14,
+  so a program's baked closures would stay the original's.
+- `ir/identity.py` walks a value's graph under one stated child definition to
+  census it; it reads, and builds nothing.
+
+**What the walk keeps, and why it rebuilds IR values.** The walk keeps only
+what is the process's: what a lexic module or class names (constants compared
+by identity), atoms, the C types it names (`re.Pattern`, through its own deep
+copy), and singletons. It refuses any other C type. It rebuilds IR records
+through their own `rebuild()` and makes scalar IR leaves anew, because the
+tables a parse reads hold them. Shared, they cost a copy 5% of an Earley-heavy
+split's wall against a recompile.
