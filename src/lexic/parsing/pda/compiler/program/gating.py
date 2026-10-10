@@ -164,6 +164,14 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     the stored soft continuation is an arm choice in loop clothing — with no
     sub-run to consult, the terminal loop bails to the gated engine.
 
+    The :data:`GATE_STOP` reading is spelled in place, not called, by every
+    per-character loop that asks it: ``matchers.match_cc``,
+    ``matchers.match_lit``, ``matchers.match_chartable``,
+    ``matchers.match_runtable``, ``PdaKernel._quant_step``,
+    ``KernelExecutionMixin._match_vstr`` and
+    ``KernelExecutionMixin._match_vdisp``. A change to what a stop gate admits
+    is a change to all of them.
+
     :raises PdaFail: A terminal attempt boundary whose char both sets accept.
     """
     if gk == GATE_STOP:

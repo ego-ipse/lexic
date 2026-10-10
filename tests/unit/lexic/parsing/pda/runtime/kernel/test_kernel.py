@@ -42,8 +42,9 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
-from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VRUN
+from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VDISP, OP_VRUN
 from lexic.parsing.pda.runtime.islands import IslandPolicy
+from lexic.parsing.pda.runtime import matchers as matchers_module
 from lexic.parsing.pda.runtime.kernel import execution as execution_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
 from lexic.parsing.products import earley_model, model_product
@@ -420,3 +421,41 @@ def test_an_entered_span_tabled_leaf_goes_straight_to_its_run(
     monkeypatch.setattr(execution_module, "vstr_once", no_selection)
     assert pda_model(product.pda, text, compiled.executor) == expected
     assert len(runs) == 4
+
+
+# ── a loop over a dispatch of span-tabled clones, matched inline ──────
+
+INLINE_RUNS = (
+    "# @lexical event span\n"
+    'root ::= record+ "!"\nrecord ::= event | span\n'
+    'event ::= "%" [a-z]+ ("," [a-z]+)* ";"\nspan ::= "<" [0-9]+ ">"\n'
+)
+"""``record`` dispatches to two span-tabled clones only, so ``root``'s loop
+over it is an ``OP_VDISP`` item: chased and run per occurrence, no entry."""
+
+
+def test_a_loop_over_span_tabled_landings_runs_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each occurrence is the chase and the landed clone's run: never the
+    selection of ``vstr_once``, never a call to ask the stop gate, and the
+    model is still the Earley engine's."""
+    compiled = compile_text(INLINE_RUNS, flavour="gbnf", cache_key="inline-runs")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    assert OP_VDISP in {kind for arm in clone_arms(root) for kind in arm.kinds}
+    text = "%ab,cd;<12>%c;<3>!"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def refused(*_args: object) -> int:
+        raise AssertionError("an inline span-tabled landing took a detour")
+
+    monkeypatch.setattr(matchers_module, "vstr_once", refused)
+    monkeypatch.setattr(execution_module, "gate_take", refused)
+    assert pda_model(product.pda, text, compiled.executor) == expected

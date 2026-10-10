@@ -66,7 +66,6 @@ from lexic.parsing.pda.runtime.islands import (
     island_value,
 )
 from lexic.parsing.pda.runtime.matchers import (
-    loop_spec,
     match_cc,
     match_cc1,
     match_chartable,
@@ -280,9 +279,23 @@ class KernelExecutionMixin[Carry]:
         """
         text = self.text
         intern = self._caches.intern
-        lo, hi, gk, gate = loop_spec(arm, i)
+        lo, hi = arm.los[i], arm.his[i]
+        # A stop gate read in place, bound once, as `_match_vstr` reads it.
+        stop = arm.gate_kinds[i] == GATE_STOP
+        gchars, gneg = arm.gate_data[i] if stop else ((), False)
         count = 0
-        while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        while count < lo or (
+            (hi < 0 or count < hi)
+            and (
+                (
+                    (pos < len(text) and text[pos] not in gchars)
+                    if gneg
+                    else text[pos : pos + 1] in gchars
+                )
+                if stop
+                else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+            )
+        ):
             try:
                 pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
             except IslandEscape as escape:

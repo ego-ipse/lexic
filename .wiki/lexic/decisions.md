@@ -1508,3 +1508,17 @@ lookahead character it never used and forwarded the call. An entry through a
 dispatch chase (`record ::= event | span` looped by its parent) paid that call
 per occurrence. `vstr_once` keeps the same forward for the callers that reach
 it with such a clone.
+
+## A dispatch over span-tabled clones is matched inline
+
+**Decision:** the `OP_VDISP` licence (`vdisp_landing`) admits a landing on a
+span-tabled `value_str` clone (one carrying a run arm), beside the terminal-only
+ones, and `vdisp_once` sends such a landing straight to `run_span_once`.
+`_match_vdisp` reads its stop gate in place, bound once, as the other value
+loops do.
+
+**Why:** a span-tabled clone already runs frame-lessly — the leaf licence grants
+it on the same terms — so a loop over a dispatch of them (`record ::= event |
+span | note`, each `@lexical`) paid an `_enter`, a `_quant_step` and a leaf run
+per occurrence for a match that cannot descend. Inline, an occurrence is the
+chase and the run.

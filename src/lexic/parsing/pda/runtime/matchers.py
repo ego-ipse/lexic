@@ -13,8 +13,6 @@ a function of the clone and the char, not of the cursor.
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
@@ -65,6 +63,8 @@ def vdisp_once[Carry](
     target = chase_dispatch(clone, text, pos)
     if target is None:  # licence-excluded; a defensive read, not a live path
         raise PdaFail(f"no arm at {pos}", pos)
+    if target.runarm is not None:  # straight to the run `vstr_once` would ask
+        return run_span_once(text, target, sink, pos)
     return vstr_once(text, intern, target, sink, pos)
 
 
@@ -332,16 +332,6 @@ def run_span_once[Carry](
             table[span] = model
     sink.append(model)
     return end
-
-
-def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
-    """Item ``i``'s quantifier bounds and loop gate — every span loop's preamble.
-
-    ``(lo, hi, gate_kind, gate_data)``, read once per item so the loop body
-    reads locals. The tabled and value-string loops, which read a stop gate in
-    place, spell the four reads in place too: the call was one per loop entry.
-    """
-    return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
 
 
 def match_runtable[Carry](

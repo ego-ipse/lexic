@@ -1,5 +1,9 @@
 # Log
 
+## A dispatch over span-tabled clones is matched inline (2026-10-10)
+
+`decisions.md` records why the `OP_VDISP` licence admits span-tabled landings.
+
 ## An entered span-tabled leaf goes straight to its run (2026-10-10)
 
 `decisions.md` records why `_leaf_run` calls `run_span_once` for a run-armed
