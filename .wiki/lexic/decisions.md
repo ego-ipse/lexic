@@ -1565,3 +1565,26 @@ on average. Inlining the sink read beside it was a net loss on vyx and json's
 PDA seat, and asking the gate per completion instead of per drive cost
 arithmetic about 1.7%. A change that makes `_drive` smaller is measured as its
 own cut; the inlined completion is not a reason to make one.
+
+## An item's char-class run is matched by its count loop
+
+**Decision:** `match_cc` takes a char-class item's run one character at a time
+on its polarity loops, bounded by its count, and nothing else: no compiled tail,
+no inline bound, no second stage. The one pattern-matched run is the run arm
+that cannot refuse (`OP_RUNPAT`, above).
+
+**Why:** a tail for an item's run — `[gate]*` matched in one call past an
+inline bound — was built in four forms and measured against the count loop, and
+none pays on every grammar. Runs are mostly short (arithmetic's one character
+or empty, nested's empty, vyx's two to four, csv's and markdown's five to eight),
+the long ones 17–32 characters (announced, split-nullable, wrapped-unit).
+Anything the call sets up — a stop, a bound read, a first-character preamble —
+costs the short-run grammars 0.5–2%; a tail at a small bound sends five-to-eight
+runs through the call; a bound of 32 loses the long runs' gain. The best form,
+a count-free loop to 8 characters with a stop computed only past it, read
+0.95 on the long-run rows and about 1.00 elsewhere in process, but the lint caps
+on `match_cc` put the second stage in its own function, and that call is paid
+by exactly the runs that carried the gain: in subprocess, mixedends' PDA seat
+ran 1.050, markdown 1.024, lexruns 1.013–1.023, and the long-run rows kept only
+0.96–0.98. A run arm's tail without the item's is `OP_RUNPAT` under another name,
+so neither ships alone.

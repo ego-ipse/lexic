@@ -1,5 +1,11 @@
 # Log
 
+## An item's char-class run is matched by its count loop (2026-10-10)
+
+`decisions.md` records why `match_cc` keeps its count loop: a compiled tail for
+an item's run was measured in four forms, and the per-call setup or the
+second-stage call costs the short-run or the long-run grammars every time.
+
 ## The driver calls `_complete` for every completion (2026-10-10)
 
 `decisions.md` records why `_drive` inlines neither its completion nor its sink
