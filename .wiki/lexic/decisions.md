@@ -1545,3 +1545,23 @@ take-set inline.
 re-asked two kinds the caller had ruled out, and the take-set test is one
 membership. On a noise-structured grammar the descent loops ask a scan gate
 about once every four characters.
+
+## The driver calls `_complete` for every completion
+
+**Decision:** `PdaKernel._drive` completes every frame through
+`KernelExecutionMixin._complete`, and reads every sink through `_sink_for`;
+neither is inlined into the loop, and `_drive` carries no lint suppression.
+
+**Why:** inlining was built and measured, and it does not pay on every grammar.
+Completing the composed sequence case in place (`BUILD_SEQ`, a composed build,
+the arm at full width, no inherited values), gated once per drive on
+`_complete` being the mixin's own, ran arithmetic, json and nested 3–5% faster,
+but island-earley 1.5–4.6% and backtrack 1.2–1.6% slower, above the harness's
+own A/A spread on those rows. Those grammars complete no frame in place; what
+they pay is the driver's size. The same body with its inline paths made
+unreachable cost every measured cell 1.2–2.2% in process, with no executed
+work, so a block in the loop must save more than it adds on every grammar, not
+on average. Inlining the sink read beside it was a net loss on vyx and json's
+PDA seat, and asking the gate per completion instead of per drive cost
+arithmetic about 1.7%. A change that makes `_drive` smaller is measured as its
+own cut; the inlined completion is not a reason to make one.

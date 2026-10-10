@@ -1,5 +1,11 @@
 # Log
 
+## The driver calls `_complete` for every completion (2026-10-10)
+
+`decisions.md` records why `_drive` inlines neither its completion nor its sink
+read: the loop's own size is paid on every grammar, and the in-place completion
+did not repay it on the frame-light ones.
+
 ## A plan's cuts are searched for near their targets (2026-10-10)
 
 `parallel-parsing.md` records `PlanMarks`: depth counted at a stretch's start,
