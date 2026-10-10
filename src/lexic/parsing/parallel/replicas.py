@@ -471,10 +471,11 @@ FIRST_MEETINGS: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
 """``(lease, id(grammar), id(binding))`` → a pair a worker met for the FIRST time
 in that split, still read through the original; settled into :data:`_DUE`."""
 
-_DUE: dict[
+type Due = dict[
     tuple[int, int],
     tuple[ref[WorkPool], ModelExecutable, dict[tuple[int, int], Replica]],
-] = memo({}, 1)
+]
+_DUE: Due = memo({}, 1)
 """``(id(pool), id(document binding))`` → the pairs that pool's workers met first
 while splitting through that binding, due a copy on its next split through it.
 Keyed by the binding because every piece parses through it, so the pairs retire
@@ -533,15 +534,16 @@ def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
         return
     entry = _DUE.get(key)
     if entry is None or entry[0]() is not pool or entry[1] is not document:
-        entry = _DUE[key] = (ref(pool, partial(_forget, key)), document, {})
+        entry = _DUE[key] = (ref(pool, partial(_forget, _DUE, key)), document, {})
     entry[2].update(pairs)
 
 
-def _forget(key: tuple[int, int], gone: ref[WorkPool]) -> None:
-    """A collected pool's due entry goes with it, unless ``key`` was reused."""
-    entry = _DUE.get(key)
+def _forget(due: Due, key: tuple[int, int], gone: ref[WorkPool]) -> None:
+    """A collected pool's due entry goes with it, unless ``key`` was reused —
+    read from the registry handed in, which outlives the module's globals."""
+    entry = due.get(key)
     if entry is not None and entry[0] is gone:
-        _DUE.pop(key, None)
+        due.pop(key, None)
 
 
 def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
