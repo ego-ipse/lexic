@@ -1,5 +1,174 @@
 # Log
 
+## A descent loop asks its wide gate straight (2026-10-10)
+
+`decisions.md` records why `_quant_step` calls `wide_gate_take` and
+`scan_gate_take` reads its take-set in place.
+
+## A leaf whose walk decides nothing runs its one arm (2026-10-10)
+
+`decisions.md` records why `_run_leaf` reads `FlatClone.entry` and leaves are
+granted one.
+
+## A dispatch over span-tabled clones is matched inline (2026-10-10)
+
+`decisions.md` records why the `OP_VDISP` licence admits span-tabled landings.
+
+## An entered span-tabled leaf goes straight to its run (2026-10-10)
+
+`decisions.md` records why `_leaf_run` calls `run_span_once` for a run-armed
+`value_str` leaf.
+
+## A span-tabled loop goes straight to its loop (2026-10-10)
+
+`decisions.md` records why `_match_vstr` routes a span-tabled target to
+`match_runtable` itself.
+
+## A stop-gated value loop reads its gate in place (2026-10-10)
+
+`decisions.md` records why the tabled and value-string loops test a stop gate
+inline, as `match_cc` and `_quant_step` do, and call `gate_take` for the rest.
+
+## A run that cannot refuse matches as one pattern (2026-10-10)
+
+`decisions.md` records `run_pattern`: a nullable one-class stop-gated run is
+installed as a pattern arm and matched in one call.
+
+## An undecidable entry walks no selectors (2026-10-10)
+
+`decisions.md` records `FlatClone.entry`: a one-arm clone whose first item
+refuses alone is entered without the selector walk.
+
+## A proved longest take matches in one pattern (2026-10-10)
+
+`decisions.md` records that a non-stealing `LongestTake` carries its rule's
+greedy match as one possessive pattern, proved once per rule against nothing
+after it, and that `taken_end` matches with it before the same check.
+
+## A worker's replica is a private copy, made by one walk (2026-10-10)
+
+`decisions.md` records why `private_copy` is its own walk (the duplication
+check: `replica()`, `frames_copy` and `copy.deepcopy` each fall short), what it
+keeps and rebuilds, and that each artefact compiles once under `caches.once`.
+
+## A replica's tables are copied, not compiled (2026-10-09)
+
+`parallel-parsing.md` records that a worker's or document thread's view
+takes a private structural copy of the original's compiled product, grants
+program, island tables and delegates, each compiled once on the original under
+a miss-only lock, what the copy keeps, and the bound: replicas are a runtime
+cache of at most one copy per pool thread. A copy is earned by reuse: a
+worker's first split of a pair runs on the original, which the document's own
+thread compiles.
+## A replica's exit signal never waits on the claim lock (2026-10-09)
+
+`parallel-parsing.md` records that `retire_thread` queues an exited thread and
+releases its claims only when the claim lock is free, every holder draining the
+queue before it releases: a finalizer firing on the lock's own holder
+deadlocked a free-threaded test run.
+
+## A sole chain is read without the level DAG (2026-10-09)
+
+`decisions.md` records that `leftmost_chain` walks a chain whose every key
+holds one family directly, and builds the level DAG only from a key with
+several families.
+
+## The split keys on the decider's order (2026-10-09)
+
+`decisions.md` records that the parallel split is asked under any
+leftmost-longest decider and no other, and that an island's sub-parse and its
+delegates answer under the parse's decider and the program's grants.
+
+## An attempt's arms that end apart are ranked by the decider (2026-10-09)
+
+`decisions.md` records that the attempt audit ranks an arm ending elsewhere
+that could compose against the winner through the boundary verdict, lets two
+arms over one span with one value stand, and turns the greedy arm over an empty
+sibling into an ordered attempt; `GREEDY_ARM` is deleted. The attempt-gate and
+delegate entries are corrected to match.
+
+## An open child is ranked at its first end under leftmost-longest (2026-10-09)
+
+`decisions.md` records that `_kept_open` ranks leftmost-longest's open child by
+its first reachable end, which stands for every later one, and any other
+decider's at every end it can reach, never forking on the count.
+
+## A decider's chain is its best carving, not its best step per level (2026-10-09)
+
+`decisions.md` records that `_choose_slots` reads any decider but
+leftmost-longest by `_slot_chain`, the chain whose carving the rank puts
+highest, and that `decider.carving` is the one definition every chooser
+reads: an empty step is dropped only where it is a repetition's iteration
+beyond its minimum (`code_droppable`), so an authored slot or an iteration the
+minimum needs stays a step. Greedy by each level's
+slot picked such a step as the shortest under a shortest decider, and `X+` built
+itself forever.
+
+## A stop side the text refutes is not sampled (2026-10-09)
+
+`decisions.md` records the text refutation inside a probe: a both-viable
+boundary whose stop side's continuation cannot match the text takes, exactly,
+instead of being guessed.
+
+## A parse's nested verdicts are bounded, not only a retry's (2026-10-09)
+
+`invariants.md` records that every retry of one parse, delegate sub-runs
+included, draws on one allowance (`PARSE_NESTING`), so the nesting cost is
+bounded per document.
+
+## A forked verdict is asked again with nested verdicts; no completed pair keeps the take (2026-10-09)
+
+`invariants.md` replaces "probes never nest" with the nesting bound: forks nest
+three deep, only while a forked verdict is retried, within a budget, and a nested
+side inherits its outer side's sub-runs. `decisions.md` records that completed
+sides the rank cannot read, or reached through a guess, fork under every decider.
+
+## A child's carving is measured from where it starts (2026-10-09)
+
+`decisions.md` records that `_child_rank` measures a child's steps from its
+start, so a first step that takes nothing is dropped like any other zero-width
+step. Without it a decider could keep `X X+` with an empty `X` over an empty
+span, and the tree build looped on the same node.
+
+## A boundary's two parses are ranked as Earley ranks them (2026-10-09)
+
+`decisions.md` records how the predictive engine ranks a boundary's two
+completing parses: the shallowest node that differs, the parent's recorded
+step first, raw steps, an open child only where every reachable end agrees,
+an island's two ends by its holder under every decider, iterations under
+leftmost-longest only, and ledgers paid only by a rank. The text-extent entry
+no longer names `islands.settle_extent`, which is gone.
+
+## A gate that reads a run whole is a leftmost-longest licence (2026-10-09)
+
+`decisions.md` records the `SCAN_SKIP` grant: the structured scan and probe
+gates, and the empty-arm gate, are issued only where the decider grants it,
+with every gate kind listed by whether its answer assumes leftmost-longest.
+`public-api.md` lists the new grant.
+
+## A routed interior's neighbours are read at exactly-once only (2026-10-09)
+
+`parallel-parsing.md` records that a whole-extent routed interior's
+neighbours are spelled by `shapes.exact_text`, so a bounded repetition such as
+`pre{1,2}` declines the route instead of being read as one occurrence.
+
+## A text extent has one answerer (2026-10-08)
+
+`decisions.md` records how a text-only rule's extent is answered: the proof's
+consult where it holds, otherwise the item-wise match checked by its
+`LongestTake`, with a declined own proof making misses and two-arm choices ask
+the island, and `islands.settle_extent` as the one hook for two followable
+ends.
+
+## The split floor is stated once (2026-10-09)
+
+`parallel-parsing.md` records the floor as stated once in `policy.py` —
+`MIN_CHUNK` caps the worker count, `MIN_PIECE` (half a chunk) is how far one
+piece may fall under it — and `regions.floor_cuts` as the one cut chooser the
+plan cuts, the routed and the folded dividers share; the region partition holds
+its runs to the same per-piece floor. The routed split memoises its route and
+stitches its run with a trusted build.
+
 ## A document splits top-down, a worker's share at a time (2026-09-23)
 
 `parallel-parsing.md` records the top-down partition that replaced the region
@@ -2329,3 +2498,89 @@ derivation alone.
 `ir-shapes.md`'s `IrTuple` entry and a `decisions.md` entry: class-aware
 record equality with no plain-tuple interop, the payload hash kept, and the
 per-class copies of the rule removed.
+
+## Deciders state slots
+
+`decisions.md` entry: a decider states `slot(end)`; the rank is its slots left
+to right and final; redefining it, or leftmost-longest's slot, is refused at
+class definition; one `carving()`.
+
+## Earley reads any decider by its slots
+
+`decisions.md`'s slot entry: a decider other than leftmost-longest is no longer
+refused by the chain reader; each level's key is chosen by the decider's slot.
+
+## A boundary's side settles its sub-runs (2026-10-08)
+
+`decisions.md` entry: a side carries one floor per attempt sub-run it stands
+inside and settles each as its caller would, recovered from the stack; the
+marks are written only in a program that can fork; a guess decides nothing; and
+values compare by class and fields.
+`invariants.md`'s probes-never-nest entry counts the one `frames_copy` call
+site left, `_side`.
+
+## The boundary verdict has its own module (2026-10-08)
+
+`invariants.md`'s probes-never-nest entry names `verdicts.py`: the verdict, its
+sides and their floors moved there from `decisions.py`, whose `Attempting`
+inherits them.
+
+## No cross-module private names (2026-10-09)
+
+`invariants.md` entry: no module imports or reads another module's private
+names, in src, tests, tools or ext and in any spelling, enforced by an AST
+invariant test that replaces the src-only import check in the layering
+invariants; a class's or an object's private attributes are outside it. The names shared that way
+were made public at home; the wiki pages naming them now use the public names.
+
+## The unpinned tree build walks sole_chain without a spec (2026-10-09)
+
+`decisions.md`'s sole-chain entry: a build with no choices pinned calls
+`sole_chain` with the arm base and tier, and allocates no `ChainSpec` per
+handle; `atoms.predecessor_chain`, the dispatch between the two, is gone.
+
+## k-window selections filed by first character (2026-10-10)
+
+`decisions.md` entry: `window_select` files a k-window selection's entries by
+the first character where that cuts a window, and keeps the plain selection
+where it cuts none.
+
+## A reused pair is copied by every worker before the next split (2026-10-10)
+
+`decisions.md` entry and `parallel-parsing.md`'s copy-earned-by-reuse section: a
+split's first meetings are settled per pool and document grammar, and the next
+split of that grammar on that pool warms every worker's copy before any piece.
+
+## The warm's due list is the document view's (2026-10-10)
+
+`decisions.md` and `parallel-parsing.md`: first meetings are settled per pool
+and document executable view rather than per document grammar, released with
+the view, and dropped with a collected pool — a churn of document threads had
+every split copy the previous, retired view's pairs.
+
+## The calling thread takes back unstarted items (2026-10-10)
+
+`decisions.md` entry and `parallel-parsing.md`'s region-split paragraph: after
+a map's `beside` share, the calling thread runs every item no worker started,
+through its own view.
+
+## The take-back fills only unused worker places (2026-10-10)
+
+`decisions.md` and `parallel-parsing.md`: the calling thread takes back at most
+as many unstarted items as the phase left workers without one.
+
+## The region find: one window per piece, closes inline (2026-10-10)
+
+`parallel-parsing.md`'s windowed-find section: a region split's find runs
+`piece_count` windows, and a close builds a region only where one is kept.
+
+## A warm never decides a parse, and reads its filings as snapshots (2026-10-10)
+
+`decisions.md`'s warm entry: the settle and the island copy read snapshots of
+memos other threads write to, and a refusing copy or a broken barrier skips the
+warm and is counted (`replicas.warm_census`).
+
+## The take-back runs each item exactly once, pinned (2026-10-10)
+
+`decisions.md`'s take-back entry in the present tense; a pin that a taken-back
+item a worker already started is never run twice.

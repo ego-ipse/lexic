@@ -82,6 +82,15 @@ synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
 payload is the compiled pattern. Numbered past every arm code so a reader that
 ranges over the arm vocabulary cannot mistake it for one."""
 
+OP_RUNPAT = 17
+"""A nullable one-class run, matched as one pattern.
+
+Like :data:`OP_CONSULT`, never an item op-code: the sole kind of a synthetic
+:attr:`FlatClone.runarm`
+(:func:`~lexic.parsing.pda.compiler.program.specialize.passes.run_pattern`),
+whose payload is ``[gate]{0,hi}`` compiled and whose gate is the run's own stop
+gate, read first so an empty run costs no match call."""
+
 GATE_STOP, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4
 GATE_GREEDY = 5
 """Flat loop-gate codes: single-char stop-set, the

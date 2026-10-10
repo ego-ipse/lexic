@@ -10,8 +10,8 @@ import lexic.parsing.parallel.stitch.merge as merge_module
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing import DEFAULT_CONFIG, parse_model
-from lexic.parsing.parallel.discovery.regions import find
 from lexic.parsing.parallel.discovery.partition import Division, partition, units
+from lexic.parsing.parallel.discovery.regions import find
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.stitch.merge import MergeRequest, witnesses
 from lexic.parsing.parallel.stitch.plan import RegionWork
@@ -125,7 +125,7 @@ def test_missing_shallow_witness_declines_without_reparsing_delegated_head(
         asked.append(rule_name)
         raise LexicError("forced shallow witness failure")
 
-    monkeypatch.setattr(merge_module, "_template_tail", lambda *_args: None)
+    monkeypatch.setattr(merge_module, "template_tail", lambda *_args: None)
     monkeypatch.setattr(merge_module, "generate", fail_generate)
     recording_parse, parallel = recorded_split(compiled, text, 4)
 

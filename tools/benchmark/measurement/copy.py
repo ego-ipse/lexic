@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -90,7 +91,6 @@ SHARED_VOCABULARY = frozenset(
         "lexic.parsing.parallel.worker_count",
         "lexic.parsing.pda.core.errors.PdaFail",
         "lexic.parsing.pda.runtime.kernel.kernel.pda_model",
-        "lexic.parsing.products._model_product",
         "lexic.parsing.products.earley_model",
         "lexic.parsing.products.parse_model",
     }
@@ -104,11 +104,14 @@ not a convenience: it is the point at which adding an import means checking the
 other arm has it, and a gate reads it so the check cannot be skipped.
 """
 
-ARM_SPELLED = frozenset({"lexic.parsing.ParseConfig"})
+ARM_SPELLED = frozenset(
+    {"lexic.parsing.ParseConfig", "lexic.parsing.products.model_product"}
+)
 """``lexic`` names a protocol module may import though the base may LACK them,
 because :func:`materialise` spells them away in an arm whose ``src`` does not
-export them (:func:`_unwrap_config`). Declared, like the shared vocabulary, so
-the gate reads it rather than trusting that the rewrite still covers a name."""
+export them (:func:`unwrap_config`, :func:`respell_model_product`). Declared,
+like the shared vocabulary, so the gate reads it rather than trusting that the
+rewrite still covers a name."""
 
 BUILD_OBJECT = "product"
 """What current Lexic calls the compiled grammar's model-build object."""
@@ -116,11 +119,14 @@ BUILD_OBJECT = "product"
 PARSE_CONFIG = "ParseConfig"
 """What current Lexic calls the record a parse's resolver rides inside."""
 
+MODEL_PRODUCT = "model_product"
+"""What current Lexic calls the function that builds a grammar's model product."""
+
 type _Edit = tuple[int, int, bytes]
 """One replacement in a module's UTF-8 text: start, end, the new bytes."""
 
 
-def _rewrite(root: Path, name: str) -> None:
+def rewrite_bench_name(root: Path, name: str) -> None:
     """Point one copy's benchmark at the build-object name ITS Lexic uses.
 
     Every protocol module is rewritten, not a listed subset: a module that
@@ -176,7 +182,35 @@ def _strings(value: ast.expr) -> list[str]:
     ]
 
 
-def _unwrap_config(root: Path) -> None:
+def exports_model_product(root: Path) -> bool:
+    """Whether the checkout at ``root`` defines the model product publicly.
+
+    Parsed, never imported, as :func:`exports_config` reads its root.
+    """
+    products = root / "src" / "lexic" / "parsing" / "products.py"
+    tree = ast.parse(products.read_text(encoding="utf-8"))
+    return any(
+        isinstance(node, ast.FunctionDef) and node.name == MODEL_PRODUCT
+        for node in tree.body
+    )
+
+
+def respell_model_product(root: Path) -> None:
+    """Spell the model product the way a revision that kept it private does.
+
+    Removable once main carries ``model_product``: every base an A/B compares
+    against then defines it, and nothing reaches this.
+    """
+    public = re.compile(rf"(?<![A-Za-z0-9_]){MODEL_PRODUCT}\b")
+    for module in PROTOCOL_MODULES:
+        path = root / "tools" / "benchmark" / module
+        source = path.read_text(encoding="utf-8")
+        respelled = public.sub(f"_{MODEL_PRODUCT}", source)
+        if respelled != source:
+            path.write_text(respelled, encoding="utf-8")
+
+
+def unwrap_config(root: Path) -> None:
     """Spell a resolver the way a revision without the parse configuration takes
     it: every ``ParseConfig(...)`` call becomes the bare resolver it wrapped,
     and ``ParseConfig`` leaves every import.
@@ -308,9 +342,11 @@ def materialise(root: Path, name: str, here: Path) -> None:
     for module in RETIRED_MODULES:
         (target / module).unlink(missing_ok=True)
     if name != BUILD_OBJECT:
-        _rewrite(root, name)
+        rewrite_bench_name(root, name)
     if not exports_config(root):
-        _unwrap_config(root)
+        unwrap_config(root)
+    if not exports_model_product(root):
+        respell_model_product(root)
 
 
 def digest(root: Path) -> str:

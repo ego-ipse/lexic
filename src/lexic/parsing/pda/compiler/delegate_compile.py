@@ -25,6 +25,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.caches import once
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
@@ -40,7 +41,7 @@ against the synthetic long-interior grammar + the four bench grammars (Task 6.2
 perf gate); raise it if short-interior delegation regresses perf."""
 
 
-def _delegable(analysis: GrammarAnalysis, name: str) -> bool:
+def is_delegable(analysis: GrammarAnalysis, name: str) -> bool:
     """Whether rule ``name`` may be delegated: one end, island-free, above the floor.
 
     Three conditions over the rule's reachable interior (:func:`_interior`,
@@ -164,7 +165,7 @@ def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:
     span would bypass the normal completer's non-empty-completion path — see
     :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel._inject_delegate`), semantic (a
     noise rule carries no model / reduction the splice can pass through), not the
-    island root itself, and :func:`_delegable` (island-free + above the floor).
+    island root itself, and :func:`is_delegable` (island-free + above the floor).
 
     :param analysis: The island sub-grammar analysis.
     :param island_name: The island root (excluded — it is the conflicted rule).
@@ -177,7 +178,7 @@ def _delegable_names(analysis: GrammarAnalysis, island_name: str) -> list[str]:
         and rname not in analysis.islands
         and rname not in analysis.nullable
         and analysis.rules[rname].semantic
-        and _delegable(analysis, rname)
+        and is_delegable(analysis, rname)
     ]
 
 
@@ -201,15 +202,29 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         through.
     :ivar seams: ``(compiler_factory, flatten_clones)`` — the injected clone
         compiler and its lowering pass.
+    :ivar grants: The licence kinds the program was compiled under; an
+        interior is cut under the same ones.
+    :ivar origin: For a worker's private copy, the source it was copied from:
+        an island it has not met yet is compiled there and copied here.
     """
 
-    __slots__ = ("lifted", "name_to_rid", "binding", "seams", "_cache")
+    __slots__ = (
+        "lifted",
+        "name_to_rid",
+        "binding",
+        "seams",
+        "grants",
+        "_cache",
+        "origin",
+    )
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
     binding: ModelExecutable
     seams: tuple[Callable[..., Any], Callable[..., Any]]
+    grants: frozenset[str]
     _cache: dict[str, dict[int, FlatClone]]
+    origin: DelegateSource | None
 
     def __init__(
         self,
@@ -217,13 +232,16 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         name_to_rid: Mapping[str, int],
         binding: ModelExecutable,
         seams: tuple[Callable[..., Any], Callable[..., Any]],
+        grants: frozenset[str],
     ) -> None:
         """Bind one grammar's delegate-compile ingredients + the injected seams."""
         self.lifted = lifted
         self.name_to_rid = name_to_rid
         self.binding = binding
         self.seams = seams
+        self.grants = grants
         self._cache = {}
+        self.origin = None
 
     def for_island(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones for island ``name`` (rule_id → flat clone), cached.
@@ -243,10 +261,27 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
             delegable or the interior cannot compile).
         """
         cached = self._cache.get(name)
-        if cached is None:
-            cached = self._compile(name)
-            self._cache[name] = cached
+        return self._miss(name) if cached is None else cached
+
+    def _miss(self, name: str) -> dict[int, FlatClone]:
+        """Island ``name``'s delegates where none are held: a replica copies its
+        origin's, which compiles them once whichever replica asked first."""
+        origin = self.origin
+        if origin is not None:
+            made = origin.binding.copied(origin.for_island(name), self.binding)
+            self._cache[name] = made
+            return made
+        with once((id(self), name)):
+            cached = self._cache.get(name)
+            if cached is None:
+                cached = self._compile(name)
+                self._cache[name] = cached
         return cached
+
+    def held_islands(self) -> tuple[str, ...]:
+        """The islands whose delegate clones are compiled (or copied) here so
+        far — a snapshot, since a parse on this source may add one meanwhile."""
+        return tuple(self._cache.copy())
 
     def held(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones already compiled for island ``name``, compiling
@@ -260,7 +295,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     def _compile(self, island_name: str) -> dict[int, FlatClone]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
         analysis = GrammarAnalysis(
-            IrAst(self.lifted.rules, island_name), delegated=True
+            IrAst(self.lifted.rules, island_name), delegated=True, grants=self.grants
         )
         delegable = _delegable_names(analysis, island_name)
         if not delegable:

@@ -12,7 +12,7 @@ import pytest
 from lexic.api.pretokens import BYTE_FALLBACK
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.grammar.concretize import _check_universe
+from lexic.ir.grammar.concretize import check_universe
 from lexic.ir.grammar.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
 from lexic.ir.spine.meta import IrSingleton
 from lexic.ir.spine.records import IrTuple
@@ -921,6 +921,6 @@ def test_the_highest_code_point_is_a_valid_grammar_member():
     grammar naming the highest code point as out of range — a valid member
     refused by an off-by-one.
     """
-    _check_universe(IrCharClass(IrChr(MAX_CODEPOINT)), IrUnicode())
+    check_universe(IrCharClass(IrChr(MAX_CODEPOINT)), IrUnicode())
     with pytest.raises(UnsupportedConstructError, match="outside the encoding"):
-        _check_universe(IrCharClass(IrChr(MAX_CODEPOINT + 1)), IrUnicode())
+        check_universe(IrCharClass(IrChr(MAX_CODEPOINT + 1)), IrUnicode())

@@ -25,15 +25,15 @@ import random
 import pytest
 
 from lexic.api.pretokens import (
-    _CONTRACTIONS,
+    CONTRACTIONS,
     QWEN_PATTERN,
     IrByteLevel,
     IrQwenSplit,
-    _gpt2_piece,
-    _is_letter,
-    _is_number,
-    _is_space,
-    _qwen_piece,
+    gpt2_piece,
+    is_letter,
+    is_number,
+    is_space,
+    qwen_piece,
 )
 from lexic.ir import MAX_CODEPOINT
 
@@ -45,7 +45,7 @@ GPT2_PATTERN = (
 """The ByteLevel pre-token pattern.
 
 Held here rather than in ``src`` because nothing in the library needs the
-string — ``_gpt2_piece`` *is* the pattern. A constant an oracle is built from
+string — ``gpt2_piece`` *is* the pattern. A constant an oracle is built from
 is only as good as its provenance, so
 :func:`test_the_gpt2_pattern_is_the_one_bytelevel_ships` checks it against the
 shipped ``ByteLevel`` rather than against the author's memory.
@@ -55,9 +55,9 @@ _SURROGATES = range(0xD800, 0xE000)
 """Not encodable as utf-8, so the engine cannot be asked about them."""
 
 _CLASSES = (
-    ("\\s", _is_space),
-    ("\\p{L}", _is_letter),
-    ("\\p{N}", _is_number),
+    ("\\s", is_space),
+    ("\\p{L}", is_letter),
+    ("\\p{N}", is_number),
 )
 
 _PATTERNS = (
@@ -214,7 +214,7 @@ def test_every_codepoint_folding_into_a_contraction_splits_like_the_engine() -> 
     on which characters reach a contraction at all. These are every codepoint
     that can, found by sweep rather than by guessing.
     """
-    tails = {word[1:] for word in _CONTRACTIONS}
+    tails = {word[1:] for word in CONTRACTIONS}
     folding = [cp for cp in _codepoints() if chr(cp).casefold() in tails]
     assert 0x017F in folding  # long s — the case a lower()-based scan misses
     engine = _splitter(QWEN_PATTERN)
@@ -253,7 +253,7 @@ def test_a_pattern_matches_the_engine_over_deeper_boundary_strings(
         assert spec.split(text) == _pieces(engine, text), repr(text)
 
 
-@pytest.mark.parametrize("piece_at", (_qwen_piece, _gpt2_piece))
+@pytest.mark.parametrize("piece_at", (qwen_piece, gpt2_piece))
 def test_a_piece_is_never_empty(piece_at) -> None:
     """An empty piece would hang the split loop, which advances by piece length.
 

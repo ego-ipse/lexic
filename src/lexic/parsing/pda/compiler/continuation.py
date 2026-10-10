@@ -16,10 +16,12 @@ doubling climb.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Iterator
 
 from lexic.ir import IrAlternation, IrItem, IrNoneType, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.conflicts import may_steal
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
     MORE,
@@ -30,12 +32,18 @@ from lexic.parsing.pda.analysis.gates.windows import (
 from lexic.parsing.pda.analysis.predicates import (
     Span,
     rule_alphabets,
+    rule_extensions,
     rule_spans,
     seq_span,
 )
+from lexic.parsing.pda.compiler.eligibility import (
+    extent_declined,
+    extent_pattern,
+    greedy_extent,
+)
 from lexic.parsing.pda.compiler.specs import LongestTake, arm_items, upper_bound
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import class_source, compile_source
+from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 _EOF = CharSet.from_chars("")
 
@@ -177,7 +185,7 @@ class IslandContinuations:
             return cached
         if self._deep is None:
             analysis = self.analysis
-            self._deep = FollowWindows(analysis.rules, analysis.start, WINDOW)
+            self._deep = analysis.follows.windows(WINDOW)
         deep = self._deep
         found: set[Pref] = set()
         for rule, items, at, groups in self._sites(name, site):
@@ -243,29 +251,50 @@ class IslandContinuations:
 
         The island it may ask is the one that reference would have been: this
         continuation, its bound, and the rule's windows over every site.
+
+        A rule whose own extent proof declines takes the same check on every
+        match, and asks the island on a miss too
+        (:func:`~lexic.parsing.pda.analysis.conflicts.may_steal`,
+        :func:`~lexic.parsing.pda.compiler.eligibility.extent_declined`). It
+        asks with every site's continuation, since its clone is not one per
+        continuation.
         """
-        extend = self.analysis.taxonomy.longest.get(name)
-        if extend is None:
-            return None
+        analysis = self.analysis
+        extend = analysis.taxonomy.longest.get(name)
+        steals = extend is None
+        extent = None if steals else _greedy_pattern(analysis.rules, name)
+        if steals:
+            rule = analysis.rules[name]
+            if not may_steal(analysis, rule) or not extent_declined(
+                analysis.rules, name
+            ):
+                return None
+            extend = rule_extensions(analysis).found[name]
+            cont = self.follow(name)
         exits = extend.subtract(extend.subtract(cont)).subtract(_EOF)
         island = (name, cont, self.bounds(name, cont), self.windows(name))
         return LongestTake(
             exits,
             extend,
             island,
-            0 if name in self.analysis.nullable else 1,
+            0 if name in analysis.nullable else 1,
             compile_source(class_source(exits.chars, exits.negated)),
             None
             if self._runs_hold(name, extend)
             else compile_source(class_source(extend.chars, extend.negated)),
+            steals,
+            extent,
         )
 
     def _runs_hold(self, name: str, extend: CharSet) -> bool:
         """Whether every arm of ``name`` ends in an unbounded run whose class
         holds all of ``extend``: a greedy match then stops only at a character
-        nothing could lengthen it by."""
+        nothing could lengthen it by. An empty arm ends in no run."""
         for arm in self.analysis.rules[name].body:
-            last = arm_items(arm)[-1]
+            items = arm_items(arm)
+            if not items:
+                return False
+            last = items[-1]
             if upper_bound(last) is not None:
                 return False
             if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
@@ -441,3 +470,13 @@ def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[
             after = _after_repeats(deep.solver.group_prefixes(group, WINDOW), after)
         tail = after
     return tail
+
+
+def _greedy_pattern(rules: Mapping[str, IrRule], name: str) -> Pattern | None:
+    """Rule ``name``'s greedy match as one pattern, where its proof holds.
+
+    A longest take's clone is compiled against the end of input, so its
+    item-wise match IS the greedy one, whichever continuation it stands for.
+    """
+    proof = greedy_extent(rules, name)
+    return None if proof is None else extent_pattern(proof)

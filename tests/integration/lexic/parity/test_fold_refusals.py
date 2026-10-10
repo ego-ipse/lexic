@@ -35,7 +35,7 @@ from typing import Any
 import pytest
 
 from lexic.compile import compile_text
-from lexic.compile.artifact import _reduce_entry
+from lexic.compile.artifact import derived_reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     KEEP_RAW,
@@ -212,7 +212,7 @@ def _small_fold() -> tuple[_Probe, str]:
     """A real, minimal fold — the vehicle for the direct pins below."""
     cg = compile_text('root ::= "a" "b"\n', cache_key="fold-refusal-direct-vehicle")
     reducer = Reducer(actions=IrMap(), default=YIELD, literal=KEEP_RAW)
-    entry = _reduce_entry(cg, reducer)
+    entry = derived_reduce_entry(cg, reducer)
     top = entry.fold.rule(entry.variant.parse("ab", cores=1))
     return _Probe.carrying(entry.fold), top
 

@@ -23,14 +23,15 @@ silently drop a term rather than decline.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.regions import Region, nearest_mark
+from lexic.parsing.parallel.discovery.regions import Cutting, Region, floor_cuts
 from lexic.parsing.parallel.discovery.shapes import UNIT, exact_text
 from lexic.parsing.parallel.plan.routed import REF, Descent
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
@@ -284,13 +285,13 @@ def locate(text: str, plan: FoldedPlan) -> Region | None:
     lo = len(plan.before)
     hi = len(text) - len(plan.after)
     return (
-        Region(lo, hi, plan.rule, _marks_in(text, lo, hi, plan.marks))
+        Region(lo, hi, plan.rule, marks_in(text, lo, hi, plan.marks))
         if lo < hi
         else None
     )
 
 
-def _marks_in(text: str, lo: int, hi: int, marks: tuple[str, ...]) -> tuple[int, ...]:
+def marks_in(text: str, lo: int, hi: int, marks: tuple[str, ...]) -> tuple[int, ...]:
     """Every separator offset inside the extent, in document order.
 
     Marks are read longest first at each position, so a spelling whose prefix
@@ -328,11 +329,6 @@ def _earliest(cursors: list[int]) -> int:
     return best
 
 
-def mark_at(text: str, at: int, marks: tuple[str, ...]) -> str:
-    """The separator standing at ``at``, or ``""`` when none does."""
-    return next((mark for mark in marks if text.startswith(mark, at)), "")
-
-
 class Pieces(NamedTuple):
     """One document's division into spine pieces and the marks between them.
 
@@ -354,44 +350,38 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
     belongs to is built across the boundary and neither piece can own it.
     """
     lo, hi = region.opener, region.closer
-    workers = min(workers, (hi - lo) // MIN_CHUNK)
-    if workers < 2 or not region.marks:
+    if not region.marks:
         return None
-    target = (hi - lo) / workers
-    chosen = _chosen_marks(region.marks, lo, hi, target, workers)
-    leads = tuple(mark_at(text, at, plan.marks) for at in chosen)
-    bounds = [lo, *chosen, hi]
-    widest = max(bounds[at + 1] - bounds[at] for at in range(len(bounds) - 1))
-    if not chosen or not all(leads) or widest > 2 * target:
-        return None
-    starts = [lo, *(at + len(mark) for at, mark in zip(chosen, leads, strict=True))]
-    parts = tuple(
-        plan.before + text[starts[at] : bounds[at + 1]] + plan.after
-        for at in range(len(starts))
+    # The cuts land on marks, so a piece can fall short of its share: fewer
+    # workers are tried until every piece holds `MIN_PIECE`.
+    cutting: Cutting = (
+        region.marks,
+        (lo, hi),
+        partial(past_separator, text, plan.marks),
+        (False, 0),
     )
-    return Pieces(parts, leads)
+    for count in range(min(workers, capacity(hi - lo)), 1, -1):
+        found = floor_cuts(cutting, count)
+        if found is None:
+            continue
+        chosen, begins = found
+        starts, ends = [lo, *begins], [*chosen, hi]
+        if max(b - a for a, b in zip(starts, ends)) <= 2 * (hi - lo) / count:
+            break
+    else:
+        return None
+    return Pieces(
+        tuple(plan.before + text[a:b] + plan.after for a, b in zip(starts, ends)),
+        tuple(text[at:start] for at, start in zip(chosen, begins)),
+    )
 
 
-def _chosen_marks(
-    marks: tuple[int, ...], lo: int, hi: int, target: float, workers: int
-) -> list[int]:
-    """The separator offsets ``workers`` even pieces would cut at.
+def past_separator(text: str, marks: tuple[str, ...], at: int) -> int | None:
+    """Where the separator standing at ``at`` ends — ``None`` where none does.
 
-    A duplicate is dropped rather than made a zero-width piece: two targets
-    landing on the same mark means the document has fewer usable boundaries
-    than the policy asked for, and the width check decides whether what is
-    left still divides.
-
-    The nearest mark is the sweep path's own :func:`~...discovery.regions.
-    nearest_mark`, which bisects. The marks arrive in document order from
-    :func:`_marks_in`, which is the precondition that makes a bisect legal
-    here — and the reason to care is cost: reading every mark for every cut
-    makes cut selection dearer as the WORKER COUNT rises, measured at 1.06 ms
-    of a 7.6 ms sixteen-worker parse before this call replaced a linear min.
-    """
-    chosen: list[int] = []
-    for step in range(1, workers):
-        at = nearest_mark(marks, lo + step * target)
-        if at not in chosen and lo < at < hi:
-            chosen.append(at)
-    return chosen
+    A cut CONSUMES its separator: the next piece starts there, and the piece
+    before stops at ``at``."""
+    for mark in marks:
+        if text.startswith(mark, at):
+            return at + len(mark)
+    return None

@@ -20,6 +20,7 @@ reached through ``module._name`` attribute access, matching
 from __future__ import annotations
 
 from lexic.ir import BIND_MODES
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -135,12 +136,17 @@ def test_flatclone_declares_exactly_the_selector_and_build_fields():
     ``longest`` is the exception stated: a ``value_str`` clone's build reads
     every field its mode leaves, and the check it holds decides whether a span
     is the island's answer at all, so it cannot ride in one of them.
+    ``sub_root`` is the other: a both-viable fork reads it on every frame of
+    the stack, whatever the frame's mode, to find the attempt sub-runs it sits
+    inside without asking each frame for a start it mostly never had.
+    ``entry`` is the third: every entry that would walk its selectors reads it
+    first, and the arm it names is the clone's own, which no build field holds.
     """
     expected = {"name", "selectors", "wide_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "build", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"runarm", "needs_ends", "longest"}
+    expected |= {"runarm", "needs_ends", "longest", "sub_root", "entry"}
     assert set(FlatClone.__slots__) == expected
 
 
@@ -160,9 +166,10 @@ def test_an_inline_group_clone_has_an_empty_name():
     assert group.name == ""
 
 
-def test_pdaprogram_declares_start_and_delegates_slots():
-    """PdaProgram carries the entry clone (or island opt-out) + delegate source."""
-    assert PdaProgram.__slots__ == ("start", "delegates")
+def test_pdaprogram_declares_start_delegates_and_grants_slots():
+    """PdaProgram carries the entry clone (or island opt-out), the delegate
+    source, and the licences it was compiled under."""
+    assert PdaProgram.__slots__ == ("start", "delegates", "grants")
 
 
 def test_pdaprogram_init_binds_start_verbatim():
@@ -171,3 +178,4 @@ def test_pdaprogram_init_binds_start_verbatim():
     program = PdaProgram(sentinel)
     assert program.start is sentinel
     assert program.delegates is None  # default; the artifact attaches the source
+    assert program.grants is LEFTMOST_LONGEST.grants  # the default decider's

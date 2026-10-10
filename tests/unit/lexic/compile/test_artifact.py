@@ -29,7 +29,7 @@ import lexic.compile.artifact as artifact_module
 from lexic.compile import (
     CompiledGrammar,
     Vocabulary,
-    _assemble_core,
+    assemble_core,
     canonical_grammar,
     compile_from_path,
     compile_text,
@@ -41,7 +41,8 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing import DEFAULT_CONFIG, PdaTables, parse_model
-from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
+from lexic.parsing import products as products_module
+from lexic.parsing.caches import CLAIMED, MEMOS, cached_entries, reset_caches
 from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE, lead_rule_document
@@ -267,7 +268,7 @@ def _fresh_artifact(text: str, stem: str) -> CompiledGrammar:
     two different things (the compile memo, the identity memos this file
     exists to pin) into one assertion."""
     ast = canonical_grammar(text, GBNF_FLAVOUR)
-    return _assemble_core(
+    return assemble_core(
         ast, stem=stem, source=text, flavour_name="gbnf", vocabulary=Vocabulary()
     )
 
@@ -279,14 +280,14 @@ def _memo_lengths() -> tuple[int, ...]:
     that grew while a sibling shrank by the same amount would pass an
     aggregate comparison and fail this one.
     """
-    return tuple(len(entry.entries) for entry in _MEMOS)
+    return tuple(len(entry.entries) for entry in MEMOS)
 
 
 def _owned_count(owner: object) -> int:
     """How many entries across every registered memo name ``id(owner)``."""
     oid = id(owner)
     total = 0
-    for entry in _MEMOS:
+    for entry in MEMOS:
         for key in entry.entries:
             if not entry.ids:
                 total += key == oid
@@ -348,8 +349,8 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     tok = _bind_tokenizer()
     source = _fresh_artifact(_DRAIN_GRAMMAR, "claim-source")
     source.parse(_DRAIN_TEXT, cores=1)
-    assert id(source.grammar) in _CLAIMED
-    assert id(source.product) in _CLAIMED
+    assert id(source.grammar) in CLAIMED
+    assert id(source.product) in CLAIMED
     before = _owned_count(source.product)
     assert before > 0  # the parse actually populated product-identity-keyed entries
 
@@ -360,8 +361,8 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     del derived
     gc.collect()
 
-    assert id(source.grammar) in _CLAIMED  # still claimed -- by source
-    assert id(source.product) in _CLAIMED
+    assert id(source.grammar) in CLAIMED  # still claimed -- by source
+    assert id(source.product) in CLAIMED
     assert _owned_count(source.product) == before  # nothing the source owns was evicted
     reset_cache_for_tests()
 
@@ -671,6 +672,35 @@ def test_two_overlapping_public_parses_never_share_a_product(
     assert parsed["first"].to_text() == parsed["second"].to_text() == text
 
 
+def test_the_document_thread_compiles_the_product_its_split_shares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker's first split of a pair reads the original's product, so the
+    document's own thread compiles it before handing work out: built on a pool
+    thread it would live on in that thread's heap."""
+    compiled = compile_text(LEAD_RULE, cache_key="artifact-compiled-here")
+    built_on: list[str] = []
+    compile_pda = products_module.compile_pda
+
+    def watched(*args, **kwargs):
+        built_on.append(threading.current_thread().name)
+        return compile_pda(*args, **kwargs)
+
+    parsed_on: set[str] = set()
+
+    def parsing(grammar, source, binding, config=DEFAULT_CONFIG):
+        parsed_on.add(threading.current_thread().name)
+        return parse_model(grammar, source, binding, config)
+
+    monkeypatch.setattr(products_module, "compile_pda", watched)
+    monkeypatch.setattr(artifact_module, "parse_model", parsing)
+    text = lead_rule_document(1200)
+
+    assert compiled.parse(text, cores=4).to_text() == text
+    assert built_on and set(built_on) == {threading.current_thread().name}
+    assert available_workers() == 1 or len(parsed_on) > 1, "nothing was split"
+
+
 def test_a_driver_parses_its_leads_on_its_own_product(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -678,8 +708,9 @@ def test_a_driver_parses_its_leads_on_its_own_product(
 
     A separated split hands the chunks out and re-parses every cut's lead
     itself. Those lead parses are the ones a fallback-only claim left on the
-    shared pair: here they must run on the driver's own product, and no worker
-    may touch it.
+    shared pair: here they must run on the driver's own product, and once the
+    workers have earned copies of their own — from the pair's second split on —
+    no worker may touch it.
     """
     compiled = compile_text(LEAD_RULE, cache_key="artifact-lead-view")
     text = lead_rule_document(1200)
@@ -693,6 +724,8 @@ def test_a_driver_parses_its_leads_on_its_own_product(
         return parse_model(grammar, source, binding, config)
 
     monkeypatch.setattr(artifact_module, "parse_model", watched)
+    compiled.parse(text, cores=4)
+    seen.clear()
     model = compiled.parse(text, cores=4)
 
     driver = threading.get_ident()

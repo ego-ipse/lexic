@@ -82,7 +82,7 @@ def _template_lead(template: GrammarModel, plan: RegionPlan) -> str | None:
     )
 
 
-def _template_tail(
+def template_tail(
     templates: list[GrammarModel], lead: str, head: GrammarModel, plan: RegionPlan
 ) -> GrammarModel | None:
     """Reuse an exact shallow lead shape already parsed by a piece worker."""
@@ -165,7 +165,7 @@ def _joint_tail[M](
     lead = _boundary_lead(work, joint.later, request.text, joint.cut)
     if lead is None:
         return None
-    reused = _template_tail(joint.templates, lead, joint.head, work.plan)
+    reused = template_tail(joint.templates, lead, joint.head, work.plan)
     return (
         reused
         if reused is not None

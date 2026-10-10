@@ -20,13 +20,13 @@ from lexic.parsing.parallel import worker_count
 @pytest.fixture(name="eight_cores")
 def _eight_cores(monkeypatch: pytest.MonkeyPatch) -> None:
     """A free-threaded machine with eight cpus."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: True)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: True)
     monkeypatch.setattr(os, "process_cpu_count", lambda: 8)
 
 
 def test_auto_is_one_under_the_gil(monkeypatch: pytest.MonkeyPatch):
     """Threaded parsing measured a net loss under the GIL — auto declines."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert available_workers() == 1
     assert doc_workers(AUTO) == 1
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=AUTO) == 1
@@ -51,7 +51,7 @@ def test_an_explicit_count_is_a_ceiling_with_a_chunk_floor(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """An explicit N is honored once each requested chunk clears the floor."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert doc_workers(4) == 4
     assert worker_count(1000 * MIN_CHUNK, splits=100, cores=4) == 4
     assert worker_count(1000, splits=100, cores=4) == 1
@@ -76,3 +76,13 @@ def test_a_zero_or_negative_explicit_count_still_parses():
     """Never fewer than one worker — someone has to do the parse."""
     assert doc_workers(-1) == 1
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=-1) == 1
+
+
+def test_the_floor_holds_only_when_every_piece_clears_it():
+    """One piece far under the chunk fails the floor, however wide the others
+    are; a piece short of a whole chunk but holding half of one does not."""
+    half = policy_module.MIN_PIECE
+    assert half == MIN_CHUNK // 2
+    assert policy_module.clears_floor([half, 5 * MIN_CHUNK])
+    assert not policy_module.clears_floor([half - 1, 5 * MIN_CHUNK])
+    assert policy_module.capacity(3 * MIN_CHUNK - 1) == 2

@@ -23,11 +23,11 @@ from tools.quick_checks import (
     TESTS,
     WITNESS,
     Command,
-    _test_targets,
     helper_of,
     mirror_of,
     module_of,
     plan,
+    targets_to_test,
 )
 
 STATE = "src/lexic/parsing/earley/kernel/loop/state.py"
@@ -372,7 +372,7 @@ def test_a_wide_fan_out_is_cut_and_the_direct_hits_are_kept() -> None:
     cheap and are what the change most likely broke.
     """
     wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
-    targets, cut = _test_targets(
+    targets, cut = targets_to_test(
         [STATE],
         _only(STATE, STATE_MIRROR, WITNESS, *wide),
         {STATE_MODULE: wide},
@@ -386,7 +386,7 @@ def test_a_wide_fan_out_is_cut_and_the_direct_hits_are_kept() -> None:
 def test_a_fan_out_at_the_cap_is_still_run() -> None:
     """The cap is a ceiling, not a threshold — exactly at it, nothing is cut."""
     at_cap = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP))
-    targets, cut = _test_targets(
+    targets, cut = targets_to_test(
         [STATE],
         _only(STATE, STATE_MIRROR, WITNESS, *at_cap),
         {STATE_MODULE: at_cap},
@@ -406,7 +406,7 @@ def test_a_narrow_fan_out_is_untouched_when_another_is_cut() -> None:
     other = "src/lexic/parsing/other.py"
     wide = tuple(f"tests/unit/lexic/test_w{n}.py" for n in range(FANOUT_CAP + 1))
     narrow = "tests/integration/lexic/test_narrow.py"
-    targets, cut = _test_targets(
+    targets, cut = targets_to_test(
         [STATE, other],
         _only(STATE, other, STATE_MIRROR, WITNESS, narrow, *wide),
         {STATE_MODULE: wide, "lexic.parsing.other": (narrow,)},

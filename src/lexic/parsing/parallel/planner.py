@@ -248,7 +248,7 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
     return plans[0] if plans else None
 
 
-def _certified(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
+def certified_plan(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
     """The plan a safety proof licenses over ``view``, or ``None`` to drop it.
 
     Each shape owes a different proof, and a TERMINATED plan owes either of
@@ -301,7 +301,9 @@ def _certified_terminated(plan: SplitPlan, view: IrAst, mark: str) -> SplitPlan 
 def safe_plans(plans: tuple[SplitPlan, ...], view: IrAst) -> tuple[SplitPlan, ...]:
     """Every plan a safety proof licenses over ``view``, in cascade order."""
     return tuple(
-        certified for plan in plans if (certified := _certified(plan, view)) is not None
+        certified
+        for plan in plans
+        if (certified := certified_plan(plan, view)) is not None
     )
 
 

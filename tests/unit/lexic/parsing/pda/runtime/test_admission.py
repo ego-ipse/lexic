@@ -8,18 +8,15 @@ from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
-    REST_ADMITS_HARD,
-    REST_ASCEND,
-    REST_DEAD,
+    NESTING_DEPTH,
+    PARSE_NESTING,
     KernelCaches,
+    RunScope,
     admits,
-    arm_rest_scan,
     composes,
     frames_copy,
-    item_admits,
 )
 from lexic.parsing.pda.runtime.build import Frame
-from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 # ── admits — the FIRST pre-filter ─────────────────────────────────────
@@ -208,30 +205,48 @@ def test_frames_copy_isolates_a_slot_assignment():
     assert sinks[1] is None
 
 
-def test_a_fork_of_an_already_forked_frame_is_refused() -> None:
-    """Probes never nest, and the copy CHECKS that rather than assuming it.
+def test_a_fork_nested_past_the_depth_is_refused() -> None:
+    """Forks nest :data:`NESTING_DEPTH` levels inside the first, and the copy
+    CHECKS that rather than assuming it.
 
-    `adopt_inherited` prepends ONE origin's sinks. That is the whole prefix
-    only because a frame being forked still owns every value it holds — which
-    holds because a boundary reached while `probing` resolves greedily by
-    class instead of forking, so both fork sites are unreachable from inside a
-    fork.
-
-    If that ever stopped being true, C forked from B forked from A would take
-    B's own values and never reach A's: the model would come out missing
-    values, silently, with no exception anywhere. That is the failure this
-    guard converts into a loud one.
+    `adopt_inherited` walks the fork chain, and a side forks again only while
+    a forked verdict is asked again, at most that many sides deep. A copy one
+    deeper is therefore never asked for, and if it ever were, the guard says
+    so loudly rather than leaving a short model.
 
     A raise rather than an assert, because `-O` strips asserts and a short
     model is exactly what must not pass quietly. `RuntimeError` rather than
     `PdaFail`, because the engine seam CATCHES `PdaFail` and falls back to
     Earley — the breach would then hide behind a correct parse.
     """
-    forked = frames_copy([_frame([], [0], [[IrStr("a")]])])[0]
+    chain = [_frame([], [0], [[IrStr("a")]])]
+    for _depth in range(NESTING_DEPTH + 1):
+        chain.append(frames_copy([chain[-1]])[0])
+        assert chain[-1].inherited is chain[-2], "the copy records its origin"
+    with pytest.raises(EngineInvariantError, match=f"nest {NESTING_DEPTH} levels"):
+        frames_copy([chain[-1]])
 
-    assert forked.inherited is not None, "the copy records where it came from"
-    with pytest.raises(EngineInvariantError, match="not allowed to nest"):
-        frames_copy([forked])
+
+def test_a_fork_one_deep_takes_back_the_whole_chain() -> None:
+    """A fork of a fork builds with its origin's values and its origin's
+    origin's, oldest first, and neither origin is written to."""
+    live = _frame([], [0], [[IrStr("a")]])
+    forked = frames_copy([live])[0]
+    _slot(forked).append(IrStr("b"))
+    nested = frames_copy([forked])[0]
+    _slot(nested).append(IrStr("c"))
+
+    nested.adopt_inherited()
+
+    assert _slot(nested) == [IrStr("a"), IrStr("b"), IrStr("c")]
+    assert _slot(forked) == [IrStr("b")] and _slot(live) == [IrStr("a")]
+
+
+def _slot(frame: Frame[IrSelf]) -> list[IrSelf]:
+    """A one-item frame's sink."""
+    sinks = frame.sinks
+    assert sinks is not None and sinks[0] is not None
+    return sinks[0]
 
 
 def test_the_prefix_is_whole_because_one_origin_holds_it_all() -> None:
@@ -256,62 +271,7 @@ def test_the_prefix_is_whole_because_one_origin_holds_it_all() -> None:
     assert original == [IrStr("was-there")], "and the original is untouched"
 
 
-# ── item / clone admission, the arm-rest walk, FOLLOW composability ──
-
-MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
-
-
-def test_item_admits_a_literal_only_its_own_character():
-    """A literal item admits only its exact character."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 0, "a") is True
-    assert item_admits(arm, 0, "z") is False
-
-
-def test_item_admits_never_admits_the_empty_string():
-    """An empty lookahead character never admits, regardless of item kind."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 0, "") is False
-
-
-def test_item_admits_a_charclass_by_membership():
-    """A char class item admits by set membership."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 2, "5") is True
-    assert item_admits(arm, 2, "x") is False
-
-
-def test_item_admits_delegates_a_clone_reference_to_clone_admits():
-    """A clone-reference item defers to the target clone's own admission."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert item_admits(arm, 1, "m") is True
-    assert item_admits(arm, 1, "z") is False
-
-
-def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
-    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
-    settling the walk before item 2 is even reached."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "m") == (REST_ADMITS_HARD, False)
-
-
-def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
-    """A mandatory item refusing the char kills the stop side."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, 0, "5") == (REST_DEAD, False)
-
-
-def test_arm_rest_scan_ascends_past_the_arms_final_item():
-    """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
-    pda = pda_from_text(MIXED)
-    arm = only_arm(pda.program.start)
-    assert arm_rest_scan(arm, arm.n - 1, "q") == (REST_ASCEND, False)
+# ── FOLLOW composability ──────────────────────────────────────────────
 
 
 def test_composes_is_true_at_end_of_input():
@@ -325,3 +285,49 @@ def test_composes_checks_the_next_character_against_follow():
     follow = CharSet.from_chars("x")
     assert composes(follow, "axb", 1) is True
     assert composes(follow, "ayb", 1) is False
+
+
+# ── RunScope — a retry's nested verdicts, the parse's allowance, wholeness ──
+
+
+def test_a_retry_draws_from_the_parse_and_gives_back_what_it_did_not_ask():
+    """Two of a retry's sixty-four are asked; the other sixty-two go back."""
+    nesting = RunScope()
+    assert nesting.open(64) and nesting.retry == 64
+    assert nesting.take() and nesting.take()
+    nesting.close()
+    assert (nesting.retry, nesting.left) == (0, PARSE_NESTING - 2)
+
+
+def test_a_spent_allowance_opens_no_retry_and_outside_one_nothing_is_taken():
+    """Past the parse's allowance a retry is not opened at all; outside a
+    retry no nested verdict is ever granted."""
+    nesting = RunScope()
+    assert not nesting.take()
+    nesting.left = 1
+    assert nesting.open(64) and nesting.retry == 1
+    assert nesting.take() and not nesting.take()
+    nesting.close()
+    assert not nesting.open(64)
+
+
+def test_a_delegate_kernel_draws_on_the_parse_s_own_allowance():
+    """A kernel run inside a parse keeps a retry of its own but spends the
+    same allowance, so delegate sub-runs cannot multiply the parse's bound."""
+    parse = KernelCaches()
+    delegate = KernelCaches(parse.scope)
+    assert delegate.scope is not parse.scope
+    assert delegate.scope.root is parse.scope.root
+    delegate.scope.open(64)
+    assert parse.scope.left == PARSE_NESTING - 64
+
+
+def test_only_the_parse_s_own_run_over_its_whole_text_is_whole():
+    """A delegate's root may end anywhere in its window, and a truncated
+    text's end is not the document's: neither may refute a stop side against
+    the text."""
+    parse = KernelCaches()
+    assert parse.scope.whole()
+    assert not KernelCaches(parse.scope).scope.whole()
+    parse.scope.cut = True
+    assert not parse.scope.whole()

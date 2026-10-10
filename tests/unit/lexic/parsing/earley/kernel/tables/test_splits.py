@@ -1,9 +1,8 @@
 """Tests for lexic.parsing.earley.kernel.tables.splits — which slot owns the
 text between two adjacent nullable slots.
 
-``leftmost_chain`` is reached through ``atoms.predecessor_chain`` on every
-real parse (``atoms.py`` is not itself owed a unit file — it is exercised
-deeply by the parity and roundtrip suites); this file pins ``is_arm_choice``
+``leftmost_chain`` is reached from the fast tree build whenever choices are
+pinned, and ``sole_chain`` on every unpinned build; this file pins ``is_arm_choice``
 directly and confirms the leftmost-owns-the-text policy end to end through a
 real compiled grammar with two adjacent nullable slots.
 """
@@ -13,15 +12,23 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.atoms import KLink
-from lexic.exceptions import EngineInvariantError
-from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
+from lexic.parsing.earley.kernel.tables.decider import (
+    LEFTMOST_LONGEST,
+    Decider,
+    LeftmostLongest,
+)
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
     canonical_indices,
     dominant,
     is_arm_choice,
+    leftmost_chain,
+    sole_chain,
 )
+from lexic.parsing.products import earley_model, model_product
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 
 
 def test_is_arm_choice_is_false_when_every_family_names_the_same_arm():
@@ -71,10 +78,12 @@ def _key(code: int, origin: int, end: int) -> int:
     return (_item(code, origin) << BITS) | end
 
 
-def _spec(code_choice: tuple[int, ...] = ()) -> ChainSpec:
+def _spec(code_choice: tuple[int, ...] = (0,) * (1 << BITS)) -> ChainSpec:
     """A chain spec over a hand-built link table, with dot 0 as the bottom:
-    every code belongs to arm 0, whose dot-0 code is 0."""
-    return ChainSpec(0, BITS, code_choice, (0,) * (1 << BITS), (0,))
+    every code belongs to arm 0, whose dot-0 code is 0, an authored arm."""
+    return ChainSpec(
+        0, BITS, code_choice, (0,) * (1 << BITS), (0,), (False,) * (1 << BITS)
+    )
 
 
 def _bottomed(*keys: int) -> dict[int, list[KLink]]:
@@ -183,22 +192,109 @@ def test_canonical_indices_leaves_a_single_arm_bucket_with_its_maximum():
     assert canonical_indices(links, bucket, spec, LEFTMOST_LONGEST) == [1]
 
 
-class _Shortest(Decider):
-    """A decider whose order is not the raw boundary order."""
-
-    def rank(self, carving: tuple[int, ...]) -> tuple[int, ...]:
-        """The carving negated: the earliest boundary first."""
-        return tuple(-end for end in carving)
-
-
-def test_a_decider_the_level_keys_do_not_rank_is_refused():
-    """The chain reader keys each level by raw ``max``, which is leftmost-
-    longest's order alone; any other decider is refused rather than read in
-    an order it did not choose."""
+def test_a_decider_the_level_keys_do_not_rank_raw_is_read_by_its_slots():
+    """The chain reader keys each level by the decider's slot where raw ``max``
+    is not its order: the shortest decider keeps the nearer predecessor, where
+    raw ``max`` — and leftmost-longest — keep the farther."""
     spec = _spec()
     far: KLink = (_item(1, 0), 6, "x")
     near: KLink = (_item(1, 0), 2, "y")
     links = _bottomed(_key(1, 0, 6), _key(1, 0, 2))
 
-    with pytest.raises(EngineInvariantError, match="needs its level keys ranked"):
-        dominant(links, near, far, spec, _Shortest(frozenset()))
+    assert dominant(links, near, far, spec, Shortest(frozenset())) is near
+    assert dominant(links, near, far, spec, LEFTMOST_LONGEST) is far
+
+
+_WITNESSES = (
+    ("root ::= x+\nx ::= [a]+\n", "aaa"),
+    ('root ::= x y\nx ::= "a"*\ny ::= "a"*\n', "aaaa"),
+    ('root ::= x+ "b"\nx ::= [a]+\n', "aaab"),
+    ('root ::= (x ",")* x\nx ::= [a-z]+\n', "ab,cd,e"),
+)
+"""Split witnesses: each span has several carvings a decider chooses among."""
+
+
+def _earley(source: str, text: str, decide: Decider) -> str:
+    """Earley's model of ``text`` under ``decide``, as its repr."""
+    compiled = compile_text(source, cache_key=f"splits-{source}")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    config = ParseConfig(decide=decide)
+    model = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables, config
+    )
+    return repr(model)
+
+
+def test_earley_keeps_the_shortest_carving_under_a_shortest_decider():
+    """``x+`` over ``aaa``: three one-character ``x`` under the shortest
+    decider, one ``x`` over the whole span under leftmost-longest."""
+    source, text = _WITNESSES[0]
+    assert _earley(source, text, Shortest(frozenset())) == (
+        "Root((X('a'), X('a'), X('a')))"
+    )
+    assert _earley(source, text, LEFTMOST_LONGEST) == "Root((X('aaa'),))"
+
+
+@pytest.mark.parametrize(("source", "text"), _WITNESSES)
+def test_every_leftmost_longest_instance_reads_as_the_default(source: str, text: str):
+    """A leftmost-longest instance granting nothing is the same order as the
+    default, read by raw maximum: it keeps the same carving."""
+    assert _earley(source, text, LeftmostLongest(frozenset())) == _earley(
+        source, text, LEFTMOST_LONGEST
+    )
+
+
+# ── a chain with one family at every key is read without the level DAG ──
+
+
+class _Indexed(list):
+    """A bucket that can be indexed but not walked — what reading one family
+    needs, and less than the level DAG takes."""
+
+    def __iter__(self):
+        raise AssertionError("a sole chain's bucket was walked as a DAG level")
+
+
+def _sole_links() -> tuple[dict[int, list[KLink]], int]:
+    """A two-step chain, one family per key: dot 0 → dot 1 at 2 → dot 2 at 5."""
+    first: KLink = (_item(0, 0), 0, "a")
+    second: KLink = (_item(1, 0), 2, "b")
+    top = _key(2, 0, 5)
+    return {_key(1, 0, 2): _Indexed([first]), top: _Indexed([second])}, top
+
+
+def test_a_chain_of_sole_families_is_read_without_the_level_dag() -> None:
+    """Nothing is chosen where every key holds one family, so the chain is the
+    links in source order — under every decider, and no bucket is walked."""
+    links, top = _sole_links()
+    want = [links[_key(1, 0, 2)][0], links[top][0]]
+    assert leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST) == want
+    assert leftmost_chain(links, top, _spec(), {}, Shortest(frozenset())) == want
+    assert sole_chain(links, top, 0, BITS) == want
+
+
+def test_a_sole_chain_spends_the_pins_it_passes_as_the_dag_would() -> None:
+    """A pin is consumed at the first visit of its key: the keys a sole chain
+    walks through lose theirs, a key it never reaches keeps its own."""
+    links, top = _sole_links()
+    elsewhere = _key(3, 0, 9)
+    choices = {top: 0, _key(1, 0, 2): 0, elsewhere: 1}
+
+    leftmost_chain(links, top, _spec(), choices, LEFTMOST_LONGEST)
+
+    assert choices == {elsewhere: 1}
+
+
+def test_a_key_with_two_families_still_takes_the_decider_s_reading() -> None:
+    """The first key holding two families sends the read to the level DAG:
+    leftmost-longest keeps the far boundary, the shortest decider the near."""
+    far: KLink = (_item(1, 0), 6, "x")
+    near: KLink = (_item(1, 0), 2, "y")
+    top = _key(2, 0, 8)
+    links = {**_bottomed(_key(1, 0, 6), _key(1, 0, 2)), top: [near, far]}
+
+    assert sole_chain(links, top, 0, BITS) is None
+    longest = leftmost_chain(links, top, _spec(), {}, LEFTMOST_LONGEST)
+    shortest = leftmost_chain(links, top, _spec(), {}, Shortest(frozenset()))
+    assert longest is not None and longest[-1] is far
+    assert shortest is not None and shortest[-1] is near

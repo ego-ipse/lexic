@@ -32,7 +32,7 @@ from lexic.parsing.earley.kernel.tables.splits import (
     leftmost_chain,
     spec_for,
 )
-from lexic.parsing.products import _model_product, earley_model, parse_model
+from lexic.parsing.products import earley_model, model_product, parse_model
 
 MIXED = 'doc ::= u t tail\nu ::= "a" | "aa"\nt ::= "a"+ | "aa"\ntail ::= "a"*\n'
 """A grammar whose chart holds keys that are BOTH an arm choice and a split."""
@@ -47,7 +47,7 @@ SPLIT_HEAVY = 'doc ::= u+\nu ::= i+ tl\ni ::= [ab]* t\ntl ::= t?\nt ::= ";"\n'
 def _built(source: str, key: str):
     """Compile ``source``; return its compiled grammar and model product."""
     compiled = compile_text(source, cache_key=key)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 def _answer(
@@ -179,7 +179,9 @@ def _agreeing_keys(kernel: Kernel, tables) -> int:
     for handle, bucket in links.items():
         if len(bucket) < 2 or is_arm_choice(bucket, bits, tables.code_choice):
             continue
-        spec = spec_for(codes, bits, tables.code_choice, handle)
+        spec = spec_for(
+            codes, bits, tables.code_choice, tables.decode.code_droppable, handle
+        )
         chain = leftmost_chain(links, handle, spec, {}, LEFTMOST_LONGEST)
         if chain is None:
             continue

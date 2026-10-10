@@ -26,10 +26,10 @@ from lexic.ir import (
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.noise import (
     ResidualFirst,
-    _sem_first_table,
     noise_alphabet,
     peek_arm_gate,
     peek_loop_gate,
+    sem_first_table,
     sem_follow_table,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -62,14 +62,14 @@ def noise_rule(name: str, *arms: IrSequence) -> IrRule:
 def test_terminal_in_semantic_rule_counts_as_semantic_first():
     """A literal inside a ``semantic=True`` rule contributes its lead char."""
     root = IrRule("root", IrAlternation(IrSequence(item(IrLiteral("ab")))))
-    table = _sem_first_table(make_analysis(root, start="root"))
+    table = sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.from_chars("a")
 
 
 def test_terminal_in_noise_rule_contributes_nothing():
     """The same literal inside a ``semantic=False`` rule is noise-attributable."""
     root = noise_rule("root", IrSequence(item(IrLiteral("ab"))))
-    table = _sem_first_table(make_analysis(root, start="root"))
+    table = sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.EMPTY
 
 
@@ -82,7 +82,7 @@ def test_ref_to_noise_rule_contributes_nothing_even_from_a_semantic_rule():
         "root",
         IrAlternation(IrSequence(item(IrRuleRef("ws")), item(IrLiteral("q")))),
     )
-    table = _sem_first_table(make_analysis(root, ws, start="root"))
+    table = sem_first_table(make_analysis(root, ws, start="root"))
     assert table["root"] == CharSet.from_chars("q")
     assert table["ws"] == CharSet.EMPTY
 
@@ -96,14 +96,14 @@ def test_ref_to_semantic_rule_contributes_its_own_decomposition_not_raw_first():
         IrAlternation(IrSequence(item(IrRuleRef("ws")), item(IrLiteral("z")))),
     )
     root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("inner")))))
-    table = _sem_first_table(make_analysis(root, inner, ws, start="root"))
+    table = sem_first_table(make_analysis(root, inner, ws, start="root"))
     assert table["root"] == CharSet.from_chars("z")
 
 
 def test_undefined_ref_is_conservatively_any():
     """An undefined ref decomposes to ANY — unknown content denies the licence."""
     root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("ghost")))))
-    table = _sem_first_table(make_analysis(root, start="root"))
+    table = sem_first_table(make_analysis(root, start="root"))
     assert table["root"] == CharSet.ANY
 
 
@@ -115,7 +115,7 @@ def test_group_terminals_count_under_the_enclosing_rule_semantics():
     )
     root = IrRule("root", IrAlternation(IrSequence(item(grp))))
     noise = noise_rule("noise", IrSequence(item(grp)))
-    table = _sem_first_table(make_analysis(root, noise, start="root"))
+    table = sem_first_table(make_analysis(root, noise, start="root"))
     assert table["root"] == CharSet.from_chars("x", "y")
     assert table["noise"] == CharSet.EMPTY
 

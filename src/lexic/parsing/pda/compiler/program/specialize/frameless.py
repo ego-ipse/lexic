@@ -71,7 +71,12 @@ def vdisp_landing(target: Any) -> bool:
     if not isinstance(target, FlatClone):
         return False  # DISPATCH_EMPTY: an empty arm is not a value_str match
     if target.mode != BUILD_DISPATCH:
-        return vstr_inlinable(target)
+        # A span-tabled clone answers by its run arm: one match and a lookup,
+        # no selection, no descent — the frame-less match `vstr_once` sends
+        # it to.
+        return vstr_inlinable(target) or (
+            target.mode == BUILD_VALUE_STR and target.runarm is not None
+        )
     if target.wide_selectors is not None:
         # A wide dispatch keeps its targets in the SELECTION; `selectors` is
         # empty for it, so enumerating that alone would see the default and
@@ -91,8 +96,10 @@ def vdisp_target(clone: Any) -> bool:
 
     The chase is a lead-char walk and the match is then the landed clone's
     ordinary ``vstr_once`` — so the pair inlines whenever every clone the chase
-    can reach is :func:`vstr_inlinable`. Product-neutral by construction: the
-    same ``vstr_once``, on the same clone, at the same position, same sink.
+    can reach is :func:`vstr_inlinable` or span-tabled (a run arm, which
+    ``vstr_once`` answers by one match and a lookup). Product-neutral by
+    construction: the same match, on the same clone, at the same position,
+    same sink.
 
     A TABLED clone is refused because :data:`OP_VSTR` already answers it by
     lookup; a missing default is not refused, since the chase then raises on a

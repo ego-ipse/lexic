@@ -37,7 +37,7 @@ from lexic.parsing.product.tree import (
     subtree_text,
     tree_offsets,
 )
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
@@ -455,7 +455,7 @@ def test_collapsed_product_tables_distinct_routines_objects_do_not_share_cache(
 
 def _instance_grammar(compiled):
     """The instance grammar a compiled artefact's model product parses."""
-    return _model_product(compiled.codegen_grammar, compiled.product).instance_grammar
+    return model_product(compiled.codegen_grammar, compiled.product).instance_grammar
 
 
 # ── ported end to end from the deleted test_fold.py ──────────────────────

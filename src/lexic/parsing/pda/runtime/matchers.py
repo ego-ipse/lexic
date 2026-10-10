@@ -13,8 +13,6 @@ a function of the clone and the char, not of the cursor.
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
@@ -23,85 +21,26 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.gating import (
     arm_expected,
+    chase_dispatch,
     gate_take,
+    select_arm,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
-    DISPATCH_EMPTY,
     GATE_STOP,
     OP_CC,
     OP_CC1,
+    OP_CONSULT,
+    OP_FAIL,
+    OP_ISLAND,
     OP_LIT,
     OP_LIT1,
+    OP_RUNPAT,
 )
+from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
-from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
-
-
-def chase_dispatch[Carry](
-    clone: FlatClone[Carry], text: str, pos: int
-) -> FlatClone[Carry] | None:
-    """Chase a frame-less dispatch alternation to its concrete target clone.
-
-    The selection a dispatch alternation IS, per hop: a clone carrying a wide
-    selection asks that selection, and one without walks its lead-char
-    selectors. A chain may mix the two in any order — a lead-char dispatch can
-    land on a window-gated one and the reverse — so both live in this one
-    implementation, and the kernel's entry path, :meth:`_settle` and the
-    inline :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` matcher
-    refuse in the same words at the same position.
-
-    The position does NOT move across the chase: every hop selects at ``pos``,
-    which is what makes the landed clone face exactly the cursor the elided
-    frames would have handed it.
-
-    A clone with no wide selection pays one attribute load and an ``is None``
-    per hop — the loop reads ``wide_selectors`` where it already read ``mode``
-    — and then runs the lead-char walk unchanged, with the lookahead character
-    taken once before the loop rather than per hop.
-
-    :param clone: A ``BUILD_DISPATCH`` clone.
-    :param text: The document, for a wide selection's own match.
-    :param pos: The cursor position, for the selection and for the refusal.
-    :returns: The concrete target clone, or ``None`` on the empty (nullable)
-        arm — the caller then consumes nothing.
-    :raises PdaFail: When no selector matches and there is no default.
-    """
-    try:  # the lookahead: indexing, and end of input as the rare exception
-        char = text[pos]
-    except IndexError:
-        char = ""
-    while clone.mode == BUILD_DISPATCH:
-        wide = clone.wide_selectors
-        if wide is None:
-            nxt = None
-            for chars, negated, target in clone.selectors:
-                if (char != "" and char not in chars) if negated else char in chars:
-                    nxt = target
-                    break
-        else:
-            nxt = wide.select(text, pos)
-        if nxt is None:
-            nxt = clone.default
-            if nxt is None:
-                if wide is not None:
-                    # A wide clone's miss is the refusal `select_gated` raised
-                    # before this clone was a dispatch — same rule, same
-                    # wanted set. A bare refusal here would name no rule, and
-                    # the document would be refused by an anonymous path.
-                    raise PdaFail(
-                        f"no arm at {pos}",
-                        pos,
-                        rule=clone.name,
-                        wanted=arm_expected(clone),
-                    )
-                # A lead-char miss keeps the words it always had: the
-                # `chartotal` refusal below mirrors them verbatim.
-                raise PdaFail(f"no arm at {pos}", pos)
-            if nxt is DISPATCH_EMPTY:
-                return None
-        clone = nxt
-    return clone
+from lexic.parsing.pda.runtime.admission import admits
+from lexic.parsing.pda.runtime.build import Frame, InternMemo, build_vstr
 
 
 def vdisp_once[Carry](
@@ -124,23 +63,9 @@ def vdisp_once[Carry](
     target = chase_dispatch(clone, text, pos)
     if target is None:  # licence-excluded; a defensive read, not a live path
         raise PdaFail(f"no arm at {pos}", pos)
+    if target.runarm is not None:  # straight to the run `vstr_once` would ask
+        return run_span_once(text, target, sink, pos)
     return vstr_once(text, intern, target, sink, pos)
-
-
-def select_arm[Carry](clone: FlatClone[Carry], char: str, pos: int) -> FlatArm:
-    """The clone's FIRST-gated arm at lookahead ``char``, or its default.
-
-    :raises PdaFail: When no arm's FIRST matches and there is no default.
-    """
-    for chars, negated, candidate in clone.selectors:
-        if (char != "" and char not in chars) if negated else char in chars:
-            return candidate
-    default = clone.default
-    if default is None:
-        raise PdaFail(
-            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
-        )
-    return default
 
 
 def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
@@ -297,7 +222,8 @@ def match_chartable[Carry](
     character. Same loop structure, same gate, same sink order.
 
     A lookup MISS routes to :func:`table_miss`, which produces exactly what the
-    untabled path would.
+    untabled path would. A span-tabled target runs :func:`match_runtable`
+    instead; the caller routes it there.
 
     :param arm: The current arm.
     :param i: The ``OP_VSTR`` item index.
@@ -306,14 +232,27 @@ def match_chartable[Carry](
     :raises PdaFail: On an unmatched mandatory iteration (from the miss path).
     """
     clone = arm.payloads[i]
-    if clone.runarm is not None:  # keyed by the matched span, not the lookahead
-        return match_runtable(text, arm, i, sink, pos)
     get = clone.chartable.get
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
-    gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    # A stop gate — the common one — is read in place, as `match_cc` reads it:
+    # a call per iteration was most of what a short iteration cost. Its kind
+    # and its set are bound once, here, not read per iteration.
+    stop = arm.gate_kinds[i] == GATE_STOP
+    gchars, gneg = arm.gate_data[i] if stop else ((), False)
     count = 0
-    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+    while count < lo or (
+        (hi < 0 or count < hi)
+        and (
+            (
+                (pos < len(text) and text[pos] not in gchars)
+                if gneg
+                else text[pos : pos + 1] in gchars
+            )
+            if stop
+            else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+        )
+    ):
         try:  # end of input is the rare exception, not a test per character
             model = get(text[pos])
         except IndexError:
@@ -364,12 +303,26 @@ def run_span_once[Carry](
     :returns: The position after the extent.
     """
     runarm = clone.runarm
-    if runarm.kinds[0] == OP_CC:
+    kind = runarm.kinds[0]
+    if kind == OP_CONSULT:
+        # The proved pattern, matched in place; a miss goes to the refusal.
+        matched = runarm.payloads[0].match(text, pos)
+        end = (
+            matched.end()
+            if matched is not None
+            else consult_extent(text, clone, runarm, pos)
+        )
+    elif kind == OP_RUNPAT:
+        # A run that cannot refuse: its first character decides an empty one
+        # without the match call, the pattern takes any longer one whole.
+        char = text[pos : pos + 1]
+        gchars, gnegated = runarm.gate_data[0]
+        taken = (char != "" and char not in gchars) if gnegated else char in gchars
+        end = runarm.payloads[0].match(text, pos).end() if taken else pos
+    elif kind == OP_CC:
         end = match_cc(text, runarm, 0, pos)
-    elif runarm.kinds[0] == OP_LIT:
-        end = match_lit(text, runarm, 0, pos)
     else:
-        end = consult_extent(text, clone, runarm, pos)
+        end = match_lit(text, runarm, 0, pos)
     span = text[pos:end]
     table = clone.chartable
     model = table.get(span)
@@ -381,24 +334,28 @@ def run_span_once[Carry](
     return end
 
 
-def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
-    """Item ``i``'s quantifier bounds and loop gate — every span loop's preamble.
-
-    ``(lo, hi, gate_kind, gate_data)``, read once per item so the loop body
-    reads locals. Shared by the span-matching loops rather than re-spelled in
-    each: they differ only in which matcher runs per iteration.
-    """
-    return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
-
-
 def match_runtable[Carry](
     text: str, arm: FlatArm, i: int, sink: list[Carry], pos: int
 ) -> int:
     """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
     clone = arm.payloads[i]
-    lo, hi, gk, gate = loop_spec(arm, i)
+    lo, hi = arm.los[i], arm.his[i]
+    # A stop gate read in place, bound once, as `match_chartable` reads it.
+    stop = arm.gate_kinds[i] == GATE_STOP
+    gchars, gneg = arm.gate_data[i] if stop else ((), False)
     count = 0
-    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+    while count < lo or (
+        (hi < 0 or count < hi)
+        and (
+            (
+                (pos < len(text) and text[pos] not in gchars)
+                if gneg
+                else text[pos : pos + 1] in gchars
+            )
+            if stop
+            else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+        )
+    ):
         pos = run_span_once(text, clone, sink, pos)
         count += 1
     return pos
@@ -423,6 +380,39 @@ def table_miss[Carry](
     if clone.chartotal and clone.mode == BUILD_DISPATCH:
         raise PdaFail(f"no arm at {pos}", pos)  # verbatim, the chase's own words
     return vstr_once(text, {}, clone, sink, pos)
+
+
+def taken_end(text: str, take: LongestTake, arm: FlatArm, pos: int) -> int:
+    """Where a checked take's match ends, when the match is its rule's answer.
+
+    :raises IslandEscape: When the span holds a shorter end this reference
+        could continue from, the next character could lengthen it, or a
+        stealing rule's arm missed: none of those is the rule's answer here,
+        so the rule's island is asked.
+    :raises PdaFail: When a rule that cannot steal misses.
+    """
+    extent = take.extent
+    if extent is not None:
+        # The proved greedy match: the span the item-wise match takes, in one
+        # C-level call.
+        matched = extent.match(text, pos)
+        if matched is None:
+            raise PdaFail(f"no match of {take.island[0]!r} at {pos}", pos)
+        end = matched.end()
+    else:
+        try:
+            end = match_arm(text, arm, pos)
+        except PdaFail:
+            if not take.steals:
+                raise
+            # A loop may have taken what the rest of the arm needed: the miss
+            # is no more the rule's answer than a match would be.
+            raise IslandEscape(take.island, pos) from None
+    if take.exit_at.search(text, pos + take.lead, end) or (
+        take.extends_at is not None and take.extends_at.match(text, end)
+    ):
+        raise IslandEscape(take.island, pos)
+    return end
 
 
 def vstr_once[Carry](
@@ -462,15 +452,11 @@ def vstr_once[Carry](
 
     varm = select_arm(clone, char, pos)
     if varm.n != 1:  # the rare multi-item arm — cold, off the hot path
-        end = match_arm(text, varm, pos)
         take = clone.longest
-        if take is not None and (
-            take.exit_at.search(text, pos + take.lead, end)
-            or (take.extends_at is not None and take.extends_at.match(text, end))
-        ):
-            # A shorter end this reference could continue from, or a longer
-            # match: the span is not the island's answer, so ask the island.
-            raise IslandEscape(take.island, pos)
+        if take is None:
+            end = match_arm(text, varm, pos)
+        else:
+            end = taken_end(text, take, varm, pos)
         sink.append(build_vstr(clone, text[pos:end], intern))
         return end
     kj = varm.kinds[0]  # the common single-item arm — no item loop, no slice
@@ -494,3 +480,183 @@ def vstr_once[Carry](
     )
     sink.append(build_vstr(clone, text[pos:end], intern))
     return end
+
+
+REST_DEAD, REST_ASCEND, REST_ADMITS, REST_ADMITS_HARD = 0, 1, 2, 3
+"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
+stop side; a fully-skippable rest defers to the enclosing frame; an
+admitting OPTIONAL item is same-arm chain viability (the greedy split);
+an admitting MANDATORY item is the terminator-theft shape — a possessive
+take would steal the char the arm's own continuation requires, so the
+probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
+
+
+def item_admits(arm: FlatArm, j: int, char: str) -> bool:
+    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
+    if char == "":
+        return False
+    k = arm.kinds[j]
+    payload = arm.payloads[j]
+    if k in (OP_LIT, OP_LIT1):
+        return payload[0] == char
+    if k in (OP_CC, OP_CC1):
+        chars, negated = payload
+        return (char not in chars) if negated else char in chars
+    if k in (OP_FAIL, OP_ISLAND):
+        return True  # no FIRST at hand — MAY (a spurious probe is safe)
+    return clone_admits(payload, char)
+
+
+def clone_admits(clone: FlatClone, char: str) -> bool:
+    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
+    if clone.attempt is not None:
+        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
+    if clone.wide_selectors is not None:
+        return True  # windowed selection — MAY
+    if clone.default is not None:
+        return True  # a nullable default may defer admission further down
+    for chars, negated, _arm in clone.selectors:
+        if (char not in chars) if negated else char in chars:
+            return True
+    return False
+
+
+def arm_rest_scan(arm: FlatArm, i: int, text: str, pos: int) -> tuple[int, bool]:
+    """The rest-of-arm walk past item ``i``, at ``pos`` — ``(verdict,
+    optional-admit seen)``.
+
+    An optional admitting item does NOT settle the walk (both the chain and
+    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
+    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
+    mandatory item settles it either way (admits → the terminator class;
+    refuses → the char cannot flow past, the stop side is dead).
+
+    A run of exactly-once literals is read whole, at ``pos``: the stop side
+    must spell all of it there, so ``" " ">"`` closing a body admits a space
+    only where ``" >"`` follows, not at every space inside the body.
+    """
+    char = text[pos : pos + 1]
+    kinds, los, n = arm.kinds, arm.los, arm.n
+    opt = False
+    for j in range(i + 1, n):
+        if kinds[j] == OP_LIT1:  # the first literal in place; a run past it rarely
+            lit = arm.payloads[j]
+            admitted = text.startswith(lit, pos) and (
+                j + 1 == n
+                or kinds[j + 1] != OP_LIT1
+                or spelled_run(arm, j + 1, text, pos + len(lit))[1] >= 0
+            )
+        else:
+            admitted = item_admits(arm, j, char)
+        if admitted:
+            if los[j] > 0:
+                return REST_ADMITS_HARD, opt
+            opt = True
+        elif los[j] > 0:
+            return REST_DEAD, opt
+    return REST_ASCEND, opt
+
+
+def spelled_run(arm: FlatArm, j: int, text: str, pos: int) -> tuple[int, int]:
+    """The exactly-once literals from item ``j`` on, spelled at ``pos`` one
+    after another: ``(the item after the run, the position after it)``, or a
+    position of ``-1`` at the first refusal."""
+    kinds, payloads, n = arm.kinds, arm.payloads, arm.n
+    while j < n and kinds[j] == OP_LIT1:
+        literal = payloads[j]
+        if not text.startswith(literal, pos):
+            return j, -1
+        pos += len(literal)
+        j += 1
+    return j, pos
+
+
+_DEAD, _OPEN, _LIVE, _ON = 0, 1, 2, 3
+"""What a stop side's walk against the text proves: no continuation it
+derives begins with the text, one might, or one spends the document — and,
+for one arm's rest, that it was spelled through and the walk goes on."""
+
+type _Link = tuple[FlatArm, int, int]
+"""One frame of a stop side: its arm, where its rest starts, and the item it is
+suspended in when that may iterate again, else ``-1``."""
+
+
+def stop_side_dead(
+    stack: list[Frame], arm: FlatArm, i: int, text: str, pos: int
+) -> bool:
+    """Whether stopping the loop at item ``i`` of the top frame provably dies.
+
+    The stop side's continuation is read against the TEXT, past the one
+    character :func:`arm_rest_scan` classifies: the rest of the top arm, then
+    each enclosing frame's rest from the item it is suspended in. A literal or
+    a class that occurs at most once is matched and stepped over, an optional
+    one that matches both ways; a mandatory one that cannot match kills. A
+    repetition, a reference that could start here, an island and a further
+    iteration of an enclosing item stop the walk undecided; a reference that
+    cannot start here is read as deriving empty. Past the root the document
+    must be spent. So ``True`` is a proof that no text any stop continuation
+    derives begins at ``pos`` — for a run whose text and root are the
+    document's (:meth:`~...admission.RunScope.whole`).
+    """
+    chain: list[_Link] = [(arm, i + 1, -1)]
+    for frame in stack[-2::-1]:
+        at = frame.suspended()
+        chain.append((frame.arm, at + 1, at if frame.arm.his[at] != 1 else -1))
+    return _walk(chain, 0, i + 1, text, pos) == _DEAD
+
+
+def _walk(chain: list[_Link], f: int, j: int, text: str, pos: int) -> int:
+    """The stop side from item ``j`` of link ``f`` at ``pos``."""
+    while True:
+        verdict, pos = _arm_walk(chain, f, j, text, pos)
+        if verdict != _ON:
+            return verdict
+        f += 1
+        if f == len(chain):
+            return _LIVE if pos == len(text) else _DEAD
+        arm, j, again = chain[f]
+        if again != -1 and item_admits(arm, again, text[pos : pos + 1]):
+            return _OPEN
+
+
+def _arm_walk(
+    chain: list[_Link], f: int, j: int, text: str, pos: int
+) -> tuple[int, int]:
+    """Link ``f``'s rest from item ``j``: ``(_ON, where it ends)`` once spelled
+    through, else the walk's verdict."""
+    arm = chain[f][0]
+    while j < arm.n:
+        if arm.kinds[j] == OP_LIT1:
+            j, pos = spelled_run(arm, j, text, pos)
+            if pos < 0:
+                return _DEAD, pos
+            continue
+        width = _terminal_width(arm, j, text, pos)
+        if width == -2:  # not a terminal: a reference, island or fail
+            if item_admits(arm, j, text[pos : pos + 1]):
+                return _OPEN, pos
+        elif width < 0:
+            if arm.los[j] > 0:
+                return _DEAD, pos
+        elif arm.his[j] != 1:
+            return _OPEN, pos  # a run: where it ends is not the walk's to know
+        elif arm.los[j] == 0 and width:
+            taken = _walk(chain, f, j + 1, text, pos + width)
+            if taken == _DEAD:
+                taken = _walk(chain, f, j + 1, text, pos)
+            return taken, pos
+        else:
+            pos += width
+        j += 1
+    return _ON, pos
+
+
+def _terminal_width(arm: FlatArm, j: int, text: str, pos: int) -> int:
+    """How much one occurrence of literal or class item ``j`` matches at
+    ``pos``: its width, ``-1`` when it cannot, ``-2`` when it is no terminal."""
+    kind, payload = arm.kinds[j], arm.payloads[j]
+    if kind in (OP_LIT, OP_LIT1):
+        return len(payload) if text.startswith(payload, pos) else -1
+    if kind in (OP_CC, OP_CC1):
+        return 1 if admits(text[pos : pos + 1], *payload) else -1
+    return -2

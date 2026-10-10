@@ -39,7 +39,6 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, Pref
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.clones import compile_clones
 from lexic.parsing.pda.core.charsets import CharSet
@@ -47,6 +46,7 @@ from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime import islands
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
+    IslandEnds,
     IslandPolicy,
     bounded_window,
     island_derivation,
@@ -55,7 +55,7 @@ from lexic.parsing.pda.runtime.islands import (
     island_value,
 )
 from lexic.parsing.product.tree import EMPTY_RESULT, Completed, ProductExecutor
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.paths import GROUND_TRUTH
 
 # ── island_run ────────────────────────────────────────────────────────
@@ -138,6 +138,18 @@ def test_island_parse_bails_when_a_shorter_end_could_compose():
     policy = IslandPolicy(follow=CharSet(frozenset("b")))
     with pytest.raises(ProbeFork, match=r"arm choice spans two ends \(1, 2\)"):
         island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+
+
+def test_two_followable_ends_carry_both_completions() -> None:
+    """The island does not choose between two followable ends itself: it
+    raises them as ``IslandEnds`` — a ``ProbeFork`` wherever no verdict reads
+    it — carrying both completions, shorter first, for the verdict that can."""
+    policy = IslandPolicy(follow=CharSet(frozenset("b")))
+    with pytest.raises(IslandEnds) as raised:
+        island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+    assert raised.value.name == "x"
+    assert [end for _tree, end, _value in raised.value.ends] == [1, 2]
+    assert all(isinstance(tree, ParseTree) for tree, _end, _value in raised.value.ends)
 
 
 def test_island_parse_commits_longest_when_the_shorter_cannot_compose():
@@ -331,7 +343,7 @@ def test_island_value_lets_non_library_exceptions_surface():
 def _vyx_span(seed: int):
     """A vyx parse whose forest holds >2 derivations, and its kernel."""
     compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     rules = {r.name: r for r in compiled.grammar.rules}
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
@@ -736,40 +748,3 @@ def test_an_executor_less_island_hands_back_no_value(digit_grammar: IrAst) -> No
     assert isinstance(tree, ParseTree)
     assert end == 1
     assert value is None
-
-
-# ── continues: the continuation a few characters deep ──────────────────────
-
-
-def _window(chars: str, state: str) -> Pref:
-    """One window over single-character sets, spelled as a string."""
-    return (tuple(CharSet.from_chars(c) for c in chars), state)
-
-
-def test_no_windows_is_no_evidence_and_admits():
-    """Without windows the one-character test decides alone."""
-    assert islands.continues((), "ab", 0)
-
-
-def test_a_window_must_match_every_character_it_names():
-    """Two characters named, two characters checked."""
-    windows = (_window("+a", MORE),)
-    assert islands.continues(windows, "x+a", 1)
-    assert not islands.continues(windows, "x+b", 1)
-
-
-def test_a_window_past_the_end_of_the_text_cannot_match():
-    """Text too short for the window is not a continuation of it."""
-    assert not islands.continues((_window("+a", MORE),), "x+", 1)
-
-
-def test_a_complete_window_matches_only_where_the_input_ends():
-    """END is the whole continuation, so anything after it disagrees."""
-    windows = (_window(";", END),)
-    assert islands.continues(windows, "x;", 1)
-    assert not islands.continues(windows, "x;y", 1)
-
-
-def test_unknown_past_its_characters_matches_on_them_alone():
-    """UNK says nothing beyond what it spells."""
-    assert islands.continues((_window(" ", UNK),), "x y", 1)

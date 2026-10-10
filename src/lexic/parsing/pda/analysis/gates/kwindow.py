@@ -22,7 +22,8 @@ arguments, so ``analysis`` imports this, never the reverse.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from collections.abc import Callable
+from typing import Iterable, Iterator, Mapping, Sequence
 
 from lexic.ir import (
     IrItem,
@@ -32,12 +33,13 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
-    END,
+    Depth,
     FollowWindows,
     KWindowFirst,
     Pref,
+    collide,
     extend_follow,
-    separable,
+    first_separating,
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -51,10 +53,12 @@ def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
 __all__ = [
     "FOLLOW_LOOP_K",
     "MAX_K",
+    "arm_final_loop_depths",
     "arm_gate",
-    "follow_arm_gate",
-    "follow_loop_gate",
+    "arm_windows",
+    "follow_depths",
     "loop_gate",
+    "window_depths",
     "rule_references",
     "stop_exit_settles",
 ]
@@ -64,7 +68,7 @@ MAX_K = 3
 """The widest lookahead window any gate tries (``k ≤ 3``)."""
 
 FOLLOW_LOOP_K = 2
-"""The one width :func:`follow_loop_gate` tries.
+"""The one width :func:`arm_final_loop_depths` asks at.
 
 Not a budget to be raised. Measured across the roster's loop conflicts, every
 decision FOLLOW\\ :sub:`k` settles is settled at ``k = 2``, nothing further
@@ -115,81 +119,74 @@ def _refs_in(node: object, name: str) -> int:
     return sum(_refs_in(child, name) for child in node)
 
 
-def follow_arm_gate(
-    rules: Mapping[str, IrRule],
-    start: str,
-    arms: Sequence[Sequence[IrItem]],
-    label: str,
-    max_k: int = MAX_K,
-) -> tuple[tuple[tuple[CharSet, ...], ...], ...] | None:
-    """Per-arm windows at the smallest ``k ≤ max_k`` where ``label``'s arms
-    separate under ``k``-deep FOLLOW, else ``None``.
+# ── the gate classification (arm-selection + loop take/skip) ───────────────
+#
+# One gate per decision — the arms of an alternation, the take/skip of a loop —
+# asked at whatever depths the caller supplies: the follow read one character
+# deep (:func:`follow_depths`) or ``k`` deep through the grammar's FOLLOW_k
+# windows (:func:`window_depths`, :func:`arm_final_loop_depths`).
 
-    Each arm's FIRST\\ :sub:`k` prefixes are END-extended by the rule's
-    FOLLOW\\ :sub:`k` windows — so an empty (escape) arm carries exactly the
-    rule's FOLLOW windows, and a FOLLOW-overlapping literal-led arm is
-    disambiguated past the single FOLLOW char :func:`arm_gate` reaches
-    (``cc-tail``'s ``- cc-hi`` vs a trailing ``-`` before ``]``). The
-    FOLLOW\\ :sub:`k` fixpoint is built here — the empty-arm demotion is its only
-    caller, so a grammar that never reaches one never runs it.
+
+def follow_depths(
+    rules: Mapping[str, IrRule], follow: CharSet, max_k: int = MAX_K
+) -> Iterator[Depth]:
+    """Widths ``2..max_k``, every side END-extended by one FOLLOW character set.
 
     :param rules: The grammar's rule table.
-    :param start: The start rule (the FOLLOW EOF seed).
-    :param arms: The alternation's arms (each a list of :class:`IrItem`), in
-        body order — the escape (nullable) arm included.
-    :param label: The rule whose FOLLOW windows extend the arms.
+    :param follow: The FOLLOW at the decision's end, read one character deep.
     :param max_k: The widest window to try (``≤ MAX_K``).
-    :returns: The per-arm window tuples at the separating ``k``, or ``None``.
     """
-    for k in range(2, max_k + 1):
-        fw = FollowWindows(rules, start, k)
-        follow = fw.follow.get(label, set())
-        sets = [
-            extend_follow(fw.solver.arm_prefixes(list(arm), k), follow, k)
-            for arm in arms
-        ]
-        if separable(sets):
-            return tuple(windows_of(s) for s in sets)
-    return None
+    return ((k, KWindowFirst(rules, k), follow) for k in range(2, max_k + 1))
 
 
-# ── the gate classification (arm-selection + loop take/skip) ───────────────
+def window_depths(
+    windows_at: Callable[[int], FollowWindows], label: str, max_k: int = MAX_K
+) -> Iterator[Depth]:
+    """Widths ``2..max_k``, every side END-extended by ``label``'s
+    FOLLOW\\ :sub:`k` windows — so an empty (escape) arm carries exactly the rule's
+    FOLLOW windows, and a FOLLOW-overlapping literal-led arm is told apart past
+    the one character :func:`follow_depths` reaches (``cc-tail``'s ``- cc-hi``
+    vs a trailing ``-`` before ``]``). Each width is built as it is tried.
+
+    :param windows_at: The grammar's FOLLOW\\ :sub:`k` windows by width, each
+        built once (:meth:`~...analysis.Follows.windows`).
+    :param label: The rule whose FOLLOW windows extend the sides.
+    :param max_k: The widest window to try (``≤ MAX_K``).
+    """
+    return (
+        (k, fw.solver, fw.follow.get(label, set()))
+        for k, fw in ((k, windows_at(k)) for k in range(2, max_k + 1))
+    )
 
 
 def arm_gate(
-    rules: Mapping[str, IrRule],
-    arms: Sequence[Sequence[IrItem]],
-    ext_follow: CharSet,
-    max_k: int = 3,
+    arms: Sequence[Sequence[IrItem]], depths: Iterable[Depth]
 ) -> tuple[int, list[set[Pref]]] | None:
-    """The smallest ``k ≤ max_k`` at which the arm-selection decision separates.
+    """The first width among ``depths`` at which the arm-selection decision
+    separates.
 
-    :param rules: The grammar's rule table.
-    :param arms: The alternation's arms (each a list of :class:`IrItem`).
-    :param ext_follow: The FOLLOW at the alternation's end (for END extension).
-    :param max_k: The largest window to try (``≤ 3``).
+    :param arms: The alternation's arms (each a list of :class:`IrItem`), in
+        body order — an escape (nullable) arm included.
+    :param depths: The widths to ask at, each with its solver and follow.
     :returns: ``(k, per-arm prefix sets)`` at the separating ``k``, or ``None``
-        when the arms collide at every ``k ≤ max_k`` (the decision stays island).
+        when the arms collide at every depth (the decision stays island).
     """
-    for k in range(2, max_k + 1):
-        solver = KWindowFirst(rules, k)
-        sets = [
-            extend_follow(solver.arm_prefixes(list(arm), k), ext_follow, k)
-            for arm in arms
-        ]
-        if separable(sets):
-            return k, sets
-    return None
+    return first_separating(arms, depths)
+
+
+def arm_windows(
+    gate: tuple[int, list[set[Pref]]],
+) -> tuple[tuple[tuple[CharSet, ...], ...], ...]:
+    """A separating arm gate's per-arm windows, body-arm order — the spec the
+    taxonomy stores and the runtime selects with."""
+    return tuple(windows_of(s) for s in gate[1])
 
 
 def loop_gate(
-    rules: Mapping[str, IrRule],
-    items: Sequence[IrItem],
-    idx: int,
-    rule_follow: CharSet,
-    max_k: int = 3,
+    items: Sequence[IrItem], idx: int, depths: Iterable[Depth]
 ) -> tuple[int, set[Pref], set[Pref]] | None:
-    """The smallest ``k ≤ max_k`` at which item ``idx``'s take/skip loop separates.
+    """The first width among ``depths`` at which item ``idx``'s take/skip loop
+    separates.
 
     ``taken`` is the arm from the looping item's ``{1,hi}`` quantifier onward —
     :meth:`~KWindowFirst.arm_prefixes` unrolls it across the whole window, so a
@@ -197,36 +194,31 @@ def loop_gate(
     union under-covers 3-rep windows at ``k = 3``); ``skip`` is the arm from the
     following item. Both are FOLLOW-extended.
 
-    :param rules: The grammar's rule table.
     :param items: The enclosing arm's items.
     :param idx: The looping item's index.
-    :param rule_follow: The enclosing rule's FOLLOW (for END extension).
-    :param max_k: The largest window to try (``≤ 3``).
+    :param depths: The widths to ask at, each with its solver and follow.
     :returns: ``(k, taken set, skip set)`` at the separating ``k``, or ``None``
         (the loop decision stays island).
     """
     item = items[idx]
     rest = list(items[idx + 1 :])
     loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
-    for k in range(2, max_k + 1):
-        solver = KWindowFirst(rules, k)
-        taken = solver.arm_prefixes([loop_item, *rest], k)
-        skip = solver.arm_prefixes(rest, k)
-        taken = extend_follow(taken, rule_follow, k)
-        skip = extend_follow(skip, rule_follow, k)
-        if separable([taken, skip]):
-            return k, taken, skip
-    return None
+    found = first_separating([[loop_item, *rest], rest], depths)
+    if found is None:
+        return None
+    k, (taken, skip) = found
+    return k, taken, skip
 
 
-def follow_loop_gate(
+def arm_final_loop_depths(
     rules: Mapping[str, IrRule],
-    start: str,
+    windows_at: Callable[[int], FollowWindows],
     items: Sequence[IrItem],
     idx: int,
     label: str,
-) -> tuple[tuple[CharSet, ...], ...] | None:
-    """An ARM-FINAL loop's take/skip decision under a ``k``-deep FOLLOW.
+) -> list[Depth] | None:
+    """The depths an ARM-FINAL loop's take/skip decision is asked at under a
+    ``k``-deep FOLLOW, or ``None`` where a precondition fails.
 
     :func:`loop_gate` takes the enclosing rule's FOLLOW as a single
     :class:`CharSet`, which :func:`~...windows.extend_follow` turns into exactly
@@ -237,7 +229,7 @@ def follow_loop_gate(
     Every character past the first is compared against nothing, and widening
     ``k`` cannot change the verdict. This asks the same decision with both sides
     ``k`` deep, over the :class:`FollowWindows` fixpoint that already serves
-    :func:`follow_arm_gate`.
+    the arm gate's :func:`window_depths`.
 
     **Soundness — the direction of approximation.** ``taken`` is FIRST\\ :sub:`k`
     of one more iteration, an over-approximation of what a real continuation can
@@ -264,27 +256,23 @@ def follow_loop_gate(
     never conflict, and a loop that never conflicts never consults this gate.)
 
     :param rules: The grammar's rule table.
-    :param start: The start rule name (the FOLLOW fixpoint's EOF seed).
+    :param windows_at: The grammar's FOLLOW\\ :sub:`k` windows by width, each
+        built once — asked only once the preconditions hold.
     :param items: The enclosing arm's items.
     :param idx: The looping item's index — must be the arm's last.
     :param label: The enclosing rule, whose FOLLOW\\ :sub:`k` extends both sides.
-    :returns: The ``taken`` windows, ready for the ``GATE_KWIN`` runtime op, or
-        ``None`` where any precondition fails or the decision does not separate.
+    :returns: The one depth to ask :func:`loop_gate` at, or ``None`` where a
+        precondition fails.
     """
     if idx != len(items) - 1:
-        return None  # not arm-final: `loop_gate`'s skip side is already k deep
+        return None  # not arm-final: the skip side is already k deep
     if rule_references(rules, label) != 1:
         return None  # a cost bound — see "Why one reference", not soundness
-    k = FOLLOW_LOOP_K
-    windows = FollowWindows(rules, start, k)
+    windows = windows_at(FOLLOW_LOOP_K)
     follow = windows.follow.get(label, set())
     if not follow:
         return None  # nothing known to follow: a zero-length skip side collides
-    item = items[idx]
-    loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
-    taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
-    skip = extend_follow({((), END)}, follow, k)
-    return windows_of(taken) if separable([taken, skip]) else None
+    return [(FOLLOW_LOOP_K, windows.solver, follow)]
 
 
 def stop_exit_settles(
@@ -325,28 +313,6 @@ def stop_exit_settles(
     for site in windows.site_windows(label):
         take = extend_follow(taken, site, k)
         stop = extend_follow(stopped, site, k)
-        if any(_both_go_on(t, s, exits) for t in take for s in stop):
+        if any(collide(t, s, exits, eof=True) for t in take for s in stop):
             return False
     return True
-
-
-def _both_go_on(take: Pref, stop: Pref, exits: CharSet) -> bool:
-    """Whether one text fits a take window and a stop window that both begin
-    with an exit character. A window's characters are what it knows, as for
-    :func:`~.windows.collide`; a one-character window ENDs the input there, or
-    says nothing about what comes next."""
-    if not take[0] or not stop[0]:
-        # An empty window is the end of input, unless nothing is known.
-        return (not take[0] and take[1] != END) or (not stop[0] and stop[1] != END)
-    lead = take[0][0].subtract(take[0][0].subtract(stop[0][0]))
-    if not lead.overlaps(exits):
-        return False
-    if len(take[0]) > 1 and len(stop[0]) > 1:
-        return take[0][1].overlaps(stop[0][1])
-    take_ends = len(take[0]) == 1 and take[1] == END
-    stop_ends = len(stop[0]) == 1 and stop[1] == END
-    # One side ends the input where the other has more: disjoint. Both ending
-    # right after the exit character lands here too, and collides: a guard, not
-    # a case that arises, since an exit character is a HARD continuation
-    # character of the clone that exits and a take must still meet one after it.
-    return not (take_ends and len(stop[0]) > 1 or stop_ends and len(take[0]) > 1)

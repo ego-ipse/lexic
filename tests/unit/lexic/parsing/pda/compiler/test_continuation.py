@@ -298,3 +298,50 @@ def test_a_reference_inside_an_inline_group_is_a_site() -> None:
     conts = IslandContinuations(analysis, analysis.islands)
     assert conts.follow("x").has(";")
     assert any(chars[0].has(";") for chars, _ in conts.windows("x"))
+
+
+def test_a_rule_whose_extent_proof_declines_checks_every_match() -> None:
+    """``item``'s arms part on no character and ``"a"+`` takes the ``a`` its
+    arm ends on: its take steals, and its island asks with every site's
+    continuation rather than the clone's own."""
+    conts = continuations('root ::= item+ ";"?\nitem ::= [a;] | "a"+ "a"\n')
+    take = conts.longest_take("item", CharSet.EMPTY)
+    assert take is not None and take.steals
+    assert take.island[:2] == ("item", conts.follow("item"))
+
+
+def test_a_take_whose_greedy_match_is_proved_carries_it_as_one_pattern() -> None:
+    """``x ::= "v" [a-z}]*`` can hold the ``}`` that may follow it, so it takes
+    its longest match; with nothing after it the match is exact, so the take
+    carries that match as one pattern, ending where the item-wise match does."""
+    conts = continuations('s ::= x ("}" | ";") y\nx ::= "v" [a-z}]*\ny ::= [a-z]*\n')
+    take = conts.longest_take("x", CharSet.from_chars("};"))
+    assert take is not None and not take.steals
+    assert take.extent is not None
+    for text, end in (("vab;c", 3), ("va}b}c", 6), ("v", 1)):
+        matched = take.extent.match(text, 0)
+        assert matched is not None and matched.end() == end
+
+
+def test_a_stealing_take_carries_no_pattern() -> None:
+    """A rule whose proof declines with nothing after it has no greedy
+    pattern to carry: its matches stay item by item, and checked."""
+    conts = continuations('root ::= item+ ";"?\nitem ::= [a;] | "a"+ "a"\n')
+    take = conts.longest_take("item", CharSet.EMPTY)
+    assert take is not None and take.steals and take.extent is None
+
+
+def test_a_rule_whose_own_proof_holds_takes_nothing() -> None:
+    """``n``'s arms part on their first character and no loop reaches what
+    follows it in its arm: an item-wise match of it is exact."""
+    conts = continuations('root ::= n ";"\nn ::= "x" | [0-9]+ "."\n')
+    assert conts.longest_take("n", CharSet.from_chars(";")) is None
+
+
+def test_an_empty_arm_ends_in_no_run() -> None:
+    """A nullable stealing rule: its empty arm ends in no run, so the
+    character after a match is checked, and its empty match is an end."""
+    conts = continuations('root ::= w "b"\nw ::= "a"+ "a" | ""\n')
+    take = conts.longest_take("w", CharSet.from_chars("b"))
+    assert take is not None and take.steals
+    assert take.extends_at is not None and take.lead == 0

@@ -25,7 +25,31 @@ character is structural. Neither does an unsupported shape, a short input, or a
 failing chunk; each simply parses sequentially.
 
 The floor is **2 KiB per worker**, measured against thread spin-up. Below it,
-splitting costs more than it returns.
+splitting costs more than it returns. It is stated once, in `policy.py`:
+`MIN_CHUNK` caps the worker COUNT (`capacity(size)`, how many pieces a size can
+feed), and `MIN_PIECE` (half a chunk) is how far under it one piece may fall —
+`clears_floor` asks it of every piece. A cut lands on a mark, so a piece can
+come out short of its share; dropping a worker for that idles a core that would
+still win (on the benchmark roster a 1 KiB piece parses for 33 µs at the
+cheapest row and ~0.95 ms at the median, against 7–21 µs to hand a warm pool
+one more piece), so only a piece far under the chunk is refused. The three
+dividers that cut at marks nearest even shares — the plan cuts
+(`cuts._balanced_cuts`), `routed.divide` and `folded.divide` — share ONE
+chooser, `regions.floor_cuts`, asked through a `Cutting` tuple: each cut snaps
+to the nearest mark, and only where that leaves a piece, or what is left after
+it, under `MIN_PIECE` does it walk on to the nearest mark that does not, or
+take one worker fewer. Each divider says where the next piece starts and
+whether the piece before keeps its mark (`after_mark` for the plans, one past
+a terminator for routed, past the separator for folded).
+`partition` holds every run to the same `clears_floor`, and asks `capacity`
+only how many workers a size feeds.
+
+**The routed split derives once and stitches trusted.** The interior's route
+(the model steps down to it) depends only on the binding and the plan, so it is
+memoised per `(binding, plan)` (`stitch/interior._route`); and the stitched run
+is put back with a trusted positional build (`_with_run`), as the folded stitch
+already is — the checked `rebuild` re-validated every element of a run the
+piece parses had just built, about 100–200 µs of a 32 KB document's split.
 
 ---
 
@@ -46,6 +70,13 @@ document and are never cached across two of them**.
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
+
+**A whole-extent routed interior is bounded by its neighbours' text**, read
+by `shapes.exact_text`: one string every time, an exactly-once item through
+single-armed rules and nothing else. Every piece wears that text in front, so a
+neighbour that varies — `pre{1,2}` spelling `#` or `##` — must decline: read
+as one `#`, a piece whose interior opens with `#` parsed `pre` as two and the
+stitched model lost a character per piece.
 
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
@@ -83,7 +114,7 @@ The two mirror clauses that license a construct carrying the mark:
 
 - `_ends_once` — the mark is the construct's **final** edge (a comment closed by
   its newline).
-- `_leads_once` — the mark is its **leading** edge (a continuation separator like
+- `leads_once` — the mark is its **leading** edge (a continuation separator like
   `"\n  | "`). Stated as per-arm CharSet disjointness: every arm leading with the
   mark must have `FIRST(what follows it, through nullables)` disjoint from the
   prefix head. An arm the walk cannot decide answers "reachable" and the plan
@@ -140,7 +171,12 @@ stand-in. The pieces of every level parse in ONE pool map, and the calling
 thread parses the shell beside them (`WorkPool.map`'s `beside`): the shell is
 parsed under the whole grammar, whose view that thread already holds, where a
 pool worker drawing it would build a replica of the whole grammar for one
-small parse. The stitch then runs innermost first: it finds a stand-in by the
+small parse. When its share is done, the calling thread takes back pieces no
+worker has started — at most as many as the phase left workers without a
+piece — and parses them through its own view (`taking_back`): it
+was busy while the workers woke, and a woken worker the scheduler leaves
+waiting otherwise started its piece milliseconds after the rest. The stitch
+then runs innermost first: it finds a stand-in by the
 holding item alone (`held_route`), and lays the span's merged items over the
 stand-in's node together with its true edge slots. An edge slot can straddle
 the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and
@@ -198,7 +234,13 @@ time.
 
 Window bounds are arithmetic, which is sound because every watched spelling is
 one character: no occurrence straddles a boundary, and every offset belongs to
-exactly one window.
+exactly one window. A region split asks for as many windows as it plans pieces
+(`piece_count`): on a pool that claims every CPU, one window per worker leaves a
+woken worker waiting for a CPU behind the rest, and the find waits on its
+window. The two walks pop a close inline and build a `Region` only for a frame
+that holds a mark and clears the floor — on deep nesting nearly no close does;
+the merge, which runs once per replayed event, applies the same rule through
+one helper (`_close`).
 
 **A grammar whose vocabulary carries an opaque interior takes the serial walk.**
 A window cannot know whether it begins inside one without a pass over everything
@@ -293,6 +335,64 @@ first-touching one pair all mint against the same stale population.
   the grammar alone. `worker_parse` is the entry, and it is called from inside
   the work, never from the submitting thread.
 
+**A replica's tables are copied, not compiled.** `_mint` declares each view to
+the product layer (`products.declare_replica`). A product, grants program,
+island table or delegate set the view asks for is compiled ONCE on the
+original pair — under a per-key lock taken on the miss alone, so a hit reads
+lock-free — and the asking thread takes a structural private copy
+(`ModelExecutable.copied`, over `PrivateCopy`). The copy makes anew every
+object the compile minted: engine records, containers, baked closures and
+their cells, and the IR value records the tables hold (a decoded rule's
+reference is read on every tree node, and a shared one cost a copy 5% of an
+Earley-heavy split's wall). It keeps what is the process's: what a lexic
+module or class names (constants compared by identity, such as
+`CharSet.EMPTY`), atoms, compiled `re` patterns (re's own cache shares them
+between compiles anyway), and the binding's read-only projections. A copied
+`PdaTables` and its `DelegateSource` carry an `origin`, the edge a miss asks
+through. Recompiling per worker ran a full analysis of the grammar on every
+thread that won a chunk. On vyx's compile that was 2 to 5 analyses of the GBNF
+self-grammar at about 0.5 s of CPU each, and a clone-compile count that
+changed from process to process (344 to 860). With copies, that compile runs
+one analysis.
+
+**A copy is earned by reuse.** A worker's FIRST split of a pair parses against
+the original pair, shared; the copy is minted only when that thread meets the
+pair again in a LATER split. Each pool lease numbers its split
+(`WorkPool.lend`, `running_lease`), and a thread's cached first meeting
+carries that number. A one-shot split, such as `compile_text` splitting a long
+grammar source, therefore mints nothing. A copy costs 5 to 50 ms and is held
+for the thread's life, while contention on a shared product costs a one-shot
+split a fraction of that. Before this rule, vyx's benchmark worker kept 4 copies
+of the GBNF self-grammar that nothing read, and every collection of the timed
+parse walked them: retiring them was 0.904x CPU on vyx's Earley seat.
+**The copies are made all at once, before the next split's pieces.** Which
+threads serve which split is the executor's choice, so a thread's second
+meeting — and with it its copy — would land in whichever later split it next
+served, inside that split's pieces. A split records the pairs its workers
+met for the first time (`replicas.settle_first_meetings`), keyed by the
+document's executable view, so they retire with it; the pool's next split
+through the SAME view first gives every worker its own copy, one task per worker behind a
+barrier, before any piece goes out (`replicas.warm_due`), along with every
+island table and delegate set the original has met so far
+(`PdaTables.copy_held_islands`). A repeatedly split
+artefact therefore copies once per thread at the start of its second split,
+and no later split ever copies. A split through another view warms nothing, so
+a one-shot split still mints no copy and a gone document thread's pairs are
+never copied.
+
+**The shared original is the document thread's own.** `CompiledGrammar.parse`
+compiles its product on the calling thread before asking for a split. Built by
+the first worker to miss, it lived on in a pool thread's heap. The same 4 vyx
+programs cost 1.035x CPU and 31% more pause per observation when retained from
+pool threads rather than from the main thread, so on this interpreter an
+object's owning thread matters to every later collection, not only its count.
+
+**The bound.** What a grammar compiles is a function of the grammar and the
+documents parsed. How many copies exist is not: replicas are a runtime cache
+bounded by the pool size, at most one copy per thread that met the pair in two
+splits, released with that thread. The retained set therefore varies with
+scheduling, by whole copies, and that is by design.
+
 The FIRST document thread keeps the original pair, which is therefore never
 issued to a worker, so a single-threaded program compiles no second set of
 tables. Where `available_workers()` is 1 at all — a GIL build, a one-cpu
@@ -315,7 +415,7 @@ The signal is object lifetime. `ThreadPoolExecutor` has an initializer and no
 per-worker exit callback, so the first time a thread claims, a bare sentinel
 goes into that thread's own local state with a `weakref.finalize` armed on it;
 the thread's state is freed when the thread ends, the sentinel is collected,
-and the finalizer retires what that thread held. Three details are load-bearing:
+and the finalizer retires what that thread held. Four details are load-bearing:
 
 - the owning `Thread` is captured at claim time and passed to the finalizer,
   never read inside it — `threading.current_thread()` during a worker's
@@ -323,7 +423,14 @@ and the finalizer retires what that thread held. Three details are load-bearing:
 - the sentinel declares `__slots__ = ("__weakref__",)`; with `__slots__ = ()`
   it cannot be weakly referenced at all and the arming raises;
 - arming happens at CLAIM time rather than in the pool's initializer, so a
-  worker that never touches the registry pays nothing and holds nothing.
+  worker that never touches the registry pays nothing and holds nothing;
+- the finalizer never waits on the claim lock (`_MINTING`). A finalizer runs
+  on whatever thread frees the sentinel or anything else, and that may be the
+  thread already holding the lock: mid-claim, or releasing another thread's
+  claim, where the release frees the next sentinel. Waiting there deadlocked
+  the thread on itself. So `retire_thread` only queues the thread and takes
+  the lock if it is free, and every holder drains the queue before it
+  releases, then asks again once released.
 
 Synthesized model classes stay shared by necessity — two workers building two
 different classes for one rule would break model equality, which is the thing

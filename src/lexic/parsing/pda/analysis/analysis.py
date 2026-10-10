@@ -12,26 +12,32 @@ from __future__ import annotations
 __all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 
-from typing import Sequence, cast
+from typing import NamedTuple, Sequence, cast
 
 from lexic.ir import (
-    IrAlternation,
     IrAst,
     IrAtom,
     IrItem,
     IrLeaf,
     IrNoneType,
     IrRule,
-    IrRuleRef,
     IrSelf,
+)
+from lexic.parsing.earley.kernel.tables.decider import (
+    LEFTMOST_LONGEST,
+    NOISE_GREEDY,
+    STOP_SET,
 )
 from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.conflicts import (
     attempt_group,
     attempt_spec,
+    file_attempt_loop,
     greedy_exact,
+    same_ref_extent_split,
     soft_gap_conflict,
     sub_conflict,
+    text_only,
 )
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
@@ -47,13 +53,7 @@ from lexic.parsing.pda.analysis.gates.noise import (
     noise_greedy_licensed,
     stopset_escapes_soft_follow,
 )
-from lexic.parsing.pda.analysis.gates.windows import (
-    END,
-    MORE,
-    UNK,
-    FollowWindows,
-    KWindowFirst,
-)
+from lexic.parsing.pda.analysis.gates.windows import FollowWindows
 from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
@@ -79,19 +79,6 @@ def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     return [i for i in seq if isinstance(i, IrItem)]
 
 
-def _text_only(rule: IrRule) -> bool:
-    """Whether no rule reference appears anywhere in ``rule``'s body, inline
-    groups included — its model is then its matched text."""
-    pending = [_items(arm) for arm in rule.body]
-    while pending:
-        for item in pending.pop():
-            if isinstance(item.atom, IrRuleRef):
-                return False
-            if isinstance(item.atom, IrAlternation):
-                pending.extend(_items(arm) for arm in item.atom)
-    return True
-
-
 def _hi(item: IrItem) -> int | None:
     """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
     hi = item.quantifier.hi
@@ -103,6 +90,34 @@ def _hi(item: IrItem) -> int | None:
 
 # Taxonomy (and its _GateStore) moved to lexic.parsing.pda.analysis.taxonomy by pure
 # motion (C0302 headroom, Task 6.6); re-exported above for the public surface.
+
+
+class Follows(NamedTuple):
+    """An analysis' FOLLOW views: the soft, hard and structural CharSet
+    fixpoints, and the FOLLOW\\ :sub:`k` window sets built on demand.
+
+    :ivar deep: The window sets built so far, by width — filled by
+        :meth:`windows`, never by a caller.
+    """
+
+    soft: dict[str, CharSet]
+    hard: dict[str, CharSet]
+    structural: dict[str, CharSet]
+    rules: dict[str, IrRule]
+    start: str
+    deep: dict[int, FollowWindows]
+
+    def windows(self, k: int) -> FollowWindows:
+        """FOLLOW\\ :sub:`k` as window sets, built once per width.
+
+        A whole-grammar fixpoint, read by every stop-set two-deep proof, the
+        empty-arm and arm-final demotions and the island continuations — each
+        of which built its own, one per decision asked.
+        """
+        found = self.deep.get(k)
+        if found is None:
+            found = self.deep[k] = FollowWindows(self.rules, self.start, k)
+        return found
 
 
 class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
@@ -121,7 +136,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         "nullable",
         "first",
         "hard",
-        "_follows",
+        "follows",
         "taxonomy",
     )
 
@@ -130,10 +145,15 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     nullable: frozenset[str]
     first: dict[str, CharSet]
     hard: dict[str, CharSet]
-    _follows: tuple[dict[str, CharSet], dict[str, CharSet], dict[str, CharSet]]
+    follows: Follows
     taxonomy: Taxonomy
 
-    def __init__(self, grammar: IrAst, delegated: bool = False) -> None:
+    def __init__(
+        self,
+        grammar: IrAst,
+        delegated: bool = False,
+        grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+    ) -> None:
         """Run every fixpoint and classify every rule of the lifted grammar.
 
         :param grammar: The lifted grammar.
@@ -147,28 +167,31 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self.nullable = nullable_names(list(grammar.rules))
         self.first = self._first_sets()
         self.hard = self._hard_sets()
-        self._follows = (
+        self.follows = Follows(
             self._follow_fixpoint(hard=False, loopback=True, nullable_first=True),
             self._follow_fixpoint(hard=True, loopback=False, nullable_first=False),
             self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
+            self.rules,
+            self.start,
+            {},
         )
         self.taxonomy = Taxonomy(delegated)
-        self._classify()
+        self._classify(grants)
 
     @property
     def follow(self) -> dict[str, CharSet]:
         """Rule name → its (soft) FOLLOW :class:`CharSet`."""
-        return self._follows[0]
+        return self.follows.soft
 
     @property
     def hard_follow(self) -> dict[str, CharSet]:
         """Rule name → its hard FOLLOW :class:`CharSet` (nullable followers skipped)."""
-        return self._follows[1]
+        return self.follows.hard
 
     @property
     def _structural_follow(self) -> dict[str, CharSet]:
         """Rule name → soft FOLLOW with generated repeat loopback omitted."""
-        return self._follows[2]
+        return self.follows.structural
 
     @property
     def conflicts(self) -> dict[str, list[str]]:
@@ -402,7 +425,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     # ── conflict classification ────────────────────────────────────────
 
-    def _classify(self) -> None:
+    def _classify(self, grants: frozenset[str]) -> None:
         """Fill :attr:`conflicts` and :attr:`demoted` from every rule.
 
         A left-recursive rule islands unconditionally, before any other
@@ -418,7 +441,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     f"{name}: left-recursive — predictive descent cannot run it"
                 ]
                 continue
-            notes = Notes()
+            notes = Notes(grants)
             scope = Scope(
                 name,
                 Cont(
@@ -462,15 +485,17 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if not extents:
             extents.append(rule_extensions(self))
         extends = extents[0].found[name]
-        invisible = _text_only(self.rules[name]) and not extends.overlaps(
+        invisible = text_only(self.rules[name]) and not extends.overlaps(
             self.follow[name]
         )
         longest = not invisible and self._takes_longest(name)
         for note in notes.stop_sets:
             if invisible:
-                notes.picks_extent(note)
+                notes.picks_extent(note, STOP_SET)
             elif longest:
-                notes.picks_extent(f"{note[: -len(' applied')]} taken longest")
+                notes.picks_extent(
+                    f"{note[: -len(' applied')]} taken longest", STOP_SET
+                )
             else:
                 notes.hard.append(f"{note[: -len(' applied')]} reaches FOLLOW")
         if longest:
@@ -491,7 +516,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         return (
             not self.taxonomy.delegated
-            and _text_only(self.rules[name])
+            and text_only(self.rules[name])
             and greedy_exact(self, self.rules[name])
         )
 
@@ -513,9 +538,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         been decided all along. A rule body's attempt licence is
         :meth:`_classify`'s — it sees the whole note ledger.
 
-        The empty-arm-vs-FOLLOW branch below stays rule-body-only: its gates
-        are computed from the rule's own FOLLOW\\ :sub:`k`, which a group has
-        no equivalent of. Its note is soft, so it never islands.
+        An arm that is not nullable but whose FIRST the continuation also
+        accepts competes with the empty arm. Its gates are computed from the
+        rule's own FOLLOW\\ :sub:`k`, so they are rule-body-only; a site no gate
+        separates is tried in order, as an overlap is, and the audit ranks an
+        arm ending elsewhere against the winner by the decider.
 
         :param site: The alternation — its label, store key and continuation.
         """
@@ -545,11 +572,14 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     or demote.demote_struct_arm(self, arms, site.label, notes)
                 )
             )
-            if not gated:
-                for i in greedy:
-                    notes.picks_extent(
-                        f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)"
-                    )
+            if not gated and greedy:
+                # Which arm the text takes is the decider's question: the
+                # site is tried in order, and the audit ranks an arm that ends
+                # elsewhere and composes against the winner.
+                notes.hard.extend(
+                    f"{site.label}: arm {i} FIRST hits FOLLOW" for i in greedy
+                )
+                attempt_group(self, arms, site, notes, len(greedy))
 
     def seq_conflicts(
         self, items: Sequence[IrItem], scope: Scope, notes: Notes
@@ -558,41 +588,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         for k, item in enumerate(items):
             self._loop_conflict(items, k, scope, notes)
             sub_conflict(self, items, k, scope, notes)
-            if self._same_ref_extent_split(items, k):
+            if same_ref_extent_split(self.rules, items, k):
                 name = str(item.atom)
                 notes.hard.append(
                     f"{scope.rule}[{k}]: adjacent {name!r} references need "
                     "a leftmost extent split"
                 )
-
-    def _same_ref_extent_split(self, items: Sequence[IrItem], k: int) -> bool:
-        """Whether adjacent required refs need extent-aware splitting.
-
-        A variable-width child followed by another required occurrence of the
-        same rule cannot be cut by a one-character stop set: that assigns all
-        shared FIRST text to the right child. The Earley island owns this cold
-        structural case until the PDA has an extent-aware boundary primitive.
-        """
-        if k + 1 >= len(items):
-            return False
-        left, right = items[k], items[k + 1]
-        if not isinstance(left.atom, IrRuleRef) or not isinstance(
-            right.atom, IrRuleRef
-        ):
-            return False
-        if str(left.atom) != str(right.atom):
-            return False
-        if int(left.quantifier.lo) < 1 or int(right.quantifier.lo) < 1:
-            return False
-        prefixes = KWindowFirst(self.rules, 5).rule_prefixes(str(left.atom), 5)
-        complete = [len(prefix) for prefix, state in prefixes if state == END]
-        if not complete:
-            return any(state == UNK for _prefix, state in prefixes)
-        shortest = min(complete)
-        return any(
-            len(prefix) > shortest and state in (END, MORE)
-            for prefix, state in prefixes
-        )
 
     def _loop_conflict(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
@@ -613,16 +614,14 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 if not demote.demote_loop(self, items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
-                    self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
-                        items, k, scope
-                    )
-                    notes.covered += 1
+                    file_attempt_loop(self, items, k, scope, notes)
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
                     self._stop_set(items, k, scope, notes)
                 elif noise_greedy_licensed(self, items, k, scope):
                     notes.picks_extent(
-                        f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
+                        f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)",
+                        NOISE_GREEDY,
                     )
                 else:
                     notes.hard.append(
@@ -649,39 +648,47 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         hard = self.hard_cont_at(items, k, scope.hard_tail)
         exits = first.subtract(first.subtract(hard))
         if exits.is_empty():
-            notes.picks_extent(f"{note} (runs longest)")
+            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
         elif (
             scope.body
             and not self.taxonomy.delegated
             and stop_exit_settles(
-                FollowWindows(self.rules, self.start, FOLLOW_LOOP_K),
+                self.follows.windows(FOLLOW_LOOP_K),
                 items,
                 k,
                 scope.rule,
                 exits,
             )
         ):
-            notes.picks_extent(f"{note} (exit decided two deep)")
+            notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
         else:
             notes.stop_sets.append(note)
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
-        """The continuation visible only BEYOND the arm after item ``k``.
+        """The attempt licence's audit set: every boundary char the stop side
+        can also go on with, the same-arm rest included.
 
-        The attempt licence's audit set: a boundary char viable via the
-        same-arm rest is a SPLIT (one production carved two ways — the first
-        slot owns the text, greedy take, never refused); only viability via
-        the ENCLOSING tail — reachable when the rest is all-nullable — makes
-        the boundary an arm choice in loop clothing, worth the composition
-        probe. (Subtracting the hard tail here was tried and is UNSOUND —
-        the escape alternative's first char can be hard at another site of
-        the same rule; the union follow keeps the audit alive at the cost of
-        spurious probes, and per-SITE precision is the honest narrowing.)
+        A stop side continuing into the rest of its own arm is a carving of
+        that arm the decider ranks, as much as one continuing past it, so both
+        are audited. A rest-of-arm boundary that two characters already decide
+        is left out (:func:`~.gates.kwindow.stop_exit_settles`): no text
+        continues both ways, so at most one side completes, and an iteration
+        that parsed is the take. That proof reads the end of the input, so a
+        delegate's analysis withholds it.
         """
+        cont = self.cont_at(items, k, scope.structural_tail)
         rest = items[k + 1 :]
-        if all(self.item_nullable(i) for i in rest):
-            return scope.structural_tail
-        return CharSet.EMPTY
+        if all(self.item_nullable(i) for i in rest) or not scope.body:
+            return cont
+        if self.taxonomy.delegated:
+            return cont
+        first = self.atom_first(items[k].atom)
+        exits = first.subtract(first.subtract(self.seq_first(rest)))
+        if stop_exit_settles(
+            self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
+        ):
+            return CharSet.EMPTY
+        return cont
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""

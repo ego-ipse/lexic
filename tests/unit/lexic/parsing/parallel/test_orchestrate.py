@@ -15,7 +15,8 @@ import pytest
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.parsing import DEFAULT_CONFIG, parse_model
+from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
@@ -28,7 +29,7 @@ from lexic.parsing.parallel.plan.cuts import (
 )
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
-from lexic.parsing.parallel.planner import _certified, safe_plans, split_plans
+from lexic.parsing.parallel.planner import certified_plan, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import roles
@@ -39,6 +40,7 @@ from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     ENVELOPE_SOURCE,
     TWO_MARK_SOURCE,
 )
+from tests.unit.lexic.parsing.parsing_helpers import Shortest
 
 BARE_LEAD = 'root ::= word more*\nmore ::= "|" word\nword ::= [a-z]+\n'
 NO_SPLIT = 'root ::= "a" [b-z]+\n'
@@ -85,7 +87,8 @@ factor ::= [0-9]+
 """
 
 
-def _doc(count: int = 40) -> str:
+def sample_doc(count: int = 40) -> str:
+    """A comma-separated document of ``count`` keyed entries."""
     return ", ".join(f"key{'x' * (i % 7)}:{i}" for i in range(count))
 
 
@@ -160,12 +163,48 @@ def test_split_equals_sequential_and_round_trips():
     """The headline: same model, exactly, and the text comes back."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    text = _doc(1000)
+    text = sample_doc(1000)
     parallel = split_model(parse_model, grammar, Request(text, binding), 4)
     assert parallel is not None
     assert parallel == parse_model(grammar, text, binding)
     assert parallel.to_text() == text
     assert compiled.parse(text) == parallel
+
+
+def test_a_decider_of_another_order_parses_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The plans and the proofs a cut rests on are leftmost-longest's, so a
+    decider of another order never asks for a plan: the caller parses whole."""
+    compiled = compile_text(LEAD_RULE)
+
+    def unexpected_plans(*_args, **_kwargs):
+        raise AssertionError("a split plan was asked under another order")
+
+    monkeypatch.setattr(orchestrate, "split_plans", unexpected_plans)
+    config = ParseConfig(decide=Shortest(frozenset()))
+    ask = Request(sample_doc(1000), compiled.product, config)
+    assert split_model(parse_model, compiled.codegen_grammar, ask, 4) is None
+
+
+def test_a_leftmost_longest_decider_granting_less_still_splits() -> None:
+    """The split is keyed by the order, not by the licences: a leftmost-longest
+    decider granting none still divides the document, every chunk parses under
+    that decider, and the model is the sequential one."""
+    compiled = compile_text(LEAD_RULE)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    config = ParseConfig(decide=LeftmostLongest(frozenset()))
+    text = sample_doc(1000)
+    seen: list[ParseConfig] = []
+
+    def watched(grammar, source, binding, config=DEFAULT_CONFIG):
+        seen.append(config)
+        return parse_model(grammar, source, binding, config)
+
+    parallel = split_model(watched, grammar, Request(text, binding, config), 4)
+    assert parallel is not None
+    assert len(seen) > 1 and all(one == config for one in seen)
+    assert parallel == parse_model(grammar, text, binding, config)
 
 
 def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPatch):
@@ -177,7 +216,7 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
     are mapped work: below it the scan is one sweep and never reaches a pool.
     """
     compiled = compile_text(LEAD_RULE)
-    text = _doc(2000)
+    text = sample_doc(2000)
     created = 0
     map_calls = 0
 
@@ -185,8 +224,11 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
         """Public pool-lease seam that executes mapped work synchronously."""
 
         def __init__(self, workers: int):
-            """Record construction while preserving the worker count."""
+            """Record construction while preserving the worker count, the
+            split's lease and the pool's standing — WorkPool's public state."""
             self.workers = workers
+            self.lease = 0
+            self.retired = False
             nonlocal created
             created += 1
 
@@ -225,7 +267,7 @@ def test_every_worker_count_gives_one_answer(cores: int):
     """Worker count moves wall-clock, never the value."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    text = _doc(1000)
+    text = sample_doc(1000)
     assert split_model(
         parse_model, grammar, Request(text, binding), cores
     ) == parse_model(grammar, text, binding)
@@ -413,7 +455,9 @@ def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
 
 
 def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
-    """A nearest unsafe mark gives way to an adjacent mark and three chunks."""
+    """A nearest mark that leaves a piece far under :data:`MIN_PIECE` (the
+    300-character item between two cuts) gives way to an adjacent mark, and
+    all three workers stay."""
     compiled = compile_text(LEAD_RULE)
 
     def item(char: str, body_length: int) -> str:
@@ -421,11 +465,10 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
 
     text = ",".join(
         [
-            item("a", 1998),
-            item("b", 2797),
-            item("c", 1397),
-            item("d", 1297),
-            item("e", 2497),
+            item("a", 3500),
+            item("b", 300),
+            item("c", 1200),
+            item("d", 1200),
         ]
     )
     calls: list[int] = []
@@ -444,7 +487,7 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
 
     assert parallel is not None
     assert parallel.to_text() == text
-    assert sorted(calls) == [2499, 2699, 4800]
+    assert sorted(calls) == [1202, 1505, 3502]
 
 
 def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():
@@ -502,7 +545,7 @@ def test_split_model_settles_too_few_workers_before_entering_poollease(
     monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    assert split_model(parse_model, grammar, Request(_doc(), binding), 1) is None
+    assert split_model(parse_model, grammar, Request(sample_doc(), binding), 1) is None
 
 
 def test_a_bad_input_declines_rather_than_inventing_a_refusal():
@@ -510,7 +553,7 @@ def test_a_bad_input_declines_rather_than_inventing_a_refusal():
     split declines and the caller's sequential parse is what raises."""
     compiled = compile_text(LEAD_RULE)
     grammar, binding = compiled.codegen_grammar, compiled.product
-    bad = _doc() + ", 12:not-a-pair"
+    bad = sample_doc() + ", 12:not-a-pair"
     assert split_plan(grammar) is not None, "the decline must not be 'no plan'"
     assert split_model(parse_model, grammar, Request(bad, binding), 4) is None
     with pytest.raises(UnsupportedConstructError):
@@ -618,7 +661,7 @@ def _certified_cont_plan() -> SplitPlan:
     grammar = compiled.codegen_grammar
     plan = split_plan(grammar)
     assert plan is not None
-    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
+    certified = certified_plan(plan, compiled.split_analysis or compiled.grammar)
     assert certified is not None and certified.bound is not None
     return certified
 
@@ -854,6 +897,24 @@ def test_a_region_losing_its_stand_in_after_its_pieces_left_still_parses_exactly
     opener, closer = dropped[0]
     inside = TWO_RUNS[opener + 1 : closer]
     assert any(text[1:-1] in inside for text in parsed), "its pieces were sent"
+
+
+def test_the_region_find_runs_one_window_per_piece(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a host its pool claims whole, the find walks as many windows as the
+    split plans pieces — one fewer than its workers — and still splits right."""
+    compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    real_find = orchestrate.par_find
+    windows: list[int] = []
+    monkeypatch.setattr(orchestrate, "available_workers", lambda: 16)
+    monkeypatch.setattr(
+        orchestrate, "par_find", lambda *a: windows.append(a[3]) or real_find(*a)
+    )
+    split = split_model(parse_model, grammar, Request(TWO_RUNS, binding), 16)
+    assert windows == [15]
+    assert split == parse_model(grammar, TWO_RUNS, binding)
 
 
 def test_a_dropped_regions_unparsable_piece_cannot_sink_the_split(

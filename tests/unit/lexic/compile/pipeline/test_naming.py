@@ -7,6 +7,7 @@ against real grammars; this file targets naming.py's own pure functions.
 
 from __future__ import annotations
 
+import keyword
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from lexic.compile.pipeline.naming import (
     ruleref_memo,
 )
 from lexic.ir import IrAlternation, IrLiteral, IrRuleRef, IrSequence
+from lexic.model import GrammarModel
 
 
 @pytest.mark.parametrize(
@@ -63,14 +65,14 @@ def test_has_ruleref_false_for_a_ruleref_free_subtree():
 
 def _counted(monkeypatch) -> list[int]:
     """Count ``has_ruleref``'s walks: the returned one-cell list holds them."""
-    real = vars(naming)["_HAS_RULEREF"]
+    real = vars(naming)["HAS_RULEREF"]
     walks = [0]
 
     def apply(node):
         walks[0] += 1
         return real.apply(node)
 
-    monkeypatch.setattr(naming, "_HAS_RULEREF", SimpleNamespace(apply=apply))
+    monkeypatch.setattr(naming, "HAS_RULEREF", SimpleNamespace(apply=apply))
     return walks
 
 
@@ -112,7 +114,7 @@ def test_the_memo_dies_with_the_compile(monkeypatch) -> None:
         monkeypatch.setattr(module, "has_ruleref", counting)
     compile_text('root ::= a b | b\na ::= "x" b\nb ::= [y]+\n', cache_key="memo-scope")
     assert 0 < walks[0] < asked[0], (walks[0], asked[0])
-    assert vars(naming)["_RULEREF_MEMO"].get() is None
+    assert vars(naming)["RULEREF_MEMO"].get() is None
 
 
 def test_charclass_names_cover_the_documented_library_entries():
@@ -121,11 +123,13 @@ def test_charclass_names_cover_the_documented_library_entries():
     assert CHARCLASS_NAMES["[A-Za-z]"] == "letter"
 
 
-def test_reserved_field_names_includes_python_keywords_and_model_methods():
-    """The reserved set covers keywords and the GrammarModel/IrSelf protocol."""
-    assert "class" in RESERVED_FIELD_NAMES  # a Python keyword
-    assert "to_text" in RESERVED_FIELD_NAMES  # a GrammarModel method
-    assert "bind" in RESERVED_FIELD_NAMES  # the inherited spine protocol
+def test_reserved_field_names_cover_keywords_and_the_whole_model_surface():
+    """Every keyword and every public attribute of the REAL ``GrammarModel`` —
+    its own methods and the inherited IrSelf/tuple protocol — is reserved, so a
+    rule named after any of them cannot generate a field that shadows it."""
+    public = {name for name in dir(GrammarModel) if not name.startswith("_")}
+    assert set(keyword.kwlist) <= RESERVED_FIELD_NAMES
+    assert public - RESERVED_FIELD_NAMES == set()
 
 
 def test_a_charclass_library_name_reaches_the_generated_field_name():

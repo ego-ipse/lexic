@@ -17,19 +17,66 @@ entered. This module executes a compiled gate against the text.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.analysis.gates.windows import END, Pref
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
+    DISPATCH_EMPTY,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
     GATE_PEEK,
     GATE_STOP,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
+
+type FlatWindow = tuple[tuple[frozenset[str], bool], ...]
+"""A window as :func:`window_admits` reads it: one ``(chars, negated)`` per
+position."""
+
+EOF_ONLY: tuple[frozenset[str], bool] = (frozenset({""}), False)
+"""A position only the end of the input fills — the EOF sentinel and nothing
+else."""
+
+
+def flat_window(window: tuple[CharSet, ...]) -> FlatWindow:
+    """A CharSet window pre-resolved to the flat form :func:`window_admits` reads."""
+    return tuple((cs.chars, cs.negated) for cs in window)
+
+
+def continuation_windows(windows: tuple[Pref, ...]) -> tuple[FlatWindow, ...]:
+    """An island continuation's windows, as :func:`window_admits` reads them.
+
+    Two readings differ from a k-window gate's, and both are stated here as
+    data, so the window test itself is the gate's one definition:
+
+    - **END** — a window marked complete is a whole continuation through to
+      the end of the input, so it gains one more position only EOF fills
+      (:data:`EOF_ONLY`); MORE and UNK say nothing past their characters.
+    - **none** — no windows is no evidence, and admits: the one empty window.
+
+    Past the end of the input every position reads EOF, which no continuation
+    CharSet holds — they are spelled by literals, classes and their
+    complements, and END marks where a derivation stops — so a window running
+    past the input fails.
+
+    :raises EngineInvariantError: On a continuation CharSet holding EOF.
+    """
+    if not windows:
+        return ((),)
+    out: list[FlatWindow] = []
+    for chars, state in windows:
+        if any("" in cs.chars for cs in chars):
+            raise EngineInvariantError("a continuation window holds the EOF sentinel")
+        flat = flat_window(chars)
+        out.append((*flat, EOF_ONLY) if state == END else flat)
+    return tuple(out)
 
 
 def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:
@@ -117,6 +164,15 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     the stored soft continuation is an arm choice in loop clothing — with no
     sub-run to consult, the terminal loop bails to the gated engine.
 
+    The :data:`GATE_STOP` reading is spelled in place, not called, by every
+    per-character loop that asks it: ``matchers.match_cc``,
+    ``matchers.match_lit``, ``matchers.match_chartable``,
+    ``matchers.match_runtable``, ``PdaKernel._quant_step``,
+    ``KernelExecutionMixin._match_vstr`` and
+    ``KernelExecutionMixin._match_vdisp`` — and ``scanner.scan_gate_take``
+    reads its post-noise take-set the same way. A change to what a stop gate
+    admits is a change to all of them.
+
     :raises PdaFail: A terminal attempt boundary whose char both sets accept.
     """
     if gk == GATE_STOP:
@@ -125,16 +181,18 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         return (ch != "" and ch not in chars) if negated else ch in chars
     if gk == GATE_ATTEMPT:
         return _attempt_admits(text, pos, gate)
-    return _wide_gate_take(text, pos, gk, gate)
+    return wide_gate_take(text, pos, gk, gate)
 
 
-def _wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
+def wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     """The gates that read more than two characters.
 
     Split from :func:`gate_take` so the three one- and two-character kinds —
     the ones a hot loop consults per iteration — keep their comparison and
     return with nothing in front of them. A gate that is about to scan a window,
-    a noise run or a whole tail can afford the call it costs to get here.
+    a noise run or a whole tail can afford the call it costs to get here. The
+    descent loop (``PdaKernel._quant_step``), which settles the stop and attempt
+    kinds itself, calls this one straight.
     """
     if gk == GATE_GREEDY:
         return not _at_the_unit_end(text, pos, gate)
@@ -258,6 +316,111 @@ class KWindowSelect(NamedTuple):
         return None
 
 
+class FiledWindowSelect(NamedTuple):
+    """A :class:`KWindowSelect` filed by first character: the selection at
+    ``pos`` asks only the windows the character there can begin.
+
+    Chosen by :func:`window_select` where filing cuts a window for some
+    character; where it cuts none, the plain selection is already the short
+    one and the filing would be pure overhead.
+
+    :ivar whole: The selection over every entry — the answer at end of input.
+    :ivar first: A character some first position names → the ``(windows,
+        arm)`` entries cut to the windows it can begin, in order.
+    :ivar other: The same cut for every character no first position names.
+    """
+
+    whole: KWindowSelect
+    first: dict[str, tuple[tuple[Any, Any], ...]]
+    other: tuple[tuple[Any, Any], ...]
+
+    label = "k-window"
+
+    @property
+    def entries(self) -> tuple[tuple[Any, Any], ...]:
+        """The ``(windows, arm)`` pairs, uncut."""
+        return self.whole.entries
+
+    @property
+    def arms(self) -> tuple[Any, ...]:
+        """Every arm this selection can choose, gate stripped."""
+        return self.whole.arms
+
+    def with_payloads(
+        self, payloads: tuple[Any, ...]
+    ) -> FiledWindowSelect | KWindowSelect:
+        """This selection over new payloads, the window sets unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: The selection :func:`window_select` files them into.
+        """
+        return window_select(self.whole.with_payloads(payloads).entries)
+
+    def select(self, text: str, pos: int) -> Any:
+        """The payload whose window set matches at ``pos``, or ``None``.
+
+        The two passes are :meth:`KWindowSelect.select`'s, over the cut
+        entries, spelled here rather than called: the call cost about what the
+        cut saves on a selection that drops one window.
+        """
+        if pos >= len(text):
+            return self.whole.select(text, pos)
+        entries = self.first.get(text[pos], self.other)
+        for windows, candidate in entries:
+            if window_admits(text, pos, windows):
+                return candidate
+        for windows, candidate in entries:
+            if window_admits(text, pos, windows, at_eof=True):
+                return candidate
+        return None
+
+
+def window_select(
+    entries: tuple[tuple[Any, Any], ...],
+) -> FiledWindowSelect | KWindowSelect:
+    """The k-window selection over ``entries``, filed by first character where
+    that cuts a window for some character a first position names.
+
+    :param entries: ``(windows, arm)`` pairs, in selection order.
+    :returns: The filed selection, or the plain one when filing cuts nothing.
+    """
+    named = {
+        char
+        for windows, _arm in entries
+        for window in windows
+        if window
+        for char in window[0][0]
+        if char != ""
+    }
+    first = {
+        char: _beginning(
+            entries, lambda chars, negated, char=char: (char in chars) != negated
+        )
+        for char in named
+    }
+    if all(cut == entries for cut in first.values()):
+        return KWindowSelect(entries)
+    return FiledWindowSelect(
+        KWindowSelect(entries),
+        first,
+        _beginning(entries, lambda _chars, negated: negated),
+    )
+
+
+def _beginning(
+    entries: tuple[tuple[Any, Any], ...],
+    admits: Callable[[frozenset[str], bool], bool],
+) -> tuple[tuple[Any, Any], ...]:
+    """``entries`` cut to the windows whose first position ``admits``, in order;
+    an empty window begins with anything, and an entry left with none drops."""
+    out = []
+    for windows, arm in entries:
+        kept = tuple(w for w in windows if not w or admits(*w[0]))
+        if kept:
+            out.append((kept, arm))
+    return tuple(out)
+
+
 class NoiseSkipSelect(NamedTuple):
     """Arms chosen by the first character past a skipped ``W``-noise run.
 
@@ -331,3 +494,88 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
             f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
         )
     return got if got is not None else clone.default
+
+
+# ── arm selection by lookahead — a dispatch's hops, a clone's arm ─────────
+
+
+def chase_dispatch[Carry](
+    clone: FlatClone[Carry], text: str, pos: int
+) -> FlatClone[Carry] | None:
+    """Chase a frame-less dispatch alternation to its concrete target clone.
+
+    The selection a dispatch alternation IS, per hop: a clone carrying a wide
+    selection asks that selection, and one without walks its lead-char
+    selectors. A chain may mix the two in any order — a lead-char dispatch can
+    land on a window-gated one and the reverse — so both live in this one
+    implementation, and the kernel's entry path, :meth:`_settle` and the
+    inline :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` matcher
+    refuse in the same words at the same position.
+
+    The position does NOT move across the chase: every hop selects at ``pos``,
+    which is what makes the landed clone face exactly the cursor the elided
+    frames would have handed it.
+
+    A clone with no wide selection pays one attribute load and an ``is None``
+    per hop — the loop reads ``wide_selectors`` where it already read ``mode``
+    — and then runs the lead-char walk unchanged, with the lookahead character
+    taken once before the loop rather than per hop.
+
+    :param clone: A ``BUILD_DISPATCH`` clone.
+    :param text: The document, for a wide selection's own match.
+    :param pos: The cursor position, for the selection and for the refusal.
+    :returns: The concrete target clone, or ``None`` on the empty (nullable)
+        arm — the caller then consumes nothing.
+    :raises PdaFail: When no selector matches and there is no default.
+    """
+    try:  # the lookahead: indexing, and end of input as the rare exception
+        char = text[pos]
+    except IndexError:
+        char = ""
+    while clone.mode == BUILD_DISPATCH:
+        wide = clone.wide_selectors
+        if wide is None:
+            nxt = None
+            for chars, negated, target in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    nxt = target
+                    break
+        else:
+            nxt = wide.select(text, pos)
+        if nxt is None:
+            nxt = clone.default
+            if nxt is None:
+                if wide is not None:
+                    # A wide clone's miss is the refusal `select_gated` raised
+                    # before this clone was a dispatch — same rule, same
+                    # wanted set. A bare refusal here would name no rule, and
+                    # the document would be refused by an anonymous path.
+                    raise PdaFail(
+                        f"no arm at {pos}",
+                        pos,
+                        rule=clone.name,
+                        wanted=arm_expected(clone),
+                    )
+                # A lead-char miss keeps the words it always had: the
+                # `chartotal` refusal below mirrors them verbatim.
+                raise PdaFail(f"no arm at {pos}", pos)
+            if nxt is DISPATCH_EMPTY:
+                return None
+        clone = nxt
+    return clone
+
+
+def select_arm[Carry](clone: FlatClone[Carry], char: str, pos: int) -> FlatArm:
+    """The clone's FIRST-gated arm at lookahead ``char``, or its default.
+
+    :raises PdaFail: When no arm's FIRST matches and there is no default.
+    """
+    for chars, negated, candidate in clone.selectors:
+        if (char != "" and char not in chars) if negated else char in chars:
+            return candidate
+    default = clone.default
+    if default is None:
+        raise PdaFail(
+            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
+        )
+    return default

@@ -16,7 +16,7 @@ from lexic.ir.spine.scalars import IrStr
 from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
 
 
-class _Return(BaseException):
+class ReturnSignal(BaseException):
     """Control-flow exception raised by :class:`IrReturn`.
 
     Inherits :class:`BaseException` (not :class:`Exception`) so
@@ -154,11 +154,11 @@ class IrPass(IrLeaf[IrSelf, IrSelf]):
         return IrNone
 
 
-class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
+class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], ReturnSignal):
     """Short-circuit IR node that IS-A control-flow exception.
 
     ``IrReturn`` mixes :class:`IrNode` (structural IR contract) with
-    :class:`_Return` (BaseException machinery). Both are object-based — unlike a
+    :class:`ReturnSignal` (BaseException machinery). Both are object-based — unlike a
     tuple, they coexist with ``BaseException``'s instance layout — so it is a
     plain :class:`IrNode` leaf, not an :class:`IrNamedTuple`. ``eval`` raises
     ``self``; the dispatcher catches the instance and surfaces ``self.value`` or
@@ -177,7 +177,7 @@ class IrReturn[Ir_co: IrSelf](IrNode[IrSelf, Ir_co], _Return):
         :param lazy_eval: When ``True``, an ``IrSelf`` value is ``eval``\\ ed
             before the exception unwinds.
         """
-        _Return.__init__(self, value)
+        ReturnSignal.__init__(self, value)
         self.lazy_eval = lazy_eval
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> Ir_co:

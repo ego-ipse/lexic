@@ -24,13 +24,13 @@ from lexic.compile import (
 from lexic.compile.module import export
 from lexic.compile.module.export import (
     WIDTH,
-    _group_model_type,
-    _ws_inl_leak,
     docstring_lines,
     field_type,
+    group_model_type,
     value_str_type,
+    ws_inl_leak,
 )
-from lexic.compile.pipeline.naming import _RESERVED_CLASS_NAMES
+from lexic.compile.pipeline.naming import RESERVED_CLASS_NAMES
 from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.grammars import get_flavour
 from lexic.ir import (
@@ -124,10 +124,10 @@ def test_ws_inl_leak_guard_shape():
     """The guard flags a value-final token (name/``)``) with a newline before
     its delimiter, but not the valid AFTER-``(``/``,`` layout breaks (whose
     ``ws`` DOES cross a newline in the module self-grammar)."""
-    assert _ws_inl_leak("IrNone\n)")
-    assert _ws_inl_leak("IrRange(a, b)\n,")
-    assert not _ws_inl_leak("IrCharClass(\n    IrRange")  # break after (
-    assert not _ws_inl_leak("IrRange(a, b),\n    )")  # break after ,
+    assert ws_inl_leak("IrNone\n)")
+    assert ws_inl_leak("IrRange(a, b)\n,")
+    assert not ws_inl_leak("IrCharClass(\n    IrRange")  # break after (
+    assert not ws_inl_leak("IrRange(a, b),\n    )")  # break after ,
 
 
 def test_ws_inl_leak_does_not_stop_at_a_leading_newline():
@@ -137,23 +137,23 @@ def test_ws_inl_leak_does_not_stop_at_a_leading_newline():
     leak went unreported — and the caller RAISES on a leak, so a false negative
     ships a broken twin in silence.
     """
-    assert _ws_inl_leak("\na\n,") == "a\n,"
-    assert _ws_inl_leak("\n\n\nx\n  )") == "x\n  )"
+    assert ws_inl_leak("\na\n,") == "a\n,"
+    assert ws_inl_leak("\n\n\nx\n  )") == "x\n  )"
 
 
 def test_ws_inl_leak_reports_the_offending_slice():
     """The refusal quotes the text it objected to, delimiter included."""
-    assert _ws_inl_leak("IrRange(a, b)\n   ,") == ")\n   ,"
-    assert _ws_inl_leak("a\nb\n)") == "b\n)"
+    assert ws_inl_leak("IrRange(a, b)\n   ,") == ")\n   ,"
+    assert ws_inl_leak("a\nb\n)") == "b\n)"
 
 
 def test_ws_inl_leak_word_test_is_unicode_like_the_pattern_it_replaced():
     """``\\w`` is ``isalnum() or "_"`` — a Unicode letter or digit counts."""
-    assert _ws_inl_leak("é\n)")
-    assert _ws_inl_leak("٣\n)")  # ARABIC-INDIC DIGIT THREE
-    assert _ws_inl_leak("_\n)")
-    assert not _ws_inl_leak("!\n)")
-    assert not _ws_inl_leak(" \n)")
+    assert ws_inl_leak("é\n)")
+    assert ws_inl_leak("٣\n)")  # ARABIC-INDIC DIGIT THREE
+    assert ws_inl_leak("_\n)")
+    assert not ws_inl_leak("!\n)")
+    assert not ws_inl_leak(" \n)")
 
 
 @pytest.mark.parametrize("stem", ["list", "json_ws", "arithmetic"])
@@ -164,7 +164,7 @@ def test_export_notation_never_leaks_a_newline_before_a_delimiter(stem: str):
     for inline_tables in (False, True):
         source = export_source(cg, stem=stem, inline_tables=inline_tables)
         grammar_region = source.split("GRAMMAR: IrAst = ", 1)[1]
-        assert not _ws_inl_leak(grammar_region)
+        assert not ws_inl_leak(grammar_region)
 
 
 # ── field typing / optional defaults / union groups ───────────────────────
@@ -190,7 +190,7 @@ def test_group_model_union_type_lists_every_arm_class_once():
         IrSequence(IrItem(IrRuleRef("a"))), IrSequence(IrItem(IrRuleRef("b")))
     )
     class_by_rule = {"a": "A", "b": "B"}
-    assert _group_model_type(alt, class_by_rule) == "A | B"
+    assert group_model_type(alt, class_by_rule) == "A | B"
 
 
 def test_value_str_pure_literal_alternation_types_as_literal():
@@ -271,7 +271,7 @@ def test_reserved_class_names_cover_the_export_header():
             source = export_source(cg, inline_tables=inline_tables)
             shadowable |= header_bound_names(source)
     shadowable -= {name for name in shadowable if not name[:1].isupper()}
-    assert shadowable <= _RESERVED_CLASS_NAMES
+    assert shadowable <= RESERVED_CLASS_NAMES
 
 
 # ── public entry surface ──────────────────────────────────────────────────

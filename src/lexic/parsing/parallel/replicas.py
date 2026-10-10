@@ -21,6 +21,17 @@ two live pools would issue the same numbers against one list, and a length read
 followed by an append over-allocates when several threads first-touch a pair at
 once.
 
+**A replica's tables are a COPY, not a compile.** A minted view is declared
+to the product layer (:func:`~lexic.parsing.products.declare_replica`), and
+every product it asks for is the original's, compiled once — whichever thread
+asked first — and copied onto the asking thread
+(:meth:`~lexic.parsing.executable.ModelExecutable.copied`). An island or a
+delegate the copy has not met yet is compiled on the original too and copied
+again. So what a grammar compiles is a function of the grammar and the
+documents; how many copies exist is not. Replicas are a runtime cache bounded
+by the pool: one copy per thread that took a chunk of the pair, released with
+that thread, which is a number the scheduler decides.
+
 The models stay identical because the replica is equal by value and holds the
 SAME synthesized classes. That sharing is a NECESSITY rather than a compromise
 — two workers building two different classes for one rule would break model
@@ -33,14 +44,22 @@ not where the remaining ceiling sits.
 from __future__ import annotations
 
 import threading
+from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
+from functools import partial
 from typing import NamedTuple
-from weakref import finalize
+from weakref import finalize, ref
 
+from lexic.exceptions import LexicError
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, release
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
+from lexic.parsing.parallel.pool import WorkPool, running_lease, taking_back
+from lexic.parsing.products import declare_replica, model_product
 
 type Replica[M] = tuple[IrAst, ModelExecutable[M]]
 """One worker's private view: an equal grammar, and a binding copy."""
@@ -67,11 +86,15 @@ class _Mine[M](NamedTuple):
     :ivar grammar: The key grammar, identity-checked on read.
     :ivar binding: The key binding, likewise.
     :ivar replica: What this thread parses against for that pair.
+    :ivar met: The split this thread first met the pair in, while
+        :attr:`replica` is still the ORIGINAL pair; ``None`` once the thread
+        has earned a copy of its own.
     """
 
     grammar: IrAst
     binding: ModelExecutable[M]
     replica: Replica[M]
+    met: int | None
 
 
 class _Issued[M](NamedTuple):
@@ -103,7 +126,19 @@ thread-local on every parse afterwards, so no lock and no shared lookup is on
 the paid path. Without it, N threads first-touching one pair all read the same
 old population and mint against it: 16 concurrent requests for 17 replicas
 produced 23 to 32 of them.
+
+**Never awaited by a finalizer.** A thread's exit is signalled by a weakref
+finalizer (:func:`_arm`), and a finalizer runs on whatever thread the collector
+happens to run on — including one that already holds this lock, mid-claim or
+mid-release, where releasing a claim frees the very object whose finalizer
+retires another thread. A finalizer that waited here waited on itself. So it
+only queues (:data:`_RETIRING`), and takes the lock only if it is free; every
+holder drains the queue before it lets go (:func:`_minted`).
 """
+
+_RETIRING: deque[threading.Thread] = deque()
+"""Exited threads whose claims are still to be released, queued by their
+finalizers and drained by whichever thread holds :data:`_MINTING` next."""
 
 
 # A sentinel has no interface by design: nothing is ever read off it, and its
@@ -143,6 +178,7 @@ def _mint[M](
     """
     view = grammar if document else IrAst(grammar.rules, grammar.start)
     replica = (view, binding.replica())
+    declare_replica(grammar, binding, *replica)
     # A minted half exists to get its OWN memo entries — tables, products, run
     # analyses. They live under this entry, so they release with it — under
     # BOTH key identities, because either one retires the entry and neither
@@ -215,6 +251,9 @@ def retire_thread(thread: threading.Thread) -> None:
     being torn down, where the call returns a dummy thread and would match
     nothing.
 
+    It never waits: the thread is queued, and released here only if the lock
+    is free — otherwise by the thread holding it, before it lets go.
+
     This is what makes the release independent of any later parse.
     :func:`_reclaim` prunes only the pair being claimed against, so a pair no
     document touches again keeps its dead claims for the life of the process —
@@ -222,16 +261,69 @@ def retire_thread(thread: threading.Thread) -> None:
 
     :param thread: The worker whose claims are to be dropped.
     """
-    with _MINTING:
-        # A SNAPSHOT, because releasing a claim can pop entries from the
-        # registry being walked: a second document thread's binding replica is
-        # another entry's key, and its release drops that entry. Iterating the
-        # live view raised `dictionary changed size during iteration` inside
-        # the finalizer, where the exception is printed and swallowed — so the
-        # loop stopped and every later entry kept this thread's claims, which
-        # is the leak this function exists to remove.
-        for entry in tuple(_REPLICAS.values()):
-            _drop(entry, [held for held in entry.held if held.owner is thread])
+    _RETIRING.append(thread)
+    _drain_if_free()
+
+
+def _retire(thread: threading.Thread) -> None:
+    """Drop every claim ``thread`` holds; the caller holds :data:`_MINTING`."""
+    # A SNAPSHOT, because releasing a claim can pop entries from the registry
+    # being walked: a second document thread's binding replica is another
+    # entry's key, and its release drops that entry. Iterating the live view
+    # raised `dictionary changed size during iteration` inside the finalizer,
+    # where the exception is printed and swallowed — so the loop stopped and
+    # every later entry kept this thread's claims, which is the leak
+    # `retire_thread` exists to remove.
+    for entry in tuple(_REPLICAS.values()):
+        _drop(entry, [held for held in entry.held if held.owner is thread])
+
+
+@contextmanager
+def _minted() -> Iterator[None]:
+    """Hold :data:`_MINTING` for one synchronised step, and leave it drained."""
+    _MINTING.acquire()
+    try:
+        yield
+    finally:
+        _release_minting()
+
+
+def _release_minting() -> None:
+    """Retire every thread queued while the lock was held, then release it.
+
+    Asked again once released: a finalizer that queued in between found the
+    lock taken and left its thread for the holder. A retirement that queues
+    DURING the drain — a released claim freeing another exited thread's
+    marker — is picked up by the same loop.
+    """
+    try:
+        while _RETIRING:
+            _retire(_RETIRING.popleft())
+    finally:
+        _MINTING.release()
+        # Even when a retirement raised: the rest of the queue is still owed.
+        if _RETIRING:
+            _drain_if_free()
+
+
+def _drain_if_free() -> None:
+    """Release the queued retirements now, unless another holder will."""
+    with _drained_if_free():
+        return
+
+
+@contextmanager
+def _drained_if_free() -> Iterator[None]:
+    """Hold :data:`_MINTING` only if it is free right now, and leave it
+    drained; a lock held elsewhere is drained by its holder before it lets go,
+    so this never waits."""
+    if not _MINTING.acquire(blocking=False):
+        yield
+        return
+    try:
+        yield
+    finally:
+        _release_minting()
 
 
 def _arm(thread: threading.Thread) -> None:
@@ -281,7 +373,7 @@ def _claim[M](
     live thread holds it, which also means a single-threaded program compiles
     no second set of tables.
     """
-    with _MINTING:
+    with _minted():
         entry = _REPLICAS.get(key)
         if entry is None:
             entry = _Issued(grammar, binding, [])
@@ -305,11 +397,10 @@ def _claim[M](
 
 
 def _resolve[M](
-    mine: dict[tuple[int, int], _Mine],
-    key: tuple[int, int],
     grammar: IrAst,
     binding: ModelExecutable[M],
     document: bool,
+    share_first: bool = True,
 ) -> Replica[M]:
     """Claim a pair this thread has not cached, and prune what died.
 
@@ -320,26 +411,189 @@ def _resolve[M](
     cache is the one place with no release path to do it for us. The shared
     registry is keyed identically and IS released, so it is the liveness oracle.
     """
+    mine = _thread_cache()
+    key = (id(grammar), id(binding))
     for stale in [at for at in mine if at not in _REPLICAS]:
         del mine[stale]
+    lease = None if document or not share_first else running_lease()
+    if lease is not None and key not in mine:
+        # A worker's first split of this pair runs on the original: a copy
+        # pays only where the pair is met again — and then all at once, every
+        # worker before the next split's pieces (:func:`warm_due`).
+        _register(key, grammar, binding)
+        mine[key] = _Mine(grammar, binding, (grammar, binding), lease)
+        FIRST_MEETINGS[(lease, *key)] = (grammar, binding)
+        return grammar, binding
     replica = _claim(key, grammar, binding, document)
-    mine[key] = _Mine(grammar, binding, replica)
+    mine[key] = _Mine(grammar, binding, replica, None)
     return replica
 
 
-def _view[M](grammar: IrAst, binding: ModelExecutable[M], document: bool) -> Replica[M]:
-    """This thread's view of the pair — cached, or claimed and then cached."""
-    mine = getattr(_ASSIGNED, "cache", None)
-    if mine is None:
-        mine = _ASSIGNED.cache = {}
-    key = (id(grammar), id(binding))
-    got = mine.get(key)
+def _register(key: tuple[int, int], grammar: IrAst, binding: ModelExecutable) -> None:
+    """Enter the pair in the registry without claiming a copy, so a thread's
+    cached first meeting lives exactly as long as the pair does."""
+    with _minted():
+        if _REPLICAS.get(key) is None:
+            _REPLICAS[key] = _Issued(grammar, binding, [])
+
+
+def _view[M](
+    grammar: IrAst,
+    binding: ModelExecutable[M],
+    document: bool,
+    share_first: bool = True,
+) -> Replica[M]:
+    """This thread's view of the pair — cached, or claimed and then cached.
+
+    ``share_first=False`` asks for this thread's own copy outright: a cached
+    first meeting (still the original) does not answer it.
+    """
+    got = _thread_cache().get((id(grammar), id(binding)))
     # Positional, not by name: this runs once per parse and a NamedTuple's
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
     if got is not None and got[0] is grammar and got[1] is binding:
-        return got[2]
-    return _resolve(mine, key, grammar, binding, document)
+        met = got[3]
+        if met is None or (share_first and met == running_lease()):
+            return got[2]
+    return _resolve(grammar, binding, document, share_first)
+
+
+def _thread_cache() -> dict[tuple[int, int], _Mine]:
+    """The calling thread's own replica cache, made on first use."""
+    mine = getattr(_ASSIGNED, "cache", None)
+    if mine is None:
+        mine = _ASSIGNED.cache = {}
+    return mine
+
+
+FIRST_MEETINGS: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
+"""``(lease, id(grammar), id(binding))`` → a pair a worker met for the FIRST time
+in that split, still read through the original; settled into :data:`_DUE`."""
+
+_DUE: dict[
+    tuple[int, int],
+    tuple[ref[WorkPool], ModelExecutable, dict[tuple[int, int], Replica]],
+] = memo({}, 1)
+"""``(id(pool), id(document binding))`` → the pairs that pool's workers met first
+while splitting through that binding, due a copy on its next split through it.
+Keyed by the binding because every piece parses through it, so the pairs retire
+with it and a one-shot split's are never copied for an unrelated one; the pool
+is held weakly and its entry goes with it."""
+
+WARM_WAIT = 5.0
+"""Seconds a warm task waits for its pool's every worker to ARRIVE (the copy runs
+after); past it the barrier breaks, the warm is skipped and counted."""
+
+WARMED, BROKEN, REFUSED = 0, 1, 2
+"""How one pair's warm ended: copied everywhere, barrier broken, or refused."""
+
+
+class _WarmTally:
+    """Every warm's outcome so far, so a broken barrier is never silent."""
+
+    __slots__ = ("counts", "lock")
+
+    def __init__(self) -> None:
+        """Start every outcome at zero."""
+        self.counts, self.lock = [0, 0, 0], threading.Lock()
+
+    def add(self, outcome: int) -> None:
+        """Count one pair's warm."""
+        with self.lock:
+            self.counts[outcome] += 1
+
+    def census(self) -> tuple[int, int, int]:
+        """``(warmed, broken, refused)`` so far."""
+        with self.lock:
+            return self.counts[WARMED], self.counts[BROKEN], self.counts[REFUSED]
+
+
+_TALLY = _WarmTally()
+
+
+def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
+    """At a split's end, its workers' first meetings become due on ``pool``.
+
+    :param pool: The pool the split ran on.
+    :param document: The split document's executable view.
+    """
+    # A snapshot: other pools' workers file into the same memo meanwhile.
+    met = [key for key in FIRST_MEETINGS.copy() if key[0] == pool.lease]
+    pairs = {
+        key[1:]: pair
+        for key in met
+        if (pair := FIRST_MEETINGS.pop(key, None)) is not None
+    }
+    key = (id(pool), id(document))
+    if pool.retired:
+        _DUE.pop(key, None)
+        return
+    if not pairs:
+        return
+    entry = _DUE.get(key)
+    if entry is None or entry[0]() is not pool or entry[1] is not document:
+        entry = _DUE[key] = (ref(pool, partial(_forget, key)), document, {})
+    entry[2].update(pairs)
+
+
+def _forget(key: tuple[int, int], gone: ref[WorkPool]) -> None:
+    """A collected pool's due entry goes with it, unless ``key`` was reused."""
+    entry = _DUE.get(key)
+    if entry is not None and entry[0] is gone:
+        _DUE.pop(key, None)
+
+
+def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
+    """At a split's start, every worker of ``pool`` copies each pair due for
+    ``document``: one task per worker per pair behind a barrier, so each thread
+    copies once, in parallel, and never inside a piece. A refusing copy ends
+    the warm; anything else is a bug and leaves as :meth:`WorkPool.map`'s do.
+
+    :param pool: The pool about to split a document.
+    :param document: That document's executable view.
+    """
+    entry = _DUE.pop((id(pool), id(document)), None)
+    if (
+        entry is None
+        or entry[0]() is not pool
+        or entry[1] is not document
+        or pool.retired
+    ):
+        return
+    for grammar, binding in entry[2].values():
+        arrive = threading.Barrier(pool.workers, timeout=WARM_WAIT)
+        try:
+            pool.map(
+                partial(_warm, grammar, binding, arrive), list(range(pool.workers))
+            )
+        except LexicError:  # an optimisation never decides the parse
+            _TALLY.add(REFUSED)
+            return
+        _TALLY.add(BROKEN if arrive.broken else WARMED)
+
+
+def _warm(
+    grammar: IrAst, binding: ModelExecutable, arrive: threading.Barrier, _slot: int
+) -> None:
+    """One worker's copy of the pair, its product at the tier every piece under
+    2**28 characters parses at, and every island the original has met."""
+    try:
+        arrive.wait()
+    except threading.BrokenBarrierError:
+        return
+    view_grammar, view_binding = _view(grammar, binding, False, share_first=False)
+    model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_islands()
+
+
+def warm_census() -> tuple[int, int, int]:
+    """``(warmed, broken, refused)`` warms, process-wide."""
+    return _TALLY.census()
+
+
+def due_census() -> tuple[tuple[int, int], ...]:
+    """Every ``(id(pool), id(document binding))`` a warm is still owed for."""
+    return tuple(_DUE.copy())
 
 
 def worker_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:
@@ -398,9 +652,9 @@ def worker_parse[M](
 ) -> M:
     """Parse ``text`` against the CALLING worker thread's own view of ``grammar``.
 
-    **Call it from inside the work, never from the submitting thread.** The
-    view belongs to the thread, not to the task, and the submitting thread has
-    its own — so no worker ever reads objects that thread allocated.
+    **Call it from inside the work.** The view belongs to the thread, not to
+    the task, so no worker ever reads objects the submitting thread allocated;
+    an item the submitting thread takes back reads that thread's own view.
 
     :param parse: The model product, injected by the caller.
     :param grammar: The grammar this chunk is parsed against.
@@ -409,7 +663,7 @@ def worker_parse[M](
     :param config: The caller's resolver and split decider.
     :returns: The chunk's model.
     """
-    view_grammar, view_binding = worker_replica(grammar, binding)
+    view_grammar, view_binding = _view(grammar, binding, taking_back())
     return parse(view_grammar, text, view_binding, config)
 
 
@@ -423,7 +677,7 @@ def claim_census() -> tuple[int, int]:
 
     :returns: ``(live, dead)`` claim counts.
     """
-    with _MINTING:
+    with _minted():
         owners = [held.owner for entry in _REPLICAS.values() for held in entry.held]
     live = sum(owner.is_alive() for owner in owners)
     return live, len(owners) - live

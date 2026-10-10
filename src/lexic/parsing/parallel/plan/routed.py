@@ -25,21 +25,24 @@ interior ends at its last mark, and a separated spine does not.
 
 from __future__ import annotations
 
+from functools import partial
+from operator import add
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.regions import Region, nearest_mark
+from lexic.parsing.parallel.discovery.regions import Cutting, Region, floor_cuts
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
     emit_charset,
+    exact_text,
     first_charset,
     literal_text,
     rule_emits,
     unbounded,
 )
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import terminates_once
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -127,7 +130,7 @@ class RoutedPlan(NamedTuple):
     after: str = ""
 
 
-def _optional_ref(item: IrItem) -> str | None:
+def optional_ref(item: IrItem) -> str | None:
     """The rule an optional single-occurrence item references."""
     atom = item.atom
     optional = item.quantifier.lo == 0 and not unbounded(item)
@@ -275,7 +278,7 @@ def _derive_routed(grammar: IrAst) -> RoutedPlan | None:
     arms = tuple(start.body) if start is not None else ()
     items = tuple(arms[0]) if len(arms) == 1 else ()
     for at, item in enumerate(items):
-        found = _routed_at(grammar, rules, items, at) if _optional_ref(item) else None
+        found = _routed_at(grammar, rules, items, at) if optional_ref(item) else None
         if found is not None:
             return found
     for at, item in enumerate(items):
@@ -421,54 +424,20 @@ def _spelled_run(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> str | N
     """What a run of arm items spells, or ``None`` when any of them cannot.
 
     A whole-extent interior is bounded by its neighbours' widths, so every
-    neighbour has to spell a fixed string. One that does not — a repetition, a
-    character class — leaves the interior's start unknowable without parsing,
-    and the plan declines rather than guessing at it.
+    neighbour has to spell ONE fixed string every time it occurs:
+    :func:`~...discovery.shapes.exact_text`, which reads an item only at its
+    exactly-once quantifier. A repetition, a bounded one included, or a
+    character class leaves the interior's start unknowable without parsing,
+    and the plan declines rather than guessing at it — ``pre{1,2}`` read as
+    one ``pre`` placed every piece behind a prefix the document did not have.
     """
     out: list[str] = []
     for item in items:
-        spelled = _spelled_item(item, rules, frozenset())
-        if spelled is None:
+        spelled = exact_text(item, rules, frozenset())
+        if not spelled:
             return None
         out.append(spelled)
     return "".join(out)
-
-
-def _spelled_item(
-    item: IrItem, rules: dict[str, IrRule], seen: frozenset[str]
-) -> str | None:
-    """What one item spells, resolving a single-armed rule of its own.
-
-    :func:`literal_text` resolves through a rule whose arm is ONE item, which
-    is what a delimiter needs. A neighbour is not a delimiter: ``open ::= "<<<"
-    nl`` spells a fixed string through two items, and refusing it leaves a
-    whole-extent interior unservable for a reason that has nothing to do with
-    its terminator. So a single-armed rule is spelled item by item here.
-
-    Only where every item spells one — a repetition or a character class still
-    declines, because the interior's start would then be unknowable without
-    parsing. ``seen`` bounds a recursive neighbour.
-    """
-    direct = literal_text(item, rules)
-    if direct is not None:
-        return direct
-    atom = item.atom
-    if not isinstance(atom, IrRuleRef) or item.quantifier.lo != 1:
-        return None
-    name = str(atom)
-    target = rules.get(name)
-    arms = tuple(target.body) if target is not None else ()
-    if len(arms) != 1 or name in seen or unbounded(item):
-        return None
-    parts = []
-    for inner in tuple(arms[0]):
-        if not isinstance(inner, IrItem):
-            return None
-        spelled = _spelled_item(inner, rules, seen | {name})
-        if spelled is None:
-            return None
-        parts.append(spelled)
-    return "".join(parts)
 
 
 def _routed_at(
@@ -478,7 +447,7 @@ def _routed_at(
     at: int,
 ) -> RoutedPlan | None:
     """The plan the optional item at ``at`` admits, if every proof holds."""
-    target = rules.get(_optional_ref(items[at]) or "")
+    target = rules.get(optional_ref(items[at]) or "")
     if target is None:
         return None
     for index, arm in enumerate(target.body):
@@ -580,6 +549,11 @@ def _whole_region(text: str, plan: RoutedPlan) -> Region | None:
     return Region(lo - 1, tail, plan.rule, marks)
 
 
+_after_terminator = partial(add, 1)
+"""Where the piece after a cut at a terminator starts: one past it, since a
+terminated unit owns its final character."""
+
+
 def _tail_closer(text: str, plan: RoutedPlan) -> int | None:
     """The closing character at the document's end, behind its allowed tail."""
     at = len(text) - 1
@@ -619,22 +593,21 @@ def divide(
     instead, which would leave every piece here missing an edge.
     """
     lo, hi = region.opener + 1, region.closer
-    # The user-pinned floor applies to ACTUAL pieces, not just the document:
-    # capacity caps the division as the region partition's floor does,
-    # so a small interior at a high worker count declines rather than paying
-    # sub-2 KiB parses.
-    workers = min(workers, (hi - lo) // MIN_CHUNK)
-    if workers < 2 or not region.marks:
+    if not region.marks:
         return None
-    target = (hi - lo) / workers
-    cuts: list[int] = []
-    for step in range(1, workers):
-        after = nearest_mark(region.marks, lo + step * target) + 1
-        if after not in cuts and after < hi:
-            cuts.append(after)
-    bounds = [lo, *cuts, hi]
-    widest = max(bounds[at + 1] - bounds[at] for at in range(len(bounds) - 1))
-    if len(bounds) < 3 or widest > 2 * target:
+    # The worker count is capped by the floor; the cuts land on marks, so a
+    # piece can fall short of its share, and fewer workers are tried only when
+    # one falls under `MIN_PIECE`. A cut lands just past a terminator, which
+    # its unit owns: the piece before keeps it.
+    cutting: Cutting = (region.marks, (lo, hi), _after_terminator, (True, 1))
+    for count in range(min(workers, capacity(hi - lo)), 1, -1):
+        found = floor_cuts(cutting, count)
+        if found is None:
+            continue
+        bounds = [lo, *found[1], hi]
+        if max(b - a for a, b in zip(bounds, bounds[1:])) <= 2 * (hi - lo) / count:
+            break
+    else:
         return None
     if plan.whole:
         # A whole-extent piece parses under the START rule, so it must wear
@@ -643,11 +616,11 @@ def divide(
         # lines and nothing else; for `root ::= open body close` they are the
         # opener and closer, without which the piece derives nothing at all.
         return [
-            plan.before + text[bounds[at] : bounds[at + 1]] + plan.closing + plan.after
+            f"{plan.before}{text[bounds[at] : bounds[at + 1]]}{plan.closing}{plan.after}"
             for at in range(len(bounds) - 1)
         ]
     opening, closing = text[region.opener], text[region.closer]
     return [
-        opening + text[bounds[at] : bounds[at + 1]] + closing
+        f"{opening}{text[bounds[at] : bounds[at + 1]]}{closing}"
         for at in range(len(bounds) - 1)
     ]

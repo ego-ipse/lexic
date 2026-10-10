@@ -85,14 +85,14 @@ def _resolve_inner(inner: IrSelf, encoding: IrEncoding) -> IrAtom:
             )
         return IrCharClass(ordinal)
     if isinstance(inner, IrCharClass):
-        _check_universe(inner, encoding)
+        check_universe(inner, encoding)
         return inner
     raise UnsupportedConstructError(
         f"cannot resolve {type(inner).__name__} inside an alphabet"
     )
 
 
-def _check_universe(charclass: IrCharClass, encoding: IrEncoding) -> None:
+def check_universe(charclass: IrCharClass, encoding: IrEncoding) -> None:
     """Raise if any id in an id-form class lies outside the encoding's universe.
 
     ``universe`` is derived, not stored — on a tokenizer it is a max over the

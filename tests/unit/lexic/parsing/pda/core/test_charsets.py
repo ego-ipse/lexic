@@ -15,7 +15,7 @@ import hypothesis.strategies as st
 from hypothesis import given, settings
 
 from lexic.ir import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
-from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet, _expanded
+from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet, expanded
 
 A = frozenset({"a", "b"})
 B = frozenset({"b", "c"})
@@ -320,7 +320,7 @@ def test_from_not_stays_any_when_inner_exceeds_the_cap_on_both_sides():
     assert CharSet.from_not(cc) == CharSet.ANY
 
 
-# ── _expanded — the value memo (I11b) ────────────────────────────────────
+# ── expanded — the value memo (I11b) ────────────────────────────────────
 #
 # An IrCharClass IS its value, so from_charclass's memo keys on VALUE, not
 # identity: two distinct objects built from the same intervals must expand to
@@ -363,13 +363,13 @@ def test_expanded_hit_is_visible_on_the_underlying_lru_cache():
     """The memo hit is not just inferred from object identity — the LRU's own
     accounting agrees, over a fresh cache so an unrelated prior population
     cannot mask a miss as a hit."""
-    _expanded.cache_clear()
+    expanded.cache_clear()
     cc_first = IrCharClass(IrRange(IrChr("p"), IrChr("s")))
     cc_second = IrCharClass(IrRange(IrChr("p"), IrChr("s")))
     CharSet.from_charclass(cc_first)
-    before = _expanded.cache_info()
+    before = expanded.cache_info()
     CharSet.from_charclass(cc_second)
-    after = _expanded.cache_info()
+    after = expanded.cache_info()
     assert after.hits == before.hits + 1
     assert after.misses == before.misses
 

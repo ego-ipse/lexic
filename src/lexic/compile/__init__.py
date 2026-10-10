@@ -135,7 +135,7 @@ __all__ = [
 ]
 
 
-def _flavour_reducer(flavour: IrFlavour) -> _Reducer:
+def flavour_reducer(flavour: IrFlavour) -> _Reducer:
     """The flavour's :class:`Reducer`, narrowed once — the single home for the check.
 
     :param flavour: The grammar flavour.
@@ -202,7 +202,7 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
     :raises UnsupportedConstructError: If the flavour carries no ``Reducer``,
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
-    reducer = _flavour_reducer(flavour)
+    reducer = flavour_reducer(flavour)
     self_grammar = compile_ast(flavour.grammar, cache_key="parse-grammar")
     reduced = self_grammar.reduce(text, reducer)
     if not isinstance(reduced, IrAst):
@@ -309,7 +309,7 @@ def _directive_bodies(text: str, flavour: IrFlavour) -> list[str]:
     return bodies
 
 
-def _scan_directives(
+def scan_directives(
     text: str, flavour: IrFlavour
 ) -> tuple[str | None, frozenset[str], frozenset[str]]:
     """Extract the directives from source comments — a pre-lexical scan.
@@ -381,7 +381,7 @@ def canonical_grammar(
     (raised by the engine / reducer, or here if the flavour carries no Reducer,
     its reduction does not yield an IrAst, or the start rule is undefined).
     """
-    dir_start, dir_non_semantic, dir_lexical = _scan_directives(text, flavour)
+    dir_start, dir_non_semantic, dir_lexical = scan_directives(text, flavour)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
     if lexical_rules is None:
@@ -458,12 +458,12 @@ def _compile_core(
         lexical_rules=directives.lexical,
     )
     flavour_name = flavour if isinstance(flavour, str) else type(flavour).name
-    return _assemble_core(
+    return assemble_core(
         ast, stem=stem, source=text, flavour_name=flavour_name, vocabulary=vocabulary
     )
 
 
-def _assemble_core(
+def assemble_core(
     ast: IrAst, *, stem: str, source: str, flavour_name: str, vocabulary: Vocabulary
 ) -> CompiledGrammar:
     """The compile back half — canonical flagged AST → :class:`CompiledGrammar`.
@@ -639,7 +639,7 @@ def compile_ast(
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    cg = _assemble_core(
+    cg = assemble_core(
         _canonical_ast(ast, directives),
         stem=stem,
         source=source,

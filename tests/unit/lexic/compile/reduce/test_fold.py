@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from lexic.compile import compile_ast, compile_text
-from lexic.compile.artifact import _reduce_entry, _sub_run
+from lexic.compile.artifact import derived_reduce_entry, sub_run
 from lexic.compile.reduce.fold import Unit
 from lexic.compile.reduction import derive_reduction
 from lexic.exceptions import UnsupportedConstructError
@@ -150,7 +150,7 @@ def test_reduce_refuses_a_no_body_default_of_a_dispatch_miss_the_same_way_as_par
 
 def test_sub_run_binds_its_sub_parse_at_cores_1():
     """A poisoned marked run's escape hatch (``_splice_run``, T2 in the
-    design notes) re-enters the parser FROM INSIDE a fold. ``_sub_run``
+    design notes) re-enters the parser FROM INSIDE a fold. ``sub_run``
     binds that sub-parse to ``cores=1`` via ``functools.partial`` — so a
     later "helpful" parallelisation of the sub-parse cannot silently
     deadlock a future partitioned fold's own worker pool. This is a pin, not
@@ -165,7 +165,7 @@ def test_sub_run_binds_its_sub_parse_at_cores_1():
     cg = compile_ast(JSON_GRAMMAR, cache_key="fold-obligation-b-subrun")
     derivation = derive_reduction(JSON_GRAMMAR, JSON_REDUCER)
     spec = derivation.runs["char-run"]
-    sub = _sub_run(cg, JSON_REDUCER, "char-run", spec)
+    sub = sub_run(cg, JSON_REDUCER, "char-run", spec)
     assert isinstance(sub.parse, functools.partial)
     assert sub.parse.keywords == {"cores": 1}
 
@@ -259,7 +259,7 @@ def test_scratch_is_empty_on_the_calling_thread_after_a_successful_reduce():
     never sees a prior call's units."""
     cg = compile_text(_RAISING_RUN_GRAMMAR, cache_key="fold-scratch-success")
     reducer = _raising_run_reducer()
-    entry = _reduce_entry(cg, reducer)
+    entry = derived_reduce_entry(cg, reducer)
     probe = _ScratchProbe.carrying(entry.fold)
     text = "a" * 40  # no "z" — every unit folds cleanly
     probe.reduce(entry.variant.parse(text, cores=1), cores=2)
@@ -276,7 +276,7 @@ def test_scratch_is_empty_on_the_calling_thread_after_a_refusal():
     populate one in the first place."""
     cg = compile_text(_RAISING_RUN_GRAMMAR, cache_key="fold-scratch-refusal")
     reducer = _raising_run_reducer()
-    entry = _reduce_entry(cg, reducer)
+    entry = derived_reduce_entry(cg, reducer)
     probe = _ScratchProbe.carrying(entry.fold)
     text = "a" * 40 + "z" + "a" * 5
     model = entry.variant.parse(text, cores=1)
@@ -294,7 +294,7 @@ def test_the_frontier_is_monotone_nondecreasing_as_the_target_rises():
     contributions of its own stays at its own depth instead of being
     descended past and deleted from the frontier."""
     text = (GROUND_TRUTH / "arithmetic.ebnf").read_text(encoding="utf-8")
-    entry = _reduce_entry(
+    entry = derived_reduce_entry(
         compile_ast(EBNF_FLAVOUR.grammar, cache_key="fold-frontier-monotone"),
         EBNF_FLAVOUR.reducer,
     )

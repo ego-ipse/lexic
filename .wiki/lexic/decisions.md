@@ -175,9 +175,11 @@ does not forbid may be classified `attempts` (analysis `Taxonomy.attempts`,
 `AttemptSpec.order` with nullable arms last) instead of islanding: the runtime
 tries the arms in order as self-contained sub-runs and commits the first
 success — after an **audit** of the remaining admitted arms. A second success
-on the same span, or on a different span whose next character the rule's soft
-FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
-ambiguity is real. Licensed optional loops run the same way per iteration
+on the same span with a different value raises `PdaFail` — the gated engine
+then refuses iff the ambiguity is real — and one with the same value lets the
+winner stand. One on a different span whose next character the rule's soft
+FOLLOW accepts is a carving the decider ranks against the winner (*"An
+attempt's arms that end apart are ranked by the decider"* below). Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
 arm, and a boundary where taking AND stopping are both viable is resolved by
 comparing the VALUES the two sides build (`same_value`, exactly the forest
@@ -192,11 +194,18 @@ is settled by convergence"* below.
   live stack (`_drive(floor)`); nested viability walks and probes see the true
   continuation. A severed fresh stack mis-resolves any fork whose alternative
   lives in an enclosing frame.
-- **Probes never nest.** Inside a probe, both-viable boundaries resolve
-  greedily by viability class and mark the outcome `uncertain`; the sampled
-  verdict is trusted. Nested probing is exponential (measured — a 24-deep
-  probe chain), and conservative bailing on `uncertain` regressed working
-  grammars.
+- **Probes nest only on a retry.** Inside a probe, both-viable boundaries
+  resolve greedily by viability class and mark the outcome `uncertain`, which
+  forks the verdict that reads it. Only a forked verdict asked again
+  (`_retried`) settles them by verdicts of their own, `NESTING_DEPTH` sides
+  deep and 64 verdicts at most: nesting everywhere is exponential (measured — a
+  24-deep probe chain), and a verdict that settles without it never pays for it.
+  Before either, a boundary whose stop side the TEXT refutes is no guess at all:
+  `matchers.stop_side_dead` reads the stop side's continuation against the
+  text — literals and once-only classes matched, optional ones both ways, the
+  walk undecided at anything wider — and a dead stop side makes taking forced.
+  Only where the run's text and root are the document's (`RunScope.whole`):
+  never in a delegate's window or over a truncated text.
 - **No memoization.** A sub-run's outcome depends on the enclosing
   continuation, so `(clone, pos)` is not a sound packrat key — and the memo
   measured zero hits before removal. The prototype's memoized numbers priced
@@ -310,10 +319,9 @@ already climbing. Answers are unchanged on both.
 
 **Decision:** an island-interior rule is delegated only if no rule in its
 reachable interior picks an EXTENT by policy. That covers a stop-set exit, a
-greedy loop split, a split-greedy licence, and a greedy arm over an empty
-one. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
+greedy loop split, and a split-greedy licence. The analysis declares these as `Taxonomy.policy_ends`, flagged where the
 decision is made (`Notes.picks_extent`), never read back from note text, and
-`_delegable` refuses a reachable member.
+`is_delegable` refuses a reachable member.
 
 **Why:** a delegate injects ONE completion into the island's chart, at the end
 its PDA run reaches, and skips the rule's own seeding. Being conflict-free
@@ -566,11 +574,11 @@ fold-refusal reroute stays as the last line of defence.
 
 ---
 
-## 2026-05-28 — P16: Short-circuit is intrinsic to `IrReturn` via `_Return`
+## 2026-05-28 — P16: Short-circuit is intrinsic to `IrReturn` via `ReturnSignal`
 
-**Decision:** `IrReturn` mixes `IrLeaf` and a private `_Return(BaseException)`. `eval` raises `self`; the surrounding `IrDispatch.apply` catches it and surfaces `.value` (or the instance, depending on the bound).
+**Decision:** `IrReturn` mixes `IrLeaf` and a private `ReturnSignal(BaseException)`. `eval` raises `self`; the surrounding `IrDispatch.apply` catches it and surfaces `.value` (or the instance, depending on the bound).
 
-**Why:** Short-circuit needs no protocol participation from every other node. Any nested action can raise `IrReturn` and unwind to the dispatcher. `_Return` is a `BaseException` subclass so `IrCallable` handlers' `except Exception:` clauses cannot swallow it.
+**Why:** Short-circuit needs no protocol participation from every other node. Any nested action can raise `IrReturn` and unwind to the dispatcher. `ReturnSignal` is a `BaseException` subclass so `IrCallable` handlers' `except Exception:` clauses cannot swallow it.
 
 **Impact:** Conditional emission becomes trivial: `IrCond(field, IrReturn(IrStr("")), normal_op)` short-circuits cleanly. The `IrReturn` instance IS-AN `IrNode`, fitting the dispatcher's bound when surfaced.
 
@@ -1023,9 +1031,14 @@ The decider is leftmost-longest over authored slots, top-down
 - every family at a key competes, whatever arm its child names, so the
   boundary is decided before the arm;
 - families from ONE predecessor whose children name one authored choice are
-  ranked by `decide.rank` of each child's own boundaries (a zero-width step
-  dropped, fewer steps winning a tie), read off the level DAG without resolving
-  the child's own ties, so it never recurses;
+  ranked by `decide.rank` of each child's own carving (fewer steps winning a
+  tie), read off the level DAG without resolving the child's own ties, so it
+  never recurses. The carving is `decider.carving`, the one definition: steps
+  measured from where the child starts, and a step that takes nothing dropped
+  only where it is a repetition's iteration beyond the repetition's minimum
+  (`DecodeTables.code_droppable`). Over an empty span `X X+` with an empty `X`
+  is the reading `X+` again, and a decider that preferred it sent the tree build
+  round the same node forever;
 - `dominant` settles two families from one predecessor the same way, so the
   pairwise primitive answers what the chain reader answers.
 
@@ -1065,3 +1078,470 @@ The per-class copies of the rule (`IrBounds`, `Decider`, `GrammarModel`) are
 gone. `IrRule` keeps its structural rule (`semantic` excluded, for the
 self-hosting fixpoint) with the same kind test. Code that compared a record
 with a tuple literal builds the record it means.
+
+## A decider states one boundary's slot; its rank is final
+
+**Decision:** a decider answers one question, `slot(end) -> int`: where one
+boundary stands in its order, strictly (two ends never share a slot). Its rank
+over a carving is those slots read left to right, and is `@final`; a subclass
+that redefines `rank` is a `TypeError` when it is defined, and so is a
+`LeftmostLongest` subclass that redefines `slot`. `carving()` is the one place
+a chain's boundaries become a carving (a step ending where the previous one did
+is dropped).
+
+**Why:** Earley's chain reader decides a carving one level at a time, so it can
+honour only an order that compares carvings on the first boundary that
+differs. A `LeftmostLongest` subclass that overrode `rank` passed `splits.py`'s
+class check while the chain levels were still read by raw maximum and the
+children by the new order: `root ::= x+` / `x ::= [a]+` on `aaa` came out
+`Root((X('aa'), X('a')))`, which neither order gives. With the slot final, every
+`LeftmostLongest` instance IS that order, so `splits.py` reads it by raw
+maximum (the default by identity first). Any other decider is read by its
+slots: the chain chosen is the one whose carving its rank puts highest
+(`_choose_slots` / `_slot_chain`), found by one pass down the level DAG. A key
+whose step the carving drops — an iteration beyond its repetition's minimum
+that takes nothing — is transparent: the next end up the chain stands in its
+place. An authored slot, or an iteration the minimum needs, stays a step even
+when it takes nothing: `root ::= x{2,} "b"` with `x ::= "a"*` reads `ab` as
+`("", "a")` under a shortest decider. Greedy by each level's own slot was not
+the rank once a droppable iteration exists: it picked the empty iteration as
+the shortest, and `X+` stepped through an empty `X` into itself forever.
+
+**One definition of a carving.** `decider.carving(ends, start, droppable)` is
+read by every chooser — `_slot_chain`, `_step_rank` (`_child_rank`,
+`dominant`) and the predictive engine's `_kept`. Which steps are droppable is
+a table the builder derives from the quantifier helpers normalisation mints
+(`records.code_droppables`): every step of a helper with an empty arm (`*`,
+`?`, an opt-chain), every step of an arm `unit self` (`+`'s recursion, whose
+tail meets the minimum), and a reference to a helper with an empty arm. A
+mandatory copy — `m*`'s leading copies, `{n}`'s, `+`'s single-unit arm — never
+is. The predictive engine's steps are a node's end and never droppable. The raw loop is kept apart from the
+slot pass on purpose, so the default decider pays no call per level.
+
+## A boundary's side settles the sub-runs it stands inside as their callers would
+
+A both-viable boundary can stand inside attempt sub-runs — an attempted loop
+iteration, an attempt entry, an audit — which the live parse leaves to the
+Python call that started them. A side copied off the stack has no such call, so
+it carries one floor per sub-run and drives to one floor at a time, settling
+there as that call would: the iteration commits or closes its loop, the attempt
+runs its next entry, the audit contests its winner. A failure above a floor
+fails that sub-run, never the side.
+
+The floors are read off the stack. A sub-run's root frame carries its start
+(`Frame.start`), an audit's run is wrapped in a record of the audit on the
+caches, and which caller started the sub-run is read off the frame below it by
+`landing`, `entered`, `iterating` and `descending` — replays of what the live
+parse decided, each a function of clone, text and position. Exactly one reading
+must survive, or the side raises `ProbeFork`; so does a sub-run of a span check,
+which no side settles.
+
+**Marks are paid only where a fork can happen.** A fork is an attempted loop's
+boundary, so a program with no item gated `GATE_ATTEMPT` flags no clone
+`sub_root`: its sub-runs write no start and its audits push no record.
+
+**A guess decides nothing.** A side's own drive resolves nested boundaries
+greedily, and a death or a mid-parse agreement it reached through such a guess
+(`uncertain`) forks instead of settling. The stop side's death is judged by its
+own drive alone. Sides that converge by completing are exempt: both hold empty
+stacks, so they agree, and comparing two completed carvings is the ranked
+verdict's question, not convergence's.
+
+**Values compare by class and fields** (`same_value`), at a convergence and at
+end of input alike. Sides converged mid-parse on one control state cannot build
+values that differ only in class — arm selection is a function of clone,
+position and text — so the class matters only where completed sides' root
+outputs are compared.
+
+**Why:** a side stands for one continuation of the live parse. One that runs
+through a sub-run's root without settling it as the caller would is a different
+parse, and a verdict asked on it answers a different question; the ranked
+verdict compares sides' values, so they must be the values the parse builds.
+
+## A text extent has one answerer, and a declined proof checks every match
+
+**Decision:** a text-only rule's extent is answered in one order. Where
+`prove_regular` proves it against the clone's continuation, the possessive
+consult answers. Otherwise the rule is matched item by item, and a match is
+checked by its `LongestTake` before it stands. A take whose rule is proved
+with nothing after it (`eligibility.greedy_extent`) carries that greedy match
+as one pattern (`LongestTake.extent`): its clone is compiled against the end of
+input, so the pattern ends where the item-wise match does, and `taken_end`
+runs it instead — the check after it is the same. A rule whose own proof declines
+with nothing after it (`eligibility.extent_declined`), and which
+`greedy_exact` does not cover (`GrammarAnalysis.may_steal`), carries a take
+with `steals` set. Its misses ask the island too, and so does a choice between
+two of its admitted attempt arms (`_settle`): no sub-run settles that choice,
+and the rule's island does. Its sole admitted arm, if two items or more of
+terminals, is a leaf carrying the take, so the frame-less matcher checks it;
+any other arm runs framed, and a sub-run it roots that misses asks the island
+(`Attempting._attempt_run`), so an inline group is covered too.
+Two followable ends of the island are ranked by the decider ("A boundary's
+two parses are ranked as Earley ranks them", below).
+
+**Why:** a loop matched item by item takes what the rest of its arm needs.
+`item ::= [a;] | "a"+ "a"` never matched its second arm, so `aa` came back as
+two one-character items where whole-document Earley has one. A miss read as
+the end of an enclosing loop was a wrong model too (`x ::= t* rest` with
+`t ::= "ab" | "a"+ "a"` on `aa`). The mark is static, and a clone without it
+pays nothing on the paths it shares: the check sits on the multi-item path
+of `vstr_once` and on the attempt path of `_settle`, one attribute read per
+call.
+
+Answers the old item-wise guess gave right by luck now decline, where either
+the two followable ends wait on the decider's ranking, or the loop before them
+takes greedily because the audit set never names the same-arm rest:
+`sec ::= stmt+ end` with `stmt ::= "!" | ";"? [a;]` on `a;`, where `stmt` now
+derives `;` and the loop takes it from `end`.
+
+## A gate that reads a run whole is a leftmost-longest licence
+
+**Decision:** a structured gate that skips a run of rules before it peeks
+(`SG_SCAN`, `SG_PROBE`, and the empty-arm gate built on them) is issued only
+where the parse's decider grants `SCAN_SKIP`, which `LEFTMOST_LONGEST` does.
+Elsewhere the analysis tries the remaining tiers, and a decision none of them
+separates is a conflict, as any withheld licence leaves it: the rule islands,
+and the gated engine answers. A program compiled for leftmost-longest is
+unchanged.
+
+Every gate kind, and whether its answer assumes the decider:
+
+| gate | decides by | assumes leftmost-longest |
+|---|---|---|
+| `GATE_STOP`, plain | FIRST against the continuation, disjoint | no — one side is viable |
+| `GATE_STOP`, applied over an overlap | the loop's first exit | yes — `STOP_SET`, `NOISE_GREEDY`, `GREEDY_SPLIT` |
+| `GATE_KWIN`, k-window and FOLLOW-window, loops and arms | exact windows, disjoint | no — one side is viable |
+| `GATE_PEEK`, loops and arms | the first character past a run of the noise alphabet | no — the run is nullable noise either side may hold, and only one side's content can follow it |
+| `GATE_SCAN` `SG_MATCH` | a whole instance of a non-semantic rule here | no — an over-take re-splits noise only, so every carving builds one model |
+| `GATE_SCAN` `SG_SCAN` / `SG_PROBE`, and the empty-arm gate | the first character past a run skipped whole | yes — `SCAN_SKIP` |
+| `GATE_ATTEMPT` | an attempted iteration audited | yes — `ATTEMPT` |
+| `GATE_GREEDY` | where the split rule lets the loop stop | yes — `SPLIT_GREEDY` |
+
+**Why:** the run a scan gate skips is made of rules that may be semantic and
+whose characters may begin what follows the run, and the skip gives nothing
+back. `doc ::= sec+ tail?` with `sec ::= part* sepr` and `part ::= [a;]` gates
+`sec+` by skipping a whole `part*` run and peeking for the separator; under a
+decider that keeps the shortest first slot, `;;` is two sections, and the
+skip eats the second section's separator. Leftmost-longest carves the run as
+the skip does, so for it the gate stands.
+
+## A boundary's two parses are ranked as Earley ranks them
+
+**Decision:** a boundary whose two sides build different values asks the
+decider, in one place (`Verdicts._kept`, `decide.rank` of each side's
+carving), about the first step the sides carve apart, read the way the gated
+engine reads a carving:
+
+- **The shallowest node that differs.** Each copied frame's completion is
+  recorded in a ledger; the first depth whose entries differ names the node,
+  and its parent's step into it is compared. A loop is a node in Earley, so
+  the parent's own recorded end of the item comes first, then the child's own
+  end. A child the ledger cannot read is ranked by the step its parent
+  recorded instead.
+- **Steps are compared raw.** A node's step that ends where the one before it
+  did is still a step, as Earley's chain boundaries are. The one exception is
+  an iteration at a boundary whose loop had taken nothing: it may be
+  zero-width, which the loop's carving drops, so it forks.
+- **An open child** at a convergence ends somewhere in the sides' common
+  future; it is ranked only where every end it can reach ranks the same way
+  (`_kept_open`), whatever the decider. Leftmost-longest's slot is the end
+  itself, so the first reachable end answers for all of them; any other order
+  is asked at every end the step can reach. A carving choice is the decider's
+  and is answered on the predictive engine, however many ends there are.
+- **An island with two followable ends** raises `IslandEnds` carrying each
+  completion, and its holder (a frame's item, an attempted iteration whose
+  whole sub-run is the island, a steal) builds one side per end and ranks them.
+
+**Iterations are ranked under leftmost-longest only.** Earley desugars `X+`
+to `X | X X+`, and for any other decider its order over a repetition is not
+the order of where the first differing iteration ends, so under any other
+decider those sides fork and the gated engine answers. An island's two ends are
+ranked under every decider: the gates that read a run as leftmost-longest
+carves it are that decider's licence alone (the entry above), so no side is
+killed by a reading the decider does not share.
+
+**Ledgers are paid only by a rank.** A side keeps no ledger while it drives; a
+verdict that ranks builds both sides again keeping ledgers and drives them to
+where they stood, which reproduces them because a side's drive is a function of
+where it starts and where it stops. The common side drives with no floors to
+settle and nothing to record. Measured cost on the verdict path: +0.37 ns per
+character, median over the corpus rows; whole parses within the A/A noise band.
+
+Completed sides the rank cannot read, or reached through a guess inside a
+side, fork under every decider; no take is kept for them. The guess is settled
+by a verdict of its own when the forked verdict is asked again (`_retried`),
+and a rank keyed on the decider's type stays only where it is the order's own
+semantics: a repetition ranked by where its first differing iteration ends.
+
+**Why:** two parses that both complete differ in where some node ends, and
+Earley keeps the decider's carving of the first such node top-down. Ranking by
+anything else — the side that took, the longer side overall — answers a
+different question, and the PDA's model would differ from the gated engine's
+under the same decider.
+
+
+## An attempt's arms that end apart are ranked by the decider
+
+**Decision:** the attempt audit no longer refuses an admitted arm that ends
+somewhere else than the winner and could compose. Each such arm is a side, as
+an island's completion is: the live stack forked with the arm's values in the
+reference's item and the cursor past it (`Sides._extent_side`), and the sides
+meet in pairs through the boundary verdict (`Verdicts._kept_pick`, shared with
+an island's ends), so the decider keeps one. Two arms over the same span are a
+question of value: one value lets the winner stand, two refuse.
+
+The site where a non-nullable arm's FIRST meets the continuation beside an
+empty arm (`o ::= "a" | "x"?` before a `tl` that may start with `a`) is no
+longer a greedy pick: it is an arm conflict, tried in order like any overlap,
+and the ordered-attempt licence covers it. `GREEDY_ARM`, the licence such a
+pick never earned, is deleted.
+
+The audit refuses still where no side can be built: no item of the top frame
+owns the attempt's sink, the run is not over the whole document
+(`RunScope.whole` — a delegate's sub-run, whose root may end anywhere in the
+island's window, or a truncated text), a side's nesting allows no verdict, or
+the verdict forks. The gated engine answers those.
+
+**Why:** which arm takes the text is where some node ends, the decider's
+question, and Earley answers it by the decider. The greedy pick took `a` for
+`o` on `abc`, where the first slot longest gives `w` all three characters
+with `o` empty, so the PDA built a model Earley does not. An audit that
+refused every cross-span success was correct but sent each such choice to the
+gated engine; ranked, they stay on the predictive engine.
+
+**The trace** keeps no scan for a candidate's text — an attempt entry's or a
+boundary side's (`WatchedKernel._aside`) — so a derived run's scans still tile
+the document now that ranked candidates run before the commit.
+
+## The split keys on the decider's order; islands and delegates on the parse's
+
+**Decision:** the parallel split is asked only under a `LeftmostLongest`
+decider, whatever it grants; any other order parses the document whole
+(`orchestrate.split_model`). Its plans, and the determinism speculation reads
+off the leftmost-longest analysis, are facts about that order's answer, and a
+leftmost-longest decider granting fewer licences has the same answer: its
+chunks parse through the program compiled for its grants, and the stitched
+model is the sequential one. An island's sub-parse builds its trees under the
+parse's decider and ranks its followable ends by it. Its delegates are
+compiled under the program's grants (`DelegateSource.grants`), and a delegate
+is conflict-free with no extent picked by policy (`is_delegable`), so no
+delegate holds a shortcut its decider does not grant.
+
+**Why:** a cut is sound when the stitched model is the one the whole-document
+parse would build, and which model that is depends on the order alone; the
+grants decide only which shortcuts reach it. Keying the split by grants would
+refuse a split that is sound, and keying it by nothing would cut a shortest
+parse on leftmost-longest boundaries.
+
+## A chain with one family at every key is read without the level DAG
+
+**Decision:** `splits.leftmost_chain` first walks the chain as `sole_chain`:
+one bucket read per key, each holding exactly one family. Only the first key
+holding several families sends the read to the level DAG (`_descend`, `_prune`,
+`_floor`, `_choose`). A build with no choices pinned (`FastTree` with
+`choices=None`, the island's tree build) calls `sole_chain` itself, with the
+arm base and tier rather than a `ChainSpec`, so a handle allocates no spec;
+and a sole chain spends the pins at the keys it passes, as `_descend` does.
+
+**Why:** on such a chain every level of the DAG is one key with one edge, so
+every decider's answer is that path; nothing is chosen. The tree build always
+resolves through `leftmost_chain` (it passes a choice map), so before this
+change every handle of every parse paid for a DAG of dicts, a prune, a floor
+and a generator `max` per level. That cost 14-20% of an Earley parse's CPU on
+every roster grammar, and the Earley models are byte-identical.
+
+## A worker's replica is a private copy, made by one walk of its own
+
+**Decision:** a replica's compiled artefacts are made by a structural copy of
+the original's, `executable.private_copy` (over `PrivateCopy`), never by a
+second compile. `ModelExecutable.copied` is its entry for an artefact built
+against a binding, and passes the binding's remap. An island's Earley tables
+never reach a binding and pass none. Each artefact is compiled once, on the
+original, under its own key's lock (`caches.once`), which is taken only on a
+miss.
+
+**Why a walk of its own:** no existing mechanism copies a compiled program.
+The duplication check found four candidates, and each fails:
+
+- `ModelExecutable.replica()` is shallow by design: a fresh executor over
+  shared, read-only projections.
+- `admission.frames_copy` copies a runtime stack and nothing reachable from
+  it.
+- `copy.deepcopy` returns functions as atoms before it reads its memo on 3.14,
+  so a program's baked closures would stay the original's.
+- `ir/identity.py` walks a value's graph under one stated child definition to
+  census it; it reads, and builds nothing.
+
+**What the walk keeps, and why it rebuilds IR values.** The walk keeps only
+what is the process's: what a lexic module or class names (constants compared
+by identity), atoms, the C types it names (`re.Pattern`, through its own deep
+copy), and singletons. It refuses any other C type. It rebuilds IR records
+through their own `rebuild()` and makes scalar IR leaves anew, because the
+tables a parse reads hold them. Shared, they cost a copy 5% of an Earley-heavy
+split's wall against a recompile.
+
+## A k-window selection is filed by first character where that cuts a window
+
+**Decision:** `gating.window_select` builds an alternation's k-window selection.
+Where some character a first window position names would test fewer windows
+than all of them, it returns a `FiledWindowSelect`: the entries cut, in order,
+to the windows each such character can begin, plus one cut for every character
+no first position names. Selection then asks only those windows; at end of
+input it asks them all. Where filing cuts nothing, the plain `KWindowSelect` is
+kept. The filed selection spells the two passes over its cut entries rather
+than calling the plain one's.
+
+**Why:** most windows a selection tests fail on their first character (on
+markdown's PDA parse, 1,698 of 2,584), so a character can rule out windows
+before any is tried. Filing costs a length test and a dict lookup per
+selection, which a selection that cuts nothing would pay for no saving; the
+call into the plain selection cost about what a one-window cut saves, which
+is why the loop is spelled twice.
+
+## A pool's workers copy a reused pair together, before the next split's pieces
+
+**Decision:** a split records the pairs its workers met for the first time, so
+still read through the original, keyed by the pool and the document's own
+executable view (`replicas.settle_first_meetings`). When that pool next splits
+through the same view, every worker first takes its own copy of each recorded
+pair: one `pool.map` task per worker, all waiting at a barrier so no thread
+runs two, before any piece is dispatched (`replicas.warm_due`).
+
+**Why:** a copy is earned by reuse, and WHERE it lands must not depend on
+scheduling. A thread copying at its own second meeting copies in whichever later
+split it next serves, inside that split's pieces, so on a short-lived process
+(the benchmark worker's handful of splits) a copy could land in any pass, timed
+ones included. Keyed by the document's view because the pairs ARE that view's —
+every piece parses through it — so they are released with it, and a document
+thread that has gone never has its pairs copied for the next one. That also
+keeps a one-shot split (a long grammar source in `compile_text`) from having
+its pairs copied for an unrelated parse, which is the retained-copy cost the
+reuse rule exists to avoid. The pool is held weakly and its entry dropped when
+it is collected. The settle reads a snapshot of the first-meetings memo, and
+the warm a snapshot of the islands its origin holds: other threads file into
+both at the same time. A warm never decides a parse: a copy that refuses ends
+it and the split runs as without it, and a barrier that cannot fill breaks
+after `WARM_WAIT`; both are counted (`replicas.warm_census`).
+
+## An entry the selector walk cannot decide pushes its arm straight
+
+**Decision:** a clone with one gated arm, no default and no other selection
+(no dispatch, attempt, wide or struct gate) carries that arm as
+`FlatClone.entry` when the arm's first item refuses every other lookahead by
+itself at the same position: a mandatory terminal, or an exactly-once inline
+value-string reference to a clone with no empty match and no longest take
+(`specialize.passes.mark_entry`). `_enter` reads `entry` where the selector
+walk would start — after the dispatch chase, the attempt, the gates and the
+leaf run, none of which an entry clone takes — and pushes the arm without
+slicing the lookahead or walking `selectors`; a leaf's frame-less run reads it
+the same way. A dispatch chase never reads it: there it could only answer
+`None`.
+
+**Why:** the walk over one selector can only find that arm or refuse, and the
+refusal is the first item's own, at the same position, so the walk was a
+second asking of the item's question on every structural entry. A longest
+take is excluded because its miss can ask an island the selector would never
+have reached.
+
+## The calling thread takes back the items no worker started
+
+**Decision:** once a `WorkPool.map` caller's `beside` share returns, the
+calling thread cancels submitted items no worker has started (`Future.cancel`
+succeeds only on a queued item, so each runs exactly once) and runs them
+itself, latest first, marked by `taking_back` so `worker_parse` reads the
+submitting thread's own view rather than minting a worker copy for it. Only
+maps given a `beside` do it, and only as many items as the phase leaves
+workers without one: a phase with an item for every worker takes nothing back.
+
+**Why:** the calling thread works through its share while the workers wake,
+so on a pool as wide as the machine one woken worker can wait milliseconds for
+a CPU before taking its item, and the split waits on that one piece. The
+calling thread is the thread certain to be running then. It only ever fills a
+place the phase left unused: on a pool with an item for every worker (four
+pieces on four CPUs) a taken-back item would run on a CPU a busy worker needs.
+A map without a `beside` leaves the calling thread idle, so its workers get the
+CPUs.
+
+## A run that cannot refuse is one pattern
+
+**Decision:** a span-tabled run whose arm is one char class with no mandatory
+iteration and a stop gate (`specialize.passes.run_pattern`) is installed as a
+pattern arm of its own code, `OP_RUNPAT`: `[gate]{0,hi}` plus the run's stop gate.
+`run_span_once` answers an empty run by its first character and matches any
+longer one in one C-level call. A run with a mandatory
+iteration, or any gate but a stop set, keeps its loop.
+
+**Why:** such a loop takes characters while the gate admits them, up to its
+bound, and can never refuse, which is exactly what the pattern matches — so
+the span is the same on every input and no refusal's words change. The loop
+was a Python iteration per character of every whitespace and text run.
+
+## A stop-gated value loop reads its gate in place
+
+**Decision:** the tabled loops (`match_chartable`, `match_runtable`) and the
+value-string loop (`KernelExecutionMixin._match_vstr`) test a stop gate inline,
+by the same membership `gate_take` applies to it, with its kind and set bound
+once before the loop, and call `gate_take` only for the wider gate kinds.
+`match_cc`, `match_lit` and `_quant_step` already read a stop gate this way.
+
+**Why:** a stop gate is one set membership, and these loops asked it through a
+call on every iteration, which was most of what a short iteration cost. The
+expression is spelled at each loop rather than shared because sharing it is
+the call being removed; `gate_take` stays the definition every wider gate and
+every cold caller uses.
+
+## A span-tabled loop goes straight to its loop
+
+**Decision:** `_match_vstr` sends a span-tabled target (`runarm` set) to
+`match_runtable` itself; `match_chartable` no longer forwards one.
+
+**Why:** the forward was a call per occurrence that decided nothing — a second
+dispatch on a fact the caller had already read.
+
+## An entered span-tabled leaf goes straight to its run
+
+**Decision:** `_leaf_run` sends a `value_str` leaf that carries a run arm to
+`run_span_once` itself, instead of through `vstr_once`.
+
+**Why:** such a clone's answer is its span table, so `vstr_once` read a
+lookahead character it never used and forwarded the call. An entry through a
+dispatch chase (`record ::= event | span` looped by its parent) paid that call
+per occurrence. `vstr_once` keeps the same forward for the callers that reach
+it with such a clone.
+
+## A dispatch over span-tabled clones is matched inline
+
+**Decision:** the `OP_VDISP` licence (`vdisp_landing`) admits a landing on a
+span-tabled `value_str` clone (one carrying a run arm), beside the terminal-only
+ones, and `vdisp_once` sends such a landing straight to `run_span_once`.
+`_match_vdisp` reads its stop gate in place, bound once, as the other value
+loops do.
+
+**Why:** a span-tabled clone already runs frame-lessly — the leaf licence grants
+it on the same terms — so a loop over a dispatch of them (`record ::= event |
+span | note`, each `@lexical`) paid an `_enter`, a `_quant_step` and a leaf run
+per occurrence for a match that cannot descend. Inline, an occurrence is the
+chase and the run.
+
+## A leaf whose walk decides nothing runs its one arm
+
+**Decision:** a leaf's frame-less run (`_run_leaf`) reads `FlatClone.entry`
+before walking its selectors, and `mark_entry` grants an entry to leaves on the
+same licence as to framed clones.
+
+**Why:** the licence is about the walk, not the frame: one selector, no
+default, a first item that refuses alone. A leaf opening on a literal (json's
+`string ::= quote chars quote ws`) walked its one selector on every occurrence
+for an answer the first item gives anyway.
+
+## A descent loop asks its wide gate straight
+
+**Decision:** `PdaKernel._quant_step`, which settles a stop gate and an attempt
+in place, asks every other gate kind through `gating.wide_gate_take` directly,
+not through `gate_take`'s kind dispatch. `scan_gate_take` reads its post-noise
+take-set inline.
+
+**Why:** both were a call per loop decision that decided nothing — the dispatch
+re-asked two kinds the caller had ruled out, and the take-set test is one
+membership. On a noise-structured grammar the descent loops ask a scan gate
+about once every four characters.

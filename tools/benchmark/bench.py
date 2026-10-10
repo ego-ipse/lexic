@@ -41,14 +41,13 @@ noise floor says what difference must be beaten.
 
 from __future__ import annotations
 
-import gc
 from collections.abc import Sequence
 from importlib import import_module
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.model import GrammarModel
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, refusals
 from tools.benchmark.engines.seats import SPECIALISTS, candidates
@@ -61,7 +60,13 @@ from tools.benchmark.measurement.contract import (
 )
 from tools.benchmark.measurement.language import unfaithful
 from tools.benchmark.measurement.occupancy import declined_reason
-from tools.benchmark.measurement.sampling import Parse, Pass, prime, timed
+from tools.benchmark.measurement.sampling import (
+    Parse,
+    Pass,
+    Sampled,
+    prime,
+    sample_round,
+)
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -160,7 +165,7 @@ LEXIC_ROWS = frozenset(
 """Every Lexic row, shared by the report and regression guard."""
 
 
-def _lexic(
+def lexic_rows(
     bench: Bench, cores: int | None, only: frozenset[str] | None = None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
     """Both lexic engines over one compiled product — the PDA and Earley.
@@ -195,7 +200,7 @@ def _lexic(
     if "lexic-pda" in wanted:
         engines["lexic-pda"] = lambda text: sequential(text, cores=1)
     if "lexic-earley" in wanted:
-        product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+        product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
             product.instance_grammar, text, binding, product.tables
         )
@@ -389,7 +394,7 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
     document = bench.full if full or name in MT_ROWS else bench.corpus
     artifact = None
     if name in LEXIC_ROWS:
-        built, artifacts = _lexic(bench, cores, frozenset({name}))
+        built, artifacts = lexic_rows(bench, cores, frozenset({name}))
         parse = built.get(name)
         artifact = artifacts.get(name)
         if parse is None:
@@ -420,27 +425,28 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
     return EngineBuild(parse, document, None, artifact)
 
 
-def observe(build: EngineBuild, rounds: int) -> Pass:
+def observe(build: EngineBuild, rounds: int) -> Sampled:
     """This process's ONE observation of its row, on both clocks.
 
     The independent unit of a comparison is the PROCESS, not the pass. Several
     inner passes are reduced here to a single answer so that a warm allocator
     or a lucky cache line inside one interpreter cannot be counted as several
     independent structural samples. The reduction is the median on each clock,
-    which is what a repeated measurement of one state is worth.
+    which is what a repeated measurement of one state is worth; the collections
+    and their pauses are summed over every :func:`sample_round`.
     """
     parse, document = build.parse, build.document
     if parse is None:
         raise ValueError("cannot observe a refused benchmark row")
     prime(parse, document)
-    passes: list[Pass] = []
-    for _ in range(rounds):
-        parse(document)
-        passes.append(timed(parse, document))
-        gc.collect()
-    walls = sorted(entry.wall for entry in passes)
-    cpus = sorted(entry.cpu for entry in passes)
-    return Pass(walls[len(walls) // 2], cpus[len(cpus) // 2])
+    taken = [sample_round(parse, document) for _ in range(rounds)]
+    walls = sorted(one.timing.wall for one in taken)
+    cpus = sorted(one.timing.cpu for one in taken)
+    return Sampled(
+        Pass(walls[len(walls) // 2], cpus[len(cpus) // 2]),
+        sum(one.collections for one in taken),
+        sum(one.paused for one in taken),
+    )
 
 
 class Result(NamedTuple):
@@ -470,7 +476,7 @@ def result_identity(build: EngineBuild) -> Result:
     return Result(rendered, shape(product))
 
 
-def _mt_check(
+def mt_check(
     artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
 ) -> dict[str, str]:
     """Why each exact mt artifact did not thread; absent rows engaged."""

@@ -17,7 +17,7 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import clears_floor
 
 
 class Span(Protocol):
@@ -111,10 +111,10 @@ def partition[S: Span](text: str, found: list[S], workers: int) -> list[Division
     an oversized item are divided — each of them, even one whose items make a
     single run, so a descended region is held by a PIECE, where the stitch
     finds it by item, not by walking; only a path region with under
-    :data:`MIN_CHUNK` of its own text is left to its holder. The text outside every region
-    is the shell; its largest regions ship as pieces of their own until what
-    stays in it is no larger than one piece. Every run clears
-    :data:`MIN_CHUNK`.
+    :data:`MIN_PIECE` of its own text is left to its holder. The text outside
+    every region is the shell; its largest regions ship as pieces of their own
+    until what stays in it is no larger than one piece. Every run clears
+    :func:`clears_floor`.
 
     :returns: The divided regions, in document order.
     """
@@ -129,7 +129,7 @@ def partition[S: Span](text: str, found: list[S], workers: int) -> list[Division
             left = 0
         kept -= region.span - left
     pieces = sum(len(division.cuts) + 1 for division in plan.out)
-    if pieces + (kept >= MIN_CHUNK) < 2:
+    if pieces + clears_floor((kept,)) < 2:
         return []  # one unit of work: nothing runs beside it
     return sorted(plan.out, key=lambda division: division.region.opener)
 
@@ -139,7 +139,7 @@ def _divide[S: Span](plan: _Partition[S], region: S) -> int:
 
     ``0`` once it is divided. A region whose only change is a descended value
     is divided too — as one piece holding that value's stand-in — unless what
-    is left of it is under :data:`MIN_CHUNK`: then its holder keeps that text,
+    is left of it is under :data:`MIN_PIECE`: then its holder keeps that text,
     and finding the stand-in in so little costs less than a unit of its own.
 
     Never one step per item: a region of thousands of items is cut by
@@ -164,7 +164,7 @@ def _divide[S: Span](plan: _Partition[S], region: S) -> int:
     left = (
         region.span - (region.closer - region.opener) + weights.before(len(marks) + 1)
     )
-    if cuts or MIN_CHUNK <= left < region.span:
+    if cuts or (clears_floor((left,)) and left < region.span):
         plan.out.append(Division(region, cuts))
         return 0
     return left
@@ -199,10 +199,10 @@ class Weights(NamedTuple):
 def runs(target: float, weights: Weights) -> tuple[int, ...]:
     """Separators between greedy runs of adjacent items of at most ``target``.
 
-    A run is closed only once it clears :data:`MIN_CHUNK`, and a last run
+    A run is closed only once it clears :func:`clears_floor`, and a last run
     under it rejoins the one before, so no piece falls below the floor. The
     run from item ``j`` closes before the first item ``i`` that both starts
-    :data:`MIN_CHUNK` in and would carry it past ``target``; both tests only
+    :data:`MIN_PIECE` in and would carry it past ``target``; both tests only
     ever turn true as ``i`` grows, so each cut is two bisections.
     """
     items = len(weights.marks) + 1
@@ -211,14 +211,14 @@ def runs(target: float, weights: Weights) -> tuple[int, ...]:
     start = 0
     while True:
         base = before(start)
-        floor = _first(lambda i: before(i) - base >= MIN_CHUNK, start + 1, items)
+        floor = _first(lambda i: clears_floor((before(i) - base,)), start + 1, items)
         over = _first(lambda i: before(i + 1) - base > target, start + 1, items)
         at = max(floor, over)
         if at >= items:
             break
         cuts.append(weights.marks[at - 1])
         start = at
-    if cuts and before(items) - before(start) < MIN_CHUNK:
+    if cuts and not clears_floor((before(items) - before(start),)):
         cuts.pop()
     return tuple(cuts)
 

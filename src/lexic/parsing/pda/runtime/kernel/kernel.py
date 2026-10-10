@@ -57,8 +57,9 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.gating import (
-    gate_take,
+    chase_dispatch,
     select_gated,
+    wide_gate_take,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -85,17 +86,18 @@ from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
     RouteLane,
+    RunScope,
     sole_admitted,
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import (
+    IslandEnds,
     IslandPolicy,
 )
 from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.matchers import (
-    chase_dispatch,
     match_cc,
     match_cc1,
     match_lit,
@@ -161,6 +163,7 @@ class PdaKernel[M](
         executor: ProductExecutor[M] | None = None,
         *,
         config: ParseConfig = DEFAULT_CONFIG,
+        scope: RunScope | None = None,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -173,13 +176,15 @@ class PdaKernel[M](
         :param config: The caller's resolver, answering an island that
             derives its text two ways that mean different things, and split
             decider. Per-parse state, so it rides on the cursor.
+        :param scope: The scope of the parse this one runs inside, whose
+            allowance it shares, or ``None`` for a parse of its own.
         """
         self.tables = tables
         self.text = text
         self.policy = IslandPolicy(config=config, executor=executor)
         self.pos = 0
         self.stack = []
-        self._caches = KernelCaches[M]()
+        self._caches = KernelCaches[M](scope)
         # `None` for every program without route continuations — which is the
         # generated-model product permanently. A frame slot would have taxed
         # every product's every frame push; this taxes one attribute.
@@ -193,12 +198,21 @@ class PdaKernel[M](
         :returns: The model instance the start rule folds to, typed ``M``.
         :raises PdaFail: On any deterministic-parse failure — a terminal
             mismatch, no viable arm, an unresolved island reference, trailing
-            input, or a start rule that is itself an island (the whole-grammar
-            opt-out the compile seam reads).
+            input, a start rule that is itself an island (the whole-grammar
+            opt-out the compile seam reads), or a program compiled under
+            licences the configured decider does not grant.
         """
-        start = self.tables.program.start
+        program = self.tables.program
+        start = program.start
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
+        config = self.policy.config
+        if config is not DEFAULT_CONFIG and not config.decide.grants_all(
+            program.grants
+        ):
+            # Compiled for licences this decider does not grant: its shortcuts
+            # would answer in another order. The gated engine asks the decider.
+            raise PdaFail("the program's licences are not this decider's")
         holder: list[M] = []
         self._enter(start, holder)
         self._drive()
@@ -359,7 +373,8 @@ class PdaKernel[M](
                         (char != "" and char not in chars) if negated else char in chars
                     )
                 else:
-                    need = gate_take(self.text, pos, gk, arm.gate_data[i])
+                    # stop and attempt settled above: the wide kinds, straight
+                    need = wide_gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
             i += 1
             # A fold's LAST loop keeps its count — a capture-free fold's depth.
@@ -409,7 +424,10 @@ class PdaKernel[M](
                 "F1 semantic escape, engine fallback",
                 pos,
             )
-        self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
+        try:
+            self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
+        except IslandEnds as two:
+            self._extent(two, i, sink)
         return i
 
     # ── terminal matching (whole quantifier loop, inline, no per-char call) ─
@@ -424,8 +442,6 @@ class PdaKernel[M](
         if k == OP_VDISP:
             return self._match_vdisp(self._sink_for(frame, arm, i), arm, i, pos)
         if k == OP_VSTR or k >= OP_VRUN:
-            # A tabled reference's specialisation is the LEAF walk's; reached
-            # through a frame, it runs the ordinary loop (one iteration of it).
             if frame.clone.mode == BUILD_TRANSPARENT:  # `_sink_for`, read in place
                 sink = frame.out
             else:
@@ -436,7 +452,12 @@ class PdaKernel[M](
                 sink = sinks[i]
                 if sink is None:
                     sinks[i] = sink = []
-            return self._match_vstr(sink, arm, i, pos)
+            # The loop code asked first, and each call spelled as a method call
+            # (no bound method built): a loop pays one compare for the codes
+            # it is not.
+            if k == OP_VSTR:
+                return self._match_vstr(sink, arm, i, pos)
+            return self._match_once(sink, arm, i, pos)
         if k == OP_LIT:
             return match_lit(self.text, arm, i, pos)
         return match_cc(self.text, arm, i, pos)
@@ -459,16 +480,6 @@ class PdaKernel[M](
         if sink is None:
             sinks[i] = sink = []
         return sink
-
-    def _chase_dispatch(self, clone: FlatClone[M]) -> FlatClone[M] | None:
-        """Chase a frame-less dispatch alternation to its concrete target clone.
-
-        :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
-        :returns: The concrete target clone, or ``None`` when the dispatch lands
-            on its empty (nullable) arm (the caller then consumes nothing).
-        :raises PdaFail: When no selector matches and there is no default.
-        """
-        return chase_dispatch(clone, self.text, self.pos)
 
     def _enter(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
@@ -515,20 +526,23 @@ class PdaKernel[M](
         if clone.leaf:
             self._leaf_run(clone, out)
             return False
-        # Taken HERE, where it is read, and nowhere above: an entry resolving
-        # through the chase, an attempt, a gate or a leaf run returns without
-        # ever reaching this walk, and a dispatch entry would otherwise slice
-        # the same character twice — once here and once inside the chase.
-        char = self.text[self.pos : self.pos + 1]
-        arm = None
-        for chars, negated, candidate in clone.selectors:
-            if (char != "" and char not in chars) if negated else char in chars:
-                arm = candidate
-                break
+        # Read where the walk would start, so only an entry that walks pays it:
+        # one arm whose first item refuses what the walk would needs no walk.
+        arm = clone.entry
         if arm is None:
-            arm = clone.default
-            if arm is None:
-                raise PdaFail(f"no arm at {self.pos}", self.pos)
+            # Taken HERE, where it is read, and nowhere above: an entry
+            # resolving through the chase, an attempt, a gate or a leaf run
+            # never reaches this walk, and a dispatch entry would otherwise
+            # slice the same character twice — here and inside the chase.
+            char = self.text[self.pos : self.pos + 1]
+            for chars, negated, candidate in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    arm = candidate
+                    break
+            else:
+                arm = clone.default
+                if arm is None:
+                    raise PdaFail(f"no arm at {self.pos}", self.pos)
         self.stack.append(Frame(arm, out, clone, self.pos))
         return True
 
@@ -590,7 +604,7 @@ class PdaKernel[M](
         """
         while True:
             if clone.mode == BUILD_DISPATCH:
-                chased = self._chase_dispatch(clone)
+                chased = chase_dispatch(clone, self.text, self.pos)
                 if chased is None:
                     return None  # the empty (nullable) arm — nothing consumed
                 clone = chased
@@ -598,7 +612,14 @@ class PdaKernel[M](
             if clone.attempt is not None:
                 sole = sole_admitted(clone.attempt[1], self.text, self.pos)
                 if sole is None:
-                    self.attempt(clone, out)
+                    take = clone.longest
+                    if take is None or not take.steals:
+                        self.attempt(clone, out)
+                    else:  # an arm run item by item may steal: no sub-run
+                        try:
+                            self._island(take.island, out)  # settles the choice
+                        except IslandEnds as two:
+                            self._extent(two, self._descent_item(out), out)
                     return None  # the winning arm was consumed inline
                 clone = sole  # one admitted entry — no fork is possible: a
                 # plain frame push replaces the sub-run, and the audit has

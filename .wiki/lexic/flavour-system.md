@@ -10,7 +10,7 @@ A *flavour* is a grammar notation — GBNF, ABNF, etc. Adding a flavour means ad
 
 Each flavour module exposes:
 
-- A **private** flavour class: `_GbnfFlavour`, `_AbnfFlavour`. Not exported.
+- A flavour class: `GbnfFlavour`, `AbnfFlavour`.
 - A **public singleton instance**: `GBNF_FLAVOUR`, `ABNF_FLAVOUR`. Imported by `grammars/__init__.py` and registered on import.
 - A **private** escape codec class: `_GbnfEscapes`, `_AbnfEscapes`.
 - A **public singleton codec**: `GBNF_ESCAPES`, `ABNF_ESCAPES`.

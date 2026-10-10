@@ -152,13 +152,13 @@ def tokenizer_of(doc: IrMap, name: str) -> IrTokenizer:
     _refuse_unsupported_specials(added, _normalizers(doc.get(IrStr("normalizer"))))
     return IrTokenizer.from_merges(
         name,
-        _vocab(model, added),
-        [_dyad(m) for m in IrTuple.ensure(model[IrStr("merges")], "'merges'")],
+        extended_vocab(model, added),
+        [merge_pair(m) for m in IrTuple.ensure(model[IrStr("merges")], "'merges'")],
         pipeline=_pipeline(doc, model, added),
     )
 
 
-def _vocab(model: IrMap, added: list[IrMap]) -> Mapping[str, int]:
+def extended_vocab(model: IrMap, added: list[IrMap]) -> Mapping[str, int]:
     """``model.vocab``, extended by any added token it does not already cover.
 
     Some families list their specials only under ``added_tokens``; the ids
@@ -177,7 +177,7 @@ def _vocab(model: IrMap, added: list[IrMap]) -> Mapping[str, int]:
     return vocab
 
 
-def _dyad(merge: IrSelf) -> tuple[str, str]:
+def merge_pair(merge: IrSelf) -> tuple[str, str]:
     """One merge as ``(left, right)``.
 
     Both encodings occur in the wild — an ``[l, r]`` array and an ``"l r"``

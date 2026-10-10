@@ -28,11 +28,14 @@ from typing import Any, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.bake.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    GATE_ATTEMPT,
     M_VALUE,
     OP_GRP,
+    OP_REF,
 )
 from lexic.parsing.product.abi.construction import ProductValue
 
@@ -229,6 +232,16 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         :class:`~lexic.parsing.pda.compiler.specs.LongestTake`: the matched span
         is checked for this reference's followers before it is committed. ``None``
         on every other clone.
+    :ivar sub_root: Whether an attempt sub-run's root frame can be this
+        clone's — whatever an attempted loop iteration or an attempt entry can
+        land on (:func:`mark_sub_roots`), in a program that can fork. A sub-run
+        marks its root frame's start only where this is set, and a fork reads
+        one only there.
+    :ivar entry: The arm an entry pushes without walking :attr:`selectors`:
+        set where the clone has one gated arm, no default and no other
+        selection, and that arm's first item refuses every other lookahead
+        itself, at the same position (:func:`~lexic.parsing.pda.compiler
+        .program.specialize.passes.mark_entry`). ``None`` everywhere else.
 
     """
 
@@ -258,6 +271,8 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "runarm",
         "needs_ends",
         "longest",
+        "sub_root",
+        "entry",
     )
 
     name: str
@@ -281,6 +296,8 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
     longest: Any  # LongestTake | None — the specs leaf holds the record
+    sub_root: bool
+    entry: FlatArm | None
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):
@@ -294,17 +311,28 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
         or ``None`` — the lazy per-island delegate-clone table the island
         Earley sub-parses thread in. Homed here (not on ``PdaTables``) so the
         artifact's attribute count is untouched.
+    :ivar grants: The licence kinds the program was compiled under: a decider
+        must grant them all for the program to run its parse
+        (:meth:`~lexic.parsing.earley.kernel.tables.decider.Decider.grants_all`).
     """
 
-    __slots__ = ("start", "delegates")
+    __slots__ = ("start", "delegates", "grants")
 
     start: Any  # FlatClone | IslandRef — the island marker lives in pda_tables
     delegates: Any  # DelegateSource | None — the delegate_compile leaf
+    grants: frozenset[str]
 
-    def __init__(self, start: Any, delegates: Any = None) -> None:
-        """Bind the entry clone (or island opt-out marker) and delegate source."""
+    def __init__(
+        self,
+        start: Any,
+        delegates: Any = None,
+        grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+    ) -> None:
+        """Bind the entry clone (or island opt-out marker), the delegate
+        source and the licences the program was compiled under."""
         self.start = start
         self.delegates = delegates
+        self.grants = grants
 
 
 def clear_build[Carry](clone: FlatClone[Carry]) -> None:
@@ -377,7 +405,8 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
 
 
 def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
-    """Every clone reachable from ``roots``, groups included (worklist walk).
+    """Every clone reachable from ``roots``, groups and attempt entries'
+    sub-clones included (worklist walk).
 
     :param roots: The clones to start from.
     :returns: Every reachable clone, each once.
@@ -391,8 +420,55 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
+        if clone.attempt is not None:
+            work.extend(entry[-1] for entry in clone.attempt[1])
         for arm in clone_arms(clone):
             for kind, payload in zip(arm.kinds, arm.payloads):
                 if kind == OP_GRP:
                     work.append(payload)
     return out
+
+
+def mark_sub_roots(roots: list[FlatClone]) -> None:
+    """Set :attr:`FlatClone.sub_root` on every clone reachable from ``roots``.
+
+    Set where an attempted loop iteration's payload or an attempt entry's
+    sub-clone can land — closed under dispatch targets and sole-entry
+    substitution, the two hops an entry takes before it pushes a frame — and
+    only in a program that can fork at all: a fork is an attempted loop's
+    boundary, so where no item is gated :data:`GATE_ATTEMPT` no side ever
+    reads a start, and no sub-run pays to write one.
+    """
+    clones = all_clones(roots)
+    work: list[FlatClone] = []
+    forks = False
+    for clone in clones:
+        clone.sub_root = False
+        if clone.attempt is not None:
+            work.extend(entry[-1] for entry in clone.attempt[1])
+        for arm in clone_arms(clone):
+            forks = forks or GATE_ATTEMPT in arm.gate_kinds
+            work.extend(
+                payload
+                for kind, gate, payload in zip(arm.kinds, arm.gate_kinds, arm.payloads)
+                if gate == GATE_ATTEMPT and kind in (OP_REF, OP_GRP)
+            )
+    while forks and work:
+        clone = work.pop()
+        if not clone.sub_root:
+            clone.sub_root = True
+            work.extend(_landing_targets(clone))
+
+
+def _landing_targets(clone: FlatClone) -> list[FlatClone]:
+    """The clones entering ``clone`` can land on next: a dispatch clone's
+    targets, or an attempt clone's entry sub-clones."""
+    if clone.mode == BUILD_DISPATCH:
+        wide = clone.wide_selectors
+        found = [*(target for *_gate, target in clone.selectors), clone.default]
+        if wide is not None:
+            found.extend(wide.arms)
+        return [target for target in found if isinstance(target, FlatClone)]
+    if clone.attempt is not None:
+        return [entry[-1] for entry in clone.attempt[1]]
+    return []

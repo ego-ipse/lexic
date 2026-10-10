@@ -25,11 +25,11 @@ reached the paid path that should not have.
 prints the current table. Paste it over `WITNESS` and commit that change on its
 own, so the pin's history reads as a list of deliberate decisions.
 
-**What is NOT pinned, and why.** ``matchers.chase_dispatch`` and
-``matchers.select_arm`` loop over a clone's DISPATCH HOPS and its arms — once
-per entry, not once per character — so their instructions are not the paid
-path this file guards and a pin on them would misstate what a red row means.
-They are edited freely; the functions above are not.
+**What is NOT pinned, and why.** ``gating.chase_dispatch`` loops over a
+clone's DISPATCH HOPS — once per entry, not once per character — so its
+instructions are not the paid path this file guards and a pin on it would
+misstate what a red row means. It is edited freely; the functions above are
+not.
 
 **Interpreter sensitivity, stated.** Opnames are a property of the CPython
 version that compiled them, so an interpreter upgrade will move every row at
@@ -61,10 +61,11 @@ PAID: dict[str, tuple[object, str]] = {
     "matchers.match_chartable": (matchers, "match_chartable"),
     "matchers.vstr_once": (matchers, "vstr_once"),
     "matchers.run_span_once": (matchers, "run_span_once"),
-    "matchers.select_arm": (matchers, "select_arm"),
     "matchers.match_runtable": (matchers, "match_runtable"),
     # The gates the per-character loops consult on every iteration.
     "gating.gate_take": (gating, "gate_take"),
+    # The arm a value-string iteration matches, selected by its lookahead.
+    "gating.select_arm": (gating, "select_arm"),
     "scanner.scan_gate_take": (scanner, "scan_gate_take"),
     # The attempt loops: a per-character loop each, frame-lessly.
     "AttemptInlineMixin.attempt_inline_loop": (
@@ -101,27 +102,27 @@ made.
 """
 
 WITNESS: dict[str, str] = {
-    "AttemptInlineMixin._attempt_tabled_loop": "c4566542d199cf29",
-    "AttemptInlineMixin._attempt_vdisp_loop": "9b5ec8133642b23c",
-    "AttemptInlineMixin.attempt_inline_loop": "6c7e913ef9c86b20",
+    "AttemptInlineMixin._attempt_tabled_loop": "142f44d6b872cd41",
+    "AttemptInlineMixin._attempt_vdisp_loop": "645ec6fe11a875d7",
+    "AttemptInlineMixin.attempt_inline_loop": "ad976bc033ce3718",
     "Kernel._advance_all": "56e7c5a8e276af55",
     "Kernel._close": "2705b7a15a0c4493",
     "Kernel._scan": "f65fdad568fc8431",
     "Kernel.run": "9a328778d4035968",
     "PdaKernel._drive": "ba05ca518cf2dc27",
-    "PdaKernel._match_span": "c8e6c3f1fd849ad7",
+    "PdaKernel._match_span": "9d87df5d3e610eb5",
     "PdaKernel._quant_step": "765183f27d5bf30a",
     "gating.gate_take": "76e35db5019cf024",
+    "gating.select_arm": "ff51ffda2566a8bb",
     "matchers.match_arm": "a268cdcc3a202248",
     "matchers.match_cc": "2f81af2235e50891",
     "matchers.match_cc1": "3021fe234a615f8f",
-    "matchers.match_chartable": "01c1fbcefda52106",
+    "matchers.match_chartable": "d97dd5c272b47c34",
     "matchers.match_lit": "7f52bb4e5f7bf5aa",
-    "matchers.match_runtable": "11b9846c122f07b0",
-    "matchers.run_span_once": "4ad4f40a11fa6667",
-    "matchers.select_arm": "ff51ffda2566a8bb",
-    "matchers.vstr_once": "081aaa113a45fe4e",
-    "scanner.scan_gate_take": "d4d3e62975559ffd",
+    "matchers.match_runtable": "4508c90be403d70f",
+    "matchers.run_span_once": "03e1b39d259939cc",
+    "matchers.vstr_once": "5295662d12197161",
+    "scanner.scan_gate_take": "d567966f02d22cc5",
 }
 """The pinned instruction digests. Regenerate deliberately — see the docstring."""
 

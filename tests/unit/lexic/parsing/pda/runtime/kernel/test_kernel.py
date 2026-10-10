@@ -41,8 +41,15 @@ from lexic.parsing import ParseConfig
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
+from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VDISP, OP_VRUN
+from lexic.parsing.pda.runtime import matchers as matchers_module
 from lexic.parsing.pda.runtime.islands import IslandPolicy
+from lexic.parsing.pda.runtime.kernel import execution as execution_module
+from lexic.parsing.pda.runtime.kernel import kernel as kernel_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
+from lexic.parsing.products import earley_model, model_product
+from tests.clone_walk import walk_program_clones
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -250,3 +257,261 @@ def test_kernel_and_islands_share_one_policy_record():
     assert kern.policy.executor is compiled.executor
     assert kern.policy.config is config
     assert kern.policy.delegates is None  # filled per island, at the reference
+
+
+# ── an exactly-once tabled reference inside a frame ────────────────────
+
+FRAMED_ONCE = (
+    'root ::= ws sign body\nws ::= [ ]*\nsign ::= "+" | "-"\n'
+    'body ::= "<" kw ">"\nkw ::= "ab"\n'
+)
+"""``root`` keeps a frame — ``body`` is still a descent when leaves are marked —
+and both of its value references are exactly once, to TABLED clones: ``ws`` a
+run the span table answers (``OP_VRUN``), ``sign`` a one-character language
+the char table answers (``OP_V1``)."""
+
+
+def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``OP_VRUN`` and ``OP_V1`` have no loop to run, in a frame as in a leaf.
+
+    Both targets carry a table, so through the loop driver each went into
+    ``match_chartable`` for one iteration; the pin is that the framed walk never
+    enters it for either code, and that the model is still the Earley engine's.
+    """
+    compiled = compile_text(FRAMED_ONCE, flavour="gbnf", cache_key="framed-once")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    assert not root.leaf, "root must keep a frame for this pin to mean anything"
+    targets = {
+        kind: arm.payloads[i]
+        for arm in clone_arms(root)
+        for i, kind in enumerate(arm.kinds)
+        if kind in (OP_VRUN, OP_V1)
+    }
+    assert set(targets) == {OP_VRUN, OP_V1}, "the grammar no longer reaches both codes"
+    assert targets[OP_VRUN].runarm is not None
+    assert targets[OP_V1].runarm is None and targets[OP_V1].chartable is not None
+    expected = {
+        text: earley_model(
+            product.instance_grammar, text, compiled.product, product.tables
+        )
+        for text in ("  +<ab>", "-<ab>")
+    }
+
+    def no_loop(*_args: object) -> int:
+        raise AssertionError("an exactly-once reference ran the table loop")
+
+    runs: list[FlatClone] = []
+    real_run = execution_module.run_span_once
+
+    def counted_run(text: str, clone: FlatClone, sink: list, pos: int) -> int:
+        runs.append(clone)
+        return real_run(text, clone, sink, pos)
+
+    monkeypatch.setattr(execution_module, "match_chartable", no_loop)
+    monkeypatch.setattr(execution_module, "run_span_once", counted_run)
+    for text, model in expected.items():
+        runs.clear()
+        assert pda_model(product.pda, text, compiled.executor) == model
+        assert model.to_text() == text
+        # the run's own matcher, called straight from the frame: not answered
+        # on a detour through `vstr_once` (a leaf may call it for its own items)
+        assert targets[OP_VRUN] in runs
+    with pytest.raises(PdaFail):  # the table's refusal, through the direct call
+        pda_model(product.pda, " *<ab>", compiled.executor)
+
+
+# ── an entry the selector walk cannot decide ───────────────────────────
+
+ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
+"""``root``: one arm, opening on a literal, keeping a frame."""
+
+
+def test_an_entry_with_one_self_refusing_arm_skips_the_walk() -> None:
+    """With the walk's own selectors emptied, the entry still finds the arm —
+    it never walked them — and the literal still refuses what the walk did."""
+    compiled = compile_text(ENTERED, flavour="gbnf", cache_key="entry-straight")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    assert root.entry is not None
+    text = "<ab cd>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    root.selectors = ()  # the walk would now refuse every entry
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, "(ab cd>", compiled.executor)
+
+
+DEFAULTED = 'root ::= opt "z"\nopt ::= "a" x | ""\nx ::= "(" root ")" | "p"\n'
+"""``opt``: one selector arm opening on a literal, and an empty default."""
+
+
+def test_a_walk_with_a_default_to_take_keeps_its_selectors() -> None:
+    """The walk is not undecided when a default answers what the selector
+    refuses: no entry, and a lookahead the default takes parses on the PDA —
+    an entry would push the literal's arm there and refuse."""
+    compiled = compile_text(DEFAULTED, flavour="gbnf", cache_key="entry-default")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    opt = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "opt"
+    )
+    assert opt.default is not None and len(opt.selectors) == 1
+    assert opt.selectors[0][2].kinds[0] == OP_LIT1
+    assert opt.entry is None
+    for text in ("z", "apz"):
+        expected = earley_model(
+            product.instance_grammar, text, compiled.product, product.tables
+        )
+        assert pda_model(product.pda, text, compiled.executor) == expected
+
+
+# ── an entered span-tabled leaf ────────────────────────────────────────
+
+ENTERED_RUNS = (
+    "# @lexical event span\n"
+    'root ::= record+\nrecord ::= event | span | group\ngroup ::= "(" record+ ")"\n'
+    'event ::= "%" [a-z]+ ("," [a-z]+)* ";"\nspan ::= "<" [0-9]+ ">"\n'
+)
+"""``record`` is a dispatch over two proved, span-tabled leaves and a framed
+``group``, looped by ``root``: the framed target keeps the loop from being
+matched inline, so each occurrence is ENTERED, through the chase."""
+
+
+def test_an_entered_span_tabled_leaf_goes_straight_to_its_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The entry runs the leaf's span table, not ``vstr_once``'s selection
+    first; the model is still the Earley engine's."""
+    compiled = compile_text(ENTERED_RUNS, flavour="gbnf", cache_key="entered-runs")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    leaves = [
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.leaf and clone.runarm is not None and clone.name in ("event", "span")
+    ]
+    assert {clone.name for clone in leaves} == {"event", "span"}
+    text = "%ab,cd;<12>(%c;)<3>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    runs: list[FlatClone] = []
+    real_run = execution_module.run_span_once
+
+    def counted_run(text: str, clone: FlatClone, sink: list, pos: int) -> int:
+        runs.append(clone)
+        return real_run(text, clone, sink, pos)
+
+    def no_selection(*_args: object) -> int:
+        raise AssertionError("an entered span-tabled leaf went through vstr_once")
+
+    monkeypatch.setattr(execution_module, "run_span_once", counted_run)
+    monkeypatch.setattr(execution_module, "vstr_once", no_selection)
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    assert len(runs) == 4
+
+
+# ── a loop over a dispatch of span-tabled clones, matched inline ──────
+
+INLINE_RUNS = (
+    "# @lexical event span\n"
+    'root ::= record+ "!"\nrecord ::= event | span\n'
+    'event ::= "%" [a-z]+ ("," [a-z]+)* ";"\nspan ::= "<" [0-9]+ ">"\n'
+)
+"""``record`` dispatches to two span-tabled clones only, so ``root``'s loop
+over it is an ``OP_VDISP`` item: chased and run per occurrence, no entry."""
+
+
+def test_a_loop_over_span_tabled_landings_runs_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each occurrence is the chase and the landed clone's run: never the
+    selection of ``vstr_once``, never a call to ask the stop gate, and the
+    model is still the Earley engine's."""
+    compiled = compile_text(INLINE_RUNS, flavour="gbnf", cache_key="inline-runs")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    root = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "root"
+    )
+    assert OP_VDISP in {kind for arm in clone_arms(root) for kind in arm.kinds}
+    text = "%ab,cd;<12>%c;<3>!"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def refused(*_args: object) -> int:
+        raise AssertionError("an inline span-tabled landing took a detour")
+
+    monkeypatch.setattr(matchers_module, "vstr_once", refused)
+    monkeypatch.setattr(execution_module, "gate_take", refused)
+    assert pda_model(product.pda, text, compiled.executor) == expected
+
+
+LEAF_ENTERED = 'root ::= "<" pair+ ">"\npair ::= "a" w ";"\nw ::= [b-z]+\n'
+"""``pair``: a leaf, entered per iteration of ``root``'s loop, one arm opening
+on a literal."""
+
+
+def test_a_leaf_with_one_self_refusing_arm_runs_it_without_the_walk() -> None:
+    """With its own selectors emptied the leaf run still finds its arm — it
+    never walked them — the literal still refuses what the walk did, and the
+    model is the Earley engine's."""
+    compiled = compile_text(LEAF_ENTERED, flavour="gbnf", cache_key="leaf-entry")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    pair = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "pair"
+    )
+    assert pair.leaf and pair.entry is not None
+    text = "<abc;ad;>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    pair.selectors = ()  # the walk would now refuse every run
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, "<abc;b;>", compiled.executor)
+
+
+# ── a descent loop asks its wide gate straight ─────────────────────────
+
+
+def test_a_descent_loop_asks_its_wide_gate_without_the_dispatching_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_quant_step`` settles the stop and attempt kinds itself, so a wide
+    gate (json.gbnf's post-noise peeks) is asked through ``wide_gate_take``
+    straight, never through ``gate_take``'s kind dispatch; the model is still
+    the Earley engine's."""
+    compiled, _pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    text = '{"a": [1, 2, {"b": "c"}], "d": {}}'
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    asked: list[int] = []
+    real_wide = kernel_module.wide_gate_take
+
+    def counted_wide(text: str, pos: int, gk: int, gate: object) -> bool:
+        asked.append(gk)
+        return real_wide(text, pos, gk, gate)
+
+    monkeypatch.setattr(kernel_module, "wide_gate_take", counted_wide)
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    assert asked, "no wide gate was asked: the pin would pass vacuously"

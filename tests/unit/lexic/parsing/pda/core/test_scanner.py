@@ -283,6 +283,17 @@ def test_sg_scan_with_no_take_set_always_declines(probe_gate):
     assert scan_gate_take("{", 0, gate) is False
 
 
+def test_sg_scan_reads_a_negated_take_set_past_the_noise(probe_gate):
+    """A co-finite take-set admits every post-noise character it does not
+    hold, refuses one it holds, and refuses the end of the text."""
+    rec = probe_gate.rec
+    ws_idx = probe_gate.roots[0]
+    gate = ScanGate(SG_SCAN, rec, (ws_idx,), (frozenset({"}"}), True))
+    assert scan_gate_take("  x", 0, gate) is True
+    assert scan_gate_take("  }", 0, gate) is False
+    assert scan_gate_take("  ", 0, gate) is False
+
+
 def test_single_literal_recognizer():
     """A one-rule, one-literal recogniser matches a single-char run."""
     rule = IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))))
@@ -365,7 +376,7 @@ compiled spelling has to preserve. ``\\x00`` stands in for nothing; the EOF
 sentinel is the empty string, added by :func:`_with_eof`.
 
 No EMPTY SET here: an attempt arm whose windows are all empty carries no
-filter at all (:meth:`CloneCompiler._attempt_window` returns ``None``), so
+filter at all (:func:`~lexic.parsing.pda.compiler.eligibility.attempt_window` returns ``None``), so
 ``compile_admission(())`` is not a state the lowering can reach and pinning an
 answer for it would pin a shape nothing produces."""
 

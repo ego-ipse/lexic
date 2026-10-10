@@ -39,7 +39,7 @@ from typing import Any, NamedTuple, Self
 import pytest
 
 from lexic.compile import compile_ast
-from lexic.compile.artifact import _reduce_entry
+from lexic.compile.artifact import derived_reduce_entry
 from lexic.compile.reduce.fold import ReduceFold
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
@@ -262,7 +262,7 @@ def witnesses() -> tuple[Witness, ...]:
 
 def _build(w: Witness) -> tuple[ReduceFold, Any]:
     """The witness's fold and its parsed variant model."""
-    entry = _reduce_entry(
+    entry = derived_reduce_entry(
         compile_ast(w.grammar, cache_key=f"i22-law-{w.name}"), w.reducer
     )
     return entry.fold, entry.variant.parse(w.text, cores=1)

@@ -10,7 +10,7 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.parallel import Roles, Scanner, roles
-from lexic.parsing.parallel.discovery.scan import _occurrences, clustered
+from lexic.parsing.parallel.discovery.scan import clustered, spelling_offsets
 from lexic.parsing.parallel.roles import Terminator
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
@@ -120,7 +120,7 @@ def test_occurrences_finds_a_mark_starting_at_the_windows_last_offset():
     remaining characters reach — the property that makes it safe to search
     past the window end by the spelling's own width."""
     text = "a\n\nb"
-    assert _occurrences(text, "\n\n", 0, 2) == [1]
+    assert spelling_offsets(text, "\n\n", 0, 2) == [1]
 
 
 def test_occurrences_belongs_to_the_window_it_starts_in_not_the_next():
@@ -128,16 +128,16 @@ def test_occurrences_belongs_to_the_window_it_starts_in_not_the_next():
     into: ownership is decided once, by where the spelling STARTS, so a
     window scanning ``[2, 4)`` never rediscovers the mark that started at 1."""
     text = "a\n\nb"
-    assert not _occurrences(text, "\n\n", 2, 4)
+    assert not spelling_offsets(text, "\n\n", 2, 4)
 
 
 def test_a_run_of_four_newlines_thins_to_one_boundary():
-    """``"\\n\\n\\n\\n"`` read directly, tying ``_occurrences`` to
+    """``"\\n\\n\\n\\n"`` read directly, tying ``spelling_offsets`` to
     ``clustered`` rather than synthetic offsets: three overlapping
     occurrences, one grammar boundary, at whichever end the owner's own
     edges settle."""
     text = "\n\n\n\n"
-    marks = sorted(_occurrences(text, "\n\n", 0, len(text)))
+    marks = sorted(spelling_offsets(text, "\n\n", 0, len(text)))
     assert marks == [0, 1, 2]
     widths = dict.fromkeys(marks, 2)
     assert clustered(marks, widths, trailing=False) == [0]

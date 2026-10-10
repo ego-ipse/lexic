@@ -21,7 +21,7 @@ from lexic.compile import MapShape, compile_from_path, spanify
 from lexic.compile.output.templating import SpanPair, span_level
 from lexic.ir import IrSpan
 from lexic.parsing import parse_model
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tests.paths import GROUND_TRUTH
 
 DOCUMENTS = (
@@ -67,7 +67,7 @@ def test_both_engine_routes_produce_identical_entries(name: str, document: str) 
     so this is where a divergence would show.
     """
     pair = pair_for(name)
-    product = _model_product(pair.spans, pair.span_binding)
+    product = model_product(pair.spans, pair.span_binding)
     predictive = list(span_level(parse_model(pair.spans, document, pair.span_binding)))
     earley = list(
         earley_model(

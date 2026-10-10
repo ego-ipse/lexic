@@ -49,6 +49,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_RUNPAT,
     OP_V1,
     OP_VDISP,
     OP_VRUN,
@@ -62,11 +63,15 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     CHARTABLE_CAP,
     NO_CONSULTS,
-    _inline_value_strs,
     bake_consults,
     consult_arm,
+    inline_value_strs,
+    mark_entry,
+    run_pattern,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.pda.runtime.matchers import match_cc, run_span_once
+from tests.clone_walk import walk_program_clones
 from tests.paths import GROUND_TRUTH
 from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
@@ -418,7 +423,7 @@ def test_an_attempt_gated_dispatch_gets_the_attempt_aware_inline_opcode():
     assert vdisp_target(arm.payloads[0])  # the clone licence is unchanged
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_AVDISP
 
 
@@ -442,12 +447,12 @@ def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
 
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_AVSTR
 
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_STOP, *arm.gate_kinds[1:])
-    _inline_value_strs(arm)
+    inline_value_strs(arm)
     assert arm.kinds[0] == OP_VSTR  # un-gated again: inlines
 
 
@@ -518,6 +523,39 @@ def test_a_nullable_run_rule_is_tabled_by_its_matched_span():
     assert sorted(ws.chartable) == [" ", "  "]
     assert art.parse("a").to_text() == "a"  # the ε match is a span like any other
     assert sorted(ws.chartable) == ["", " ", "  "]
+
+
+def test_a_nullable_run_matches_as_one_pattern_where_its_loop_would_end():
+    """A run that cannot refuse is one pattern: it ends wherever the loop it
+    stands for would, on every input, the empty match included."""
+    text = 'root ::= ws "a" ws\nws ::= [ \t]*\n'
+    art = compile_text(text, cache_key="flatten-runpattern", flavour="gbnf")
+    ws = only_arm(art.pda_tables().program.start).payloads[0]
+    assert ws.runarm is not None and ws.runarm.kinds == (OP_RUNPAT,)
+    loop = ws.default  # the run arm the pattern stands for
+    pattern = ws.runarm.payloads[0]
+    for doc in ("", " ", "\t \ta", "a ", "  \t", "\t\t\t\n"):
+        for at in range(len(doc) + 1):
+            looped = match_cc(doc, loop, 0, at)
+            assert pattern.match(doc, at).end() == looped
+            # and through the run's own matcher, the empty-run shortcut included
+            assert run_span_once(doc, ws, [], at) == looped
+
+
+def test_a_run_that_can_refuse_keeps_its_loop():
+    """A mandatory iteration's miss is a refusal in the loop's own words, and
+    a gate other than a stop set decides more than membership: both keep the
+    run arm as it is."""
+    run = FlatArm.__new__(FlatArm)
+    run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab"), False),)
+    run.los, run.his = (1,), (HI_UNBOUNDED,)
+    run.gate_kinds, run.gate_data = (GATE_STOP,), ((frozenset("ab"), False),)
+    assert run_pattern(run) is run
+    run.los = (0,)
+    assert run_pattern(run) is not run
+    run.gate_kinds = (GATE_ATTEMPT,)
+    assert run_pattern(run) is run
+    assert run_pattern(None) is None
 
 
 def test_clones_of_one_rule_share_their_filling_table():
@@ -629,7 +667,7 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
 
 def test_dispatch_conversion_survives_value_str_inlinable_arms():
     """An alternation whose arms target terminal-only value_str clones still
-    dispatches: convert_dispatch runs BEFORE _inline_value_strs, so the unit
+    dispatches: convert_dispatch runs BEFORE inline_value_strs, so the unit
     refs it reads are still OP_REF.
 
     The two specialisations compete for one arm and both remove exactly one
@@ -877,3 +915,84 @@ def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
         f"json_history.md §7 names), got {avstr} + {avdisp} — a "
         "de-specialisation regression"
     )
+
+
+# ── an entry that decides nothing walks nothing ────────────────────────
+
+ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
+"""``root``: one arm opening on a literal, framed (``pair`` is a descent)."""
+
+
+def _clone_named(pda, name: str) -> FlatClone:
+    """The program's clone for rule ``name``."""
+    return next(
+        one
+        for one in walk_program_clones(pda.program.start).values()
+        if one.name == name
+    )
+
+
+def test_a_one_arm_clone_opening_on_a_terminal_is_entered_straight() -> None:
+    """The walk could only find that arm or refuse, and the literal refuses."""
+    root = _clone_named(pda_from_text(ENTERED), "root")
+    assert root.entry is root.selectors[0][2]
+
+
+ENTRY_GRAMMARS = ("json.gbnf", "arithmetic.gbnf", "markdown.gbnf", "vyx.gbnf", "c.gbnf")
+"""Ground-truth programs swept whole: dispatches, leaves, defaults, attempts and
+gated selections all occur among them, so every real shape is asked."""
+
+SELF_REFUSING_FIRST = (OP_LIT1, OP_CC1, OP_LIT, OP_CC, OP_VRUN, OP_V1)
+"""The first-item codes that can refuse a lookahead on their own."""
+
+
+@pytest.mark.parametrize("name", ENTRY_GRAMMARS)
+def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> None:
+    """Wherever an entry is set, the walk it skips could only have found that
+    arm or refused: one selector, no default, no other selection, not a
+    dispatch — and the arm opens on an item that refuses alone."""
+    for clone in walk_program_clones(
+        pda_for(GROUND_TRUTH / name).program.start
+    ).values():
+        if clone.entry is None:
+            continue
+        assert clone.mode != BUILD_DISPATCH, clone.name
+        assert clone.default is None and clone.attempt is None, clone.name
+        assert clone.wide_selectors is None and clone.struct_arm is None, clone.name
+        assert len(clone.selectors) == 1 and clone.selectors[0][2] is clone.entry
+        assert clone.entry.kinds[0] in SELF_REFUSING_FIRST, clone.name
+
+
+@pytest.mark.parametrize("name", ENTRY_GRAMMARS)
+def test_a_walk_that_can_choose_or_descend_first_keeps_its_selectors(name: str) -> None:
+    """A default, a dispatch, several arms, or an arm opening on a reference
+    (whose descent refuses deeper, after a push): no entry."""
+    clones = walk_program_clones(pda_for(GROUND_TRUTH / name).program.start).values()
+    for clone in clones:
+        choosing = (
+            clone.default is not None
+            or clone.mode == BUILD_DISPATCH
+            or len(clone.selectors) != 1
+        )
+        if choosing:
+            assert clone.entry is None, clone.name
+            continue
+        first = clone.selectors[0][2].kinds[0]
+        if first in (OP_REF, OP_REF1, OP_GRP, OP_LEAF1):
+            assert clone.entry is None, clone.name
+
+
+def test_marking_twice_grants_nothing_new() -> None:
+    """The pass reads only the clone, so re-asking it answers the same."""
+    for clone in walk_program_clones(pda_from_text(ENTERED).program.start).values():
+        before = clone.entry
+        mark_entry(clone)
+        assert clone.entry is before
+
+
+def test_a_nullable_first_terminal_grants_no_entry() -> None:
+    """A loop with no mandatory iteration matches empty: it cannot refuse."""
+    text = 'root ::= "a"* x\nx ::= "(" root ")" | "p"\n'
+    root = _clone_named(pda_from_text(text), "root")
+    assert not root.leaf and root.default is None and len(root.selectors) == 1
+    assert root.entry is None

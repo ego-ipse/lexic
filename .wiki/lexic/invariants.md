@@ -113,30 +113,28 @@ These live in `resources/ground_truth/`. All integration and property tests run 
 
 `arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
-## Probes never nest — a POLICY invariant, not a shape one
+## Forks nest three deep at most, and only when a forked verdict is asked again
 
-A fork's frames carry `inherited`, and `adopt_inherited` prepends **one**
-origin's sinks at the build. That is the whole prefix only because forks never
-nest: every `inherited` chain is length 1.
+A fork's frames carry `inherited`, and `adopt_inherited` prepends the values of
+the whole chain (`Frame.inherited_prefix`, oldest first), so a fork of a fork
+builds with every origin's values and writes to none of them.
 
-Nothing structural prevents nesting. One branch does — `if self._caches.probing:`
-in `decisions.py`, which resolves an interior boundary greedily by class instead
-of forking again. `_fork_verdict` is the only entry to either `frames_copy` call
-site, and it sits in that branch's `elif`. `frames_copy` raises if the root frame
-of the stack it is copying already carries `inherited`, so the policy is checked
-rather than carried.
+A boundary inside a side resolves greedily by class, a guess, except while a
+forked verdict is asked again (`_retried`): then the boundary gets a verdict of
+its own (`_nested_verdict`), as does an island's extent inside a side, up to
+`NESTING_DEPTH` sides deep and within `_NESTING_BUDGET` nested verdicts per
+retry. Past either it stays a guess, and a nested verdict that is itself
+undecidable does too. The retries of one parse, its delegate sub-runs'
+included, draw on one allowance (`PARSE_NESTING`, held by `RunScope`), so a
+document costs at most that many drives to the end; past it a fork goes to the
+gated engine as it would without a retry. `frames_copy` raises past `NESTING_DEPTH` forks, so the
+bound is checked rather than carried. A nested side settles the sub-runs its
+outer side still has to (`_inherited_floors`); an entry its own drive started
+at the bottom owns its root.
 
-Two plausible optimisations break it **silently**, producing a model with values
-missing and no exception anywhere:
-
-- committing a winning probe's stack instead of re-driving a decision already
-  paid for — the committed frames would still be marked;
-- resolving interior boundaries exactly, to kill `uncertain` — that is the very
-  branch the invariant rests on.
-
-Either needs `adopt_inherited` to walk the chain first. Do not add that walk
-before then: with forks that cannot nest it is dead code that makes nesting look
-supported.
+A retried drive spends the budget, so it cannot be reproduced by driving again:
+a side built while `nesting` is set keeps its ledger, and the rank reads the
+sides at hand.
 
 ## What these invariants mean in practice
 
@@ -146,3 +144,21 @@ supported.
 - You cannot open a new runtime→codegen import edge.
 - You cannot make an interior boundary resolve by forking without teaching
   `adopt_inherited` to walk the `inherited` chain first.
+
+## No module reaches into another module's private names
+
+A name two modules share is its defining module's public surface: it drops its
+underscore there and joins that module's `__all__` when it has one, or it moves
+to the module that owns the behaviour. Nothing under `src/`, `tests/`, `tools/`
+or `ext/` imports `_name` from another module or reaches it there in any other
+spelling: an attribute read, a `getattr`/`setattr`/`monkeypatch` string, a key
+of the module's `vars()` or `__dict__`, or a dotted patch target. `__dunder__`
+names are not private. A module's own private stand-in for a public name it
+patches keeps its underscore.
+
+The rule covers a module's names only. A test may reach into a class's or an
+object's private attributes to see what a method did, and that does not make
+them public. Outside tests, such a reach means a public interface may be missing
+— a design question, not a renaming. Enforced by
+`tests/integration/lexic/invariants/test_no_private_imports.py`, an AST walk
+over every file.

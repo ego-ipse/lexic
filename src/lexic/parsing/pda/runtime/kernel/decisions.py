@@ -7,15 +7,15 @@ driver calls (:meth:`Attempting.attempt`,
 :meth:`Attempting.attempt_iteration`) are the group's public surface. The class
 carries no slots of its own — every attribute it reads is declared by the kernel.
 
-The vocabulary: a both-viable boundary's viability CLASS
-(:func:`arm_rest_scan` walked over the live chain), the probe (one side
-run to end-of-input on a structural stack copy), and the three-verdict
-fork resolution (take / stop-forced / fork) asked as the forest gate asks
-it — on completed VALUES.
+What a both-viable boundary resolves to — take, stop-forced or fork, asked
+as the forest gate asks it, on completed VALUES — is
+:mod:`~lexic.parsing.pda.runtime.kernel.verdicts`'s, whose host class this one
+extends.
 """
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from lexic.exceptions import LexicError
@@ -24,51 +24,28 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
-from lexic.parsing.pda.compiler.program.opcodes import OP_FAIL, OP_ISLAND
+from lexic.parsing.pda.compiler.program.opcodes import (
+    OP_FAIL,
+    OP_ISLAND,
+)
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
-from lexic.parsing.pda.runtime.admission import (
-    REST_ADMITS,
-    REST_ADMITS_HARD,
-    REST_ASCEND,
-    REST_DEAD,
-    KernelCaches,
-    RouteLane,
-    Side,
-    admits,
-    arm_rest_scan,
-    composes,
-    control_signature,
-    frames_copy,
-    pending_values,
-    sole_admitted,
-    value_shape,
-    values_agree,
-)
+from lexic.parsing.pda.runtime.admission import composes
 from lexic.parsing.pda.runtime.build import (
     Frame,
 )
+from lexic.parsing.pda.runtime.islands import IslandEnds
+from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
-__all__ = ["Attempting", "sole_admitted"]
-
-_LOCKSTEP_ROUNDS = 32
-"""How many convergence rounds a boundary gets before the slow path takes it.
-A budget, not a correctness knob: running out costs today's two full probes."""
-
-_LOCKSTEP_STEP = 8
-"""Characters to advance both sides by when they stand at the same position but
-different control states — small, because convergence is usually one element
-away and every character driven past it is wasted."""
-
-_TAKE, _STOP_FORCED, _FORKED = 0, 1, 2
-"""A both-viable boundary's resolutions (:meth:`Attempting._fork_verdict`)."""
+__all__ = ["Attempting", "claim"]
 
 
-class Attempting[Carry]:
+class Attempting[Carry](Verdicts[Carry]):
     """The attempt/probe methods, hosted for the kernel to inherit.
 
-    Declares the kernel surface it reads (the kernel's own slots and the
-    driver methods it re-enters); :meth:`attempt` and
+    Declares the cursor lanes it writes and the driver methods it re-enters
+    beyond what :class:`Verdicts` declares; :meth:`attempt` and
     :meth:`attempt_iteration` are the entries the driver calls.
     """
 
@@ -76,20 +53,9 @@ class Attempting[Carry]:
 
     text: str
     pos: int
-    stack: list[Frame[Carry]]
-    _caches: KernelCaches[Carry]
-    _routes: RouteLane | None
 
     def _enter(self, clone: FlatClone[Carry], out: list[Carry]) -> bool:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
-        raise NotImplementedError
-
-    def _drive(self, floor: int = 0, limit: int = -1) -> None:
-        """Provided by the kernel — drain the frame stack down to ``floor``."""
-        raise NotImplementedError
-
-    def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
-        """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
     def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
@@ -133,22 +99,46 @@ class Attempting[Carry]:
             loop (its empty rest-probe succeeds vacuously — stop viability
             then belongs to the enclosing frames, which no local probe sees).
         """
-        char = self.text[pos : pos + 1]
-        first = arm.gate_data[i][0]
-        if not admits(char, *first):
+        try:  # the lookahead: indexing, and end of input as the rare exception
+            char = self.text[pos]
+        except IndexError:
+            char = ""
+        chars, negated = arm.gate_data[i][0]  # `admits`, read in place
+        if (char == "" or char in chars) if negated else char not in chars:
             return frame.close_loop(i, pos)
         k = arm.kinds[i]
         if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
-            if self._stop_viable(arm, i, char):
+            if self._stop_viable(arm, i, pos):
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable",
                     pos,
                 )
             return self._attempt_island(frame, arm, i, pos)
-        got = self._attempt_run(arm.payloads[i], pos)
-        if got is None or got[0] == pos:
-            return frame.close_loop(i, pos)
-        if not self._attempt_choice(arm, i, pos, got):
+        try:
+            got = self._attempt_run(arm.payloads[i], pos, pos)
+        except IslandEnds as two:
+            if two.root is not arm.payloads[i] or two.pos != pos:
+                raise
+            got = self._iteration_ends(two, arm, i, pos)
+        return self._attempt_settle(frame, arm, i, pos, got)
+
+    def _attempt_settle(
+        self,
+        frame: Frame[Carry],
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        got: tuple[int, list[Carry]] | None,
+    ) -> int:
+        """Commit one attempted iteration's sub-run, or close the loop.
+
+        The tail of :meth:`attempt_iteration`, and what a boundary side runs
+        when its drive drains back to a loop iteration it was forked inside.
+
+        :param got: The sub-run's ``(end, values)``, or ``None`` when it failed.
+        :returns: The driver continuation index.
+        """
+        if got is None or got[0] == pos or not self._attempt_choice(arm, i, pos, got):
             return frame.close_loop(i, pos)
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
@@ -156,70 +146,10 @@ class Attempting[Carry]:
         self.pos = end
         return i
 
-    def _attempt_choice(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        got: tuple[int, list[Carry]],
-    ) -> bool:
-        """Whether one successful tentative iteration may commit."""
-        # The stored soft continuation over-approximates every viable stop
-        # side. Outside it, a successful iteration is forced and the live
-        # frame-chain walk cannot add information. Only the overlap population
-        # pays the exact continuation classification and fork audit.
-        char = self.text[pos : pos + 1]
-        soft = arm.gate_data[i][1]
-        cls = self._beyond_class(arm, i, char) if admits(char, *soft) else REST_DEAD
-        if self._caches.probing:
-            # Inside a probe boundaries resolve GREEDILY by class — probes
-            # never nest. The terminator class (a MANDATORY item anywhere up
-            # the live chain wants the char) prefers stop; the chain class
-            # takes. Either way the probe's outcome becomes a SAMPLED path
-            # (uncertain).
-            if cls == REST_ADMITS_HARD:
-                self._caches.uncertain = True
-                return False
-            if cls == REST_ADMITS:
-                self._caches.uncertain = True
-        elif cls in (REST_ADMITS, REST_ADMITS_HARD):
-            verdict = self._fork_verdict(arm, i, pos, got)
-            if verdict == _STOP_FORCED:
-                return False
-            if verdict == _FORKED:
-                raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable",
-                    pos,
-                )
-        return True
-
-    def _beyond_class(self, arm: FlatArm, i: int, char: str) -> int:
-        """The boundary's viability CLASS over the whole live chain.
-
-        :returns: :data:`REST_ADMITS_HARD` when a MANDATORY item anywhere up the
-            live chain wants the char (the terminator class — stopping is the
-            strong prior); :data:`REST_ADMITS` for optional-item viability only
-            (the chain class — taking is); :data:`REST_DEAD` when no stop side
-            exists. Optional admits never settle the walk — a hard admit
-            deeper up outranks them.
-        """
-        verdict, opt = arm_rest_scan(arm, i, char)
-        if verdict == REST_ASCEND:
-            for frame in self.stack[-2::-1]:
-                verdict, o = arm_rest_scan(frame.arm, frame.i, char)
-                opt = opt or o
-                if verdict != REST_ASCEND:
-                    break
-        if verdict == REST_ADMITS_HARD:
-            return REST_ADMITS_HARD
-        if verdict == REST_DEAD:
-            return REST_ADMITS if opt else REST_DEAD
-        return REST_ADMITS if (opt or char == "") else REST_DEAD
-
-    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+    def _stop_viable(self, arm: FlatArm, i: int, pos: int) -> bool:
         """Whether the boundary char is viable BEYOND another iteration —
         the island branch's trigger (:meth:`_beyond_class` in truth form)."""
-        return self._beyond_class(arm, i, char) in (REST_ADMITS, REST_ADMITS_HARD)
+        return self._beyond_class(arm, i, pos) in (REST_ADMITS, REST_ADMITS_HARD)
 
     def _attempt_island(
         self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
@@ -240,209 +170,39 @@ class Attempting[Carry]:
         self.pos = pos
         return frame.close_loop(i, pos)
 
-    def _fork_verdict(
+    def attempt(
         self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]],
-    ) -> int:
-        """A both-viable boundary's resolution — take, stop, or fork.
-
-        Ambiguity is a question about values, asked as the forest gate asks
-        it — on completions, one flip at the decision point (a fold is
-        compositional; later boundaries get their own audits). Both sides run
-        to end-of-input: stop dead → taking is FORCED, soundly (the
-        alternative derives nothing); take dead while stop completes → STOP
-        is forced (Earley's split answer is maximal SUBJECT TO SUCCESS — the
-        gbnf-meta terminator theft resolves here); both complete → equal
-        values are a benign split (committed as the take), different values
-        are the gated engine's question.
-
-        :param taken: The iteration's ``(end, values)`` (the take side's seed).
-        :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
-        """
-        settled = self._lockstep_verdict(arm, i, pos, taken)
-        if settled is not None:
-            return settled
-        stop, _stop_unc = self._probe(arm, i, pos, None)
-        if stop is None:
-            return _TAKE
-        take, _take_unc = self._probe(arm, i, pos, taken)
-        if take is None:
-            return _STOP_FORCED
-        if len(take) != len(stop) or any(
-            not same_value(a, b) for a, b in zip(take, stop)
-        ):
-            return _FORKED
-        return _TAKE
-
-    def _lockstep_verdict(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]],
-    ) -> int | None:
-        """The boundary settled by CONVERGENCE, or ``None`` to run it the long way.
-
-        Running both sides to end-of-input costs O(remaining) per boundary, and
-        boundary count grows with the input — the parse is quadratic, and 92% of
-        a pipe-heavy vyx packet's wall clock sits in those probes. But the two
-        sides differ ONLY in the boundary decision, so they reconverge quickly:
-        once they stand at the same position with the same control state, the
-        stack (which IS the continuation) guarantees them the same future, and
-        the whole question reduces to the values each built on the way there.
-
-        Three outcomes are decidable here, all of them the SAME answers the
-        end-of-input comparison gives:
-
-        - **converged, values agree** — the parses build one value; a benign
-          split, committed as the take. This is the common case, and it costs
-          O(1) instead of O(remaining).
-        - **converged, values differ** — the remainder is COMMON, so it is run
-          ONCE (not twice) to see whether it completes at all: completing makes
-          the difference real (a fork); dying means neither side completes, and
-          a dead stop side is :data:`_TAKE` exactly as before. A REFUSAL there
-          is the exception: a completion that refuses reads the values it
-          gathered, which differ between the sides, so running the left side's
-          remainder says nothing about the right's, and the boundary is
-          undecidable (:meth:`_advance` raises :class:`ProbeFork`).
-        - **the STOP side dies** — :data:`_TAKE`, since the caller tests
-          ``stop is None`` first regardless; a dead TAKE side does not settle
-          it, turning on the stop side reaching end-of-input, unestablished.
-
-        No convergence in the budget returns ``None``: the caller runs today's
-        comparison. A :class:`ProbeFork` PROPAGATES — undecidable is not death.
-
-        :returns: The verdict, or ``None`` when the long way must decide.
-        """
-        shape = value_shape(self.stack)
-        left = self._side(arm, i, pos, None)
-        right = self._side(arm, i, pos, taken)
-        for _round in range(_LOCKSTEP_ROUNDS):
-            if left is None or right is None:
-                return _TAKE if left is None else None
-            target = max(left[1], right[1])
-            if left[1] == right[1]:
-                if control_signature(left[0], left[1]) == control_signature(
-                    right[0], right[1]
-                ):
-                    return self._converged(left, right, shape)
-                target += _LOCKSTEP_STEP
-            left = self._advance(left, target)
-            right = self._advance(right, target)
-        return None
-
-    def _converged(
-        self,
-        left: Side,
-        right: Side,
-        shape: tuple[Any, ...],
-    ) -> int | None:
-        """The verdict once both sides share a position and a control state.
-
-        Only the values built SINCE the boundary are compared — ``shape`` is
-        the watermark taken there, and both sides inherited everything below it
-        from one stack.
-        """
-        if values_agree(
-            pending_values(left[0], shape), pending_values(right[0], shape)
-        ):
-            return _TAKE
-        done = self._advance(left, -1)
-        if done is None or done[1] != len(self.text):
-            return _TAKE  # the common remainder does not complete on either side
-        return _FORKED
-
-    def _side(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]] | None,
-    ) -> Side | None:
-        """One side of the boundary as its own resumable ``(stack, pos, lane)``.
-
-        The same fork :meth:`_probe` builds — a structural stack copy with the
-        boundary decided — but handed back undriven so the caller can advance
-        it in step with the other. The lane forks with the stack, so whichever
-        side loses takes the routes it published with it.
-        """
-        forked = frames_copy(self.stack)
-        routes = None if self._routes is None else self._routes.forked(forked)
-        top = forked[-1]
-        if taken is None:
-            top.close_loop(i, pos)
-            return forked, pos, routes
-        top.count += 1
-        top.i = i
-        saved = self.stack
-        self.stack = forked
-        try:
-            self._sink_for(top, arm, i).extend(taken[1])
-        finally:
-            self.stack = saved
-        return forked, taken[0], routes
-
-    def _advance(self, side: Side, limit: int) -> Side | None:
-        """Drive one side to ``limit`` (``-1`` = to the end), or ``None`` if it dies.
-
-        Swapped in and out under the same discipline :meth:`_probe` uses, and
-        counted as probing so nested boundaries resolve greedily rather than
-        recursing — including the greedy resolution of nested boundaries, whose
-        ``uncertain`` flag is treated exactly as the end-of-input comparison
-        treats it: as information the verdict does not use. (It is read and
-        discarded there too — ``_stop_unc``/``_take_unc``.) Disqualifying on it
-        was tried and made every pipe-heavy boundary take the slow path, which
-        is the whole population this exists for.
-        """
-        caches = self._caches
-        saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
-        self.stack, self.pos, self._routes = side[0], side[1], side[2]
-        caches.probing += 1
-        saved_unc = caches.uncertain
-        caches.uncertain = False
-        try:
-            self._drive(limit=limit)
-            return self.stack, self.pos, self._routes
-        except ProbeFork:
-            raise  # undecidable is not death: it is the gated engine's
-        except LexicError as refusal:
-            if limit < 0:  # the common remainder, run once for both sides
-                raise ProbeFork(
-                    f"lockstep: refusal on the shared remainder: {refusal}", self.pos
-                ) from None
-            return None
-        except PdaFail:
-            return None
-        finally:
-            caches.probing -= 1
-            caches.uncertain = saved_unc
-            self.stack, self.pos = saved_stack, saved_pos
-            self._routes = saved_routes
-
-    def attempt(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
+        clone: FlatClone[Carry],
+        out: list[Carry],
+        ran: int = -1,
+        got: tuple[int, list[Carry]] | None = None,
+    ) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
 
         Each entry runs as a self-contained sub-run from the cursor
         (:meth:`_attempt_run` — rolled back by construction on failure). The
         first success is audited against the REMAINING admitted entries before
-        it commits: a second success on the SAME span is a value question this
-        seam does not settle, and one on a DIFFERENT span whose next character
-        the rule's continuation accepts is a cross-span arm choice — both bail
-        to the gated engine, which refuses iff the ambiguity is real.
+        it commits: a second success on the SAME span with a different value is
+        a value question for the gated engine, and one on a DIFFERENT span
+        whose next character the rule's continuation accepts is a carving the
+        decider ranks against the winner (:meth:`_kept_arm`).
 
         :param clone: The attempt clone (``clone.attempt`` is set).
         :param out: The parent sink the winning arm's values splice into.
+        :param ran: The entry whose sub-run already ran, ``got`` its outcome —
+            how a boundary side resumes an attempt it was forked inside; the
+            live entry passes neither and starts at the first entry. From
+            there on the two name the latest entry tried and its outcome, and
+            end naming the winner.
         :raises PdaFail: When no entry succeeds, or the audit cannot settle.
         """
         follow, entries = clone.attempt
         pos = self.pos
         char = self.text[pos : pos + 1]
-        winner = -1
-        best: tuple[int, list[Carry]] | None = None
-        for idx, (chars, negated, prefix, window, sub) in enumerate(entries):
+        if got and not composes(follow, self.text, got[0]):
+            got = None
+        for idx in range(len(entries) if got else ran + 1, len(entries)):
+            chars, negated, prefix, window, sub = entries[idx]
             if chars is not None and (  # `admits`, read in place
                 (char == "" or char in chars) if negated else (char not in chars)
             ):
@@ -451,9 +211,9 @@ class Attempting[Carry]:
                 continue
             if window is not None and window.match(self.text, pos) is None:
                 continue
-            best = self._attempt_run(sub, pos)
-            if best is not None:
-                if not composes(follow, self.text, best[0]):
+            got = self._attempt_run(sub, pos, pos)
+            if got is not None:
+                if not composes(follow, self.text, got[0]):
                     # It parses, but its own next character is outside the
                     # rule's FOLLOW, so no context can extend this reading —
                     # a dead arm, not a candidate. Committing would hand the
@@ -461,34 +221,103 @@ class Attempting[Carry]:
                     # refuse a longer sibling that CAN (`"#" | "##"` before a
                     # heading's space). FOLLOW over-approximates, so a skip
                     # here drops only arms that are provably dead.
-                    best = None
+                    got = None
                     continue
-                winner = idx
+                ran = idx
                 break
-        if best is None:
+        if got is None:
             raise PdaFail(f"attempt: no arm matches at {pos}", pos)
-        self._attempt_audit(entries[winner + 1 :], pos, best[0], follow)
-        out.extend(best[1])
-        self.pos = best[0]
+        self._settle_arm(got, self._attempt_audit(clone, ran + 1, got), out)
+
+    def _settle_arm(
+        self,
+        won: tuple[int, list[Carry]],
+        rivals: list[tuple[int, list[Carry]]] | None,
+        out: list[Carry],
+    ) -> None:
+        """Commit an audited attempt: the winner, or the arm the decider keeps
+        among it and its ``rivals`` (:meth:`_kept_arm`), spliced into ``out``
+        with the cursor past it."""
+        if rivals is not None:
+            won = self._kept_arm(won, rivals, out)
+        out.extend(won[1])
+        self.pos = won[0]
+
+    def _kept_arm(
+        self,
+        won: tuple[int, list[Carry]],
+        rivals: list[tuple[int, list[Carry]]],
+        out: list[Carry],
+    ) -> tuple[int, list[Carry]]:
+        """An attempt's winning arm against the admitted arms that end
+        elsewhere and could compose, as ``(end, values)``: the one the decider
+        keeps (:meth:`_kept_pick`), each arm a side as an island's completion
+        is (:meth:`_extent_side`), at the reference the attempt runs for.
+
+        Two rivals ending alike with different values are a value question;
+        and no side can be built where no item of the top frame owns ``out``,
+        where the run is not over the whole document (a delegate's sub-run,
+        whose root may end anywhere in the island's window, or a truncated
+        text: :meth:`RunScope.whole`), or inside a side where :meth:`_nests`
+        allows no verdict.
+
+        :raises ProbeFork: In each of those cases, and when the verdict forks:
+            the gated engine answers.
+        """
+        pos = self.pos
+        picks = {won[0]: won[1]}
+        for end, values in rivals:
+            held = picks.setdefault(end, values)
+            if not same_value(held, values):
+                raise value_question(pos, end)
+        k = self._descent_item(out)
+        kept = None
+        if k >= 0 and self._caches.scope.whole():
+            if not self._caches.probing or self._nests():
+                ordered = [(end - pos, picks[end]) for end in sorted(picks)]
+                kept = self._kept_pick(ordered, partial(self._extent_side, k))
+        if kept is None:
+            raise ProbeFork(
+                f"attempt at {pos}: arm choice spans {sorted(picks)} "
+                "and the alternatives could compose",
+                pos,
+            )
+        return pos + kept[0], kept[1]
 
     def _attempt_audit(
-        self, rest: tuple[Any, ...], pos: int, end: int, follow: Any
-    ) -> None:
-        """Refuse a commit a later admitted entry could contest.
+        self,
+        clone: FlatClone[Carry],
+        first: int,
+        won: tuple[int, list[Carry]],
+        got: tuple[int, list[Carry]] | None = None,
+    ) -> list[tuple[int, list[Carry]]] | None:
+        """Audit a winner against the later admitted entries before its caller
+        commits it: refuse what the gated engine must decide, and return the
+        entries that end elsewhere and could compose, for the decider to rank
+        against the winner (:meth:`_kept_arm`) — ``None`` when there are none.
 
-        :param rest: The entries after the winner, in attempt order.
-        :param pos: The attempt position.
-        :param end: The winner's end.
-        :param follow: The rule's soft-FOLLOW CharSet.
-        :raises ProbeFork: A later entry succeeding on the SAME span (a value
-            question this seam does not settle) or on a DIFFERENT span whose
-            next character ``follow`` accepts (a cross-span arm choice) —
-            either way the gated engine decides. Undecidable, not a miss: an
-            enclosing attempted iteration re-raises it rather than reading it
-            as its own arm failing, which would close the loop and commit.
+        Runs with the cursor at the attempt position. Each audited entry's
+        sub-run is wrapped in a record of the audit (:data:`Audit`), the one
+        state a fork inside it cannot read off the stack — in a program that
+        can fork (``sub_root``); elsewhere nothing reads one.
+
+        :param clone: The attempt clone whose entry ``won``.
+        :param first: The first entry still to audit.
+        :param won: The winner's ``(end, values)``.
+        :param got: The outcome of entry ``first - 1``, already run — how a
+            boundary side resumes an audit it was forked inside; the live
+            audit passes none.
+        :returns: The rivals, as ``(end, values)``, or ``None``.
+        :raises ProbeFork: As :meth:`_contest` raises.
         """
+        pos = self.pos
+        entries = clone.attempt[1]
+        rivals: list[tuple[int, list[Carry]]] | None = None
+        if got is not None and self._contest(entries[first - 1][-1], won, got, clone):
+            rivals = [got]
         char = self.text[pos : pos + 1]
-        for chars, negated, prefix, window, sub in rest:
+        for idx in range(first, len(entries)):
+            chars, negated, prefix, window, sub = entries[idx]
             if chars is not None and (  # `admits`, read in place
                 (char == "" or char in chars) if negated else (char not in chars)
             ):
@@ -497,29 +326,46 @@ class Attempting[Carry]:
                 continue
             if window is not None and window.match(self.text, pos) is None:
                 continue
-            other = self._attempt_run(sub, pos)
-            if other is None:
-                continue
-            alt = other[0]
-            if alt == end or (alt > end and self._spans_exactly(sub, pos, end)):
-                raise ProbeFork(
-                    f"attempt at {pos}: two arms span [{pos}, {end}) — "
-                    "a value question for the gated engine",
-                    pos,
-                )
-            # End of input composes with whatever can finish there, and the
-            # rule's FOLLOW may or may not carry the sentinel — so asking it
-            # about `""` answered "cannot compose" for every alternative that
-            # consumed to the end, which is exactly when a longer reading is
-            # most likely to be the whole parse. Reaching the end is treated
-            # as composable: the bail direction, where the gated engine's
-            # whole-input view settles it.
-            if alt >= len(self.text) or follow.has(self.text[alt : alt + 1]):
-                raise ProbeFork(
-                    f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
-                    "and the alternative could compose",
-                    pos,
-                )
+            if not sub.sub_root:  # the program cannot fork: nothing reads it
+                got = self._attempt_run(sub, pos, -1)
+            else:
+                self._caches.audits.append((len(self.stack), clone, idx, pos, won))
+                try:
+                    got = self._attempt_run(sub, pos, -1)
+                finally:
+                    self._caches.audits.pop()
+            if got is not None and self._contest(sub, won, got, clone):
+                rivals = [got] if rivals is None else [*rivals, got]
+        return rivals
+
+    def _contest(
+        self,
+        sub: FlatClone[Carry],
+        won: tuple[int, list[Carry]],
+        got: tuple[int, list[Carry]],
+        clone: FlatClone,
+    ) -> bool:
+        """Whether ``sub``'s success ``got`` is a rival of the winner ``won``,
+        both ``(end, values)`` from the attempt position at the cursor: one
+        that ends elsewhere and could compose is, for the decider to rank; one
+        that cannot compose is no reading at all, and one on the winner's span
+        with the winner's value changes nothing.
+
+        :raises ProbeFork: A success on the SAME span with a different value,
+            or one that overshoots yet derives the winner's span too — a value
+            question the gated engine decides. Undecidable, not a miss: an
+            enclosing attempted iteration re-raises it rather than reading it
+            as its own arm failing, which would close the loop and commit.
+        """
+        pos = self.pos
+        end, alt = won[0], got[0]
+        if alt == end:
+            if same_value(got[1], won[1]):
+                return False
+            raise value_question(pos, end)
+        if alt > end and self._spans_exactly(sub, pos, end):
+            raise value_question(pos, end)
+        return composes(clone.attempt[0], self.text, alt)
 
     def _spans_exactly(self, sub: FlatClone, pos: int, end: int) -> bool:
         """Whether ``sub`` also derives exactly ``[pos, end)``.
@@ -533,16 +379,17 @@ class Attempting[Carry]:
         the answer cannot be a false positive. Only reachable when the greedy
         extent OVERSHOOTS — an arm that stopped short could not reach ``end``.
         """
-        whole = self.text
+        whole, scope = self.text, self._caches.scope
+        cut, scope.cut = scope.cut, True
         self.text = whole[:end]
         try:
-            bounded = self._attempt_run(sub, pos)
+            bounded = self._attempt_run(sub, pos, -2)
         finally:
-            self.text = whole
+            self.text, scope.cut = whole, cut
         return bounded is not None and bounded[0] == end
 
     def _attempt_run(
-        self, sub: FlatClone[Carry], pos: int
+        self, sub: FlatClone[Carry], pos: int, mark: int
     ) -> tuple[int, list[Carry]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
 
@@ -557,8 +404,18 @@ class Attempting[Carry]:
         on the enclosing continuation, so ``(clone, pos)`` is not a sound
         key (and the memo measured zero hits when it was).
 
+        The sub-run's root frame is MARKED with ``mark``
+        (:attr:`~lexic.parsing.pda.runtime.build.Frame.start`): the one fact a
+        boundary forked inside it cannot read off the stack, so a side can
+        settle the sub-run as its caller here would (:meth:`_side_floors`).
+        Only where the program can fork (``sub_root``): elsewhere nothing reads
+        it, and the store is most of what the mark costs.
+
         :param sub: The entry's single-arm clone.
         :param pos: The attempt position.
+        :param mark: ``pos`` for a loop iteration or an attempt entry, ``-1``
+            for an audit's run (its record is on the caches), ``-2`` for
+            :meth:`_spans_exactly`'s, which no side settles.
         :returns: ``(end, values)``, or ``None`` when the arm fails.
         """
         saved_pos = self.pos
@@ -566,79 +423,73 @@ class Attempting[Carry]:
         self.pos = pos
         holder: list[Carry] = []
         try:
-            self._enter(sub, holder)
-            self._drive(floor)
+            if self._enter(sub, holder):
+                if sub.sub_root:
+                    self.stack[floor].start = mark
+                self._drive(floor)
             return self.pos, holder
-        except ProbeFork:
+        except ProbeFork as fork:
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
+            if isinstance(fork, IslandEnds):
+                claim(fork, holder, sub)
             raise
-        except PdaFail, LexicError:
+        except PdaFail:
+            island = self._stolen_at(floor)
+            if island is None:
+                return None
+        except LexicError:
             return None
         finally:
-            del self.stack[floor:]
+            if len(self.stack) > floor:  # a completed drive left none above
+                del self.stack[floor:]
             self.pos = saved_pos
-
-    def _probe(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]] | None,
-    ) -> tuple[list[Carry] | None, bool]:
-        """One side of a boundary, run to end-of-input on a copied stack.
-
-        The continuation from a boundary is runnable because the live stack
-        IS the continuation: a structural copy (:func:`frames_copy`) with
-        the boundary decided — closed (``taken is None``) or advanced past
-        one taken iteration — drives to completion under the swapped-stack
-        discipline. The completed parse's root values come back for the
-        caller's value comparison; the decision applies to the COPY's top
-        frame only — the live stack is never touched.
-
-        :param taken: ``None`` for the stop side; the iteration's
-            ``(end, values)`` for the take side.
-        :returns: ``(values | None, uncertain)`` — the root output on a
-            full-input completion, and whether the drive greedily sampled any
-            both-viable boundary on the way (the caller's conservatism).
-        :raises ProbeFork: An undecidable boundary past the depth cap — the
-            caller bails (undecidable never reads as "this side failed").
-        """
-        caches = self._caches
-        saved_stack, saved_pos = self.stack, self.pos
-        forked = frames_copy(saved_stack)
-        # The lane rides the fork: a probe that publishes a route must not
-        # leave it behind on the real stack when the probe is discarded.
-        # `None` for every unrouted program, so this costs one test.
-        saved_routes = self._routes
-        if saved_routes is not None:
-            self._routes = saved_routes.forked(forked)
-        root_out = forked[0].out
-        top = forked[-1]
-        if taken is None:
-            top.close_loop(i, pos)
-            start = pos
-        else:
-            top.count += 1
-            top.i = i
-            start = taken[0]
-        self.stack = forked
-        self.pos = start
-        caches.probing += 1
-        saved_unc = caches.uncertain
-        caches.uncertain = False
         try:
-            if taken is not None:
-                self._sink_for(top, arm, i).extend(taken[1])
-            self._drive()
-            done = root_out if self.pos == len(self.text) else None
-            return done, caches.uncertain
+            return self._stolen_back(island, pos)
+        except IslandEnds as two:  # the island asked for the run is its outcome
+            claim(two, None, sub)
+            raise
+
+    def _stolen_at(self, floor: int) -> IslandPayload | None:
+        """The island to ask for a sub-run that missed, when its root is a
+        rule matched item by item whose own extent proof declines: the miss
+        may be a loop taking what the rest of its arm needed, so it is no
+        more the rule's answer than a match would be."""
+        if len(self.stack) <= floor:
+            return None
+        take = self.stack[floor].clone.longest
+        return take.island if take is not None and take.steals else None
+
+    def _stolen_back(
+        self, island: IslandPayload, pos: int
+    ) -> tuple[int, list[Carry]] | None:
+        """The rule's island at ``pos``, as the sub-run's outcome — ``None``
+        when it derives nothing there."""
+        saved_pos, self.pos = self.pos, pos
+        holder: list[Carry] = []
+        try:
+            self._island(island, holder)
+            return self.pos, holder
         except ProbeFork:
             raise
-        except PdaFail, LexicError:
-            return None, caches.uncertain
+        except PdaFail:
+            return None
         finally:
-            caches.probing -= 1
-            caches.uncertain = saved_unc
-            self.stack, self.pos = saved_stack, saved_pos
-            self._routes = saved_routes
+            self.pos = saved_pos
+
+
+def value_question(pos: int, end: int) -> ProbeFork:
+    """The refusal of two arms over ``[pos, end)`` that build different values."""
+    return ProbeFork(
+        f"attempt at {pos}: two arms span [{pos}, {end}) — "
+        "a value question for the gated engine",
+        pos,
+    )
+
+
+def claim(two: IslandEnds, holder: list[Any] | None, sub: FlatClone) -> None:
+    """Mark ``two`` the whole outcome of the attempt sub-run of ``sub`` when it
+    was asked straight into that run's ``holder`` (``None``: asked for the run
+    itself)."""
+    if holder is None or two.sink is holder:
+        two.root = sub

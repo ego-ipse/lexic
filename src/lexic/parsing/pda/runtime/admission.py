@@ -9,21 +9,15 @@ attempt/probe DRIVERS stay methods — their group writes the cursor's own state
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,
-    OP_CC,
-    OP_CC1,
-    OP_FAIL,
-    OP_ISLAND,
-    OP_LIT,
-    OP_LIT1,
 )
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -31,23 +25,20 @@ from lexic.parsing.pda.runtime.build import (
 )
 
 __all__ = [
+    "NESTING_DEPTH",
     "NO_ROUTE",
+    "PARSE_NESTING",
+    "RunScope",
+    "Audit",
+    "Floor",
     "RouteLane",
     "Side",
     "control_signature",
     "pending_values",
     "value_shape",
-    "values_agree",
     "KernelCaches",
     "admits",
-    "item_admits",
-    "clone_admits",
-    "arm_rest_scan",
     "composes",
-    "REST_DEAD",
-    "REST_ASCEND",
-    "REST_ADMITS",
-    "REST_ADMITS_HARD",
     "frames_copy",
     "sole_admitted",
 ]
@@ -56,13 +47,50 @@ NO_ROUTE = -1
 """No route is waiting here. A plain int rather than ``None`` so a routed
 consumer's read stays one comparison against the dense route ids."""
 
-type Side = tuple[list[Any], int, "RouteLane | None"]
-"""One resumable boundary side: its forked stack, its position, its route lane.
+type Floor = tuple[
+    int,
+    int,
+    list[Any],
+    list[Any],
+    Frame | None,
+    tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None,
+]
+"""One attempt sub-run a boundary side was forked inside, as the side settles it.
 
-A UNIFORM triple. The lane slot is ``None`` for every program without route
+``(depth, start, holder, live, loop, entry)``: the depth of the sub-run's root
+frame; where it began; the side's list its root reports into; the live list's
+prefix those values follow; and its caller — ``loop``, the side's frame whose
+attempted iteration it is, or ``entry``, the attempt clone, the side's list
+the winner splices into, the entry's index and — for an entry the attempt is
+AUDITING — the winner's ``(end, values)``. Exactly one caller is set."""
+
+type Audit = tuple[int, Any, int, int, tuple[int, list[Any]]]
+"""One audit run in flight, as a fork inside it needs it: ``(depth, clone,
+entry, pos, won)`` — the depth its sub-run roots at, the attempt clone, the
+entry it runs, the attempt position and the winner's ``(end, values)``."""
+
+type Side = tuple[
+    list[Any],
+    int,
+    "RouteLane | None",
+    list[Any],
+    list[Floor],
+    list[int] | None,
+    Sequence[Frame],
+    tuple[int, int] | tuple[()],
+]
+"""One resumable boundary side: its forked stack, its position, its route lane,
+its root output, the attempt sub-runs it is still inside, its ledger — where
+each frame the fork copied completed, by depth — and the copies themselves,
+which keep where their items end, both kept only by a side built to record
+them; and the fork's own step when it is no loop boundary's (the top frame's
+item it stands in, and where that ends; empty at a loop boundary).
+
+A UNIFORM shape. The lane slot is ``None`` for every program without route
 continuations rather than the tuple changing arity by product, so the
 boundary-decision path stays one shape and one call signature whatever is
-being parsed."""
+being parsed. The root output is held apart from the stack because a side that
+completes has emptied it."""
 
 
 def admits(char: str, chars: Any, negated: Any) -> bool:
@@ -105,65 +133,6 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     return sole
 
 
-REST_DEAD, REST_ASCEND, REST_ADMITS, REST_ADMITS_HARD = 0, 1, 2, 3
-"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
-stop side; a fully-skippable rest defers to the enclosing frame; an
-admitting OPTIONAL item is same-arm chain viability (the greedy split);
-an admitting MANDATORY item is the terminator-theft shape — a possessive
-take would steal the char the arm's own continuation requires, so the
-probes decide (gbnf-meta's rule terminator: ``ws | '\n' next-rule``)."""
-
-
-def item_admits(arm: FlatArm, j: int, char: str) -> bool:
-    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
-    if char == "":
-        return False
-    k = arm.kinds[j]
-    payload = arm.payloads[j]
-    if k in (OP_LIT, OP_LIT1):
-        return payload[0] == char
-    if k in (OP_CC, OP_CC1):
-        chars, negated = payload
-        return (char not in chars) if negated else char in chars
-    if k in (OP_FAIL, OP_ISLAND):
-        return True  # no FIRST at hand — MAY (a spurious probe is safe)
-    return clone_admits(payload, char)
-
-
-def clone_admits(clone: FlatClone, char: str) -> bool:
-    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
-    if clone.attempt is not None:
-        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
-    if clone.wide_selectors is not None:
-        return True  # windowed selection — MAY
-    if clone.default is not None:
-        return True  # a nullable default may defer admission further down
-    for chars, negated, _arm in clone.selectors:
-        if (char not in chars) if negated else char in chars:
-            return True
-    return False
-
-
-def arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
-    """The rest-of-arm walk past item ``i`` — ``(verdict, optional-admit seen)``.
-
-    An optional admitting item does NOT settle the walk (both the chain and
-    the terminator class can coexist — gbnf's ``bar-arm*`` admits the newline
-    the rule's MANDATORY ``nl`` also wants, and the hard class must win); a
-    mandatory item settles it either way (admits → the terminator class;
-    refuses → the char cannot flow past, the stop side is dead).
-    """
-    opt = False
-    for j in range(i + 1, arm.n):
-        if item_admits(arm, j, char):
-            if arm.los[j] > 0:
-                return REST_ADMITS_HARD, opt
-            opt = True
-        elif arm.los[j] > 0:
-            return REST_DEAD, opt
-    return REST_ASCEND, opt
-
-
 def composes(follow: Any, text: str, end: int) -> bool:
     """Whether an arm ending at ``end`` can be extended in ANY context.
 
@@ -175,6 +144,71 @@ def composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
+PARSE_NESTING = 256
+"""How many nested verdicts one parse may ask over all its retries, delegate
+sub-runs' included: each costs a drive to the end of the input, and past it a
+forked verdict goes to the gated engine as without a retry. The most any of
+4,181 documents asked is 117 (decision families, ground truth, 200 generated
+vyx documents, the roster)."""
+
+
+class RunScope:
+    """Where one kernel's run stands in its parse: the nested verdicts its
+    retry may still ask, the parse's allowance — shared with the delegate
+    sub-runs the parse starts — and whether its text and root are the
+    document's.
+
+    :ivar retry: How many nested verdicts the retry being asked may still run;
+        ``0`` outside a retry (no boundary inside a side forks).
+    :ivar root: The parse's own scope, whose ``left`` is the allowance.
+    :ivar left: What is left of the allowance; a delegate's is never read.
+    :ivar cut: Whether the run reads a truncated text, whose end is not the
+        document's.
+    """
+
+    __slots__ = ("cut", "left", "retry", "root")
+
+    cut: bool
+    left: int
+    retry: int
+    root: RunScope
+
+    def __init__(self, root: RunScope | None = None) -> None:
+        """A kernel outside any retry, drawing on ``root``'s allowance — a
+        fresh one (:data:`PARSE_NESTING`) for a parse of its own."""
+        self.cut = False
+        self.left = PARSE_NESTING if root is None else 0
+        self.retry = 0
+        self.root = self if root is None else root
+
+    def whole(self) -> bool:
+        """Whether the text is the whole document and the stack's root its
+        root: not a delegate's run, whose root may end anywhere in a window,
+        nor a run over a truncated text. Only then may a stop side be refuted
+        against the text (:func:`~...matchers.stop_side_dead`)."""
+        return self.root is self and not self.cut
+
+    def open(self, most: int) -> bool:
+        """Start a retry with up to ``most`` of the allowance; whether any was
+        left."""
+        root = self.root
+        self.retry = min(most, root.left)
+        root.left -= self.retry
+        return self.retry > 0
+
+    def close(self) -> None:
+        """End the retry, giving back what it did not ask."""
+        self.root.left += self.retry
+        self.retry = 0
+
+    def take(self) -> bool:
+        """Spend one of the retry's nested verdicts, if it has one left."""
+        if not self.retry:
+            return False
+        self.retry -= 1
+        return True
+
+
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     """One kernel run's scratch — the memos and the stop-probe depth.
 
@@ -182,34 +216,72 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
     :ivar probing: How many probes are live. Non-zero means a boundary is
-        resolved GREEDILY by class rather than by forking again, which is what
-        makes probes never nest. A counter rather than a flag because
-        :meth:`_advance` counts its own drive too.
+        resolved GREEDILY by class rather than by forking again, unless a
+        forked verdict asked again nests a verdict there (``scope``). A
+        counter rather than a flag because :meth:`_advance` counts its own
+        drive too, and the nesting depth is read off it.
+    :ivar audits: The audit runs in flight, innermost last — one record per
+        audited entry run, pushed around it, read only by a fork inside one.
     :ivar uncertain: Set when a probe's drive resolved a both-viable
-        boundary GREEDILY (probes never nest — the exponential chain of a
-        rules-list grammar probing every later line is cut to one linear
-        drive); the probe's outcome is then a SAMPLED path, and the outer
-        verdict treats it conservatively — an uncertain outcome on a
-        decisive side reads as a fork, which is a fallback, never a wrong
-        commit.
+        boundary GREEDILY (forks nest one level, and only by convergence —
+        the exponential chain of a rules-list grammar probing every later
+        line is cut to one linear drive); the probe's outcome is then a
+        SAMPLED path, and the outer verdict treats it conservatively — an
+        uncertain outcome on a decisive side reads as a fork, which is a
+        fallback, never a wrong commit.
+    :ivar side: The side being driven, or ``None`` outside a side's drive —
+        what a fork inside it copies its unsettled sub-runs and root from.
+    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`)
+        — its retry's nested verdicts, the allowance, whether it is whole.
     """
 
-    __slots__ = ("deleg", "intern", "probing", "uncertain")
+    __slots__ = (
+        "audits",
+        "deleg",
+        "intern",
+        "probing",
+        "scope",
+        "side",
+        "uncertain",
+    )
 
+    audits: list[Audit]
     deleg: dict[str, dict[int, Delegate]]
     intern: InternMemo[Carry]
     probing: int
+    scope: RunScope
+    side: Side | None
     uncertain: bool
 
-    def __init__(self) -> None:
-        """Seed the memos empty, the probe depth zero, certainty clean."""
+    def __init__(self, scope: RunScope | None = None) -> None:
+        """Seed the memos empty, the probe depth zero, certainty clean, and the
+        run's scope — one inside ``scope``'s parse when a parse runs this
+        kernel inside it."""
+        self.audits = []
         self.deleg = {}
         self.intern = {}
+        self.scope = RunScope(None if scope is None else scope.root)
         self.probing = 0
+        self.side = None
         self.uncertain = False
 
 
-def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
+NESTING_DEPTH = 16
+"""How many forks deep a stack copy may already be, and so how many sides deep
+a retried verdict nests one of its own (:meth:`~...verdicts.Verdicts._nests`).
+
+A STACK bound, not a cost one: the retry's budget of nested verdicts bounds the
+cost, while each level costs some twelve interpreter frames, so sixteen stay
+far inside the recursion limit. Measured on the decision families: four
+levels keep every rejection the engine made unnested, and none past six
+settles anything more."""
+
+
+def frames_copy[Carry](
+    stack: list[Frame[Carry]],
+    every_end: bool = False,
+    remap: dict[int, list[Any]] | None = None,
+) -> list[Frame[Carry]]:
     """A structural copy of the frame stack, aliasing topology preserved.
 
     Frames alias each other: a frame's ``out`` IS the run holder, a parent's
@@ -234,28 +306,46 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     prefix back — by copying it in front of its own values, never by writing
     through the original — at the one moment it is read, which is its build.
     Two live universes therefore still append only to their own lists.
+
+    :param stack: The stack to copy.
+    :param every_end: Give every copy an ``ends`` of its own, kept or not —
+        what a side the rank reads needs.
+    :param remap: Filled with each original container's copy, by ``id``, for
+        a caller that must find the copies of lists it holds off the stack.
     """
     # The ROOT frame, because it is never popped before the drive reaches end
     # of input; the top frame is fresh and would prove nothing. Raised rather
     # than asserted because `-O` strips asserts and a nested fork builds a
     # SHORT model silently; the class says why it is outside the LexicError
     # family. See `invariants.md`.
-    if stack and stack[0].inherited is not None:
+    depth, origin = 0, stack[0].inherited if stack else None
+    while origin is not None:
+        depth += 1
+        origin = origin.inherited
+    if depth > NESTING_DEPTH:
         raise EngineInvariantError(
-            "frames_copy: a fork inside a fork — probes are not allowed to nest"
+            f"frames_copy: a fork {depth + 1} deep — forks nest "
+            f"{NESTING_DEPTH} levels at most"
         )
-    remap: dict[int, list[Any]] = {}
+    if remap is None:
+        remap = {}
     copies: list[Frame[Carry]] = []
     for frame in stack:
         new = Frame(frame.arm, _fork(frame.out, remap), frame.clone, 0)
         new.i = frame.i
         new.count = frame.count
         new.inherited = frame
-        if frame.ends is not None:
-            # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed
-            # at ``arm.n + 1``, so it neither grows with the document nor
-            # survives being started empty. Copied whole, for a constant.
-            new.ends = _dup(frame.ends, remap)
+        # `ends` is written by INDEX (``ends[i + 1] = pos``) and is fixed at
+        # ``arm.n + 1``, so it neither grows with the document nor survives
+        # being started empty. Copied whole, for a constant. With `every_end`
+        # a copy of a frame that keeps none gets its own, so a side records
+        # where its items end for the verdict's rank, starting at ``-1`` where
+        # the span start stood.
+        ends = frame.ends
+        if ends is not None:
+            new.ends = _dup(ends, remap)
+        elif every_end:
+            new.ends = [-1] * (frame.arm.n + 1)
         sinks = frame.sinks
         if sinks is not None:
             new.sinks = [slot if slot is None else _fork(slot, remap) for slot in sinks]
@@ -520,20 +610,3 @@ def pending_values(stack: list[Frame], shape: tuple[Any, ...] = ()) -> tuple[Any
 def _since(container: list[Any], mark: int) -> tuple[Any, ...]:
     """``container``'s tail past ``mark`` — or all of it if it shrank."""
     return tuple(container) if len(container) < mark else tuple(container[mark:])
-
-
-def values_agree(left: Any, right: Any) -> bool:
-    """Whether two :func:`pending_values` snapshots mean the same thing.
-
-    Structural to the leaves, then :func:`~lexic.parsing.earley.kernel.forest
-    .ambiguity.same_value` — the SAME question the end-of-input comparison
-    asks, asked earlier. A shape mismatch is a disagreement, never an error:
-    the caller's next move on "these differ" is always the conservative one.
-    """
-    if isinstance(left, tuple) or isinstance(right, tuple):
-        if not (isinstance(left, tuple) and isinstance(right, tuple)):
-            return False
-        if len(left) != len(right):
-            return False
-        return all(values_agree(a, b) for a, b in zip(left, right))
-    return bool(same_value(left, right))

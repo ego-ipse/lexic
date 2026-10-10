@@ -20,7 +20,7 @@ from lexic.compile import compile_text
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.products import _model_product, earley_model, pda_model
+from lexic.parsing.products import earley_model, model_product, pda_model
 
 _DENSE = (
     "root ::= line+\nline ::= expr nl\nexpr ::= expr op term | term\n"
@@ -34,7 +34,7 @@ _NESTED = (
 def seats(source: str, key: str):
     """The compiled grammar and its bound product, for both engines."""
     compiled = compile_text(source, cache_key=key)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, given, settings
 from lexic.compile import compile_from_path
 from lexic.generate import generate
 from lexic.model import GrammarModel
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tests.paths import GROUND_TRUTH as _GRAMMAR_DIR
 
 
@@ -69,7 +69,7 @@ def test_arithmetic_roundtrip_engine_forced(seed: int, all_grammar_specs: dict) 
     if not text:
         return
     cg = compile_from_path(_GRAMMAR_DIR / "arithmetic.gbnf")
-    product = _model_product(cg.codegen_grammar, cg.product)
+    product = model_product(cg.codegen_grammar, cg.product)
     inst = cast(
         GrammarModel,
         earley_model(product.instance_grammar, text, cg.product, product.tables),

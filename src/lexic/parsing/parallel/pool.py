@@ -64,11 +64,104 @@ def _drained[M](
 _POOLS = count()
 """Numbers the pools, so each one's threads are named after the pool alone."""
 
+_LEASES = count(1)
+"""Numbers every lending of a pool — one per split — process-wide."""
+
+_RUNNING = local()
+"""The lease a worker thread's current task runs under."""
+
+
+def running_lease() -> int | None:
+    """The lease of the split whose task the calling thread is running, or
+    ``None`` outside any pool task — what tells one split from the next."""
+    return getattr(_RUNNING, "lease", None)
+
+
+def _leased[T, M](lease: int, work: Callable[[T], M], item: T) -> M:
+    """Run one item with its lease visible to the thread running it."""
+    _RUNNING.lease = lease
+    return work(item)
+
+
+class _Phase[T, M]:
+    """One map's work in flight: each submitted item's future with its result
+    slot and its item, the result slots, and the refusals by slot.
+
+    :ivar futures: Each pending future → its result slot.
+    :ivar held: Each pending future → the item it runs.
+    :ivar results: The result slots, in input order, late items after.
+    :ivar failures: The refusals so far, by result slot.
+    """
+
+    __slots__ = ("futures", "held", "results", "failures", "_send")
+
+    def __init__(self, size: int, send: Callable[[T], Future[M]]) -> None:
+        """Start a phase of ``size`` items, each handed to ``send``."""
+        self.futures: dict[Future[M], int] = {}
+        self.held: dict[Future[M], T] = {}
+        self.results: list[M | None] = [None] * size
+        self.failures: dict[int, LexicError] = {}
+        self._send = send
+
+    def send(self, item: T, slot: int) -> None:
+        """Submit ``item`` for result slot ``slot``."""
+        future = self._send(item)
+        self.futures[future], self.held[future] = slot, item
+
+    def submit(self, more: Sequence[T]) -> None:
+        """Submit late items, their slots after every slot so far."""
+        for item in more:
+            self.send(item, len(self.results))
+            self.results.append(None)
+
+    def take_back(self, work: Callable[[T], M], workers: int) -> None:
+        """Run on the calling thread the items no worker has started, latest
+        first — at most as many as the phase leaves of ``workers`` without an
+        item, so the calling thread only ever fills a worker's unused place
+        and never runs what a busy pool would have; a refusal is filed like a
+        worker's.
+
+        ``Future.cancel`` succeeds only on an item still queued, so an item is
+        run exactly once, here or there.
+        """
+        spare = workers - len(self.results)
+        futures = self.futures
+        for future in sorted(futures, key=futures.__getitem__, reverse=True):
+            if spare <= 0:
+                return
+            if not future.cancel():
+                continue
+            spare -= 1
+            slot = futures.pop(future)
+            try:
+                self.results[slot] = _taken_back(work, self.held[future])
+            except LexicError as refusal:
+                self.failures[slot] = refusal
+
+
+def _taken_back[T, M](work: Callable[[T], M], item: T) -> M:
+    """Run ``item`` on the calling thread, marked as taken back — and the mark
+    restored after, since the item may itself take back a nested phase's."""
+    outer = taking_back()
+    _RUNNING.back = True
+    try:
+        return work(item)
+    finally:
+        _RUNNING.back = outer
+
+
+def taking_back() -> bool:
+    """Whether the calling thread is running an item it took back from its
+    own phase — work that reads the submitting thread's view, not a worker's."""
+    return getattr(_RUNNING, "back", False)
+
 
 class WorkPool:
     """One executor reused by differently typed phases of a split parse.
 
     :ivar workers: The resolved worker ceiling.
+    :ivar lease: The split this pool is lent to, numbered process-wide; every
+        task it runs carries it (:func:`running_lease`).
     :ivar name: This pool's own thread-name prefix. Unique per pool, so a
         thread is attributable to the pool that made it — in a fault dump, a
         profile, or a test counting one pool's threads rather than the
@@ -86,8 +179,13 @@ class WorkPool:
         )
         self._slots = local()
         self._taken = count()
-        self._slot_lock = Lock()
         self._retired = ""
+        self.lease = next(_LEASES)
+
+    def lend(self) -> Self:
+        """Number this pool's next split: its tasks carry a fresh lease."""
+        self.lease = next(_LEASES)
+        return self
 
     @property
     def retired(self) -> bool:
@@ -110,7 +208,7 @@ class WorkPool:
         """
         mine = getattr(self._slots, "at", None)
         if mine is None:
-            with self._slot_lock:
+            with _IDLE_LOCK:
                 mine = next(self._taken) % self.workers
             self._slots.at = mine
         return mine
@@ -142,7 +240,13 @@ class WorkPool:
         idle it. Its refusal drains the phase like an item's. It is handed a
         ``submit``: items it learns of there go to the pool at once, and their
         results follow ``items``' in the order submitted — so work that needs
-        what the calling thread decides still overlaps what did not.
+        what the calling thread decides still overlaps what did not. Once it
+        returns, the calling thread takes back items no worker has started
+        and runs them itself (:func:`taking_back`), as many as the phase left
+        workers without an item: it was busy while the workers woke, and a
+        woken worker the scheduler leaves waiting would otherwise start its
+        item milliseconds after the rest. A phase with an item for every
+        worker gets nothing taken back — its queue is the pool's to drain.
         Should it return ``False``, the phase is ABANDONED: nothing submitted
         will be read, so the queued items are cancelled, the running ones are
         left to finish unread, the pool is retired rather than lent again, and
@@ -163,38 +267,37 @@ class WorkPool:
             # chunk that would not parse. RuntimeError is what the executor
             # underneath raises for the same misuse, for the same reason.
             raise RuntimeError("this pool failed and cannot take further work")
-        results: list[M | None] = [None] * len(items)
-        futures: dict[Future[M], int] = {}
-        failures: dict[int, LexicError] = {}
+        lease = self.lease
+        phase = _Phase[T, M](
+            len(items), lambda item: self._pool.submit(_leased, lease, work, item)
+        )
+        futures, failures = phase.futures, phase.failures
         next_item = 0
-
-        def submit(more: Sequence[T]) -> None:
-            for item in more:
-                futures[self._pool.submit(work, item)] = len(results)
-                results.append(None)
-
         try:
             while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
-                    future = self._pool.submit(work, items[next_item])
-                    futures[future] = next_item
+                    phase.send(items[next_item], next_item)
                     next_item += 1
                 own, beside = beside, None
-                if own is not None and own(submit) is False:
+                if own is not None and own(phase.submit) is False:
                     _cancel(futures)
                     self._retired = "abandoned"
                     return []
+                if own is not None:
+                    phase.take_back(work, self.workers)
                 if not futures:
+                    if failures:
+                        raise _drained(futures, phase.results, failures)
                     continue
                 completed = wait(futures, return_when=FIRST_COMPLETED)[0]
                 for future in sorted(completed, key=futures.__getitem__):
                     index = futures.pop(future)
                     try:
-                        results[index] = future.result()
+                        phase.results[index] = future.result()
                     except LexicError as refusal:
                         failures[index] = refusal
                 if failures:
-                    raise _drained(futures, results, failures)
+                    raise _drained(futures, phase.results, failures)
         except LexicError:
             # A refusal drains its phase: cancel what never started, wait out
             # what is running — nothing is, unless the refusal was the calling
@@ -210,7 +313,7 @@ class WorkPool:
             self._retired = "failed"
             _cancel(futures)
             raise
-        return cast(list[M], results)
+        return cast(list[M], phase.results)
 
     def close(self) -> None:
         """Shut the executor down after every submitted phase completes.
@@ -301,7 +404,7 @@ concurrent call to find one warm without retaining threads a workload never
 asks for again.
 """
 
-_IDLE: dict[int, list[WorkPool]] = {}
+IDLE_POOLS: dict[int, list[WorkPool]] = {}
 _IDLE_LOCK = Lock()
 
 
@@ -314,7 +417,7 @@ class PoolLease:
     unknown state is not worth the microseconds it saves — that one is closed.
 
     Ownership is explicit: every pool is either lent to exactly one caller or
-    idle in :data:`_IDLE`, and :func:`reset_pools` empties the cache.
+    idle in :data:`IDLE_POOLS`, and :func:`reset_pools` empties the cache.
     """
 
     def __init__(self, cores: int = AUTO) -> None:
@@ -325,11 +428,12 @@ class PoolLease:
     def __enter__(self) -> WorkPool:
         """Take a warm pool of the right width, or start one."""
         with _IDLE_LOCK:
-            waiting = _IDLE.get(self.workers)
+            waiting = IDLE_POOLS.get(self.workers)
             self._pool = waiting.pop() if waiting else None
         if self._pool is None:
             self._pool = WorkPool(self.workers)
-        return self._pool
+            return self._pool
+        return self._pool.lend()
 
     def __exit__(
         self,
@@ -345,7 +449,7 @@ class PoolLease:
             pool.close()
             return
         with _IDLE_LOCK:
-            waiting = _IDLE.setdefault(self.workers, [])
+            waiting = IDLE_POOLS.setdefault(self.workers, [])
             spare = len(waiting) < RETAINED
             if spare:
                 waiting.append(pool)
@@ -356,7 +460,7 @@ class PoolLease:
 def reset_pools() -> None:
     """Close every idle pool — the deterministic seam tests and callers use."""
     with _IDLE_LOCK:
-        idle = [pool for waiting in _IDLE.values() for pool in waiting]
-        _IDLE.clear()
+        idle = [pool for waiting in IDLE_POOLS.values() for pool in waiting]
+        IDLE_POOLS.clear()
     for pool in idle:
         pool.close()

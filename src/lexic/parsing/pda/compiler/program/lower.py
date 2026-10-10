@@ -20,13 +20,16 @@ from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
     WideSelect,
     clone_arms,
+    mark_sub_roots,
 )
 from lexic.parsing.pda.compiler.program.gating import (
-    KWindowSelect,
     NoiseSkipSelect,
+    flat_window,
+    window_select,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    BUILD_VALUE_STR,
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
@@ -50,6 +53,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VDISP,
     OP_VRUN,
     OP_VSTR,
+    TERMINAL_OPS,
 )
 from lexic.parsing.pda.compiler.program.specialize.passes import (
     convert_dispatch,
@@ -87,7 +91,7 @@ def _flat_windows(
     windows: tuple[tuple[CharSet, ...], ...],
 ) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
     """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
-    return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
+    return tuple(flat_window(win) for win in windows)
 
 
 def _flatten_gate(gate: LoopGate) -> tuple[int, object]:
@@ -198,7 +202,7 @@ def _flatten_selectors(
 ]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
-    P2 (:attr:`ArmSpec.windows`) lowers to a :class:`KWindowSelect`; P3
+    P2 (:attr:`ArmSpec.windows`) lowers to a k-window selection (:func:`window_select`); P3
     (:attr:`ArmSpec.peek`) to a :class:`NoiseSkipSelect`; otherwise the
     FIRST-gated single-char triples are built.
 
@@ -213,7 +217,7 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), KWindowSelect(kwin)
+        return (), window_select(kwin)
     if arms and arms[0].peek is not None:
         w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
         sels = tuple(
@@ -248,6 +252,8 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
         _flatten_arm(group.default, low) if group.default is not None else None
     )
     clone.struct_arm = None
+    clone.sub_root = False
+    clone.entry = None
     clone.attempt = (
         (group.attempt_follow, ()) if group.attempt_follow is not None else None
     )
@@ -477,6 +483,8 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.runarm = None
     sub.needs_ends = clone.needs_ends
     sub.longest = None  # an attempt sub-run's rule has a choice to try, no take
+    sub.sub_root = False
+    sub.entry = None  # entered through the attempt order, never straight
     return sub
 
 
@@ -496,10 +504,18 @@ def _attempt_entries(
     last entry, always admitted (``chars is None``).
     """
     entries: list[tuple[Any, Any, Any, Any, FlatClone]] = []
+    take = clone.longest
     for (chars, negated, arm), spec in zip(clone.selectors, arms):
         sub = _attempt_sub(clone)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
+        if take is not None and take.steals:
+            # A sole admitted arm is entered as this sub, not attempted. One
+            # of terminals matches as a leaf on the path that checks its span;
+            # any other runs framed, and a sub-run it roots that misses asks
+            # the island (`Attempting._attempt_run`).
+            sub.leaf = _checked_arm(clone, arm)
+            sub.longest = take
         window = (
             compile_admission(_flat_windows(spec.attempt_window))
             if spec.attempt_window is not None
@@ -512,6 +528,16 @@ def _attempt_entries(
         sub.default = clone.default
         entries.append((None, None, None, None, sub))
     return tuple(entries)
+
+
+def _checked_arm(clone: FlatClone, arm: FlatArm) -> bool:
+    """Whether ``clone``'s ``arm`` is matched whole on the path that checks a
+    take: a ``value_str`` arm of two items or more, every one a terminal."""
+    return (
+        clone.mode == BUILD_VALUE_STR
+        and arm.n > 1
+        and all(kind in TERMINAL_OPS for kind in arm.kinds)
+    )
 
 
 def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
@@ -567,6 +593,10 @@ def flatten_clones(
             clone, spec.routine, None if folds is None else folds.get(key.name)
         )
         clone.longest = spec.longest
+        clone.sub_root = False
+        clone.entry = None
+    # Before the entries exist: the optimiser walks `all_clones`, which follows
+    # attempt entries, and those are lowered and optimised on their own below.
     optimize_program(list(low.shells.values()), _consults(clones, low))
     _require_checked_takes(low.shells.values())
     attempting = [
@@ -579,6 +609,9 @@ def flatten_clones(
         entries = _attempt_entries(clone, arms)
         _optimize_entries(entries)
         clone.attempt = (follow, entries)
+    # Last, after the optimiser: `all_clones` walks attempt entries, which
+    # exist on the clones only once `_attempt_entries` has lowered them.
+    mark_sub_roots(list(low.shells.values()))
     return low.shells
 
 
@@ -592,7 +625,10 @@ def _require_checked_takes(shells: Iterable[FlatClone]) -> None:
     :raises EngineInvariantError: On a longest-take clone with a one-item arm.
     """
     for clone in shells:
-        if clone.longest is not None and any(arm.n < 2 for arm in clone_arms(clone)):
+        take = clone.longest
+        if take is None or take.steals:
+            continue  # a stealing rule's one-item arm matches its run whole
+        if any(arm.n < 2 for arm in clone_arms(clone)):
             raise EngineInvariantError(
                 f"flatten: longest-take clone {clone.name!r} has a one-item arm"
             )

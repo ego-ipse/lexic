@@ -31,11 +31,11 @@ from tools.benchmark.measurement.contract import digest
 from tools.benchmark.measurement.sampling import medians
 from tools.benchmark.presentation.reporting import (
     Block,
-    _legend,
-    _mark,
-    _report,
-    _use_color,
-    _warmup_values,
+    cores_marker,
+    legend,
+    report_block,
+    use_color,
+    warmup_values,
 )
 
 ENGINE_META = {
@@ -331,7 +331,7 @@ def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
     return merged
 
 
-def _dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
+def dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
     """Splice this run's measured, refused or unmeasured cells into the artifact.
 
     Never a rewrite: a filtered run measures a few seats of a few grammars and
@@ -396,7 +396,7 @@ def _mt_cores(asked: int | None) -> int | None:
     return workers if workers > 1 else None
 
 
-def _row_names(
+def row_names(
     bench: Bench, cores: int | None, seats: frozenset[str] | None = None
 ) -> list[str]:
     """The isolated worker roster for one grammar, narrowed to ``seats``.
@@ -412,7 +412,7 @@ def _row_names(
     return names if seats is None else [name for name in names if name in seats]
 
 
-def _seats(asked: Sequence[str] | None) -> frozenset[str] | None:
+def seat_filter(asked: Sequence[str] | None) -> frozenset[str] | None:
     """The requested seat filter, refusing a name no seat answers to.
 
     A misspelt seat must not read as "that engine measured nothing here": the
@@ -430,7 +430,7 @@ def _seats(asked: Sequence[str] | None) -> frozenset[str] | None:
     return frozenset(asked)
 
 
-def _isolated_bench(
+def isolated_bench(
     bench: Bench, run: Run, seats: frozenset[str] | None = None
 ) -> tuple[Block, dict[str, ReportRow]]:
     """Time every row in its own process, one process at a time.
@@ -439,7 +439,7 @@ def _isolated_bench(
     compiles grammars, runs fidelity parses and holds artefacts, and doing that
     beside a timed parse contaminates cache, allocator and thermal state.
     """
-    order = _row_names(bench, run.cores, seats)
+    order = row_names(bench, run.cores, seats)
     random.Random(f"lexic-bench:{bench.name}").shuffle(order)
     results = {
         name: run_report_row(
@@ -455,7 +455,7 @@ def _isolated_bench(
     samples = {
         name: result.samples for name, result in results.items() if result.samples
     }
-    unmeasured = _unsettled(results, samples)
+    unmeasured = unsettled_rows(results, samples)
     samples = {name: runs for name, runs in samples.items() if name not in unmeasured}
     mt_notes = {
         name: result.mt_reason
@@ -487,7 +487,7 @@ def _isolated_bench(
     return block, results
 
 
-def _unsettled(
+def unsettled_rows(
     results: dict[str, ReportRow], samples: dict[str, list[float]]
 ) -> dict[str, str]:
     """Rows whose warm-up never stopped moving, with the words that say so.
@@ -592,36 +592,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     cores = _mt_cores(args.cores)
     run = Run(args.rounds, cores, args.full)
-    color = _use_color(args.color)
-    seats = _seats(args.seats)
+    color = use_color(args.color)
+    seats = seat_filter(args.seats)
     wanted = set(args.only or ())
     benches = [b for b in BENCHES if not wanted or b.name in wanted]
     if not benches:
         raise SystemExit(f"no such grammar: {sorted(wanted)}")
-    benches = [b for b in benches if _row_names(b, cores, seats)]
+    benches = [b for b in benches if row_names(b, cores, seats)]
     if not benches:
         raise SystemExit(f"no grammar here offers any of: {sorted(seats or ())}")
     print(
-        f"rounds={args.rounds}{_mark(cores)}  grammars={', '.join(b.name for b in benches)}"
+        f"rounds={args.rounds}{cores_marker(cores)}  grammars={', '.join(b.name for b in benches)}"
         + (f"  seats={', '.join(sorted(seats))}" if seats else "")
     )
-    _legend(color)
+    legend(color)
     blocks: list[Block] = []
     for bench in benches:
-        block, results = _isolated_bench(bench, run, seats)
+        block, results = isolated_bench(bench, run, seats)
         blocks.append(block)
-        _report(block, color)
-        for name in _row_names(bench, cores, seats):
+        report_block(block, color)
+        for name in row_names(bench, cores, seats):
             result = results[name]
             if result.warmed is not None:
-                _warmup_values(
+                warmup_values(
                     name,
                     result.warmed,
                     result.cold_us_per_char,
                     result.charstream_share,
                 )
     if args.json:
-        _dump_json(args.json, run, blocks)
+        dump_json(args.json, run, blocks)
 
 
 if __name__ == "__main__":

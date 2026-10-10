@@ -13,22 +13,22 @@ from lexic.grammars.gbnf import (
     GBNF_FLAVOUR,
     GBNF_NOISE,
     GBNF_TOKEN_ENCODING,
-    _GbnfFlavour,
+    GbnfFlavour,
 )
 from lexic.ir import IrFlavour
 
 
 def test_gbnf_flavour_is_an_instance_of_its_own_private_flavour_class():
-    """The singleton is a ``_GbnfFlavour`` and an ``IrFlavour``."""
-    assert isinstance(GBNF_FLAVOUR, _GbnfFlavour)
+    """The singleton is a ``GbnfFlavour`` and an ``IrFlavour``."""
+    assert isinstance(GBNF_FLAVOUR, GbnfFlavour)
     assert isinstance(GBNF_FLAVOUR, IrFlavour)
 
 
 def test_gbnf_flavour_declared_metadata():
     """The flavour's name, extension and comment marker are as documented."""
-    assert _GbnfFlavour.name == "gbnf"
-    assert _GbnfFlavour.extensions == (".gbnf",)
-    assert _GbnfFlavour.line_comment == "#"
+    assert GbnfFlavour.name == "gbnf"
+    assert GbnfFlavour.extensions == (".gbnf",)
+    assert GbnfFlavour.line_comment == "#"
 
 
 def test_gbnf_token_encoding_names_the_registry_slot_token_terminals_bind_to():

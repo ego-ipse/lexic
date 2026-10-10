@@ -501,13 +501,6 @@ class ArmGate(NamedTuple):
     escape: int
 
 
-def _peek_member(text: str, pos: int, take: tuple[frozenset[str], bool]) -> bool:
-    """Whether the char at ``pos`` is in the ``(chars, negated)`` take-set."""
-    ch = text[pos : pos + 1]
-    chars, negated = take
-    return (ch != "" and ch not in chars) if negated else ch in chars
-
-
 def scan_gate_take(text: str, pos: int, gate: ScanGate) -> bool:
     """Whether the structured-noise loop gate admits another iteration at ``pos``.
 
@@ -519,12 +512,14 @@ def scan_gate_take(text: str, pos: int, gate: ScanGate) -> bool:
     if gate.kind == SG_MATCH:
         return scan_match(text, pos, gate.rec, gate.roots[0])
     p = scan_run_any(text, pos, gate.rec, gate.roots)
-    if gate.take is not None and _peek_member(text, p, gate.take):
-        return True
+    ch = text[p : p + 1]
+    if gate.take is not None:  # the post-noise char against the take-set
+        chars, negated = gate.take
+        if (ch != "" and ch not in chars) if negated else ch in chars:
+            return True
     if gate.kind == SG_SCAN or gate.probe is None:
         return False
     name_idx, noise_idx, defined, take_on_match = gate.probe
-    ch = text[p : p + 1]
     name_match = gate.rec.pats[name_idx].match(text, p)
     if name_match is None or ch == "":
         return False  # not a rulename-led overlap char — plain exit

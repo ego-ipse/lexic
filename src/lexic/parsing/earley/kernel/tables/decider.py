@@ -3,11 +3,13 @@
 :mod:`~lexic.parsing.earley.kernel.tables.splits` works out each family's
 CARVING, its boundary vector over the node's authored item sequence, with a
 repetition's iterations spliced in and zero-width iterations beyond its minimum
-dropped. That is structure, and the same whatever is decided. What a decider
-adds is one question, :meth:`Decider.rank`: a total preorder over carvings,
-where the maximum wins. Both engines ask it: Earley to choose among a span's
-families, and the ambiguity check to find the alternatives that tie with the
-chosen one.
+dropped (:func:`carving`). That is structure, and the same whatever is decided.
+What a decider adds is one question, :meth:`Decider.slot`: where ONE boundary
+stands in its order. A carving's rank is its slots read left to right
+(:meth:`Decider.rank`, final), so every decider compares carvings the same way
+— on the first boundary that differs — and differs only in how it orders one
+boundary. Both engines ask it: Earley to choose among a span's families, and
+the ambiguity check to find the alternatives that tie with the chosen one.
 
 A decider also names the licences proven for it (:attr:`Decider.grants`). A
 predictive shortcut that commits the split answer without asking, such as a
@@ -22,6 +24,9 @@ has no such decomposition and is not a decider.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import final
 
 from lexic.ir import IrNamedTuple
 
@@ -40,11 +45,27 @@ NOISE_GREEDY = "noise-greedy"
 GREEDY_SPLIT = "greedy-split"
 """A loop over-eats a soft follower whose split the decider settles."""
 
-GREEDY_ARM = "greedy-arm"
-"""An arm is taken greedily over an empty sibling whose follower it starts."""
+SCAN_SKIP = "scan-skip"
+"""A structured gate skips a run of rules possessively, then peeks past it: the
+run is read as leftmost-longest carves it, giving nothing back."""
 
 Carving = tuple[int, ...]
 """A family's boundary vector over one span, left to right."""
+
+
+def carving(ends: Iterable[int], start: int, droppable: Iterable[bool]) -> Carving:
+    """Steps taken from ``start`` as a carving: a step that ends where the one
+    before it did is dropped where it is a repetition's iteration beyond its
+    minimum (``droppable``), so one reading never competes with itself plus an
+    empty iteration. An authored slot, or an iteration the minimum needs, stays
+    a step even when it takes nothing."""
+    out: list[int] = []
+    last = start
+    for end, drop in zip(ends, droppable, strict=True):
+        if not (drop and end == last):
+            out.append(end)
+        last = end
+    return tuple(out)
 
 
 class Decider(IrNamedTuple[frozenset[str]]):
@@ -55,37 +76,73 @@ class Decider(IrNamedTuple[frozenset[str]]):
     one is found again under the other. A field a future decider adds joins
     that key by being a field.
 
+    A decider states :meth:`slot`; the rank is final. A subclass that redefines
+    :meth:`rank` is refused when it is defined, because Earley reads a chain
+    one boundary at a time and can honour no order that is not its slots read
+    left to right.
+
     :ivar grants: The licence kinds proven for this decider.
     """
 
     grants: frozenset[str]
 
-    def rank(self, carving: Carving) -> Carving:
-        """Where ``carving`` stands in this decider's order: a key whose
-        natural order is a total preorder over carvings, maximum kept."""
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse a subclass that redefines the final rank."""
+        super().__init_subclass__(**kwargs)
+        if "rank" in vars(cls):
+            raise TypeError(f"{cls.__name__}: a decider states slot(), not rank()")
+
+    def slot(self, end: int) -> int:
+        """Where one boundary ending at ``end`` stands: a larger slot ranks
+        higher. Strict: two different ends never share a slot."""
         raise NotImplementedError
+
+    def grants_all(self, used: frozenset[str]) -> bool:
+        """Whether this decider grants every licence kind in ``used`` — what a
+        program compiled under those licences may run for it."""
+        return used <= self.grants
+
+    @final
+    def rank(self, steps: Carving) -> tuple[int, ...]:
+        """Where a carving stands in this decider's order: its slots, read left
+        to right, compared lexicographically; the maximum is kept."""
+        return tuple(map(self.slot, steps))
 
 
 class LeftmostLongest(Decider):
     """The first slot takes as much as it can, then the next, and so on.
 
-    The rank IS the carving: the lexicographically greatest boundary vector
-    from the left wins. Over a repetition this keeps fewer, longer iterations,
-    because the first iteration's end is compared first.
+    A boundary's slot IS its end, so the rank is the carving itself: the
+    lexicographically greatest boundary vector from the left wins. Over a
+    repetition this keeps fewer, longer iterations, because the first
+    iteration's end is compared first. The slot is final, and a subclass that
+    redefines it is refused: Earley reads this order's levels by their raw
+    maximum key, which is this order's choice and no other's — so every
+    instance, whatever it grants, may be read that way, and none can be made
+    to mean anything else.
     """
 
-    def rank(self, carving: Carving) -> Carving:
-        """The carving itself."""
-        return carving
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse a subclass that redefines the final slot."""
+        super().__init_subclass__(**kwargs)
+        if "slot" in vars(cls):
+            raise TypeError(f"{cls.__name__}: leftmost-longest's slot is final")
+
+    @final
+    def slot(self, end: int) -> int:
+        """The end itself."""
+        return end
 
 
 LEFTMOST_LONGEST = LeftmostLongest(
-    frozenset({SPLIT_GREEDY, ATTEMPT, STOP_SET, NOISE_GREEDY, GREEDY_SPLIT})
+    frozenset({SPLIT_GREEDY, ATTEMPT, STOP_SET, NOISE_GREEDY, GREEDY_SPLIT, SCAN_SKIP})
 )
 """The decider both engines use unless a caller passes another.
 
 It grants the licences proven for it. :data:`STOP_SET` is granted because the
 analysis files a stop-set only where its first exit is this order's answer:
 the loop runs longest, no text continues both ways two characters deep, or
-every carving builds one model. :data:`GREEDY_ARM` owes its exchange proof, so
-it is withheld: those sites island instead, and Earley answers."""
+every carving builds one model. :data:`SCAN_SKIP` is granted because a run
+the gate skips whole is the run this order's first slot takes. An arm taken
+over an empty sibling whose follower it starts needs no licence: it is tried
+in order, and the decider ranks the arms that end elsewhere."""

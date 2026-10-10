@@ -18,14 +18,18 @@ from __future__ import annotations
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
 
 
-def walk_program_clones(start: FlatClone) -> dict[int, FlatClone]:
-    """Every clone reachable from ``start``, once, by identity.
+def walk_program_clones(*starts: FlatClone) -> dict[int, FlatClone]:
+    """Every clone reachable from ``starts``, once, by identity.
 
-    :param start: The program's start clone.
+    Four edges: selection targets (lead-char and wide), the default, arm
+    payloads, and an attempt clone's entries — the clones it runs as sub-runs.
+
+    :param starts: The program's start clone, or several roots (an island's
+        delegate clones, say).
     :returns: ``{id(clone): clone}`` for everything reachable.
     """
     seen: dict[int, FlatClone] = {}
-    work: list[object] = [start]
+    work: list[object] = list(starts)
     while work:
         clone = work.pop()
         if not isinstance(clone, FlatClone) or id(clone) in seen:
@@ -37,6 +41,8 @@ def walk_program_clones(start: FlatClone) -> dict[int, FlatClone]:
         for _chars, _negated, target in clone.selectors:
             work.append(target)
         work.append(clone.default)
+        if clone.attempt is not None:
+            work.extend(entry[-1] for entry in clone.attempt[1])
         for arm in clone_arms(clone):
             work.extend(arm.payloads)
     return seen

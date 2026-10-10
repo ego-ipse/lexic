@@ -17,13 +17,13 @@ import pytest
 from tools.render_readme import (
     ELEMENT,
     STYLE,
-    _box,
-    _ce_slots,
-    _palette_slots,
+    ce_slots,
     chart_defects,
     checked,
     cross_engine_svg,
+    element_box,
     mt_svg,
+    palette_slots,
 )
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -118,15 +118,15 @@ def test_checked_passes_a_sound_chart_through() -> None:
 
 def test_palette_exhaustion_raises_rather_than_wrapping() -> None:
     """A roster past the defined slots is refused, never folded onto slot zero."""
-    roster = [f"g{k}" for k in range(len(_palette_slots()) + 1)]
+    roster = [f"g{k}" for k in range(len(palette_slots()) + 1)]
     with pytest.raises(SystemExit, match="categorical slots"):
-        _ce_slots(roster)
+        ce_slots(roster)
 
 
 def test_palette_covers_the_current_roster_in_both_themes() -> None:
     """Every slot a chart can use is defined in the light and the dark block."""
     light, _, dark = STYLE.partition("prefers-color-scheme:dark")
-    for slot in _palette_slots():
+    for slot in palette_slots():
         assert f".{slot}{{" in light, slot
         assert f".{slot}{{" in dark, slot
 
@@ -167,12 +167,12 @@ def test_every_dot_lands_inside_the_plot() -> None:
     """The log domain follows the data, so no value plots into the label gutter."""
     svg = cross_engine_svg()
     rows = [
-        _box(elem)
+        element_box(elem)
         for elem in ELEMENT.findall(svg)
-        if elem.startswith("<circle") and _box(elem)[1] > 60
+        if elem.startswith("<circle") and element_box(elem)[1] > 60
     ]
     labels = [
-        _box(elem)
+        element_box(elem)
         for elem in ELEMENT.findall(svg)
         if elem.startswith("<text") and 'font-size="13"' in elem and "×" not in elem
     ]

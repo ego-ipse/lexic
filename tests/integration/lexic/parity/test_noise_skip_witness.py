@@ -26,7 +26,7 @@ from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.gating import NoiseSkipSelect
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.products import _model_product, earley_model, pda_model
+from lexic.parsing.products import earley_model, model_product, pda_model
 from lexic.parsing.trace import GATE, watch
 from tests.integration.lexic.invariants.test_clone_population import referenced
 from tests.paths import GROUND_TRUTH
@@ -44,7 +44,7 @@ MIXED = "set a = 1\n   \tget bb\nset ccc = 900\n"
 def built():
     """The witness grammar's compile, and the model product beside it."""
     compiled = compile_from_path(GROUND_TRUTH / "commands.gbnf")
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 def test_the_witness_grammar_compiles_to_a_noise_skip_selection() -> None:

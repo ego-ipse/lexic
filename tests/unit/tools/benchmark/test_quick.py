@@ -20,40 +20,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.tools.benchmark.benchmark_helpers import BASE, CONTRACT, HEAD, OBSERVED
 from tools.benchmark import compare, quick
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.execution.isolation import Job
 from tools.benchmark.judging import arithmetic
-from tools.benchmark.measurement.contract import (
-    CLOCKS,
-    PROTOCOL,
-    Observation,
-    RowContract,
-    RowResult,
-)
-
-BASE = Path("/tmp/base")
-HEAD = Path("/tmp/head")
-
-CONTRACT = RowContract(
-    PROTOCOL,
-    "lexic-pda",
-    "json",
-    "abc123",
-    (),
-    (),
-    "def456",
-    2403,
-    "corpus",
-    "typed model",
-    1,
-    True,
-    CLOCKS,
-)
-"""One row contract, identical on both arms, so every pair is comparable."""
-
-OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1)
-"""One observation; the tests overwrite the two clocks and keep the rest."""
+from tools.benchmark.measurement.contract import RowResult
 
 ROSTER = (
     ("csv", "lexic-pda"),

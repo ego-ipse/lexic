@@ -22,9 +22,10 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     ParseConfig,
 )
+from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
 from lexic.parsing.executable import ModelExecutable, ModelParse
-from lexic.parsing.parallel.discovery.regions import par_find
 from lexic.parsing.parallel.discovery.partition import Division, Unit, partition, units
+from lexic.parsing.parallel.discovery.regions import par_find
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
     cut_offsets,
@@ -42,10 +43,16 @@ from lexic.parsing.parallel.policy import (
     AUTO,
     MIN_CHUNK,
     available_workers,
+    capacity,
+    clears_floor,
     doc_workers,
 )
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
-from lexic.parsing.parallel.replicas import worker_parse
+from lexic.parsing.parallel.replicas import (
+    settle_first_meetings,
+    warm_due,
+    worker_parse,
+)
 from lexic.parsing.parallel.stitch.interior import source_split
 from lexic.parsing.parallel.stitch.merge import (
     MergeRequest,
@@ -79,7 +86,7 @@ class Request[M: IrNamedTuple](NamedTuple):
     config: ParseConfig = DEFAULT_CONFIG
 
 
-def _split_parse[M: IrNamedTuple](
+def split_parse[M: IrNamedTuple](
     parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
@@ -174,9 +181,7 @@ def _reselect(
     room = [
         candidate
         for candidate in marks
-        if candidate not in taken
-        and candidate - lo >= MIN_CHUNK
-        and hi - candidate >= MIN_CHUNK
+        if candidate not in taken and clears_floor((candidate - lo, hi - candidate))
     ]
     if not room:
         return None
@@ -372,7 +377,7 @@ def _parse_units[M: IrNamedTuple](
     return _Units(works, plan, pieces, run.shell[0])
 
 
-def _split_regions[M: IrNamedTuple](
+def split_regions[M: IrNamedTuple](
     parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
@@ -396,12 +401,13 @@ def _split_regions[M: IrNamedTuple](
     :func:`split_plan` returns the FIRST survivor, so a caller there sees one
     plan where this loop tries them all; the two agree wherever the first wins.
     """
-    workers = pool.workers
-    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
-        return None
     sourced = source_split(parse, grammar, ask, pool)
     if sourced is not None:
         return sourced
+    # As many windows as pieces: on a pool that claims every CPU, one window
+    # per worker left a woken worker queued behind the rest for a CPU, and
+    # the find waited on its window.
+    pieces = piece_count(pool.workers)
     # A bracket span may cover the whole source while still sit BELOW a
     # wrapper start model (``root ::= node``). Routing, not byte position,
     # decides whether it has a replaceable owner; a true root-region model
@@ -409,11 +415,11 @@ def _split_regions[M: IrNamedTuple](
     found = [
         region
         for region in par_find(
-            analysis or grammar, ask.text, 2 * MIN_CHUNK, workers, pool
+            analysis or grammar, ask.text, 2 * MIN_CHUNK, pieces, pool
         )
         if region.rule != str(grammar.start)
     ]
-    divided = partition(ask.text, found, piece_count(workers))
+    divided = partition(ask.text, found, pieces)
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     bound = bound_works(merge, grammar, divided, analysis or grammar)
     if not bound:
@@ -456,33 +462,56 @@ def split_model[M: IrNamedTuple](
     # ownership and region safety for work that policy has already refused is
     # pure serial overhead on the caller's parse path.
     workers = doc_workers(cores)
-    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
+    if workers < 2 or capacity(len(ask.text)) < 2:
+        return None
+    # The plans and the proofs they rest on (a cut that speculation proposes is
+    # trusted on a determinism read off the leftmost-longest analysis) are this
+    # order's: another decider parses whole.
+    if not isinstance(ask.config.decide, LeftmostLongest):
         return None
     licensed = safe_plans(split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
-        shared = shared_scanner(grammar, licensed)
-        # The rebase belongs to the document, not to a plan: it reads only the
-        # windows' marks and deltas, so every plan reading the sweep recomputed
-        # the same offsets over every mark in the document.
-        rebased = (
-            rebase(shared, ask.text, workers, pool) if shared is not None else None
+        # Copies the workers owe from this pool's last split through this
+        # document's view are made now, all at once and before any piece goes
+        # out, so none lands inside a piece.
+        warm_due(pool, ask.binding)
+        try:
+            return _split_on(parse, grammar, ask, (cores, analysis, licensed), pool)
+        finally:
+            settle_first_meetings(pool, ask.binding)
+
+
+def _split_on[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: Request[M],
+    setting: tuple[int, IrAst | None, tuple[SplitPlan, ...]],
+    pool: WorkPool,
+) -> M | None:
+    """The plans in order, then the regions, on one lent pool."""
+    cores, analysis, licensed = setting
+    workers = pool.workers
+    shared = shared_scanner(grammar, licensed)
+    # The rebase belongs to the document, not to a plan: it reads only the
+    # windows' marks and deltas, so every plan reading the sweep recomputed
+    # the same offsets over every mark in the document.
+    rebased = rebase(shared, ask.text, workers, pool) if shared is not None else None
+    for plan in licensed:
+        # Only a plan that reads a windowed sweep is handed the shared
+        # offsets; a walking scan owns its pass, and an envelope plan reads
+        # neither.
+        seen = rebased if reads_a_sweep(plan) else None
+        chosen = cut_offsets(plan, ask.text, cores, pool, seen)
+        if not chosen.offsets:
+            continue
+        model = (
+            _speculate(parse, plan, ask, chosen, pool)
+            if plan.opening
+            else split_parse(parse, plan, ask, chosen.offsets, pool)
         )
-        for plan in licensed:
-            # Only a plan that reads a windowed sweep is handed the shared
-            # offsets; a walking scan owns its pass, and an envelope plan reads
-            # neither.
-            seen = rebased if reads_a_sweep(plan) else None
-            chosen = cut_offsets(plan, ask.text, cores, pool, seen)
-            if not chosen.offsets:
-                continue
-            model = (
-                _speculate(parse, plan, ask, chosen, pool)
-                if plan.opening
-                else _split_parse(parse, plan, ask, chosen.offsets, pool)
-            )
-            if model is not None:
-                return model
-        return _split_regions(parse, grammar, ask, analysis, pool)
+        if model is not None:
+            return model
+    return split_regions(parse, grammar, ask, analysis, pool)
 
 
 def _envelope_join[M: IrNamedTuple](
