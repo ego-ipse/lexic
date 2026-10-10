@@ -746,7 +746,7 @@ def test_settling_reads_first_meetings_other_pools_are_still_filing(
         filed = FiledDuringRead(
             {(pool.lease, id(grammar), id(binding)): (grammar, binding)}
         )
-        monkeypatch.setattr(replica_module, "_MET", filed)
+        monkeypatch.setattr(replica_module, "FIRST_MEETINGS", filed)
         replica_module.settle_first_meetings(pool, binding)
         assert _due_on(pool) == [(id(pool), id(binding))]
 
@@ -784,7 +784,7 @@ def test_a_warm_that_refuses_leaves_the_parse_to_answer(
     def refusing(*_args: object) -> None:
         raise UnsupportedConstructError("this copy refuses")
 
-    monkeypatch.setattr(replica_module, "_warm", refusing)
+    monkeypatch.setattr(replica_module, "model_product", refusing)
     before = replica_module.warm_census()
     model = compiled.parse(text, cores=4)
     refused = replica_module.warm_census()[2] - before[2]

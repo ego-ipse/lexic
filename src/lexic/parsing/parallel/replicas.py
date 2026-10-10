@@ -422,7 +422,7 @@ def _resolve[M](
         # worker before the next split's pieces (:func:`warm_due`).
         _register(key, grammar, binding)
         mine[key] = _Mine(grammar, binding, (grammar, binding), lease)
-        _MET[(lease, *key)] = (grammar, binding)
+        FIRST_MEETINGS[(lease, *key)] = (grammar, binding)
         return grammar, binding
     replica = _claim(key, grammar, binding, document)
     mine[key] = _Mine(grammar, binding, replica, None)
@@ -467,7 +467,7 @@ def _thread_cache() -> dict[tuple[int, int], _Mine]:
     return mine
 
 
-_MET: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
+FIRST_MEETINGS: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
 """``(lease, id(grammar), id(binding))`` → a pair a worker met for the FIRST time
 in that split, still read through the original; settled into :data:`_DUE`."""
 
@@ -519,8 +519,12 @@ def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
     :param document: The split document's executable view.
     """
     # A snapshot: other pools' workers file into the same memo meanwhile.
-    met = [key for key in _MET.copy() if key[0] == pool.lease]
-    pairs = {key[1:]: pair for key in met if (pair := _MET.pop(key, None)) is not None}
+    met = [key for key in FIRST_MEETINGS.copy() if key[0] == pool.lease]
+    pairs = {
+        key[1:]: pair
+        for key in met
+        if (pair := FIRST_MEETINGS.pop(key, None)) is not None
+    }
     key = (id(pool), id(document))
     if pool.retired:
         _DUE.pop(key, None)
