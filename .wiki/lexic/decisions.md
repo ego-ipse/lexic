@@ -1375,3 +1375,21 @@ copy), and singletons. It refuses any other C type. It rebuilds IR records
 through their own `rebuild()` and makes scalar IR leaves anew, because the
 tables a parse reads hold them. Shared, they cost a copy 5% of an Earley-heavy
 split's wall against a recompile.
+
+## A k-window selection is filed by first character where that cuts a window
+
+**Decision:** `gating.window_select` builds an alternation's k-window selection.
+Where some character a first window position names would test fewer windows
+than all of them, it returns a `FiledWindowSelect`: the entries cut, in order,
+to the windows each such character can begin, plus one cut for every character
+no first position names. Selection then asks only those windows; at end of
+input it asks them all. Where filing cuts nothing, the plain `KWindowSelect` is
+kept. The filed selection spells the two passes over its cut entries rather
+than calling the plain one's.
+
+**Why:** most windows a selection tests fail on their first character (on
+markdown's PDA parse, 1,698 of 2,584), so a character can rule out windows
+before any is tried. Filing costs a length test and a dict lookup per
+selection, which a selection that cuts nothing would pay for no saving; the
+call into the plain selection cost about what a one-window cut saves, which
+is why the loop is spelled twice.

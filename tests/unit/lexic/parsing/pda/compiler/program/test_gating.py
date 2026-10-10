@@ -16,12 +16,14 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.gating import (
+    FiledWindowSelect,
     KWindowSelect,
     NoiseSkipSelect,
     continuation_windows,
     gate_take,
     select_gated,
     window_admits,
+    window_select,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -187,6 +189,64 @@ def test_a_wide_selection_answers_with_its_own_matching_arm() -> None:
     wide = KWindowSelect((_window("a", hit),))
 
     assert select_gated("ab", 0, _gated(wide)) is hit
+
+
+def _naive(entries, text: str, pos: int):
+    """The selection read straight off the entries, every window tried in order."""
+    for at_eof in (False, True):
+        for windows, arm in entries:
+            if window_admits(text, pos, windows, at_eof=at_eof):
+                return arm
+    return None
+
+
+def test_filing_by_first_character_selects_what_every_window_would() -> None:
+    """The first-character filing keeps the answer and the arm order: a
+    co-finite first position, a two-position window, an empty window, a
+    character no first position names, and the end of the input."""
+    not_a = (frozenset("a"), True)
+    a, b, c = ((frozenset(x), False) for x in "abc")
+    entries = (
+        (((a, b),), "ab"),
+        (((not_a, c),), "not-a then c"),
+        (((a,), (b, b)), "a or bb"),
+        (((),), "anything"),
+    )
+    wide = window_select(entries)
+    for text in ("ab", "ac", "a", "bb", "bc", "zc", "zz", "", "b", "abc"):
+        for pos in range(len(text) + 1):
+            assert wide.select(text, pos) == _naive(entries, text, pos), (text, pos)
+    assert isinstance(wide, FiledWindowSelect)
+    assert set(wide.first) == {"a", "b"}, "c is never a first position"
+    assert [arm for _windows, arm in wide.other] == ["not-a then c", "anything"]
+
+
+def test_a_filed_selection_rescues_an_arm_that_ends_the_input() -> None:
+    """Only the second pass selects here: the window's co-finite second position
+    lies past the end of ``a``, which the first pass refuses and the rescue
+    admits. The filed selection spells both passes, so both are pinned."""
+    a, b, not_x = (
+        (frozenset("a"), False),
+        (frozenset("b"), False),
+        (frozenset("x"), True),
+    )
+    entries = ((((a, not_x),), "a, then anything or the end"), (((b,),), "b"))
+    wide = window_select(entries)
+    assert isinstance(wide, FiledWindowSelect)
+    assert window_admits("a", 0, ((a, not_x),)) is False, "the first pass refuses"
+    assert wide.select("a", 0) == "a, then anything or the end"
+    assert wide.select("a", 0) == _naive(entries, "a", 0)
+    assert wide.select("ax", 0) is None
+
+
+def test_a_selection_filing_would_not_cut_stays_plain() -> None:
+    """Every window begins with the same character: filing cuts nothing for it,
+    and the plain selection is kept rather than paying for a lookup."""
+    space = (frozenset(" "), False)
+    entries = ((((space, (frozenset("a"), False)),), 1), (((space, space),), 2))
+    wide = window_select(entries)
+    assert isinstance(wide, KWindowSelect), "FiledWindowSelect is not one"
+    assert wide.select(" a", 0) == 1 and wide.select("  ", 0) == 2
 
 
 def test_a_noise_skip_selection_peeks_past_the_run_it_skips() -> None:

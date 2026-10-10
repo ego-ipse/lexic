@@ -17,6 +17,7 @@ entered. This module executes a compiled gate against the text.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import EngineInvariantError
@@ -300,6 +301,111 @@ class KWindowSelect(NamedTuple):
             if window_admits(text, pos, windows, at_eof=True):
                 return candidate
         return None
+
+
+class FiledWindowSelect(NamedTuple):
+    """A :class:`KWindowSelect` filed by first character: the selection at
+    ``pos`` asks only the windows the character there can begin.
+
+    Chosen by :func:`window_select` where filing cuts a window for some
+    character; where it cuts none, the plain selection is already the short
+    one and the filing would be pure overhead.
+
+    :ivar whole: The selection over every entry — the answer at end of input.
+    :ivar first: A character some first position names → the ``(windows,
+        arm)`` entries cut to the windows it can begin, in order.
+    :ivar other: The same cut for every character no first position names.
+    """
+
+    whole: KWindowSelect
+    first: dict[str, tuple[tuple[Any, Any], ...]]
+    other: tuple[tuple[Any, Any], ...]
+
+    label = "k-window"
+
+    @property
+    def entries(self) -> tuple[tuple[Any, Any], ...]:
+        """The ``(windows, arm)`` pairs, uncut."""
+        return self.whole.entries
+
+    @property
+    def arms(self) -> tuple[Any, ...]:
+        """Every arm this selection can choose, gate stripped."""
+        return self.whole.arms
+
+    def with_payloads(
+        self, payloads: tuple[Any, ...]
+    ) -> FiledWindowSelect | KWindowSelect:
+        """This selection over new payloads, the window sets unchanged.
+
+        :param payloads: New payloads, in :attr:`arms` order.
+        :returns: The selection :func:`window_select` files them into.
+        """
+        return window_select(self.whole.with_payloads(payloads).entries)
+
+    def select(self, text: str, pos: int) -> Any:
+        """The payload whose window set matches at ``pos``, or ``None``.
+
+        The two passes are :meth:`KWindowSelect.select`'s, over the cut
+        entries, spelled here rather than called: the call cost about what the
+        cut saves on a selection that drops one window.
+        """
+        if pos >= len(text):
+            return self.whole.select(text, pos)
+        entries = self.first.get(text[pos], self.other)
+        for windows, candidate in entries:
+            if window_admits(text, pos, windows):
+                return candidate
+        for windows, candidate in entries:
+            if window_admits(text, pos, windows, at_eof=True):
+                return candidate
+        return None
+
+
+def window_select(
+    entries: tuple[tuple[Any, Any], ...],
+) -> FiledWindowSelect | KWindowSelect:
+    """The k-window selection over ``entries``, filed by first character where
+    that cuts a window for some character a first position names.
+
+    :param entries: ``(windows, arm)`` pairs, in selection order.
+    :returns: The filed selection, or the plain one when filing cuts nothing.
+    """
+    named = {
+        char
+        for windows, _arm in entries
+        for window in windows
+        if window
+        for char in window[0][0]
+        if char != ""
+    }
+    first = {
+        char: _beginning(
+            entries, lambda chars, negated, char=char: (char in chars) != negated
+        )
+        for char in named
+    }
+    if all(cut == entries for cut in first.values()):
+        return KWindowSelect(entries)
+    return FiledWindowSelect(
+        KWindowSelect(entries),
+        first,
+        _beginning(entries, lambda _chars, negated: negated),
+    )
+
+
+def _beginning(
+    entries: tuple[tuple[Any, Any], ...],
+    admits: Callable[[frozenset[str], bool], bool],
+) -> tuple[tuple[Any, Any], ...]:
+    """``entries`` cut to the windows whose first position ``admits``, in order;
+    an empty window begins with anything, and an entry left with none drops."""
+    out = []
+    for windows, arm in entries:
+        kept = tuple(w for w in windows if not w or admits(*w[0]))
+        if kept:
+            out.append((kept, arm))
+    return tuple(out)
 
 
 class NoiseSkipSelect(NamedTuple):

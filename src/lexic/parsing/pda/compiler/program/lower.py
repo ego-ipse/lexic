@@ -23,9 +23,9 @@ from lexic.parsing.pda.compiler.program.flatten import (
     mark_sub_roots,
 )
 from lexic.parsing.pda.compiler.program.gating import (
-    KWindowSelect,
     NoiseSkipSelect,
     flat_window,
+    window_select,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
@@ -202,7 +202,7 @@ def _flatten_selectors(
 ]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
-    P2 (:attr:`ArmSpec.windows`) lowers to a :class:`KWindowSelect`; P3
+    P2 (:attr:`ArmSpec.windows`) lowers to a k-window selection (:func:`window_select`); P3
     (:attr:`ArmSpec.peek`) to a :class:`NoiseSkipSelect`; otherwise the
     FIRST-gated single-char triples are built.
 
@@ -217,7 +217,7 @@ def _flatten_selectors(
             )
             for arm in arms
         )
-        return (), KWindowSelect(kwin)
+        return (), window_select(kwin)
     if arms and arms[0].peek is not None:
         w = cast("tuple[CharSet, CharSet]", arms[0].peek)[0]
         sels = tuple(

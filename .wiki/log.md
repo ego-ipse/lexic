@@ -2493,3 +2493,9 @@ were made public at home; the wiki pages naming them now use the public names.
 `decisions.md`'s sole-chain entry: a build with no choices pinned calls
 `sole_chain` with the arm base and tier, and allocates no `ChainSpec` per
 handle; `atoms.predecessor_chain`, the dispatch between the two, is gone.
+
+## k-window selections filed by first character (2026-10-10)
+
+`decisions.md` entry: `window_select` files a k-window selection's entries by
+the first character where that cuts a window, and keeps the plain selection
+where it cuts none.
