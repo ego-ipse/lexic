@@ -140,7 +140,9 @@ class KernelExecutionMixin[Carry]:
             neither the bound fields nor the empty arm.
         """
         text = self.text
-        arm = select_arm(clone, text[pos : pos + 1], pos)
+        arm = clone.entry  # one arm whose first item refuses alone: no walk
+        if arm is None:
+            arm = select_arm(clone, text[pos : pos + 1], pos)
         if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos

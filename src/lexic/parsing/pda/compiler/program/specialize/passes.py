@@ -522,10 +522,11 @@ def mark_entry(clone: FlatClone) -> None:
     entry position exactly the lookaheads outside the arm's FIRST, which is
     what the selector holds. So the entry pushes the arm and lets the item
     refuse. A take is excluded because its miss can ask an island the
-    selector would never have reached.
+    selector would never have reached. A leaf's frame-less run reads it as
+    the entry walk does.
     """
     clone.entry = None
-    if clone.mode == BUILD_DISPATCH or clone.leaf or clone.default is not None:
+    if clone.mode == BUILD_DISPATCH or clone.default is not None:
         return
     gated = (
         clone.attempt is not None

@@ -459,3 +459,30 @@ def test_a_loop_over_span_tabled_landings_runs_inline(
     monkeypatch.setattr(matchers_module, "vstr_once", refused)
     monkeypatch.setattr(execution_module, "gate_take", refused)
     assert pda_model(product.pda, text, compiled.executor) == expected
+
+
+LEAF_ENTERED = 'root ::= "<" pair+ ">"\npair ::= "a" w ";"\nw ::= [b-z]+\n'
+"""``pair``: a leaf, entered per iteration of ``root``'s loop, one arm opening
+on a literal."""
+
+
+def test_a_leaf_with_one_self_refusing_arm_runs_it_without_the_walk() -> None:
+    """With its own selectors emptied the leaf run still finds its arm — it
+    never walked them — the literal still refuses what the walk did, and the
+    model is the Earley engine's."""
+    compiled = compile_text(LEAF_ENTERED, flavour="gbnf", cache_key="leaf-entry")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    pair = next(
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.name == "pair"
+    )
+    assert pair.leaf and pair.entry is not None
+    text = "<abc;ad;>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    pair.selectors = ()  # the walk would now refuse every run
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, "<abc;b;>", compiled.executor)

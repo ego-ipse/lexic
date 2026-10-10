@@ -1426,15 +1426,15 @@ after `WARM_WAIT`; both are counted (`replicas.warm_census`).
 ## An entry the selector walk cannot decide pushes its arm straight
 
 **Decision:** a clone with one gated arm, no default and no other selection
-(no dispatch, attempt, wide or struct gate, and not a leaf) carries that arm as
+(no dispatch, attempt, wide or struct gate) carries that arm as
 `FlatClone.entry` when the arm's first item refuses every other lookahead by
 itself at the same position: a mandatory terminal, or an exactly-once inline
 value-string reference to a clone with no empty match and no longest take
 (`specialize.passes.mark_entry`). `_enter` reads `entry` where the selector
 walk would start — after the dispatch chase, the attempt, the gates and the
 leaf run, none of which an entry clone takes — and pushes the arm without
-slicing the lookahead or walking `selectors`. An entry that returns before the
-walk (a leaf run, a dispatch chase) never reads it: there it could only answer
+slicing the lookahead or walking `selectors`; a leaf's frame-less run reads it
+the same way. A dispatch chase never reads it: there it could only answer
 `None`.
 
 **Why:** the walk over one selector can only find that arm or refuse, and the
@@ -1522,3 +1522,14 @@ it on the same terms — so a loop over a dispatch of them (`record ::= event |
 span | note`, each `@lexical`) paid an `_enter`, a `_quant_step` and a leaf run
 per occurrence for a match that cannot descend. Inline, an occurrence is the
 chase and the run.
+
+## A leaf whose walk decides nothing runs its one arm
+
+**Decision:** a leaf's frame-less run (`_run_leaf`) reads `FlatClone.entry`
+before walking its selectors, and `mark_entry` grants an entry to leaves on the
+same licence as to framed clones.
+
+**Why:** the licence is about the walk, not the frame: one selector, no
+default, a first item that refuses alone. A leaf opening on a literal (json's
+`string ::= quote chars quote ws`) walked its one selector on every occurrence
+for an answer the first item gives anyway.

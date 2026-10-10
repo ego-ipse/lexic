@@ -949,14 +949,14 @@ SELF_REFUSING_FIRST = (OP_LIT1, OP_CC1, OP_LIT, OP_CC, OP_VRUN, OP_V1)
 @pytest.mark.parametrize("name", ENTRY_GRAMMARS)
 def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> None:
     """Wherever an entry is set, the walk it skips could only have found that
-    arm or refused: one selector, no default, no other selection, not a leaf
-    nor a dispatch — and the arm opens on an item that refuses alone."""
+    arm or refused: one selector, no default, no other selection, not a
+    dispatch — and the arm opens on an item that refuses alone."""
     for clone in walk_program_clones(
         pda_for(GROUND_TRUTH / name).program.start
     ).values():
         if clone.entry is None:
             continue
-        assert clone.mode != BUILD_DISPATCH and not clone.leaf, clone.name
+        assert clone.mode != BUILD_DISPATCH, clone.name
         assert clone.default is None and clone.attempt is None, clone.name
         assert clone.wide_selectors is None and clone.struct_arm is None, clone.name
         assert len(clone.selectors) == 1 and clone.selectors[0][2] is clone.entry
@@ -965,13 +965,12 @@ def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> N
 
 @pytest.mark.parametrize("name", ENTRY_GRAMMARS)
 def test_a_walk_that_can_choose_or_descend_first_keeps_its_selectors(name: str) -> None:
-    """A default, a leaf, a dispatch, several arms, or an arm opening on a
-    reference (whose descent refuses deeper, after a push): no entry."""
+    """A default, a dispatch, several arms, or an arm opening on a reference
+    (whose descent refuses deeper, after a push): no entry."""
     clones = walk_program_clones(pda_for(GROUND_TRUTH / name).program.start).values()
     for clone in clones:
         choosing = (
             clone.default is not None
-            or clone.leaf
             or clone.mode == BUILD_DISPATCH
             or len(clone.selectors) != 1
         )

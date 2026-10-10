@@ -1,5 +1,10 @@
 # Log
 
+## A leaf whose walk decides nothing runs its one arm (2026-10-10)
+
+`decisions.md` records why `_run_leaf` reads `FlatClone.entry` and leaves are
+granted one.
+
 ## A dispatch over span-tabled clones is matched inline (2026-10-10)
 
 `decisions.md` records why the `OP_VDISP` licence admits span-tabled landings.
