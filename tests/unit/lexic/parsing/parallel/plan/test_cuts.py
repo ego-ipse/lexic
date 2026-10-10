@@ -8,7 +8,10 @@ piece before — the one arithmetic difference between a proposal and a proof.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
+from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.discovery.scan import clustered
 from lexic.parsing.parallel.plan.cuts import (
     after_mark,
@@ -108,6 +111,19 @@ def test_every_chosen_cut_clears_the_floor_on_both_sides() -> None:
     assert all(hi - lo >= MIN_CHUNK for lo, hi in zip(bounds, bounds[1:])), (
         "a cut left a piece under the floor"
     )
+
+
+@pytest.mark.parametrize(("cpus", "pieces"), [(16, 15), (32, 16)])
+def test_a_plan_cut_spares_a_cpu_when_its_workers_claim_them_all(
+    cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sixteen workers on sixteen CPUs cut fifteen pieces, as the region route
+    does; on a host with CPUs to spare they cut sixteen."""
+    monkeypatch.setattr(policy_module, "available_workers", lambda: cpus)
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(40 * MIN_CHUNK)
+    with WorkPool(16) as pool:
+        assert len(cut_offsets(plan, text, 16, pool).offsets) == pieces - 1
 
 
 def test_a_proposal_is_never_cut_at_offset_zero() -> None:

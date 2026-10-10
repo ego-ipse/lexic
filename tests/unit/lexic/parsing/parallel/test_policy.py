@@ -86,3 +86,24 @@ def test_the_floor_holds_only_when_every_piece_clears_it():
     assert policy_module.clears_floor([half, 5 * MIN_CHUNK])
     assert not policy_module.clears_floor([half - 1, 5 * MIN_CHUNK])
     assert policy_module.capacity(3 * MIN_CHUNK - 1) == 2
+
+
+@pytest.mark.parametrize(
+    ("workers", "cpus", "pieces"),
+    [
+        (16, 16, 15),  # the pool claims every CPU of a big host: spare one
+        (8, 8, 7),  # the smallest host that spares
+        (32, 16, 31),  # asked for more workers than CPUs: still claims them all
+        (4, 4, 4),  # a small host keeps every piece — one is a quarter of it
+        (2, 2, 2),  # and a 2-CPU host must still split in two
+        (4, 16, 4),  # a pool leaving CPUs free spares nothing
+        (7, 8, 7),
+    ],
+)
+def test_a_split_spares_a_cpu_only_when_the_pool_claims_a_big_host(
+    workers: int, cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The calling thread parses the shell beside the pieces; sparing it a CPU
+    pays on 16 CPUs and costs a quarter of the pool on 4."""
+    monkeypatch.setattr(policy_module, "available_workers", lambda: cpus)
+    assert policy_module.piece_count(workers) == pieces

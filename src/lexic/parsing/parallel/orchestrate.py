@@ -42,10 +42,10 @@ from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import (
     AUTO,
     MIN_CHUNK,
-    available_workers,
     capacity,
     clears_floor,
     doc_workers,
+    piece_count,
 )
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import (
@@ -229,20 +229,6 @@ def _speculate[M: IrNamedTuple](
             return None
         cuts = moved
     return None
-
-
-SPARE_FROM = 8
-"""The CPU count from which a pool that claims every CPU spares one for the
-calling thread, which parses the shell beside the pieces. Sparing costs one
-piece in ``workers``: on 16 CPUs, 15 pieces measured about 12 percent faster
-than 16; on 4, 3 pieces for 4 workers measured 25 to 30 percent slower."""
-
-
-def piece_count(workers: int) -> int:
-    """How many pieces a split plans for ``workers``: one fewer only when the
-    pool claims every CPU and there are enough that one piece is a small share."""
-    spare = workers >= available_workers() >= SPARE_FROM
-    return workers - 1 if spare else workers
 
 
 class _Units[M](NamedTuple):
@@ -490,12 +476,13 @@ def _split_on[M: IrNamedTuple](
 ) -> M | None:
     """The plans in order, then the regions, on one lent pool."""
     cores, analysis, licensed = setting
-    workers = pool.workers
     shared = shared_scanner(grammar, licensed)
     # The rebase belongs to the document, not to a plan: it reads only the
     # windows' marks and deltas, so every plan reading the sweep recomputed
-    # the same offsets over every mark in the document.
-    rebased = rebase(shared, ask.text, workers, pool) if shared is not None else None
+    # the same offsets over every mark in the document. As many windows as
+    # pieces, for the reason the region find gives.
+    windows = piece_count(pool.workers)
+    rebased = rebase(shared, ask.text, windows, pool) if shared is not None else None
     for plan in licensed:
         # Only a plan that reads a windowed sweep is handed the shared
         # offsets; a walking scan owns its pass, and an envelope plan reads

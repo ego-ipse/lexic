@@ -116,6 +116,21 @@ def doc_workers(cores: int = AUTO) -> int:
     return available_workers() if cores == AUTO else max(1, cores)
 
 
+SPARE_FROM = 8
+"""The CPU count from which a split that would claim every CPU spares one: the
+calling thread's own work, the windows' and the pieces' wake-ups need a CPU the
+workers are not all holding. Sparing costs one piece in ``workers``: on 16
+CPUs, 15 pieces measured about 12 percent faster than 16; on 4, 3 pieces for 4
+workers measured 25 to 30 percent slower."""
+
+
+def piece_count(workers: int) -> int:
+    """How many pieces a split plans for ``workers``: one fewer only when the
+    pool claims every CPU and there are enough that one piece is a small share."""
+    spare = workers >= available_workers() >= SPARE_FROM
+    return workers - 1 if spare else workers
+
+
 def worker_count(size: int, splits: int, cores: int = AUTO) -> int:
     """Workers for splitting ONE document of ``size`` at ``splits`` points.
 

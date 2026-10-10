@@ -17,7 +17,9 @@ from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
 from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest
-from lexic.parsing.parallel import orchestrate, planner, split_model, split_plan
+from lexic.parsing.parallel import orchestrate, planner
+from lexic.parsing.parallel import policy as policy_module
+from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
@@ -837,27 +839,6 @@ def test_a_proposal_and_a_proof_share_one_sweep() -> None:
         assert plan.mark <= shared.separators
 
 
-@pytest.mark.parametrize(
-    ("workers", "cpus", "pieces"),
-    [
-        (16, 16, 15),  # the pool claims every CPU of a big host: spare one
-        (8, 8, 7),  # the smallest host that spares
-        (32, 16, 31),  # asked for more workers than CPUs: still claims them all
-        (4, 4, 4),  # a small host keeps every piece — one is a quarter of it
-        (2, 2, 2),  # and a 2-CPU host must still split in two
-        (4, 16, 4),  # a pool leaving CPUs free spares nothing
-        (7, 8, 7),
-    ],
-)
-def test_a_split_spares_a_cpu_only_when_the_pool_claims_a_big_host(
-    workers: int, cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The calling thread parses the shell beside the pieces; sparing it a CPU
-    pays on 16 CPUs and costs a quarter of the pool on 4."""
-    monkeypatch.setattr(orchestrate, "available_workers", lambda: cpus)
-    assert orchestrate.piece_count(workers) == pieces
-
-
 TWO_RUNS = (
     '{"a":['
     + ",".join('"' + "a" * 90 + '"' for _ in range(110))
@@ -908,7 +889,7 @@ def test_the_region_find_runs_one_window_per_piece(
     grammar, binding = compiled.codegen_grammar, compiled.product
     real_find = orchestrate.par_find
     windows: list[int] = []
-    monkeypatch.setattr(orchestrate, "available_workers", lambda: 16)
+    monkeypatch.setattr(policy_module, "available_workers", lambda: 16)
     monkeypatch.setattr(
         orchestrate, "par_find", lambda *a: windows.append(a[3]) or real_find(*a)
     )

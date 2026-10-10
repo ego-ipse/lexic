@@ -16,7 +16,12 @@ from lexic.parsing.parallel.discovery.regions import Cutting, floor_cuts
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_SCAN, clears_floor, worker_count
+from lexic.parsing.parallel.policy import (
+    MIN_SCAN,
+    clears_floor,
+    piece_count,
+    worker_count,
+)
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import Roles, Terminator, roles
 
@@ -215,7 +220,7 @@ def cut_offsets(
     if plan.envelope is not None:
         marks = plan.envelope.cuts(text)
     else:
-        marks = scan_marks(plan, text, ceiling, pool, rebased)
+        marks = scan_marks(plan, text, piece_count(ceiling), pool, rebased)
         if plan.bound is not None:
             # The unit emits its own mark, so a mark is a candidate rather than
             # a boundary: keep the ones a unit actually begins after. A
@@ -232,7 +237,7 @@ def cut_offsets(
         marks = [at for at in marks if at]
     elif plan.terminated and marks and after_mark(plan, text, marks[-1]) == len(text):
         marks.pop()
-    workers = worker_count(len(text), len(marks), cores)
+    workers = piece_count(worker_count(len(text), len(marks), cores))
     cutting = _cutting(plan, text, marks)
     while workers >= 2:
         cuts = _balanced_cuts(plan, text, workers, cutting)
