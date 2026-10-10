@@ -1,5 +1,10 @@
 # Log
 
+## A stop-gated value loop reads its gate in place (2026-10-10)
+
+`decisions.md` records why the tabled and value-string loops test a stop gate
+inline, as `match_cc` and `_quant_step` do, and call `gate_take` for the rest.
+
 ## A run that cannot refuse matches as one pattern (2026-10-10)
 
 `decisions.md` records `run_pattern`: a nullable one-class stop-gated run is

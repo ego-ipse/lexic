@@ -36,6 +36,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
+    GATE_STOP,
     OP_CC1,
     OP_LEAF1,
     OP_LIT,
@@ -211,9 +212,24 @@ class KernelExecutionMixin[Carry]:
         if clone.chartable is not None:
             return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]
-        gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+        # A stop gate — the common one — is read in place, as `match_cc` reads it:
+        # a call per iteration was most of what a short iteration cost. Its
+        # kind and its set are bound once, here, not read per iteration.
+        stop = arm.gate_kinds[i] == GATE_STOP
+        gchars, gneg = arm.gate_data[i] if stop else ((), False)
         count = 0
-        while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        while count < lo or (
+            (hi < 0 or count < hi)
+            and (
+                (
+                    (pos < len(text) and text[pos] not in gchars)
+                    if gneg
+                    else text[pos : pos + 1] in gchars
+                )
+                if stop
+                else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+            )
+        ):
             try:
                 pos = vstr_once(text, intern, clone, sink, pos)
             except IslandEscape as escape:

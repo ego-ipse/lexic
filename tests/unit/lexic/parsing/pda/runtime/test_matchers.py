@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import lexic.parsing.pda.runtime.kernel.execution as execution_mod
 import lexic.parsing.pda.runtime.kernel.kernel as kernel_mod
 import lexic.parsing.pda.runtime.matchers as matchers_mod
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
@@ -22,10 +23,11 @@ from lexic.ir import IrSelf
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import all_clones
+from lexic.parsing.pda.compiler.program.flatten import all_clones, clone_arms
 from lexic.parsing.pda.compiler.program.gating import arm_expected
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    GATE_STOP,
     OP_CC,
     OP_CONSULT,
     OP_ISLAND,
@@ -53,7 +55,7 @@ from lexic.parsing.pda.runtime.matchers import (
     stop_side_dead,
     vstr_once,
 )
-from lexic.parsing.products import model_product
+from lexic.parsing.products import earley_model, model_product
 from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
@@ -667,3 +669,62 @@ def test_a_further_iteration_of_the_enclosing_item_leaves_it_undecided():
     stack = [_suspended_in(parent, 0, 1), _suspended_in(top, 0, 0)]
     assert not dead(top, "q", stack)
     assert dead(top, "?", stack)
+
+
+# ── a stop-gated value loop reads its gate in place ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("source", "text", "table", "negated"),
+    [
+        ('root ::= d+ ";"\nd ::= [0-9]\n', "0123456789;", "char", False),
+        ('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n', "ab;c;def;!", "span", False),
+        ('root ::= w+ ";"\nw ::= "ab"\n', "ababab;", "none", False),
+        ('root ::= chunk+ "!"\nchunk ::= [^!;]+ ";"\n', "ab;c d;!", "span", True),
+        ('root ::= w* "!"\nw ::= [^!b] | "b" "c"\n', "xbcy!", "none", True),
+        ('root ::= c+ "!"\nc ::= [^!]\n', "x y;z!", "char", True),
+    ],
+    ids=[
+        "char-tabled-loop",
+        "span-tabled-loop",
+        "value-string-loop",
+        "negated-span-tabled-loop",
+        "negated-value-string-loop",
+        "negated-char-tabled-loop",
+    ],
+)
+def test_a_stop_gated_value_loop_never_calls_the_gate(
+    source: str, text: str, table: str, negated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every iteration of a stop-gated loop asked its gate through a call; the
+    loop now reads the stop set in place, and builds the Earley engine's
+    model. The program must hold the loop each case names, stop-gated and of
+    the polarity it names, or the pin says nothing; a document cut before its
+    closing character runs the loop to the end of the text and refuses."""
+    compiled = compile_text(source, cache_key=f"inline-gate-{len(source)}")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    loops = [
+        (arm.payloads[i], arm.gate_data[i][1])
+        for clone in walk_program_clones(product.pda.program.start).values()
+        for arm in clone_arms(clone)
+        for i in range(arm.n)
+        if arm.kinds[i] == OP_VSTR and arm.gate_kinds[i] == GATE_STOP
+    ]
+    kinds = {
+        "none" if t.chartable is None else "span" if t.runarm is not None else "char"
+        for t, _negated in loops
+    }
+    assert kinds == {table}, kinds
+    assert {polarity for _t, polarity in loops} == {negated}
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def no_call(*_args: object) -> bool:
+        raise AssertionError("a stop gate went through gate_take")
+
+    monkeypatch.setattr(matchers_mod, "gate_take", no_call)
+    monkeypatch.setattr(execution_mod, "gate_take", no_call)
+    assert pda_model(product.pda, text, compiled.executor) == want
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, text[:-1], compiled.executor)

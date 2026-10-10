@@ -1475,3 +1475,17 @@ iteration, or any gate but a stop set, keeps its loop.
 bound, and can never refuse, which is exactly what the pattern matches — so
 the span is the same on every input and no refusal's words change. The loop
 was a Python iteration per character of every whitespace and text run.
+
+## A stop-gated value loop reads its gate in place
+
+**Decision:** the tabled loops (`match_chartable`, `match_runtable`) and the
+value-string loop (`KernelExecutionMixin._match_vstr`) test a stop gate inline,
+by the same membership `gate_take` applies to it, with its kind and set bound
+once before the loop, and call `gate_take` only for the wider gate kinds.
+`match_cc`, `match_lit` and `_quant_step` already read a stop gate this way.
+
+**Why:** a stop gate is one set membership, and these loops asked it through a
+call on every iteration, which was most of what a short iteration cost. The
+expression is spelled at each loop rather than shared because sharing it is
+the call being removed; `gate_take` stays the definition every wider gate and
+every cold caller uses.

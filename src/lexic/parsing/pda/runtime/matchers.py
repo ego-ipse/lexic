@@ -236,9 +236,24 @@ def match_chartable[Carry](
     get = clone.chartable.get
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
-    gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    # A stop gate — the common one — is read in place, as `match_cc` reads it:
+    # a call per iteration was most of what a short iteration cost. Its kind
+    # and its set are bound once, here, not read per iteration.
+    stop = arm.gate_kinds[i] == GATE_STOP
+    gchars, gneg = arm.gate_data[i] if stop else ((), False)
     count = 0
-    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+    while count < lo or (
+        (hi < 0 or count < hi)
+        and (
+            (
+                (pos < len(text) and text[pos] not in gchars)
+                if gneg
+                else text[pos : pos + 1] in gchars
+            )
+            if stop
+            else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+        )
+    ):
         try:  # end of input is the rare exception, not a test per character
             model = get(text[pos])
         except IndexError:
@@ -324,8 +339,8 @@ def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
     """Item ``i``'s quantifier bounds and loop gate — every span loop's preamble.
 
     ``(lo, hi, gate_kind, gate_data)``, read once per item so the loop body
-    reads locals. Shared by the span-matching loops rather than re-spelled in
-    each: they differ only in which matcher runs per iteration.
+    reads locals. The tabled and value-string loops, which read a stop gate in
+    place, spell the four reads in place too: the call was one per loop entry.
     """
     return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
 
@@ -335,9 +350,23 @@ def match_runtable[Carry](
 ) -> int:
     """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
     clone = arm.payloads[i]
-    lo, hi, gk, gate = loop_spec(arm, i)
+    lo, hi = arm.los[i], arm.his[i]
+    # A stop gate read in place, bound once, as `match_chartable` reads it.
+    stop = arm.gate_kinds[i] == GATE_STOP
+    gchars, gneg = arm.gate_data[i] if stop else ((), False)
     count = 0
-    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+    while count < lo or (
+        (hi < 0 or count < hi)
+        and (
+            (
+                (pos < len(text) and text[pos] not in gchars)
+                if gneg
+                else text[pos : pos + 1] in gchars
+            )
+            if stop
+            else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+        )
+    ):
         pos = run_span_once(text, clone, sink, pos)
         count += 1
     return pos
