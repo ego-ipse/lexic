@@ -104,9 +104,14 @@ class KernelExecutionMixin[Carry]:
         identical match, which by the leaf licence cannot descend. A REDUCE
         leaf is the twin of that: its reduction reads only its own span, so
         the value its completion would have built is computed here instead.
-        Anything else builds through :meth:`_run_leaf`.
+        A span-tabled ``value_str`` leaf goes straight to its run, as
+        :func:`vstr_once` would send it after reading a lookahead it never
+        uses. Anything else builds through :meth:`_run_leaf`.
         """
         if clone.mode == BUILD_VALUE_STR:
+            if clone.runarm is not None:  # one match, one lookup: no selection
+                self.pos = run_span_once(self.text, clone, out, self.pos)
+                return
             try:
                 self.pos = vstr_once(
                     self.text, self._caches.intern, clone, out, self.pos

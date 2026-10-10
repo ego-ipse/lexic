@@ -1,5 +1,10 @@
 # Log
 
+## An entered span-tabled leaf goes straight to its run (2026-10-10)
+
+`decisions.md` records why `_leaf_run` calls `run_span_once` for a run-armed
+`value_str` leaf.
+
 ## A span-tabled loop goes straight to its loop (2026-10-10)
 
 `decisions.md` records why `_match_vstr` routes a span-tabled target to

@@ -375,3 +375,48 @@ def test_a_walk_with_a_default_to_take_keeps_its_selectors() -> None:
             product.instance_grammar, text, compiled.product, product.tables
         )
         assert pda_model(product.pda, text, compiled.executor) == expected
+
+
+# ── an entered span-tabled leaf ────────────────────────────────────────
+
+ENTERED_RUNS = (
+    "# @lexical event span\n"
+    'root ::= record+\nrecord ::= event | span | group\ngroup ::= "(" record+ ")"\n'
+    'event ::= "%" [a-z]+ ("," [a-z]+)* ";"\nspan ::= "<" [0-9]+ ">"\n'
+)
+"""``record`` is a dispatch over two proved, span-tabled leaves and a framed
+``group``, looped by ``root``: the framed target keeps the loop from being
+matched inline, so each occurrence is ENTERED, through the chase."""
+
+
+def test_an_entered_span_tabled_leaf_goes_straight_to_its_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The entry runs the leaf's span table, not ``vstr_once``'s selection
+    first; the model is still the Earley engine's."""
+    compiled = compile_text(ENTERED_RUNS, flavour="gbnf", cache_key="entered-runs")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    leaves = [
+        clone
+        for clone in walk_program_clones(product.pda.program.start).values()
+        if clone.leaf and clone.runarm is not None and clone.name in ("event", "span")
+    ]
+    assert {clone.name for clone in leaves} == {"event", "span"}
+    text = "%ab,cd;<12>(%c;)<3>"
+    expected = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    runs: list[FlatClone] = []
+    real_run = execution_module.run_span_once
+
+    def counted_run(text: str, clone: FlatClone, sink: list, pos: int) -> int:
+        runs.append(clone)
+        return real_run(text, clone, sink, pos)
+
+    def no_selection(*_args: object) -> int:
+        raise AssertionError("an entered span-tabled leaf went through vstr_once")
+
+    monkeypatch.setattr(execution_module, "run_span_once", counted_run)
+    monkeypatch.setattr(execution_module, "vstr_once", no_selection)
+    assert pda_model(product.pda, text, compiled.executor) == expected
+    assert len(runs) == 4

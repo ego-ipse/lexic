@@ -1497,3 +1497,14 @@ every cold caller uses.
 
 **Why:** the forward was a call per occurrence that decided nothing — a second
 dispatch on a fact the caller had already read.
+
+## An entered span-tabled leaf goes straight to its run
+
+**Decision:** `_leaf_run` sends a `value_str` leaf that carries a run arm to
+`run_span_once` itself, instead of through `vstr_once`.
+
+**Why:** such a clone's answer is its span table, so `vstr_once` read a
+lookahead character it never used and forwarded the call. An entry through a
+dispatch chase (`record ::= event | span` looped by its parent) paid that call
+per occurrence. `vstr_once` keeps the same forward for the callers that reach
+it with such a clone.
