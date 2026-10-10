@@ -367,8 +367,8 @@ of the GBNF self-grammar that nothing read, and every collection of the timed
 parse walked them: retiring them was 0.904x CPU on vyx's Earley seat.
 **The copies are made all at once, before the next split's pieces.** Which
 threads serve which split is the executor's choice, so a thread's second
-meeting — and with it its copy — used to land in whichever later split it next
-served, inside that split's pieces. Now a split records the pairs its workers
+meeting — and with it its copy — would land in whichever later split it next
+served, inside that split's pieces. A split records the pairs its workers
 met for the first time (`replicas.settle_first_meetings`), keyed by the
 document's executable view, so they retire with it; the pool's next split
 through the SAME view first gives every worker its own copy, one task per worker behind a

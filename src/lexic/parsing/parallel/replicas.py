@@ -51,6 +51,7 @@ from functools import partial
 from typing import NamedTuple
 from weakref import finalize, ref
 
+from lexic.exceptions import LexicError
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, release
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
@@ -447,10 +448,7 @@ def _view[M](
     ``share_first=False`` asks for this thread's own copy outright: a cached
     first meeting (still the original) does not answer it.
     """
-    mine = getattr(_ASSIGNED, "cache", None)
-    if mine is None:
-        mine = _ASSIGNED.cache = {}
-    got = mine.get((id(grammar), id(binding)))
+    got = _thread_cache().get((id(grammar), id(binding)))
     # Positional, not by name: this runs once per parse and a NamedTuple's
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
@@ -495,7 +493,38 @@ another pool and a closed pool leaves nothing behind."""
 WARM_WAIT = 5.0
 """Seconds a warm task waits for every worker of its pool to arrive. Past it
 the barrier breaks and the warm is skipped: a worker it did not reach copies
-on its own next meeting, exactly as without the warm."""
+on its own next meeting, exactly as without the warm. It bounds ARRIVAL — the
+copy itself runs after the barrier — so it is not sized to the copy; a break
+is counted (:func:`warm_census`), never silent."""
+
+WARMED, BROKEN, REFUSED = 0, 1, 2
+"""How one pair's warm ended: every worker copied it, the barrier broke, or a
+copy refused (a :class:`~lexic.exceptions.LexicError`) and the warm stopped."""
+
+
+class _WarmTally:
+    """How every warm in the process ended, by outcome — the census the
+    5-second barrier wait would otherwise make look like a timing outlier."""
+
+    __slots__ = ("counts", "lock")
+
+    def __init__(self) -> None:
+        """Start every outcome at zero."""
+        self.counts = [0, 0, 0]
+        self.lock = threading.Lock()
+
+    def add(self, outcome: int) -> None:
+        """Count one pair's warm."""
+        with self.lock:
+            self.counts[outcome] += 1
+
+    def census(self) -> tuple[int, int, int]:
+        """``(warmed, broken, refused)`` so far, read under the lock."""
+        with self.lock:
+            return self.counts[WARMED], self.counts[BROKEN], self.counts[REFUSED]
+
+
+_TALLY = _WarmTally()
 
 
 def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
@@ -505,7 +534,10 @@ def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
     :param pool: The pool the split ran on.
     :param document: The split document's executable view.
     """
-    met = [key for key in _MET if key[0] == pool.lease]
+    # A snapshot: other pools' workers file their first meetings into the same
+    # memo while this runs, and a free-threaded dict iterated live raises on
+    # a concurrent insert.
+    met = [key for key in _MET.copy() if key[0] == pool.lease]
     pairs = {key[1:]: pair for key in met if (pair := _MET.pop(key, None)) is not None}
     key = (id(pool), id(document))
     if pool.retired:
@@ -534,6 +566,9 @@ def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
     One task per worker per pair, each waiting at a barrier for all the others,
     so no thread runs two and every thread runs one: the copies are made on
     the threads that will read them, in parallel, and never inside a piece.
+    A copy that refuses ends the warm and leaves the split to run as without
+    it; anything else is a bug, and leaves the way every phase's bug does
+    (:meth:`~lexic.parsing.parallel.pool.WorkPool.map`).
 
     :param pool: The pool about to split a document.
     :param document: That document's executable view.
@@ -548,7 +583,16 @@ def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
         return
     for grammar, binding in entry[2].values():
         arrive = threading.Barrier(pool.workers, timeout=WARM_WAIT)
-        pool.map(partial(_warm, grammar, binding, arrive), list(range(pool.workers)))
+        try:
+            pool.map(
+                partial(_warm, grammar, binding, arrive), list(range(pool.workers))
+            )
+        except LexicError:
+            # An optimisation never decides the parse: a copy that refuses
+            # leaves its workers to meet the pair as without the warm.
+            _TALLY.add(REFUSED)
+            return
+        _TALLY.add(BROKEN if arrive.broken else WARMED)
 
 
 def _warm(
@@ -564,6 +608,14 @@ def _warm(
         return
     view_grammar, view_binding = _view(grammar, binding, False, share_first=False)
     model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_islands()
+
+
+def warm_census() -> tuple[int, int, int]:
+    """How many pairs' warms ended warmed, with a broken barrier, and refused.
+
+    :returns: ``(warmed, broken, refused)``, process-wide.
+    """
+    return _TALLY.census()
 
 
 def due_census() -> tuple[tuple[int, int], ...]:

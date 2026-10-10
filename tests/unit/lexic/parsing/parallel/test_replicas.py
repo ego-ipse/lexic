@@ -21,6 +21,7 @@ from types import CodeType, ModuleType
 import pytest
 
 from lexic.compile import compile_text
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
 from lexic.parsing import products as products_module
@@ -42,7 +43,13 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler import delegate_compile as delegate_module
 from lexic.parsing.pda.compiler import tables as pda_tables_module
 from lexic.parsing.products import model_product
-from tests.split_helpers import hold_workers, settled_replica_count
+from tests.split_helpers import (
+    LEAD_RULE,
+    FiledDuringRead,
+    hold_workers,
+    lead_rule_document,
+    settled_replica_count,
+)
 
 TEXT = "- alpha\n- beta\n- gamma\n"
 
@@ -669,7 +676,7 @@ def test_a_retired_document_view_takes_its_due_pairs_with_it() -> None:
         settled = _due_on(pool)
         release((id(binding),))
         assert settled == [(id(pool), id(binding))]
-        assert _due_on(pool) == []
+        assert not _due_on(pool)
 
 
 def test_a_collected_pool_leaves_no_due_pairs() -> None:
@@ -725,3 +732,92 @@ def test_a_piece_the_calling_thread_takes_back_parses_through_its_document_view(
 
     assert seen == [binding], "the taken-back piece read the document's view"
     assert taken == held == parse_model(grammar, TEXT, binding, DEFAULT_CONFIG)
+
+
+def test_settling_reads_first_meetings_other_pools_are_still_filing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A split settles its first meetings while another pool's workers file
+    theirs into the same memo; the settle reads a snapshot, so it neither
+    raises nor loses its own."""
+    grammar, binding = _pair("settle-snapshot")
+
+    with WorkPool(2) as pool:
+        filed = FiledDuringRead(
+            {(pool.lease, id(grammar), id(binding)): (grammar, binding)}
+        )
+        monkeypatch.setattr(replica_module, "_MET", filed)
+        replica_module.settle_first_meetings(pool, binding)
+        assert _due_on(pool) == [(id(pool), id(binding))]
+
+
+def test_two_documents_split_at_once_both_come_back_whole() -> None:
+    """Two documents split concurrently, each on a pool of its own, each
+    settling while the other's workers file first meetings."""
+    compiled = [compile_text(LEAD_RULE, cache_key=f"two-at-once-{k}") for k in (0, 1)]
+    text = lead_rule_document(1200)
+    got: list[list[str]] = [[], []]
+
+    def splits(k: int) -> None:
+        for _round in range(4):
+            got[k].append(compiled[k].parse(text, cores=4).to_text())
+
+    threads = [threading.Thread(target=splits, args=(k,)) for k in (0, 1)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+
+    assert got == [[text] * 4, [text] * 4]
+
+
+def test_a_warm_that_refuses_leaves_the_parse_to_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A warm is an optimisation: a copy that refuses ends the warm, is
+    counted, and the split parses exactly as without it."""
+    compiled = compile_text(LEAD_RULE, cache_key="warm-refuses")
+    text = lead_rule_document(1200)
+    compiled.parse(text, cores=4)  # its workers' first meetings: now due
+    owed = any(key[1] == id(compiled.product) for key in replica_module.due_census())
+
+    def refusing(*_args: object) -> None:
+        raise UnsupportedConstructError("this copy refuses")
+
+    monkeypatch.setattr(replica_module, "_warm", refusing)
+    before = replica_module.warm_census()
+    model = compiled.parse(text, cores=4)
+    refused = replica_module.warm_census()[2] - before[2]
+
+    assert model == compiled.parse(text, cores=1)
+    assert refused == (1 if owed else 0)
+
+
+def test_a_warm_whose_barrier_cannot_fill_is_counted_and_copies_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker busy elsewhere breaks the warm's barrier: the warm is skipped,
+    counted as broken, and no worker copies the pair."""
+    grammar, binding = _pair("warm-broken")
+    started, let_go = threading.Event(), threading.Event()
+
+    def hold(_slot: int) -> None:
+        started.set()
+        let_go.wait(timeout=1.0)
+
+    monkeypatch.setattr(replica_module, "WARM_WAIT", 0.05)
+    with WorkPool(2) as pool:
+        _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
+        replica_module.settle_first_meetings(pool, binding)
+        holder = threading.Thread(target=pool.map, args=(hold, [0]))
+        holder.start()
+        started.wait(timeout=30)
+        before = replica_module.warm_census()
+        replica_module.warm_due(pool.lend(), binding)
+        let_go.set()
+        holder.join(timeout=30)
+        broken = replica_module.warm_census()[1] - before[1]
+        claimed = replica_count(grammar, binding)
+
+    assert broken == 1
+    assert claimed == 0

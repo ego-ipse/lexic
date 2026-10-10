@@ -141,3 +141,14 @@ def hold_workers(pool: WorkPool, count: int, release: Event) -> Thread:
     holder.start()
     running.wait(timeout=30)
     return holder
+
+
+class FiledDuringRead(dict):
+    """A dict another thread inserts into while it is read: a reader that walks
+    it live meets an insert mid-walk and raises, as a free-threaded dict does
+    under a concurrent writer; a reader that takes a snapshot does not."""
+
+    def __iter__(self):
+        for key in super().__iter__():
+            self[("~filed meanwhile", len(self))] = None
+            yield key

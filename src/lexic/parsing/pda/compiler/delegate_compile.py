@@ -279,8 +279,9 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         return cached
 
     def held_islands(self) -> tuple[str, ...]:
-        """The islands whose delegate clones are compiled (or copied) here so far."""
-        return tuple(self._cache)
+        """The islands whose delegate clones are compiled (or copied) here so
+        far — a snapshot, since a parse on this source may add one meanwhile."""
+        return tuple(self._cache.copy())
 
     def held(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones already compiled for island ``name``, compiling

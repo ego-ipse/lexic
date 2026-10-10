@@ -1407,18 +1407,21 @@ through the same view, every worker first takes its own copy of each recorded
 pair: one `pool.map` task per worker, all waiting at a barrier so no thread
 runs two, before any piece is dispatched (`replicas.warm_due`).
 
-**Why:** a copy is still earned by reuse, but WHERE it lands no longer depends
-on scheduling. Before, a thread copied in whichever later split it next served,
-inside that split's pieces, so on a short-lived process (the benchmark worker's
-handful of splits) a copy could land in any pass, timed ones included. Keyed by
-the document's view because the pairs ARE that view's — every piece parses
-through it — so they are released with it and a document thread that has gone
-never has its pairs copied for the next one (keyed by grammar, a churn of
-document threads re-registered a dead view's copies on every split). That also
+**Why:** a copy is earned by reuse, and WHERE it lands must not depend on
+scheduling. A thread copying at its own second meeting copies in whichever later
+split it next serves, inside that split's pieces, so on a short-lived process
+(the benchmark worker's handful of splits) a copy could land in any pass, timed
+ones included. Keyed by the document's view because the pairs ARE that view's —
+every piece parses through it — so they are released with it, and a document
+thread that has gone never has its pairs copied for the next one. That also
 keeps a one-shot split (a long grammar source in `compile_text`) from having
 its pairs copied for an unrelated parse, which is the retained-copy cost the
 reuse rule exists to avoid. The pool is held weakly and its entry dropped when
-it is collected.
+it is collected. The settle reads a snapshot of the first-meetings memo, and
+the warm a snapshot of the islands its origin holds: other threads file into
+both at the same time. A warm never decides a parse: a copy that refuses ends
+it and the split runs as without it, and a barrier that cannot fill breaks
+after `WARM_WAIT`; both are counted (`replicas.warm_census`).
 
 ## An entry the selector walk cannot decide pushes its arm straight
 

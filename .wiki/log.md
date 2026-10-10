@@ -2544,3 +2544,9 @@ as many unstarted items as the phase left workers without one.
 
 `parallel-parsing.md`'s windowed-find section: a region split's find runs
 `piece_count` windows, and a close builds a region only where one is kept.
+
+## A warm never decides a parse, and reads its filings as snapshots (2026-10-10)
+
+`decisions.md`'s warm entry: the settle and the island copy read snapshots of
+memos other threads write to, and a refusing copy or a broken barrier skips the
+warm and is counted (`replicas.warm_census`).

@@ -127,8 +127,9 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         return cached
 
     def held_island_tables(self) -> tuple[tuple[str, int], ...]:
-        """The ``(island, tier)`` tables built (or copied) here so far."""
-        return tuple(self._island_tables)
+        """The ``(island, tier)`` tables built (or copied) here so far — a
+        snapshot, since a thread parsing on these tables may add one meanwhile."""
+        return tuple(self._island_tables.copy())
 
     def copy_held_islands(self) -> None:
         """A replica's own copies of every island its origin holds right now —

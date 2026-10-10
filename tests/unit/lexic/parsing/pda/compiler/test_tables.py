@@ -9,11 +9,14 @@ The clone table's own shape (islands, cloning residue) is pinned in depth in
 
 from __future__ import annotations
 
-from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
+import pytest
+
 from lexic.compile import compile_text
 from lexic.ir import IrAst
-from lexic.parsing.products import declare_replica, model_product
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.compiler.program.flatten import PdaProgram
+from lexic.parsing.products import declare_replica, model_product
+from tests.split_helpers import FiledDuringRead
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
     pda_from_text,
     specs_from_text,
@@ -128,3 +131,34 @@ def test_a_replica_copies_every_island_its_origin_holds_at_once() -> None:
     if origin.program.delegates is not None:
         assert delegates is not None and island in delegates.held_islands()
     origin.copy_held_islands()  # no origin: nothing to do, nothing raised
+
+
+def test_copying_held_islands_reads_what_the_origin_is_still_filing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker copies the islands its origin holds while another thread,
+    parsing on that origin, compiles one more: the copy reads snapshots of the
+    origin's island tables and delegate sets, so it neither raises nor misses
+    what was held."""
+    compiled = compile_text(LEFT_RECURSIVE, cache_key="copy-held-islands-filing")
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    view = (IrAst(grammar.rules, grammar.start), binding.replica())
+    declare_replica(grammar, binding, *view)
+    origin = model_product(grammar, binding, ORIGIN_BITS).pda
+    replica = model_product(*view, ORIGIN_BITS).pda
+    island = sorted(origin.islands)[0]
+    origin.island_tables(island)
+    origin.island_delegates(island)
+    held = {key: origin.island_tables(*key) for key in origin.held_island_tables()}
+    monkeypatch.setattr(origin, "_island_tables", FiledDuringRead(held))
+    sources = origin.program.delegates
+    assert sources is not None, "every compiled program carries its delegate source"
+    cache = {name: sources.held(name) for name in sources.held_islands()}
+    assert island in cache
+    monkeypatch.setattr(sources, "_cache", FiledDuringRead(cache))
+
+    replica.copy_held_islands()
+
+    assert (island, ORIGIN_BITS) in replica.held_island_tables()
+    copies = replica.program.delegates
+    assert copies is not None and island in copies.held_islands()
