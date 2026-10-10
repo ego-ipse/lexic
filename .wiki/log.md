@@ -2539,3 +2539,8 @@ through its own view.
 
 `decisions.md` and `parallel-parsing.md`: the calling thread takes back at most
 as many unstarted items as the phase left workers without one.
+
+## The region find: one window per piece, closes inline (2026-10-10)
+
+`parallel-parsing.md`'s windowed-find section: a region split's find runs
+`piece_count` windows, and a close builds a region only where one is kept.

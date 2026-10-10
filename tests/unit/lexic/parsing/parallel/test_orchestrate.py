@@ -899,6 +899,34 @@ def test_a_region_losing_its_stand_in_after_its_pieces_left_still_parses_exactly
     assert any(text[1:-1] in inside for text in parsed), "its pieces were sent"
 
 
+@pytest.mark.parametrize("cores", [2, 4, 16])
+def test_the_region_find_runs_one_window_per_piece(
+    monkeypatch: pytest.MonkeyPatch, cores: int
+) -> None:
+    """The region find divides the document into exactly as many windows as
+    the split plans pieces, never one per worker of a pool that spares one,
+    and still splits to the sequential model."""
+    compiled = compile_text((GROUND_TRUTH / "json.gbnf").read_text())
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    real_find = orchestrate.par_find
+    windows: list[int] = []
+
+    def counting_find(view, text, min_span, count, pool=None):
+        windows.append(count)
+        return real_find(view, text, min_span, count, pool)
+
+    monkeypatch.setattr(orchestrate, "par_find", counting_find)
+    monkeypatch.setattr(orchestrate, "available_workers", lambda: cores)
+    workers = orchestrate.doc_workers(cores)
+    split = split_model(parse_model, grammar, Request(TWO_RUNS, binding), cores)
+
+    if workers < 2:  # a GIL build never splits, so never finds
+        assert windows == [] and split is None
+        return
+    assert windows == [orchestrate.piece_count(workers)]
+    assert split == parse_model(grammar, TWO_RUNS, binding)
+
+
 def test_a_dropped_regions_unparsable_piece_cannot_sink_the_split(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

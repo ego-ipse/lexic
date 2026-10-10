@@ -401,10 +401,13 @@ def split_regions[M: IrNamedTuple](
     :func:`split_plan` returns the FIRST survivor, so a caller there sees one
     plan where this loop tries them all; the two agree wherever the first wins.
     """
-    workers = pool.workers
     sourced = source_split(parse, grammar, ask, pool)
     if sourced is not None:
         return sourced
+    # As many windows as pieces: on a pool that claims every CPU, one window
+    # per worker left a woken worker queued behind the rest for a CPU, and
+    # the find waited on its window.
+    pieces = piece_count(pool.workers)
     # A bracket span may cover the whole source while still sit BELOW a
     # wrapper start model (``root ::= node``). Routing, not byte position,
     # decides whether it has a replaceable owner; a true root-region model
@@ -412,11 +415,11 @@ def split_regions[M: IrNamedTuple](
     found = [
         region
         for region in par_find(
-            analysis or grammar, ask.text, 2 * MIN_CHUNK, workers, pool
+            analysis or grammar, ask.text, 2 * MIN_CHUNK, pieces, pool
         )
         if region.rule != str(grammar.start)
     ]
-    divided = partition(ask.text, found, piece_count(workers))
+    divided = partition(ask.text, found, pieces)
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     bound = bound_works(merge, grammar, divided, analysis or grammar)
     if not bound:
