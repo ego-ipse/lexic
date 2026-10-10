@@ -1393,3 +1393,20 @@ before any is tried. Filing costs a length test and a dict lookup per
 selection, which a selection that cuts nothing would pay for no saving; the
 call into the plain selection cost about what a one-window cut saves, which
 is why the loop is spelled twice.
+
+## A pool's workers copy a reused pair together, before the next split's pieces
+
+**Decision:** a split records the pairs its workers met for the first time, so
+still read through the original, keyed by the pool and the document grammar it
+split (`replicas.settle_first_meetings`). When that pool next splits a document
+of the same grammar, every worker first takes its own copy of each recorded
+pair: one `pool.map` task per worker, all waiting at a barrier so no thread
+runs two, before any piece is dispatched (`replicas.warm_due`).
+
+**Why:** a copy is still earned by reuse, but WHERE it lands no longer depends
+on scheduling. Before, a thread copied in whichever later split it next served,
+inside that split's pieces, so on a short-lived process (the benchmark worker's
+handful of splits) a copy could land in any pass, timed ones included. Keyed by
+document grammar so a one-shot split (a long grammar source in `compile_text`)
+never has its pairs copied for an unrelated parse, which is the retained-copy
+cost the reuse rule exists to avoid.

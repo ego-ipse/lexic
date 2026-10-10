@@ -2499,3 +2499,9 @@ handle; `atoms.predecessor_chain`, the dispatch between the two, is gone.
 `decisions.md` entry: `window_select` files a k-window selection's entries by
 the first character where that cuts a window, and keeps the plain selection
 where it cuts none.
+
+## A reused pair is copied by every worker before the next split (2026-10-10)
+
+`decisions.md` entry and `parallel-parsing.md`'s copy-earned-by-reuse section: a
+split's first meetings are settled per pool and document grammar, and the next
+split of that grammar on that pool warms every worker's copy before any piece.

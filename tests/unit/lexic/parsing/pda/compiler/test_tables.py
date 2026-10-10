@@ -9,7 +9,10 @@ The clone table's own shape (islands, cloning residue) is pinned in depth in
 
 from __future__ import annotations
 
-from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
+from lexic.compile import compile_text
+from lexic.ir import IrAst
+from lexic.parsing.products import declare_replica, model_product
 from lexic.parsing.pda.compiler.program.flatten import PdaProgram
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
     pda_from_text,
@@ -94,3 +97,34 @@ def test_reset_delegate_cache_does_not_raise():
     pda = pda_from_text(LEFT_RECURSIVE)
     pda.island_delegates("x")
     pda.reset_delegate_cache()  # must not raise, whether or not anything delegated
+
+
+def test_a_replica_copies_every_island_its_origin_holds_at_once() -> None:
+    """``copy_held_islands`` gives a worker's replica its own copy of each island
+    table and delegate set its origin has met — made now, not on each island's
+    first meeting in a later parse — and does nothing on tables a compile built.
+
+    The replica is made the way a pool worker's is (a view declared on the
+    original pair, its product copied through the binding), so the copy keeps
+    by identity exactly what production keeps.
+    """
+    compiled = compile_text(LEFT_RECURSIVE, cache_key="copy-held-islands")
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    view = (IrAst(grammar.rules, grammar.start), binding.replica())
+    declare_replica(grammar, binding, *view)
+    origin = model_product(grammar, binding, ORIGIN_BITS).pda
+    replica = model_product(*view, ORIGIN_BITS).pda
+    island = sorted(origin.islands)[0]
+    held = origin.island_tables(island)
+    origin.island_delegates(island)
+
+    replica.copy_held_islands()
+
+    assert (island, ORIGIN_BITS) in replica.held_island_tables()
+    copied = replica.island_tables(island, ORIGIN_BITS)
+    assert copied is not held, "a copy, not the origin's own tables"
+    assert isinstance(copied, ParserTables)
+    delegates = replica.program.delegates
+    if origin.program.delegates is not None:
+        assert delegates is not None and island in delegates.held_islands()
+    origin.copy_held_islands()  # no origin: nothing to do, nothing raised

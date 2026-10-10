@@ -353,8 +353,20 @@ grammar source, therefore mints nothing. A copy costs 5 to 50 ms and is held
 for the thread's life, while contention on a shared product costs a one-shot
 split a fraction of that. Before this rule, vyx's benchmark worker kept 4 copies
 of the GBNF self-grammar that nothing read, and every collection of the timed
-parse walked them: retiring them was 0.904x CPU on vyx's Earley seat. A
-repeatedly split artefact copies once per thread, on its second split.
+parse walked them: retiring them was 0.904x CPU on vyx's Earley seat.
+**The copies are made all at once, before the next split's pieces.** Which
+threads serve which split is the executor's choice, so a thread's second
+meeting — and with it its copy — used to land in whichever later split it next
+served, inside that split's pieces. Now a split records the pairs its workers
+met for the first time (`replicas.settle_first_meetings`), keyed by the
+document grammar it split; the pool's next split of a document of the SAME
+grammar first gives every worker its own copy, one task per worker behind a
+barrier, before any piece goes out (`replicas.warm_due`), along with every
+island table and delegate set the original has met so far
+(`PdaTables.copy_held_islands`). A repeatedly split
+artefact therefore copies once per thread at the start of its second split,
+and no later split ever copies. A split of another grammar warms nothing, so a
+one-shot split still mints no copy.
 
 **The shared original is the document thread's own.** `CompiledGrammar.parse`
 compiles its product on the calling thread before asking for a split. Built by

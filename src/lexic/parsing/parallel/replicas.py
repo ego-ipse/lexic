@@ -47,16 +47,18 @@ import threading
 from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import partial
 from typing import NamedTuple
-from weakref import finalize
+from weakref import finalize, ref
 
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, release
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
-from lexic.parsing.parallel.pool import running_lease
-from lexic.parsing.products import declare_replica
+from lexic.parsing.parallel.pool import WorkPool, running_lease
+from lexic.parsing.products import declare_replica, model_product
 
 type Replica[M] = tuple[IrAst, ModelExecutable[M]]
 """One worker's private view: an equal grammar, and a binding copy."""
@@ -394,11 +396,10 @@ def _claim[M](
 
 
 def _resolve[M](
-    mine: dict[tuple[int, int], _Mine],
-    key: tuple[int, int],
     grammar: IrAst,
     binding: ModelExecutable[M],
     document: bool,
+    share_first: bool = True,
 ) -> Replica[M]:
     """Claim a pair this thread has not cached, and prune what died.
 
@@ -409,14 +410,18 @@ def _resolve[M](
     cache is the one place with no release path to do it for us. The shared
     registry is keyed identically and IS released, so it is the liveness oracle.
     """
+    mine = _thread_cache()
+    key = (id(grammar), id(binding))
     for stale in [at for at in mine if at not in _REPLICAS]:
         del mine[stale]
-    lease = None if document else running_lease()
+    lease = None if document or not share_first else running_lease()
     if lease is not None and key not in mine:
         # A worker's first split of this pair runs on the original: a copy
-        # pays only where the thread meets the pair again, in a later split.
+        # pays only where the pair is met again — and then all at once, every
+        # worker before the next split's pieces (:func:`warm_due`).
         _register(key, grammar, binding)
         mine[key] = _Mine(grammar, binding, (grammar, binding), lease)
+        _MET[(lease, *key)] = (grammar, binding)
         return grammar, binding
     replica = _claim(key, grammar, binding, document)
     mine[key] = _Mine(grammar, binding, replica, None)
@@ -431,21 +436,118 @@ def _register(key: tuple[int, int], grammar: IrAst, binding: ModelExecutable) ->
             _REPLICAS[key] = _Issued(grammar, binding, [])
 
 
-def _view[M](grammar: IrAst, binding: ModelExecutable[M], document: bool) -> Replica[M]:
-    """This thread's view of the pair — cached, or claimed and then cached."""
+def _view[M](
+    grammar: IrAst,
+    binding: ModelExecutable[M],
+    document: bool,
+    share_first: bool = True,
+) -> Replica[M]:
+    """This thread's view of the pair — cached, or claimed and then cached.
+
+    ``share_first=False`` asks for this thread's own copy outright: a cached
+    first meeting (still the original) does not answer it.
+    """
     mine = getattr(_ASSIGNED, "cache", None)
     if mine is None:
         mine = _ASSIGNED.cache = {}
-    key = (id(grammar), id(binding))
-    got = mine.get(key)
+    got = mine.get((id(grammar), id(binding)))
     # Positional, not by name: this runs once per parse and a NamedTuple's
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
     if got is not None and got[0] is grammar and got[1] is binding:
         met = got[3]
-        if met is None or met == running_lease():
+        if met is None or (share_first and met == running_lease()):
             return got[2]
-    return _resolve(mine, key, grammar, binding, document)
+    return _resolve(grammar, binding, document, share_first)
+
+
+def _thread_cache() -> dict[tuple[int, int], _Mine]:
+    """The calling thread's own replica cache, made on first use."""
+    mine = getattr(_ASSIGNED, "cache", None)
+    if mine is None:
+        mine = _ASSIGNED.cache = {}
+    return mine
+
+
+_MET: dict[tuple[int, int, int], Replica] = memo({}, 1, 2)
+"""``(lease, id(grammar), id(binding))`` → a pair some worker met for the FIRST
+time in that split, so still read through the original. Filled by
+:func:`_resolve`; moved to :data:`_DUE` when the split ends; released with the
+pair like every other memo here."""
+
+_DUE: dict[
+    tuple[int, int], tuple[ref[WorkPool], IrAst, dict[tuple[int, int], Replica]]
+] = memo({}, 1)
+"""``(id(pool), id(document grammar))`` → the pairs that pool's workers met for
+the first time while splitting a document of that grammar: due a copy on every
+worker when the pool splits a document of the SAME grammar again. Keyed by the
+document grammar so a one-shot split (``compile_text`` splitting a long grammar
+source) never has its pairs copied for a later, unrelated split. The pool is
+held weakly and checked by identity, so a recycled ``id`` never warms another
+pool."""
+
+WARM_WAIT = 5.0
+"""Seconds a warm task waits for every worker of its pool to arrive. Past it
+the barrier breaks and the warm is skipped: a worker it did not reach copies
+on its own next meeting, exactly as without the warm."""
+
+
+def settle_first_meetings(pool: WorkPool, document: IrAst) -> None:
+    """At the end of a split: the pairs its workers met for the first time
+    become due on ``pool``, for the next split of a ``document`` there.
+
+    :param pool: The pool the split ran on.
+    :param document: The split document's grammar.
+    """
+    met = [key for key in _MET if key[0] == pool.lease]
+    if not met:
+        return
+    entry = _DUE.get((id(pool), id(document)))
+    if entry is None or entry[0]() is not pool or entry[1] is not document:
+        entry = _DUE[(id(pool), id(document))] = (ref(pool), document, {})
+    for key in met:
+        pair = _MET.pop(key, None)
+        if pair is not None and not pool.retired:
+            entry[2][key[1:]] = pair
+
+
+def warm_due(pool: WorkPool, document: IrAst) -> None:
+    """At the start of a split: every worker of ``pool`` takes its own copy of
+    each pair due for ``document`` — all at once, before any piece goes out.
+
+    One task per worker per pair, each waiting at a barrier for all the others,
+    so no thread runs two and every thread runs one: the copies are made on
+    the threads that will read them, in parallel, and never inside a piece.
+
+    :param pool: The pool about to split a document.
+    :param document: That document's grammar.
+    """
+    entry = _DUE.pop((id(pool), id(document)), None)
+    if (
+        entry is None
+        or entry[0]() is not pool
+        or entry[1] is not document
+        or pool.retired
+    ):
+        return
+    for grammar, binding in entry[2].values():
+        arrive = threading.Barrier(pool.workers, timeout=WARM_WAIT)
+        pool.map(partial(_warm, grammar, binding, arrive), list(range(pool.workers)))
+
+
+def _warm(
+    grammar: IrAst, binding: ModelExecutable, arrive: threading.Barrier, _slot: int
+) -> None:
+    """One worker's share of :func:`warm_due`: its own copy of the pair, the
+    product compiled through it at the tier every piece under 2**28 characters
+    parses at, and copies of every island the original met so far — so no
+    later piece copies one on first meeting either."""
+    try:
+        arrive.wait()
+    except threading.BrokenBarrierError:
+        return
+    view_grammar, view_binding = _view(grammar, binding, False, share_first=False)
+    model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_islands()
 
 
 def worker_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:

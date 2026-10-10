@@ -278,6 +278,10 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
                 self._cache[name] = cached
         return cached
 
+    def held_islands(self) -> tuple[str, ...]:
+        """The islands whose delegate clones are compiled (or copied) here so far."""
+        return tuple(self._cache)
+
     def held(self, name: str) -> dict[int, FlatClone]:
         """The delegate clones already compiled for island ``name``, compiling
         nothing: what the artefact holds, for a reader that must not grow it.

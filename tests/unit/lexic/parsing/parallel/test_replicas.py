@@ -599,3 +599,53 @@ def test_a_pair_met_again_mints_once_per_thread() -> None:
     assert id(grammar) not in second.views()
     assert len(second.views()) == 2
     assert third.views() == second.views()
+
+
+def test_a_splits_first_meetings_are_copied_before_the_pools_next_split() -> None:
+    """Workers that met a pair on its original in one split each hold their own
+    copy before the pool's next split dispatches a piece, so that split's pieces
+    read copies and make none."""
+    grammar, binding = _pair("warm-before-next-split")
+    first, then = _Recorder(), _Recorder()
+
+    with WorkPool(2) as pool:
+        _pool_views(pool, first, threading.Barrier(2), (grammar, binding))
+        replica_module.settle_first_meetings(pool, grammar)
+        before = replica_count(grammar, binding)
+        replica_module.warm_due(pool.lend(), grammar)
+        warmed = replica_count(grammar, binding)
+        _pool_views(pool, then, threading.Barrier(2), (grammar, binding))
+        after = replica_count(grammar, binding)
+
+    assert first.views() == {id(grammar)}, "a first meeting reads the original"
+    assert before == 0, "nothing is copied until the warm"
+    assert warmed == 2, "the warm gives every worker its own copy"
+    assert len(then.views()) == 2 and id(grammar) not in then.views()
+    assert after == warmed, "the next split's pieces made no copy"
+
+
+def test_a_pool_owing_nothing_warms_nothing() -> None:
+    """With no first meeting settled on a pool, the warm claims no copy."""
+    grammar, binding = _pair("warm-owes-nothing")
+
+    with WorkPool(2) as pool:
+        replica_module.warm_due(pool, grammar)
+        claimed = replica_count(grammar, binding)
+
+    assert claimed == 0
+
+
+def test_another_documents_split_warms_nothing_it_did_not_meet() -> None:
+    """Pairs first met splitting one grammar's document are not copied for a
+    split of another: a one-shot split (a long grammar source in compile_text)
+    never has its pairs copied onto every worker for an unrelated parse."""
+    grammar, binding = _pair("warm-one-shot")
+    other, _other_binding = _pair("warm-one-shot-other")
+
+    with WorkPool(2) as pool:
+        _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
+        replica_module.settle_first_meetings(pool, grammar)
+        replica_module.warm_due(pool.lend(), other)
+        claimed = replica_count(grammar, binding)
+
+    assert claimed == 0

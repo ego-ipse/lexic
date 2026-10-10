@@ -48,7 +48,11 @@ from lexic.parsing.parallel.policy import (
     doc_workers,
 )
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
-from lexic.parsing.parallel.replicas import worker_parse
+from lexic.parsing.parallel.replicas import (
+    settle_first_meetings,
+    warm_due,
+    worker_parse,
+)
 from lexic.parsing.parallel.stitch.interior import source_split
 from lexic.parsing.parallel.stitch.merge import (
     MergeRequest,
@@ -464,29 +468,47 @@ def split_model[M: IrNamedTuple](
         return None
     licensed = safe_plans(split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
-        shared = shared_scanner(grammar, licensed)
-        # The rebase belongs to the document, not to a plan: it reads only the
-        # windows' marks and deltas, so every plan reading the sweep recomputed
-        # the same offsets over every mark in the document.
-        rebased = (
-            rebase(shared, ask.text, workers, pool) if shared is not None else None
+        # Copies the workers owe from this pool's last split of a document of
+        # this grammar are made now, all at once and before any piece goes out,
+        # so none lands inside a piece.
+        warm_due(pool, grammar)
+        try:
+            return _split_on(parse, grammar, ask, (cores, analysis, licensed), pool)
+        finally:
+            settle_first_meetings(pool, grammar)
+
+
+def _split_on[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: Request[M],
+    setting: tuple[int, IrAst | None, tuple[SplitPlan, ...]],
+    pool: WorkPool,
+) -> M | None:
+    """The plans in order, then the regions, on one lent pool."""
+    cores, analysis, licensed = setting
+    workers = pool.workers
+    shared = shared_scanner(grammar, licensed)
+    # The rebase belongs to the document, not to a plan: it reads only the
+    # windows' marks and deltas, so every plan reading the sweep recomputed
+    # the same offsets over every mark in the document.
+    rebased = rebase(shared, ask.text, workers, pool) if shared is not None else None
+    for plan in licensed:
+        # Only a plan that reads a windowed sweep is handed the shared
+        # offsets; a walking scan owns its pass, and an envelope plan reads
+        # neither.
+        seen = rebased if reads_a_sweep(plan) else None
+        chosen = cut_offsets(plan, ask.text, cores, pool, seen)
+        if not chosen.offsets:
+            continue
+        model = (
+            _speculate(parse, plan, ask, chosen, pool)
+            if plan.opening
+            else split_parse(parse, plan, ask, chosen.offsets, pool)
         )
-        for plan in licensed:
-            # Only a plan that reads a windowed sweep is handed the shared
-            # offsets; a walking scan owns its pass, and an envelope plan reads
-            # neither.
-            seen = rebased if reads_a_sweep(plan) else None
-            chosen = cut_offsets(plan, ask.text, cores, pool, seen)
-            if not chosen.offsets:
-                continue
-            model = (
-                _speculate(parse, plan, ask, chosen, pool)
-                if plan.opening
-                else split_parse(parse, plan, ask, chosen.offsets, pool)
-            )
-            if model is not None:
-                return model
-        return split_regions(parse, grammar, ask, analysis, pool)
+        if model is not None:
+            return model
+    return split_regions(parse, grammar, ask, analysis, pool)
 
 
 def _envelope_join[M: IrNamedTuple](

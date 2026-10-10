@@ -126,6 +126,24 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
                 self._island_tables[(name, bits)] = cached
         return cached
 
+    def held_island_tables(self) -> tuple[tuple[str, int], ...]:
+        """The ``(island, tier)`` tables built (or copied) here so far."""
+        return tuple(self._island_tables)
+
+    def copy_held_islands(self) -> None:
+        """A replica's own copies of every island its origin holds right now —
+        the Earley tables at every tier met and the delegate clones — made at
+        once rather than on each island's first meeting in a later parse.
+        Nothing on tables a compile built (no origin)."""
+        origin = self.origin
+        if origin is None:
+            return
+        for name, bits in origin.held_island_tables():
+            self.island_tables(name, bits)
+        delegates = origin.program.delegates
+        for name in delegates.held_islands() if delegates is not None else ():
+            self.island_delegates(name)
+
     def island_delegates(self, name: str) -> "dict[int, FlatClone]":
         """The island-interior delegate clones for island ``name`` (rule_id →
         clone), computed once by the program's
