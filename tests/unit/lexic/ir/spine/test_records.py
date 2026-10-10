@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import itertools
-from operator import eq, ne
 import types
+from operator import eq, ne
 from typing import ClassVar
 
 import pytest
 
 from lexic.ir.action.access import IrArgs
 from lexic.ir.action.flow.compute import IrJoin
-from lexic.ir.grammar.operators import IrAnd, IrEq
 from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrItem,
@@ -19,6 +18,7 @@ from lexic.ir.grammar.nodes import (
     IrQuantifier,
     IrSequence,
 )
+from lexic.ir.grammar.operators import IrAnd, IrEq
 from lexic.ir.spine.records import (
     Field,
     IrCachingTuple,

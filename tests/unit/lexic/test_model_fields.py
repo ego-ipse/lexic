@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.exceptions import FieldValidationError
 from lexic.ir import (
     IrAlternation,
@@ -25,6 +26,7 @@ from lexic.ir import (
     IrRule,
     IrSelf,
     IrSequence,
+    IrStr,
 )
 from lexic.model_fields import (
     UNIT,
@@ -254,3 +256,45 @@ def test_value_str_literals_deduplicates_equal_arms():
     """A set is what the check needs; two arms spelling ``+`` are one member."""
     rule = _rule(_literal_arm("+"), _literal_arm("+"), _literal_arm("-"))
     assert value_str_literals(rule) == frozenset({"+", "-"})
+
+
+REBUILT = "root ::= head tail\nhead ::= [a-z]+\ntail ::= [0-9]+\n"
+"""A record of two sub-model fields, for what a rebuild re-checks."""
+
+
+def test_a_rebuild_checks_a_changed_field_and_refuses_a_bad_one() -> None:
+    """A rebuild still answers for what it was handed: a changed field whose
+    item refuses its value raises, exactly as hand construction does."""
+    model = compile_text(REBUILT).parse("ab12")
+    head, tail = model.children()
+    with pytest.raises(FieldValidationError, match="expected a sub-model"):
+        model.rebuild([IrStr("not a model"), tail])
+    assert model.rebuild([head, tail]) == model
+
+
+def test_a_rebuild_does_not_recheck_a_field_it_keeps() -> None:
+    """A field whose value a rebuild keeps by identity is the instance's own,
+    answered when it was built, and is not asked again — so a record trusted
+    with a value its item would refuse rebuilds cleanly while that field is
+    kept, and refuses the moment a rebuild hands it a new one."""
+    model = compile_text(REBUILT).parse("ab12")
+    build, _defaults, _fields = type(model).fast_construct()
+    trusted = build([IrStr("not a model"), model.children()[1]])
+    kept, _tail = trusted.children()
+    new_tail = compile_text(REBUILT).parse("cd34").children()[1]
+    assert trusted.rebuild([kept, new_tail]).children()[1] is new_tail
+    with pytest.raises(FieldValidationError, match="expected a sub-model"):
+        trusted.rebuild([IrStr("still not a model"), new_tail])
+
+
+def test_a_rebuild_checks_a_new_run_and_keeps_the_tuple_it_was_handed() -> None:
+    """A repetition's run is a field like any other: a rebuild handed a new
+    run stores that very tuple, and the record it builds still hashes."""
+    model = compile_text('root ::= item+\nitem ::= [a-z]+ "\\n"\n').parse("ab\ncd\n")
+    (run,) = model.children()
+    assert isinstance(run, tuple)
+    swapped = (run[1], run[0])
+    rebuilt = model.rebuild([swapped])
+    assert rebuilt.children()[0] is swapped
+    assert hash(rebuilt) == hash(model.rebuild([(run[1], run[0])]))
+    assert rebuilt.to_text() == "cd\nab\n"

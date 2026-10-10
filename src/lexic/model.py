@@ -281,13 +281,17 @@ class GrammarModel(IrNamedTuple):
                     f"{cls.__name__} missing required field {name!r}"
                 )
 
-    def _check_fields(self) -> None:
-        """Run every bound field's check; a value_str routes to its own path.
+    def _check_fields(self, only: dict[str, Any] | None = None) -> None:
+        """Run every bound field's check — or, given ``only``, the check of
+        each field it names on the value it gives; a value_str routes to its
+        own path.
 
         A None value is an absent optional field (presence is enforced before
         the build), skipped here. Each bound field dispatches on its atom via
         :data:`_FIELD_CHECK`, the owning item and the value/mode/name supplied.
 
+        :param only: Field name → the value to check it on, or ``None`` to
+            check every field on this instance's own value.
         :raises FieldValidationError: On any field-value violation.
         """
         cls = type(self)
@@ -297,7 +301,9 @@ class GrammarModel(IrNamedTuple):
             return
         arm = next((a for a in cls.__grammar__.body if a), IrSequence())
         for _slot, (name, bind) in binds.items():
-            value = getattr(self, name)
+            if only is not None and name not in only:
+                continue
+            value = getattr(self, name) if only is None else only[name]
             if value is None:
                 continue
             item = arm[bind.item]
@@ -376,16 +382,28 @@ class GrammarModel(IrNamedTuple):
         The inverse of :meth:`children`: ``new_children`` supplies one value
         per bound field, in the same item order.
 
-        :param new_children: Replacement values for the bound fields.
+        Only the fields whose value changed are checked: every other value is
+        this instance's own, checked or trusted when it was built, so checking
+        it again would only repeat the answer — on a stitched run of a thousand
+        items, most of the stitch's time.
+
+        :param new_children: Replacement values for the bound fields; a run is
+            a tuple, stored as handed — nothing coerces it here.
         :returns: A new instance with the bound fields replaced.
+        :raises FieldValidationError: On a changed field its item refuses.
         """
         names = type(self).child_order().names
         replacements = dict(zip(names, new_children, strict=True))
-        values = [
-            replacements.get(name, self[index])
-            for index, name in enumerate(self._fields)
-        ]
-        return type(self)(*values)
+        values: list[Any] = []
+        changed: dict[str, Any] = {}
+        for index, name in enumerate(self._fields):
+            value = replacements.get(name, self[index])
+            if value is not self[index]:
+                changed[name] = value
+            values.append(value)
+        if changed:
+            self._check_fields(changed)
+        return type(self)._from_values(values)
 
     def dump(self) -> dict[str, Any]:
         """The native dict dump — runtime-complete, stack-safe (ruling 12).
