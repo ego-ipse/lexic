@@ -224,8 +224,11 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
         """Public pool-lease seam that executes mapped work synchronously."""
 
         def __init__(self, workers: int):
-            """Record construction while preserving the worker count."""
+            """Record construction while preserving the worker count, the
+            split's lease and the pool's standing — WorkPool's public state."""
             self.workers = workers
+            self.lease = 0
+            self.retired = False
             nonlocal created
             created += 1
 

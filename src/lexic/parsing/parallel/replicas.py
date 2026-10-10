@@ -476,15 +476,21 @@ time in that split, so still read through the original. Filled by
 pair like every other memo here."""
 
 _DUE: dict[
-    tuple[int, int], tuple[ref[WorkPool], IrAst, dict[tuple[int, int], Replica]]
+    tuple[int, int],
+    tuple[ref[WorkPool], ModelExecutable, dict[tuple[int, int], Replica]],
 ] = memo({}, 1)
-"""``(id(pool), id(document grammar))`` → the pairs that pool's workers met for
-the first time while splitting a document of that grammar: due a copy on every
-worker when the pool splits a document of the SAME grammar again. Keyed by the
-document grammar so a one-shot split (``compile_text`` splitting a long grammar
-source) never has its pairs copied for a later, unrelated split. The pool is
-held weakly and checked by identity, so a recycled ``id`` never warms another
-pool."""
+"""``(id(pool), id(document binding))`` → the pairs that pool's workers met for
+the first time while splitting a document parsed through that binding: due a
+copy on every worker when the pool splits through the SAME binding again.
+
+Keyed by the binding because the pairs ARE that binding's: every piece is
+parsed through the document's own executable view, so the pairs retire with
+it — and are released from here with it, never copied for a document thread
+that has gone. A one-shot split (``compile_text`` splitting a long grammar
+source) is another artefact's binding, so its pairs are never copied for a
+later, unrelated split either. The pool is held weakly, checked by identity,
+and its entry dropped when it is collected, so a recycled ``id`` never warms
+another pool and a closed pool leaves nothing behind."""
 
 WARM_WAIT = 5.0
 """Seconds a warm task waits for every worker of its pool to arrive. Past it
@@ -492,26 +498,36 @@ the barrier breaks and the warm is skipped: a worker it did not reach copies
 on its own next meeting, exactly as without the warm."""
 
 
-def settle_first_meetings(pool: WorkPool, document: IrAst) -> None:
+def settle_first_meetings(pool: WorkPool, document: ModelExecutable) -> None:
     """At the end of a split: the pairs its workers met for the first time
-    become due on ``pool``, for the next split of a ``document`` there.
+    become due on ``pool``, for its next split through ``document``.
 
     :param pool: The pool the split ran on.
-    :param document: The split document's grammar.
+    :param document: The split document's executable view.
     """
     met = [key for key in _MET if key[0] == pool.lease]
-    if not met:
+    pairs = {key[1:]: pair for key in met if (pair := _MET.pop(key, None)) is not None}
+    key = (id(pool), id(document))
+    if pool.retired:
+        _DUE.pop(key, None)
         return
-    entry = _DUE.get((id(pool), id(document)))
+    if not pairs:
+        return
+    entry = _DUE.get(key)
     if entry is None or entry[0]() is not pool or entry[1] is not document:
-        entry = _DUE[(id(pool), id(document))] = (ref(pool), document, {})
-    for key in met:
-        pair = _MET.pop(key, None)
-        if pair is not None and not pool.retired:
-            entry[2][key[1:]] = pair
+        entry = _DUE[key] = (ref(pool, partial(_forget, key)), document, {})
+    entry[2].update(pairs)
 
 
-def warm_due(pool: WorkPool, document: IrAst) -> None:
+def _forget(key: tuple[int, int], gone: ref[WorkPool]) -> None:
+    """A collected pool's due entry goes with it — unless the key now names a
+    newer pool's entry, which a recycled ``id`` can make."""
+    entry = _DUE.get(key)
+    if entry is not None and entry[0] is gone:
+        _DUE.pop(key, None)
+
+
+def warm_due(pool: WorkPool, document: ModelExecutable) -> None:
     """At the start of a split: every worker of ``pool`` takes its own copy of
     each pair due for ``document`` — all at once, before any piece goes out.
 
@@ -520,7 +536,7 @@ def warm_due(pool: WorkPool, document: IrAst) -> None:
     the threads that will read them, in parallel, and never inside a piece.
 
     :param pool: The pool about to split a document.
-    :param document: That document's grammar.
+    :param document: That document's executable view.
     """
     entry = _DUE.pop((id(pool), id(document)), None)
     if (
@@ -548,6 +564,15 @@ def _warm(
         return
     view_grammar, view_binding = _view(grammar, binding, False, share_first=False)
     model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_islands()
+
+
+def due_census() -> tuple[tuple[int, int], ...]:
+    """Every ``(id(pool), id(document binding))`` a warm is owed for — the
+    meter that says what the due list still holds, and for whom.
+
+    :returns: The owed keys.
+    """
+    return tuple(_DUE.copy())
 
 
 def worker_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:

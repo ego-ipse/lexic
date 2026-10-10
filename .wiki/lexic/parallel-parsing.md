@@ -359,14 +359,15 @@ threads serve which split is the executor's choice, so a thread's second
 meeting — and with it its copy — used to land in whichever later split it next
 served, inside that split's pieces. Now a split records the pairs its workers
 met for the first time (`replicas.settle_first_meetings`), keyed by the
-document grammar it split; the pool's next split of a document of the SAME
-grammar first gives every worker its own copy, one task per worker behind a
+document's executable view, so they retire with it; the pool's next split
+through the SAME view first gives every worker its own copy, one task per worker behind a
 barrier, before any piece goes out (`replicas.warm_due`), along with every
 island table and delegate set the original has met so far
 (`PdaTables.copy_held_islands`). A repeatedly split
 artefact therefore copies once per thread at the start of its second split,
-and no later split ever copies. A split of another grammar warms nothing, so a
-one-shot split still mints no copy.
+and no later split ever copies. A split through another view warms nothing, so
+a one-shot split still mints no copy and a gone document thread's pairs are
+never copied.
 
 **The shared original is the document thread's own.** `CompiledGrammar.parse`
 compiles its product on the calling thread before asking for a split. Built by

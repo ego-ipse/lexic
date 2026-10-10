@@ -468,14 +468,14 @@ def split_model[M: IrNamedTuple](
         return None
     licensed = safe_plans(split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
-        # Copies the workers owe from this pool's last split of a document of
-        # this grammar are made now, all at once and before any piece goes out,
-        # so none lands inside a piece.
-        warm_due(pool, grammar)
+        # Copies the workers owe from this pool's last split through this
+        # document's view are made now, all at once and before any piece goes
+        # out, so none lands inside a piece.
+        warm_due(pool, ask.binding)
         try:
             return _split_on(parse, grammar, ask, (cores, analysis, licensed), pool)
         finally:
-            settle_first_meetings(pool, grammar)
+            settle_first_meetings(pool, ask.binding)
 
 
 def _split_on[M: IrNamedTuple](

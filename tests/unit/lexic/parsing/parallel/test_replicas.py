@@ -24,6 +24,7 @@ from lexic.compile import compile_text
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse_model
 from lexic.parsing import products as products_module
+from lexic.parsing.caches import release
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.executable import ModelExecutable, process_constants
 from lexic.parsing.parallel import (
@@ -610,9 +611,9 @@ def test_a_splits_first_meetings_are_copied_before_the_pools_next_split() -> Non
 
     with WorkPool(2) as pool:
         _pool_views(pool, first, threading.Barrier(2), (grammar, binding))
-        replica_module.settle_first_meetings(pool, grammar)
+        replica_module.settle_first_meetings(pool, binding)
         before = replica_count(grammar, binding)
-        replica_module.warm_due(pool.lend(), grammar)
+        replica_module.warm_due(pool.lend(), binding)
         warmed = replica_count(grammar, binding)
         _pool_views(pool, then, threading.Barrier(2), (grammar, binding))
         after = replica_count(grammar, binding)
@@ -629,23 +630,59 @@ def test_a_pool_owing_nothing_warms_nothing() -> None:
     grammar, binding = _pair("warm-owes-nothing")
 
     with WorkPool(2) as pool:
-        replica_module.warm_due(pool, grammar)
+        replica_module.warm_due(pool, binding)
         claimed = replica_count(grammar, binding)
 
     assert claimed == 0
 
 
 def test_another_documents_split_warms_nothing_it_did_not_meet() -> None:
-    """Pairs first met splitting one grammar's document are not copied for a
-    split of another: a one-shot split (a long grammar source in compile_text)
-    never has its pairs copied onto every worker for an unrelated parse."""
+    """Pairs first met through one document's view are not copied for a split
+    through another: a one-shot split (a long grammar source in compile_text)
+    never has its pairs copied onto every worker for an unrelated parse, and a
+    document thread that has gone never has its pairs copied for the next."""
     grammar, binding = _pair("warm-one-shot")
-    other, _other_binding = _pair("warm-one-shot-other")
+    _other, other_binding = _pair("warm-one-shot-other")
 
     with WorkPool(2) as pool:
         _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
-        replica_module.settle_first_meetings(pool, grammar)
-        replica_module.warm_due(pool.lend(), other)
+        replica_module.settle_first_meetings(pool, binding)
+        replica_module.warm_due(pool.lend(), other_binding)
         claimed = replica_count(grammar, binding)
 
     assert claimed == 0
+
+
+def _due_on(pool: WorkPool) -> list[tuple[int, int]]:
+    """The due keys naming ``pool``."""
+    return [key for key in replica_module.due_census() if key[0] == id(pool)]
+
+
+def test_a_retired_document_view_takes_its_due_pairs_with_it() -> None:
+    """The due list is the document binding's: releasing the binding releases
+    it, so a document thread that has gone leaves nothing to warm."""
+    grammar, binding = _pair("warm-retires-with-binding")
+
+    with WorkPool(2) as pool:
+        _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
+        replica_module.settle_first_meetings(pool, binding)
+        settled = _due_on(pool)
+        release((id(binding),))
+        assert settled == [(id(pool), id(binding))]
+        assert _due_on(pool) == []
+
+
+def test_a_collected_pool_leaves_no_due_pairs() -> None:
+    """A pool closed and dropped — retired, or past the idle cache's limit —
+    never splits again, so its due entry goes with it."""
+    grammar, binding = _pair("warm-pool-collected")
+    pool = WorkPool(2)
+    _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
+    replica_module.settle_first_meetings(pool, binding)
+    key = (id(pool), id(binding))
+    assert key in replica_module.due_census()
+    pool.close()
+    del pool
+    gc.collect()
+
+    assert key not in replica_module.due_census()

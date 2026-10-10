@@ -2516,3 +2516,10 @@ where it cuts none.
 `decisions.md` entry and `parallel-parsing.md`'s copy-earned-by-reuse section: a
 split's first meetings are settled per pool and document grammar, and the next
 split of that grammar on that pool warms every worker's copy before any piece.
+
+## The warm's due list is the document view's (2026-10-10)
+
+`decisions.md` and `parallel-parsing.md`: first meetings are settled per pool
+and document executable view rather than per document grammar, released with
+the view, and dropped with a collected pool — a churn of document threads had
+every split copy the previous, retired view's pairs.

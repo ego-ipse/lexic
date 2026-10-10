@@ -1401,9 +1401,9 @@ is why the loop is spelled twice.
 ## A pool's workers copy a reused pair together, before the next split's pieces
 
 **Decision:** a split records the pairs its workers met for the first time, so
-still read through the original, keyed by the pool and the document grammar it
-split (`replicas.settle_first_meetings`). When that pool next splits a document
-of the same grammar, every worker first takes its own copy of each recorded
+still read through the original, keyed by the pool and the document's own
+executable view (`replicas.settle_first_meetings`). When that pool next splits
+through the same view, every worker first takes its own copy of each recorded
 pair: one `pool.map` task per worker, all waiting at a barrier so no thread
 runs two, before any piece is dispatched (`replicas.warm_due`).
 
@@ -1411,9 +1411,14 @@ runs two, before any piece is dispatched (`replicas.warm_due`).
 on scheduling. Before, a thread copied in whichever later split it next served,
 inside that split's pieces, so on a short-lived process (the benchmark worker's
 handful of splits) a copy could land in any pass, timed ones included. Keyed by
-document grammar so a one-shot split (a long grammar source in `compile_text`)
-never has its pairs copied for an unrelated parse, which is the retained-copy
-cost the reuse rule exists to avoid.
+the document's view because the pairs ARE that view's — every piece parses
+through it — so they are released with it and a document thread that has gone
+never has its pairs copied for the next one (keyed by grammar, a churn of
+document threads re-registered a dead view's copies on every split). That also
+keeps a one-shot split (a long grammar source in `compile_text`) from having
+its pairs copied for an unrelated parse, which is the retained-copy cost the
+reuse rule exists to avoid. The pool is held weakly and its entry dropped when
+it is collected.
 
 ## An entry the selector walk cannot decide pushes its arm straight
 
