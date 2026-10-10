@@ -1427,8 +1427,12 @@ it is collected.
 `FlatClone.entry` when the arm's first item refuses every other lookahead by
 itself at the same position: a mandatory terminal, or an exactly-once inline
 value-string reference to a clone with no empty match and no longest take
-(`specialize.passes.mark_entry`). `_enter` reads `entry` first and pushes the
-arm without slicing the lookahead or walking `selectors`.
+(`specialize.passes.mark_entry`). `_enter` reads `entry` where the selector
+walk would start — after the dispatch chase, the attempt, the gates and the
+leaf run, none of which an entry clone takes — and pushes the arm without
+slicing the lookahead or walking `selectors`. An entry that returns before the
+walk (a leaf run, a dispatch chase) never reads it: there it could only answer
+`None`.
 
 **Why:** the walk over one selector can only find that arm or refuse, and the
 refusal is the first item's own, at the same position, so the walk was a
@@ -1454,3 +1458,17 @@ calling thread is the thread certain to be running then. A map without a
 a pool with an item for every worker (four pieces on four CPUs) had the calling
 thread take items its busy workers were about to start and run them on a CPU
 they needed: the caller only ever fills a place the phase left unused.
+
+## A run that cannot refuse is one pattern
+
+**Decision:** a span-tabled run whose arm is one char class with no mandatory
+iteration and a stop gate (`specialize.passes.run_pattern`) is installed as a
+pattern arm of its own code, `OP_RUNPAT`: `[gate]{0,hi}` plus the run's stop gate.
+`run_span_once` answers an empty run by its first character and matches any
+longer one in one C-level call. A run with a mandatory
+iteration, or any gate but a stop set, keeps its loop.
+
+**Why:** such a loop takes characters while the gate admits them, up to its
+bound, and can never refuse, which is exactly what the pattern matches — so
+the span is the same on every input and no refusal's words change. The loop
+was a Python iteration per character of every whitespace and text run.

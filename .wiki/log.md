@@ -1,5 +1,10 @@
 # Log
 
+## A run that cannot refuse matches as one pattern (2026-10-10)
+
+`decisions.md` records `run_pattern`: a nullable one-class stop-gated run is
+installed as a pattern arm and matched in one call.
+
 ## An undecidable entry walks no selectors (2026-10-10)
 
 `decisions.md` records `FlatClone.entry`: a one-arm clone whose first item

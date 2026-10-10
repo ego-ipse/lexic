@@ -505,13 +505,6 @@ class PdaKernel[M](
             if chased is None:
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
-        # Read after the chase, where it is the landed clone's: a dispatch
-        # clone never carries one, and its target may.
-        arm = clone.entry
-        if arm is not None:
-            # One arm whose first item refuses what the walk would: no walk.
-            self.stack.append(Frame(arm, out, clone, self.pos))
-            return True
         if clone.attempt is not None:
             # Most entries resolve to themselves; pay the call only when one of
             # the two substituting shapes is actually present (measured: the
@@ -527,20 +520,23 @@ class PdaKernel[M](
         if clone.leaf:
             self._leaf_run(clone, out)
             return False
-        # Taken HERE, where it is read, and nowhere above: an entry resolving
-        # through the chase, an attempt, a gate or a leaf run returns without
-        # ever reaching this walk, and a dispatch entry would otherwise slice
-        # the same character twice — once here and once inside the chase.
-        char = self.text[self.pos : self.pos + 1]
-        arm = None
-        for chars, negated, candidate in clone.selectors:
-            if (char != "" and char not in chars) if negated else char in chars:
-                arm = candidate
-                break
+        # Read where the walk would start, so only an entry that walks pays it:
+        # one arm whose first item refuses what the walk would needs no walk.
+        arm = clone.entry
         if arm is None:
-            arm = clone.default
-            if arm is None:
-                raise PdaFail(f"no arm at {self.pos}", self.pos)
+            # Taken HERE, where it is read, and nowhere above: an entry
+            # resolving through the chase, an attempt, a gate or a leaf run
+            # never reaches this walk, and a dispatch entry would otherwise
+            # slice the same character twice — here and inside the chase.
+            char = self.text[self.pos : self.pos + 1]
+            for chars, negated, candidate in clone.selectors:
+                if (char != "" and char not in chars) if negated else char in chars:
+                    arm = candidate
+                    break
+            else:
+                arm = clone.default
+                if arm is None:
+                    raise PdaFail(f"no arm at {self.pos}", self.pos)
         self.stack.append(Frame(arm, out, clone, self.pos))
         return True
 

@@ -37,6 +37,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_ISLAND,
     OP_LIT,
     OP_LIT1,
+    OP_RUNPAT,
 )
 from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
@@ -297,6 +298,13 @@ def run_span_once[Carry](
             if matched is not None
             else consult_extent(text, clone, runarm, pos)
         )
+    elif kind == OP_RUNPAT:
+        # A run that cannot refuse: its first character decides an empty one
+        # without the match call, the pattern takes any longer one whole.
+        char = text[pos : pos + 1]
+        gchars, gnegated = runarm.gate_data[0]
+        taken = (char != "" and char not in gchars) if gnegated else char in gchars
+        end = runarm.payloads[0].match(text, pos).end() if taken else pos
     elif kind == OP_CC:
         end = match_cc(text, runarm, 0, pos)
     else:

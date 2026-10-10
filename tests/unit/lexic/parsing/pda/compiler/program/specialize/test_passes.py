@@ -49,6 +49,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_RUNPAT,
     OP_V1,
     OP_VDISP,
     OP_VRUN,
@@ -66,8 +67,10 @@ from lexic.parsing.pda.compiler.program.specialize.passes import (
     consult_arm,
     inline_value_strs,
     mark_entry,
+    run_pattern,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.pda.runtime.matchers import match_cc, run_span_once
 from tests.clone_walk import walk_program_clones
 from tests.paths import GROUND_TRUTH
 from tests.specialize_helpers import ATTEMPT_GATED_VSTR
@@ -520,6 +523,39 @@ def test_a_nullable_run_rule_is_tabled_by_its_matched_span():
     assert sorted(ws.chartable) == [" ", "  "]
     assert art.parse("a").to_text() == "a"  # the ε match is a span like any other
     assert sorted(ws.chartable) == ["", " ", "  "]
+
+
+def test_a_nullable_run_matches_as_one_pattern_where_its_loop_would_end():
+    """A run that cannot refuse is one pattern: it ends wherever the loop it
+    stands for would, on every input, the empty match included."""
+    text = 'root ::= ws "a" ws\nws ::= [ \t]*\n'
+    art = compile_text(text, cache_key="flatten-runpattern", flavour="gbnf")
+    ws = only_arm(art.pda_tables().program.start).payloads[0]
+    assert ws.runarm is not None and ws.runarm.kinds == (OP_RUNPAT,)
+    loop = ws.default  # the run arm the pattern stands for
+    pattern = ws.runarm.payloads[0]
+    for doc in ("", " ", "\t \ta", "a ", "  \t", "\t\t\t\n"):
+        for at in range(len(doc) + 1):
+            looped = match_cc(doc, loop, 0, at)
+            assert pattern.match(doc, at).end() == looped
+            # and through the run's own matcher, the empty-run shortcut included
+            assert run_span_once(doc, ws, [], at) == looped
+
+
+def test_a_run_that_can_refuse_keeps_its_loop():
+    """A mandatory iteration's miss is a refusal in the loop's own words, and
+    a gate other than a stop set decides more than membership: both keep the
+    run arm as it is."""
+    run = FlatArm.__new__(FlatArm)
+    run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab"), False),)
+    run.los, run.his = (1,), (HI_UNBOUNDED,)
+    run.gate_kinds, run.gate_data = (GATE_STOP,), ((frozenset("ab"), False),)
+    assert run_pattern(run) is run
+    run.los = (0,)
+    assert run_pattern(run) is not run
+    run.gate_kinds = (GATE_ATTEMPT,)
+    assert run_pattern(run) is run
+    assert run_pattern(None) is None
 
 
 def test_clones_of_one_rule_share_their_filling_table():

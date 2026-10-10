@@ -43,6 +43,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_RUNPAT,
     OP_V1,
     OP_VDISP,
     OP_VRUN,
@@ -55,7 +56,7 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
     vdisp_target,
     vstr_inlinable,
 )
-from lexic.parsing.pda.core.scanner import Pattern
+from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
 """What :func:`optimize_program` reads when no clone was proved regular.
@@ -208,6 +209,30 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
     return clone.default
 
 
+def run_pattern(run: "FlatArm | None") -> "FlatArm | None":
+    """A nullable one-class run as the one pattern its loop is, else as it is.
+
+    With no mandatory iteration the loop takes characters while its stop gate
+    admits them, up to its bound, and can never refuse: exactly what
+    ``[gate]{0,hi}`` matches, in one C-level call instead of a Python
+    iteration per character. A run with a mandatory iteration keeps its loop,
+    whose miss is a refusal with its own words; so does any gate but a stop
+    set. The arm keeps the run's stop gate, so an empty run is answered by its
+    first character without the match call (:data:`OP_RUNPAT`).
+    """
+    if run is None or run.kinds[0] != OP_CC or run.los[0] != 0:
+        return run
+    if run.gate_kinds[0] != GATE_STOP:
+        return run
+    chars, negated = run.gate_data[0]
+    hi = run.his[0]
+    bound = "*" if hi < 0 else f"{{0,{hi}}}"
+    arm = _pattern_arm(compile_source(class_source(chars, negated) + bound))
+    arm.kinds = (OP_RUNPAT,)
+    arm.gate_data = run.gate_data
+    return arm
+
+
 def _pattern_arm(pattern: Pattern) -> FlatArm:
     """One compiled pattern as the arm that matches a clone's whole extent.
 
@@ -356,7 +381,7 @@ def bake_chartables(clones: list[FlatClone]) -> None:
         if clone.chartable is not None:
             continue
         if clone.runarm is None:
-            clone.runarm = runarm_for(clone)
+            clone.runarm = run_pattern(runarm_for(clone))
         filling = clone.runarm is not None or charcache_for(clone) is not None
         if filling:
             clone.chartable = {}

@@ -120,7 +120,7 @@ WITNESS: dict[str, str] = {
     "matchers.match_chartable": "01c1fbcefda52106",
     "matchers.match_lit": "7f52bb4e5f7bf5aa",
     "matchers.match_runtable": "11b9846c122f07b0",
-    "matchers.run_span_once": "81713ac950ff9aed",
+    "matchers.run_span_once": "03e1b39d259939cc",
     "matchers.vstr_once": "5295662d12197161",
     "scanner.scan_gate_take": "d4d3e62975559ffd",
 }
