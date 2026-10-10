@@ -920,8 +920,7 @@ def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
 # ── an entry that decides nothing walks nothing ────────────────────────
 
 ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
-"""``root`` has one arm opening on a literal, and keeps a frame: ``pair`` is a
-descent when leaves are marked. ``pair`` itself runs frame-lessly."""
+"""``root``: one arm opening on a literal, framed (``pair`` is a descent)."""
 
 
 def _clone_named(pda, name: str) -> FlatClone:
@@ -940,9 +939,8 @@ def test_a_one_arm_clone_opening_on_a_terminal_is_entered_straight() -> None:
 
 
 ENTRY_GRAMMARS = ("json.gbnf", "arithmetic.gbnf", "markdown.gbnf", "vyx.gbnf", "c.gbnf")
-"""Ground-truth programs swept whole: dispatches, leaves, defaults, attempts
-and gated selections all occur among them, so the licence is asked of every
-shape a real program has rather than of one hand-built clone."""
+"""Ground-truth programs swept whole: dispatches, leaves, defaults, attempts and
+gated selections all occur among them, so every real shape is asked."""
 
 SELF_REFUSING_FIRST = (OP_LIT1, OP_CC1, OP_LIT, OP_CC, OP_VRUN, OP_V1)
 """The first-item codes that can refuse a lookahead on their own."""
@@ -991,3 +989,11 @@ def test_marking_twice_grants_nothing_new() -> None:
         before = clone.entry
         mark_entry(clone)
         assert clone.entry is before
+
+
+def test_a_nullable_first_terminal_grants_no_entry() -> None:
+    """A loop with no mandatory iteration matches empty: it cannot refuse."""
+    text = 'root ::= "a"* x\nx ::= "(" root ")" | "p"\n'
+    root = _clone_named(pda_from_text(text), "root")
+    assert not root.leaf and root.default is None and len(root.selectors) == 1
+    assert root.entry is None
