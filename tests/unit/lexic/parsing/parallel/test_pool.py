@@ -801,6 +801,31 @@ def test_an_item_no_worker_started_is_taken_back_by_the_calling_thread() -> None
     assert pool_module.taking_back() is False, "the mark outlived the item"
 
 
+def test_an_item_a_worker_started_is_never_taken_back() -> None:
+    """With places unused, the calling thread still takes back only items no
+    worker has started: every item runs exactly once, and each result slot
+    holds its own item's result."""
+    started = {item: Event() for item in (0, 1)}
+    calls: dict[int, int] = {}
+    lock = Lock()
+
+    def work(item: int) -> int:
+        with lock:
+            calls[item] = calls.get(item, 0) + 1
+        started[item].set()
+        return item * 10
+
+    def both_started(_submit) -> None:
+        for event in started.values():
+            event.wait(timeout=30)
+
+    with WorkPool(3) as pool:  # two items, three workers: one place unused
+        got = pool.map(work, [0, 1], both_started)
+
+    assert got == [0, 10]
+    assert calls == {0: 1, 1: 1}
+
+
 def test_a_taken_back_items_refusal_drains_the_phase() -> None:
     """An item the calling thread took back refuses like one a worker ran."""
     gate, started = Event(), Event()

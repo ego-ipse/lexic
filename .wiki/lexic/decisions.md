@@ -1446,21 +1446,21 @@ have reached.
 ## The calling thread takes back the items no worker started
 
 **Decision:** once a `WorkPool.map` caller's `beside` share returns, the
-calling thread cancels every submitted item no worker has started
-(`Future.cancel` succeeds only on a queued item, so each runs exactly once) and
-runs it itself, latest first, marked by `taking_back` so `worker_parse` reads
-the submitting thread's own view rather than minting a worker copy for it.
-Only maps given a `beside` do it, and only as many items as the phase leaves
+calling thread cancels submitted items no worker has started (`Future.cancel`
+succeeds only on a queued item, so each runs exactly once) and runs them
+itself, latest first, marked by `taking_back` so `worker_parse` reads the
+submitting thread's own view rather than minting a worker copy for it. Only
+maps given a `beside` do it, and only as many items as the phase leaves
 workers without one: a phase with an item for every worker takes nothing back.
 
 **Why:** the calling thread works through its share while the workers wake,
-so on a pool as wide as the machine one woken worker could wait milliseconds
-for a CPU before taking its item, and the split waited on that one piece. The
-calling thread is the thread certain to be running then. A map without a
-`beside` leaves the calling thread idle, so its workers get the CPUs. Uncapped,
-a pool with an item for every worker (four pieces on four CPUs) had the calling
-thread take items its busy workers were about to start and run them on a CPU
-they needed: the caller only ever fills a place the phase left unused.
+so on a pool as wide as the machine one woken worker can wait milliseconds for
+a CPU before taking its item, and the split waits on that one piece. The
+calling thread is the thread certain to be running then. It only ever fills a
+place the phase left unused: on a pool with an item for every worker (four
+pieces on four CPUs) a taken-back item would run on a CPU a busy worker needs.
+A map without a `beside` leaves the calling thread idle, so its workers get the
+CPUs.
 
 ## A run that cannot refuse is one pattern
 

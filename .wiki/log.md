@@ -2550,3 +2550,8 @@ as many unstarted items as the phase left workers without one.
 `decisions.md`'s warm entry: the settle and the island copy read snapshots of
 memos other threads write to, and a refusing copy or a broken barrier skips the
 warm and is counted (`replicas.warm_census`).
+
+## The take-back runs each item exactly once, pinned (2026-10-10)
+
+`decisions.md`'s take-back entry in the present tense; a pin that a taken-back
+item a worker already started is never run twice.
