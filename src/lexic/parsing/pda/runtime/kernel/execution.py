@@ -71,6 +71,7 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc1,
     match_chartable,
     match_lit,
+    match_runtable,
     run_span_once,
     vdisp_once,
     vstr_once,
@@ -210,6 +211,8 @@ class KernelExecutionMixin[Carry]:
         intern = self._caches.intern
         clone = arm.payloads[i]
         if clone.chartable is not None:
+            if clone.runarm is not None:  # keyed by the matched span, not the lookahead
+                return match_runtable(text, arm, i, sink, pos)
             return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]
         # A stop gate — the common one — is read in place, as `match_cc` reads it:

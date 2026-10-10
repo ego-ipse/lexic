@@ -728,3 +728,33 @@ def test_a_stop_gated_value_loop_never_calls_the_gate(
     assert pda_model(product.pda, text, compiled.executor) == want
     with pytest.raises(PdaFail):
         pda_model(product.pda, text[:-1], compiled.executor)
+
+
+# ── a span-tabled loop runs its own loop ──────────────────────────────────
+
+CHUNKS = 'root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n'
+"""``chunk`` is proved regular: a span-tabled clone whose extent is one
+consult pattern, looped by ``root``."""
+
+
+def test_a_span_tabled_loop_never_asks_the_char_table_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The span table is keyed by the matched span, not the lookahead, so the
+    loop goes straight to ``match_runtable`` — not through ``match_chartable``
+    to be sent on — and a proved extent that matches never asks for the
+    refusal path. The model is still the Earley engine's."""
+    compiled = compile_text(CHUNKS, cache_key="span-tabled-loop")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    _consult_clone(product.pda)
+    text = "ab;c;def;!"
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def refused(*_args: object) -> int:
+        raise AssertionError("a span-tabled loop took the char-table or refusal path")
+
+    monkeypatch.setattr(execution_mod, "match_chartable", refused)
+    monkeypatch.setattr(matchers_mod, "consult_extent", refused)
+    assert pda_model(product.pda, text, compiled.executor) == want

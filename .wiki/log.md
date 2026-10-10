@@ -1,5 +1,10 @@
 # Log
 
+## A span-tabled loop goes straight to its loop (2026-10-10)
+
+`decisions.md` records why `_match_vstr` routes a span-tabled target to
+`match_runtable` itself.
+
 ## A stop-gated value loop reads its gate in place (2026-10-10)
 
 `decisions.md` records why the tabled and value-string loops test a stop gate

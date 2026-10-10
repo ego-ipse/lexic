@@ -1489,3 +1489,11 @@ call on every iteration, which was most of what a short iteration cost. The
 expression is spelled at each loop rather than shared because sharing it is
 the call being removed; `gate_take` stays the definition every wider gate and
 every cold caller uses.
+
+## A span-tabled loop goes straight to its loop
+
+**Decision:** `_match_vstr` sends a span-tabled target (`runarm` set) to
+`match_runtable` itself; `match_chartable` no longer forwards one.
+
+**Why:** the forward was a call per occurrence that decided nothing — a second
+dispatch on a fact the caller had already read.

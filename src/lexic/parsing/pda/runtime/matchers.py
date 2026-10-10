@@ -222,7 +222,8 @@ def match_chartable[Carry](
     character. Same loop structure, same gate, same sink order.
 
     A lookup MISS routes to :func:`table_miss`, which produces exactly what the
-    untabled path would.
+    untabled path would. A span-tabled target runs :func:`match_runtable`
+    instead; the caller routes it there.
 
     :param arm: The current arm.
     :param i: The ``OP_VSTR`` item index.
@@ -231,8 +232,6 @@ def match_chartable[Carry](
     :raises PdaFail: On an unmatched mandatory iteration (from the miss path).
     """
     clone = arm.payloads[i]
-    if clone.runarm is not None:  # keyed by the matched span, not the lookahead
-        return match_runtable(text, arm, i, sink, pos)
     get = clone.chartable.get
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
