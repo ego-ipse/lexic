@@ -94,14 +94,11 @@ def _hi(item: IrItem) -> int | None:
 
 class Follows(NamedTuple):
     """An analysis' FOLLOW views: the soft, hard and structural CharSet
-    fixpoints, the FOLLOW\\ :sub:`k` window sets built on demand, and EXTEND —
-    what may follow a complete match from inside it — built on demand too.
+    fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
 
     :ivar deep: The window sets built so far, by width — filled by
         :meth:`windows`, never by a caller.
-    :ivar extended: The EXTEND fixpoint once built — filled by
-        :func:`~lexic.parsing.pda.analysis.predicates.rule_extensions`, never by
-        a caller.
+    :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
     """
 
     soft: dict[str, CharSet]
