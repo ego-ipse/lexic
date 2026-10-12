@@ -1602,3 +1602,20 @@ find the run's end, two for the commonest run of one instance. On gbnf-meta
 every scan gate races one root, 0.25 gates per character, 96% of runs one
 instance long. A pin holds the two forms to the same end for every regular rule
 of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
+
+## The speculation licence asks the PDA's EXTEND
+
+**Decision:** the exclusive-opening clause of `speculative_openings` reads
+`predicates.rule_extensions` off the lifted analysis its determinism clause
+already builds, and runs after the determinism, vanishing and visibility
+clauses. The parallel layer derives no continuation set of its own.
+
+**Why:** EXTEND is one fact with one derivation. The least fixpoint is sound
+on every cycle, where a walk per derivation can only give up to ANY — a right
+recursive unit was refused for it and is now licensed. Every clause only
+refuses, so their order changes no answer; ordered last, the fixpoint runs only
+for a unit every other clause passes, which on the bench is `announced` alone,
+once per build and never per parse. `rule_extensions` builds the fixpoint once
+per analysis and keeps it in `Follows.extended`, beside the FOLLOW windows: the
+stop-set settle, the island steal, the left-recursion fold and the licence each
+built their own before.

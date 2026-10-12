@@ -8,21 +8,56 @@ every determinism check and is still ambiguous.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
-from lexic.parsing.parallel.plan.speculation import (
-    continues,
-    opens_with,
-    speculative_openings,
-)
-from lexic.parsing.pda.core.charsets import CharSet
+from lexic.ir import IrAst
+from lexic.parsing import parse_model
+from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.parallel import split_model
+from lexic.parsing.parallel.discovery.anchors import anchors
+from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.plan import speculation
+from lexic.parsing.parallel.plan.speculation import opens_with, speculative_openings
+from lexic.parsing.parallel.planner import safe_plans, split_plans
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.predicates import rule_extensions
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
     ANNOUNCED,
+    announced_doc,
 )
 
+RECURSIVE = (
+    "root ::= section+\n"
+    'section ::= "#" body\n'
+    'body ::= [a-z ] body | "\\n" rest\n'
+    "rest ::= ([a-z ] body)?\n"
+)
+"""ANNOUNCED's language, its lines spelled by right recursion instead of a loop."""
 
-def _rules(source: str, key: str) -> dict:
-    grammar = compile_text(source, cache_key=key).codegen_grammar
-    return {str(rule.name): rule for rule in grammar.rules}
+TAIL = 'root ::= unit+\nunit ::= "#" "a" tail?\ntail ::= "#" "b"\n'
+"""A complete ``#a`` goes on as ``#a#b``: ``#`` both lengthens a unit and opens one."""
+
+
+def _clauses(grammar: IrAst, unit: str) -> tuple[bool, bool, bool]:
+    """Whether each of determinism, visibility and EXTEND would refuse alone."""
+    rules = {str(rule.name): rule for rule in grammar.rules}
+    analysis = GrammarAnalysis(lift_optional_nullables(grammar))
+    opening = opens_with(rules, unit)
+    return (
+        bool(analysis.taxonomy.conflicts),
+        not opening.chars <= anchors(grammar),
+        opening.overlaps(rule_extensions(analysis).found[unit]),
+    )
+
+
+class _Unconflicted(GrammarAnalysis):
+    """The real analysis with only its conflicts set aside, so the clauses after
+    determinism decide — EXTEND is still the real analysis' own."""
+
+    def __init__(self, grammar: IrAst) -> None:
+        super().__init__(grammar)
+        self.taxonomy.conflicts.clear()
 
 
 def _grammar(source: str, key: str):
@@ -89,31 +124,60 @@ def test_an_unknown_unit_refuses() -> None:
     assert speculative_openings(grammar, "nosuchrule") == frozenset()
 
 
-# ── the continuation walk itself ──────────────────────────────────────────
+# ── each clause alone ─────────────────────────────────────────────────────
 
 
-def test_a_repeated_item_continues_with_its_own_opening() -> None:
-    """The term a top-level reading misses. ``unit ::= [a-z]+`` is ONE item, so
-    an arm-remainder walk finds nothing after it and reads CONT as empty; the
-    unit continues with another copy of the item, and that is what collides
-    with its own FIRST."""
-    rules = _rules("root ::= unit+\nunit ::= [a-z]+\n", "spec-munch")
-    found = continues(rules, "unit")
-    assert found.has("a") and found.has("z")
-    assert opens_with(rules, "unit").overlaps(found)
+def test_a_conflicted_unit_refuses_on_determinism_alone() -> None:
+    """``y y`` over ``"a" | "aa"`` carves two ways; ``;`` closes the unit."""
+    source = 'root ::= unit+\nunit ::= "#" x ";"\nx ::= y y\ny ::= "a" | "aa"\n'
+    grammar = _grammar(source, "spec-conflicted")
+    assert _clauses(grammar, "unit") == (True, False, False)
+    assert speculative_openings(grammar, "unit") == frozenset()
 
 
-def test_a_nested_vanishable_tail_contributes_its_continuations() -> None:
-    """A could-end point can sit BELOW the arm's top level, so the walk follows
-    references: ``section``'s own tail vanishes inside ``line*``."""
-    rules = _rules(ANNOUNCED, "spec-announced")
-    found = continues(rules, "section")
-    assert found.has("a") and found.has(" ")
-    assert not found.has("#")
+def test_an_opening_inside_a_run_refuses_on_visibility_alone() -> None:
+    """A run's characters are no anchors, so no window scan finds the unit."""
+    grammar = _grammar('root ::= unit+\nunit ::= [a-z]+ ";"\n', "spec-run")
+    assert _clauses(grammar, "unit") == (False, True, False)
+    assert speculative_openings(grammar, "unit") == frozenset()
 
 
-def test_an_unresolvable_name_inflates_rather_than_shrinks() -> None:
-    """Overapproximating is the only safe direction — a missed continuation is
-    false disjointness, which is false uniqueness — so what the walk cannot
-    resolve answers ANY."""
-    assert continues({}, "missing") == CharSet.ANY
+def test_extend_refuses_a_unit_its_own_opening_lengthens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every grammar measured whose EXTEND holds its own visible opening is
+    conflicted too, so determinism refuses it first — as here. Set aside by
+    hand, EXTEND refuses on its own, while ANNOUNCED, which it does not
+    lengthen, is still licensed."""
+    tail = _grammar(TAIL, "spec-tail")
+    assert GrammarAnalysis(lift_optional_nullables(tail)).taxonomy.conflicts
+    assert speculative_openings(tail, "unit") == frozenset()
+    monkeypatch.setattr(speculation, "GrammarAnalysis", _Unconflicted)
+    tail = _grammar(TAIL, "spec-tail-unconflicted")
+    assert _clauses(tail, "unit")[1:] == (False, True)
+    assert speculative_openings(tail, "unit") == frozenset()
+    announced = _grammar(ANNOUNCED, "spec-announced-unconflicted")
+    assert speculative_openings(announced, "section") == frozenset({"#"})
+
+
+# ── a recursive unit ──────────────────────────────────────────────────────
+
+
+def test_a_recursive_body_licenses_its_opening() -> None:
+    """A complete section goes on only with ``[a-z ]``: the cycle through
+    ``body`` is read to its fixpoint rather than given up as ANY."""
+    grammar = _grammar(RECURSIVE, "spec-recursive")
+    assert _clauses(grammar, "section") == (False, False, False)
+    assert speculative_openings(grammar, "section") == frozenset({"#"})
+
+
+def test_a_recursive_body_splits_to_the_sequential_model() -> None:
+    """The licence certifies, and the pieces stitch to the one sequential model."""
+    compiled = compile_text(RECURSIVE, cache_key="spec-recursive")
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    view = compiled.split_analysis or compiled.grammar
+    assert any(plan.opening for plan in safe_plans(split_plans(grammar), view))
+    text = announced_doc(300)
+    split = split_model(parse_model, grammar, Request(text, binding), 4)
+    assert split is not None
+    assert split == parse_model(grammar, text, binding)
