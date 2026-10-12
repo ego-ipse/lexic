@@ -504,10 +504,10 @@ def _guards(
         target, proof.mark, Scope(rules, frozenset(), {}), path | {str(target.name)}
     ):
         return True
-    return _leads_once(target, proof, rules, path)
+    return leads_once(target, proof, rules, path)
 
 
-def _leads_once(
+def leads_once(
     target: IrRule,
     proof: Refutation,
     rules: dict[str, IrRule],

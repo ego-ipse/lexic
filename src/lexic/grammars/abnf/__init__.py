@@ -638,7 +638,7 @@ ABNF_REDUCER = Reducer(
 """The configured ABNF reducer: ``ABNF_REDUCTIONS`` plus the cleaning policy."""
 
 
-class _AbnfFlavour(IrFlavour):
+class AbnfFlavour(IrFlavour):
     """ABNF flavour singleton class."""
 
     actions: IrTypeMap = ABNF_ACTIONS
@@ -652,5 +652,5 @@ class _AbnfFlavour(IrFlavour):
     core_rules: ClassVar[IrMap] = ABNF_CORE_RULES
 
 
-ABNF_FLAVOUR = _AbnfFlavour()
+ABNF_FLAVOUR = AbnfFlavour()
 """Singleton ABNF flavour."""

@@ -16,6 +16,7 @@ from lexic.compile import canonical_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.pda.compiler.eligibility import (
     extent_consult,
+    extent_declined,
     extent_pattern,
     matches_own_text,
 )
@@ -110,6 +111,35 @@ def test_extent_consult_agrees_with_prove_regular_over_the_unioned_charset():
     via_eligibility = extent_consult(rules, "word", True, tail, follow)
     via_regular = prove_regular(rules, "word", tail.union(follow))
     assert (via_eligibility is None) == (via_regular is None)
+
+
+# ── extent_declined: the rule's own obligations, with nothing after it ──
+
+
+def test_extent_declined_when_the_arms_part_on_no_character():
+    """``[a;]`` and ``"a"+ "a"`` both open on ``a``."""
+    rules = _rules('root ::= item+\nitem ::= [a;] | "a"+ "a"\n')
+    assert extent_declined(rules, "item")
+
+
+def test_extent_declined_when_a_loop_takes_what_its_arm_needs():
+    """``"a"+`` takes the ``a`` the arm still has to match."""
+    rules = _rules('root ::= t\nt ::= "x" | "a"+ "a"\n')
+    assert extent_declined(rules, "t")
+
+
+def test_extent_not_declined_where_only_what_follows_is_taken():
+    """``word``'s trailing ``"q"?`` can take only from what follows it, and
+    nothing does here: the proof holds, and the follower is the consult's
+    question, asked per clone."""
+    rules = _rules(_NULLABLE_FOLLOWER)
+    assert not extent_declined(rules, "word")
+    assert (
+        extent_consult(
+            rules, "word", True, CharSet.from_chars("z"), CharSet.from_chars("q", "z")
+        )
+        is None
+    )
 
 
 # ── extent_pattern: the proof's OWN entry, not the closure's ────────────

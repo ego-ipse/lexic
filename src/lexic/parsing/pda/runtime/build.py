@@ -45,6 +45,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_REF1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -102,13 +103,29 @@ class Frame[Carry]:
         :func:`~lexic.parsing.pda.runtime.admission.frames_copy` — so its
         build needs the values that were already there, and this names where
         they are. Cleared once they have been taken.
+    :ivar start: Where an attempt sub-run began, set only on a sub-run's root
+        frame (a position for a loop iteration or an attempt entry, ``-1`` for
+        an audit's run, ``-2`` for a span check's) in a program that can fork,
+        and left unset on every other frame, so an ordinary push pays nothing
+        for it. A both-viable
+        fork reads it to settle the sub-run as the live caller would.
     """
 
     # pylint: disable=too-many-instance-attributes
-    # An eighth lane. The alternative that would satisfy the cap is folding
+    # Nine lanes. The alternative that would satisfy the cap is folding
     # `ends` and `sinks` into one per-item record, and that costs an object
     # allocation per frame on the paid path — a worse trade than a slot.
-    __slots__ = ("arm", "i", "count", "out", "clone", "ends", "sinks", "inherited")
+    __slots__ = (
+        "arm",
+        "i",
+        "count",
+        "out",
+        "clone",
+        "ends",
+        "sinks",
+        "inherited",
+        "start",
+    )
 
     arm: FlatArm
     i: int
@@ -118,6 +135,7 @@ class Frame[Carry]:
     ends: list[int] | None
     sinks: list[list[Carry] | None] | None
     inherited: Frame[Carry] | None
+    start: int
 
     def __init__(
         self, arm: FlatArm, out: list[Carry], clone: FlatClone[Carry], start: int
@@ -142,6 +160,19 @@ class Frame[Carry]:
         """
         ends = self.ends
         return -1 if ends is None else ends[0]
+
+    def suspended(self) -> int:
+        """The item this frame is suspended in while a frame above it runs.
+
+        ``OP_REF1`` moves the frame on before it descends, so such a frame,
+        which holds no loop count, is in the item before :attr:`i`; a
+        quantified descent always holds one. An attempt with none committed
+        reads as the reference: a superset.
+        """
+        at = self.i
+        if at and self.count == 0 and self.arm.kinds[at - 1] == OP_REF1:
+            return at - 1
+        return at
 
     def close_loop(self, i: int, pos: int) -> int:
         """Close item ``i``'s loop at the current count, and advance past it.
@@ -174,13 +205,29 @@ class Frame[Carry]:
         if origin is None:
             return
         self.inherited = None
-        mine, theirs = self.sinks, origin.sinks
-        if mine is None or theirs is None:
+        mine = self.sinks
+        if mine is None:
             return
         for at, slot in enumerate(mine):
-            prefix = theirs[at] if at < len(theirs) else None
-            if slot is not None and prefix:
-                slot[:0] = prefix
+            if slot is not None:
+                slot[:0] = origin.inherited_prefix(at)
+
+    def inherited_prefix(self, at: int) -> list[Carry]:
+        """Item ``at``'s values down this frame's fork chain, oldest first.
+
+        A fork one level deep is forked from a frame that is itself a fork,
+        whose own values start where its origin's end; nothing in the chain
+        is written to.
+        """
+        prefix: list[Carry] = []
+        frame: Frame[Carry] | None = self
+        while frame is not None:
+            sinks = frame.sinks
+            slot = sinks[at] if sinks is not None and at < len(sinks) else None
+            if slot:
+                prefix[:0] = slot
+            frame = frame.inherited
+        return prefix
 
     def alt_model(self) -> Carry | None:
         """The first sub-model under an ``alternation`` frame's matched arm."""

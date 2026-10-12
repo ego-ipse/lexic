@@ -22,10 +22,11 @@ every other consumer) sees.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing.caches import adopt, memo
+from lexic.parsing.caches import adopt, memo, once
 from lexic.parsing.earley.engine import first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -41,6 +42,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
@@ -57,6 +59,12 @@ from lexic.parsing.product import (
 __all__ = [
     "parse_model",
     "earley_model",
+    "model_product",
+    "grants_program",
+    "declare_replica",
+    "owned_text",
+    "ModelProduct",
+    "MODEL_CACHE",
     "pda_tables",
     "reset_product_cache",
 ]
@@ -65,7 +73,7 @@ __all__ = [
 # ── the document's thread ownership ────────────────────────────────────────
 
 
-def _owned_text(text: str) -> str:
+def owned_text(text: str) -> str:
     """``text`` copied onto the calling thread, so the parse's increfs stay local.
 
     Every terminal match takes the document as its first argument, so one
@@ -143,7 +151,7 @@ def token_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
     """
-    text = _owned_text(text)
+    text = owned_text(text)
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
     if accept_item(kernel) < 0:
@@ -170,7 +178,7 @@ def token_model[M](
 
 
 @dataclass(frozen=True)
-class _ModelProduct:
+class ModelProduct:
     """An instance product compiled once — the model PDA + collapsed tables.
 
     :ivar grammar: The authored codegen grammar (held to pin its identity key).
@@ -188,14 +196,24 @@ class _ModelProduct:
     tables: ParserTables
 
 
-_MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = memo({}, 0, 1)
+MODEL_CACHE: dict[tuple[int, int, int], ModelProduct] = memo({}, 0, 1)
 _TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
+_PROGRAMS: dict[
+    tuple[int, int, frozenset[str]], tuple[IrAst, ModelExecutable, PdaTables]
+] = memo({}, 0, 1)
+"""The predictive programs compiled for a decider granting other licences than
+leftmost-longest's — keyed by identity plus those grants. The product keeps
+leftmost-longest's; the Earley half is the same for every decider and is
+never compiled twice."""
+
+_LL_GRANTS = LEFTMOST_LONGEST.grants
 
 
 def reset_product_cache() -> None:
     """Test seam: drop the per-identity product caches."""
-    _MODEL_CACHE.clear()
+    MODEL_CACHE.clear()
     _TOKEN_TABLES.clear()
+    _PROGRAMS.clear()
 
 
 def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
@@ -216,29 +234,50 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
     return tables
 
 
-def _model_product(
+def model_product(
     grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
-) -> _ModelProduct:
+) -> ModelProduct:
     """The compiled instance product for ``(grammar, binding, bits)``, memoised.
 
     Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
     at it). The PDA half is tier-independent but rides the key — a second
     tier for the same pair only ever compiles for a beyond-first-tier input.
+    Its PDA is compiled under leftmost-longest's grants; another decider's
+    program is :func:`grants_program`'s.
     """
     key = (id(grammar), id(binding), bits)
-    cached = _MODEL_CACHE.get(key)
+    cached = MODEL_CACHE.get(key)
     if cached is not None and cached.grammar is grammar and cached.binding is binding:
         return cached
+    origin = _replicated(grammar, binding)
+    if origin is not None:
+        return _replica_product(origin, bits)
+    with once(key):
+        cached = MODEL_CACHE.get(key)
+        if (
+            cached is not None
+            and cached.grammar is grammar
+            and cached.binding is binding
+        ):
+            return cached
+        return _compiled_product(grammar, binding, bits)
+
+
+def _compiled_product(
+    grammar: IrAst, binding: ModelExecutable, bits: int
+) -> ModelProduct:
+    """Compile and memoise ``(grammar, binding, bits)``'s product."""
+    key = (id(grammar), id(binding), bits)
     lifted = lift_optional_nullables(grammar)
     instance = normalize(lifted)
-    product = _ModelProduct(
+    product = ModelProduct(
         grammar,
         binding,
         compile_pda(lifted, instance, binding),
         instance,
         collapsed_product_tables(instance, binding.routines, bits),
     )
-    _MODEL_CACHE[key] = product
+    MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
     # key on; they exist only inside this product, so they release with it.
     #
@@ -251,6 +290,137 @@ def _model_product(
     # leaves the chain pinned to a product that never dies.
     adopt(id(grammar), lifted, instance, product.pda, product.tables)
     adopt(id(binding), lifted, instance, product.pda, product.tables)
+    return product
+
+
+def _for_decider(
+    grammar: IrAst,
+    binding: ModelExecutable,
+    product: ModelProduct,
+    config: ParseConfig,
+) -> PdaTables:
+    """The program a non-default configuration parses with: the product's own
+    where its decider grants leftmost-longest's licences, else its own."""
+    grants = config.decide.grants
+    if grants == _LL_GRANTS:
+        return product.pda
+    return grants_program(grammar, binding, product.instance_grammar, grants)
+
+
+def grants_program(
+    grammar: IrAst, binding: ModelExecutable, instance: IrAst, grants: frozenset[str]
+) -> PdaTables:
+    """The predictive program for a decider granting ``grants``, memoised.
+
+    Compiled only the first time such a decider parses this grammar, beside
+    the product's own Earley half, and released with the grammar and the
+    binding as the product's own program is.
+    """
+    key = (id(grammar), id(binding), grants)
+    cached = _PROGRAMS.get(key)
+    if cached is not None and cached[0] is grammar and cached[1] is binding:
+        return cached[2]
+    origin = _replicated(grammar, binding)
+    if origin is not None:
+        held = grants_program(origin.grammar, origin.binding, instance, grants)
+        return _keep_program(key, origin, _replica_tables(origin, held))
+    with once(key):
+        cached = _PROGRAMS.get(key)
+        if cached is not None and cached[0] is grammar and cached[1] is binding:
+            return cached[2]
+        lifted = lift_optional_nullables(grammar)
+        pda = compile_pda(lifted, instance, binding, grants)
+        _PROGRAMS[key] = (grammar, binding, pda)
+        adopt(id(grammar), lifted, pda)
+        adopt(id(binding), lifted, pda)
+    return pda
+
+
+# ── a worker's replica: private copies of the original's compiled products ──
+
+
+class _Replica(NamedTuple):
+    """A worker's view of a pair, and the pair it was minted from.
+
+    :ivar view: The view's grammar — the original's, or an equal copy.
+    :ivar view_binding: The view's own binding, a ``replica()`` of the original.
+    :ivar grammar: The original grammar.
+    :ivar binding: The original binding.
+    """
+
+    view: IrAst
+    view_binding: ModelExecutable
+    grammar: IrAst
+    binding: ModelExecutable
+
+
+_REPLICAS: dict[tuple[int, int], _Replica] = memo({}, 0, 1)
+"""``(id(view), id(view binding))`` → the pair the view replicates."""
+
+
+def declare_replica(
+    grammar: IrAst, binding: ModelExecutable, view: IrAst, view_binding: ModelExecutable
+) -> None:
+    """Make every product ``(view, view_binding)`` asks for a private copy of
+    ``(grammar, binding)``'s, compiled once there rather than per view.
+
+    :param grammar: The original grammar.
+    :param binding: The original binding.
+    :param view: The view's grammar.
+    :param view_binding: The view's binding, a ``replica()`` of ``binding``.
+    """
+    _REPLICAS[(id(view), id(view_binding))] = _Replica(
+        view, view_binding, grammar, binding
+    )
+
+
+def _replicated(grammar: IrAst, binding: ModelExecutable) -> _Replica | None:
+    """The pair ``(grammar, binding)`` replicates, when it is a declared view."""
+    entry = _REPLICAS.get((id(grammar), id(binding)))
+    if entry is None or entry.view is not grammar or entry.view_binding is not binding:
+        return None
+    return entry
+
+
+def _replica_tables(origin: _Replica, held: PdaTables) -> PdaTables:
+    """``held`` as the view's private copy, asking ``held`` for what it lacks."""
+    pda = origin.binding.copied(held, origin.view_binding)
+    _attach_origin(pda, held)
+    return pda
+
+
+def _attach_origin(pda: PdaTables, held: PdaTables) -> None:
+    """Point a copy's lazy caches at the tables it was copied from."""
+    pda.origin = held
+    if pda.program.delegates is not None:
+        pda.program.delegates.origin = held.program.delegates
+
+
+def _keep_program(
+    key: tuple[int, int, frozenset[str]], origin: _Replica, pda: PdaTables
+) -> PdaTables:
+    """Memoise a view's copied program under the view's own identities."""
+    _PROGRAMS[key] = (origin.view, origin.view_binding, pda)
+    adopt(id(origin.view), pda)
+    adopt(id(origin.view_binding), pda)
+    return pda
+
+
+def _replica_product(origin: _Replica, bits: int) -> ModelProduct:
+    """The view's product: the original's, copied for the view's own thread.
+
+    The original is compiled once, whichever view asked first; the copy is
+    made without a lock, on the thread that will parse through it.
+    """
+    held = model_product(origin.grammar, origin.binding, bits)
+    pda, tables = origin.binding.copied((held.pda, held.tables), origin.view_binding)
+    _attach_origin(pda, held.pda)
+    product = ModelProduct(
+        origin.view, origin.view_binding, pda, pda.instance_grammar, tables
+    )
+    MODEL_CACHE[(id(origin.view), id(origin.view_binding), bits)] = product
+    adopt(id(origin.view), pda, tables)
+    adopt(id(origin.view_binding), pda, tables)
     return product
 
 
@@ -312,10 +482,15 @@ def parse_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
-    text = _owned_text(text)
-    product = _model_product(grammar, binding, tier_for(len(text)))
+    text = owned_text(text)
+    product = model_product(grammar, binding, tier_for(len(text)))
+    pda = (
+        product.pda
+        if config is DEFAULT_CONFIG
+        else _for_decider(grammar, binding, product, config)
+    )
     try:
-        return pda_model(product.pda, text, binding.executor, config=config)
+        return pda_model(pda, text, binding.executor, config=config)
     except PdaFail as fail:
         try:
             return earley_model(
@@ -346,4 +521,4 @@ def pda_tables(
         tier-independent).
     :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
     """
-    return _model_product(grammar, binding, bits).pda
+    return model_product(grammar, binding, bits).pda

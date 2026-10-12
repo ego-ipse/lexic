@@ -89,15 +89,25 @@ def start_completion_ends(kern: Kernel) -> tuple[int, ...]:
 
     :returns: Ascending distinct completion ends (empty on no completion).
     """
+    return tuple(sorted(start_completions(kern)))
+
+
+def start_completions(kern: Kernel) -> dict[int, int]:
+    """Each end column where the start rule completes from origin 0, with the
+    last accepting item found there — packed, as
+    :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel.longest_start_completion`
+    reports one and keeps the last, which is what decodes that completion.
+
+    :returns: End column → accepting item.
+    """
     accepts = kern.tables.codes.accept_codes
     bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
-    ends = {
-        j
+    return {
+        j: it
         for j, col in enumerate(kern.cols)
         for it in col
         if it >> bits in accepts and it & mask == 0
     }
-    return tuple(sorted(ends))
 
 
 def root_ambiguous(kern: Kernel) -> bool:

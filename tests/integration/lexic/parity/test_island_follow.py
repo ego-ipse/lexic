@@ -14,7 +14,7 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.generate import generate
-from lexic.parsing.products import _model_product, earley_model, pda_model
+from lexic.parsing.products import earley_model, model_product, pda_model
 from tests.integration.lexic.parity.pda_parity_helpers import public_and_earley
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
@@ -52,7 +52,7 @@ def test_the_bench_with_a_repeating_island_keeps_its_answers() -> None:
     and accepted inputs still parse to Earley's models."""
     bench = next(one for one in BENCHES if one.name == "backtrack")
     compiled = bench.compiled
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     for text in (bench.corpus, *bench.accepts):
         want = earley_model(
             product.instance_grammar, text, compiled.product, product.tables
@@ -64,7 +64,7 @@ def test_the_ground_truth_grammar_with_repeating_islands_keeps_its_answers() -> 
     """c.gbnf references its ``statement`` island as a repetition at four
     sites: generated programs still parse to Earley's models."""
     compiled = compile_from_path(GROUND_TRUTH / "c.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     rules = {str(rule.name): rule for rule in compiled.codegen_grammar.rules}
     start = str(compiled.codegen_grammar.start)
     checked = 0
@@ -90,7 +90,7 @@ character (``a`` against ``;``) says it cannot."""
 def test_a_second_character_settles_what_one_could_not(text: str) -> None:
     """The PDA, asked directly, answers with Earley's model."""
     compiled = compile_text(_SPACED, cache_key="island-window-spaced")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     got = pda_model(product.pda, text, compiled.product.executor)
     want = earley_model(
         product.instance_grammar, text, compiled.product, product.tables
@@ -112,7 +112,7 @@ continuation is not this one's, and the longer ``x`` is the answer."""
 def test_a_site_ignores_what_follows_a_site_it_can_never_be(text: str) -> None:
     """The PDA, asked directly, answers with Earley's model."""
     compiled = compile_text(_TWO_PLACES, cache_key="island-two-places")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     got = pda_model(product.pda, text, compiled.product.executor)
     want = earley_model(
         product.instance_grammar, text, compiled.product, product.tables

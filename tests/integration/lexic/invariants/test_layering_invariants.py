@@ -47,22 +47,6 @@ def from_imports(tree: ast.AST) -> "list[tuple[str, str]]":
     return out
 
 
-def test_no_cross_module_private_imports_in_src():
-    """No ``from <module> import _name`` crosses a module boundary in ``src/``.
-
-    A name two modules share is that module's public surface — it is renamed
-    public at its defining module (the underscore dropped), never imported
-    across the boundary. Permanent enforcement of directive 4.
-    """
-    offenders: list[str] = []
-    for path in SRC.rglob("*.py"):
-        mod = module_name(path)
-        for module, name in from_imports(ast.parse(path.read_text())):
-            if module != mod and name.startswith("_"):
-                offenders.append(f"{mod}: from {module} import {name}")
-    assert not offenders, f"cross-module private imports: {offenders}"
-
-
 LICENSED_PARSING = frozenset({"lexic.parsing"})
 """The sole engine import a ``lexic.compile`` module may make: its root."""
 

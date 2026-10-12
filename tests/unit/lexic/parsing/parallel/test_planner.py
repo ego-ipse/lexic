@@ -7,7 +7,7 @@ grammar identity, and a plan survives only the proof its shape owes.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.parsing.parallel.planner import _certified, split_plan, split_plans
+from lexic.parsing.parallel.planner import certified_plan, split_plan, split_plans
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     CONTINUATION_SOURCE,
@@ -69,7 +69,7 @@ def test_a_terminated_plan_with_an_announcing_prefix_is_certified_with_a_bound()
 
     assert plan is not None and plan.bound is None
 
-    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
+    certified = certified_plan(plan, compiled.split_analysis or compiled.grammar)
 
     assert certified is not None
     assert certified.bound is not None
@@ -85,4 +85,4 @@ def test_a_terminated_plan_without_an_announcing_prefix_is_dropped() -> None:
     plan = split_plan(grammar)
 
     assert plan is not None and plan.bound is None
-    assert _certified(plan, compiled.split_analysis or compiled.grammar) is None
+    assert certified_plan(plan, compiled.split_analysis or compiled.grammar) is None

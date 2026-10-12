@@ -5,14 +5,48 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Sequence
 
-from lexic.ir import IrCharClass, IrItem, IrLiteral, IrNoneType, IrNot, IrRule
+from lexic.ir import (
+    IrAlternation,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrNoneType,
+    IrNot,
+    IrRule,
+    IrRuleRef,
+)
+from lexic.parsing.earley.kernel.tables.decider import (
+    ATTEMPT,
+    GREEDY_SPLIT,
+    NOISE_GREEDY,
+)
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
+from lexic.parsing.pda.analysis.gates.windows import (
+    END,
+    MORE,
+    UNK,
+    KWindowFirst,
+    separable,
+)
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
+
+
+def file_attempt_loop(
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
+) -> None:
+    """Cover an ungatable loop's conflict note with the attempt licence — a
+    greedy take with rollback, committed as the decider's split answer — where
+    the decider grants it; otherwise the note stands and the rule islands."""
+    if ATTEMPT not in notes.grants:
+        return
+    analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(items, k, scope)
+    notes.covered += 1
 
 
 def soft_gap_conflict(
@@ -33,17 +67,16 @@ def soft_gap_conflict(
         items, k, scope.structural_tail
     ).subtract(analysis.hard_cont_at(items, k, scope.hard_tail))
     if not first.overlaps(structural_gap):
-        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split")
+        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split", GREEDY_SPLIT)
         return
     if noise_greedy_licensed(analysis, items, k, scope):
-        notes.picks_extent(f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)")
+        notes.picks_extent(
+            f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)", NOISE_GREEDY
+        )
         return
     if not demote_loop(analysis, items, k, scope, notes):
         notes.hard.append(f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable")
-        analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(
-            items, k, scope
-        )
-        notes.covered += 1
+        file_attempt_loop(analysis, items, k, scope, notes)
 
 
 def attempt_spec(analysis: Any, arms: Sequence[Sequence[IrItem]]) -> AttemptSpec:
@@ -107,6 +140,33 @@ def sub_conflict(
     SEQ_ATOM.resolve(atom).eval(analysis, atom, (ctx,))
 
 
+def text_only(rule: IrRule) -> bool:
+    """Whether no rule reference appears anywhere in ``rule``'s body, inline
+    groups included — its model is then its matched text."""
+    pending = [_arm_items(arm) for arm in rule.body]
+    while pending:
+        for item in pending.pop():
+            if isinstance(item.atom, IrRuleRef):
+                return False
+            if isinstance(item.atom, IrAlternation):
+                pending.extend(_arm_items(arm) for arm in item.atom)
+    return True
+
+
+def may_steal(analysis: Any, rule: IrRule) -> bool:
+    """Whether ``rule``'s text is matched item by item with nothing to say the
+    match is right: a text-only rule with an arm of two items or more that
+    :func:`greedy_exact` does not cover. Whether its own extent proof declines
+    is the compiler's to ask. Withheld from a delegate's analysis, whose end is
+    not the document's."""
+    return (
+        not analysis.taxonomy.delegated
+        and text_only(rule)
+        and any(len(_arm_items(arm)) > 1 for arm in rule.body)
+        and not greedy_exact(analysis, rule)
+    )
+
+
 def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     """Whether a greedy left-to-right match of ``rule`` ends where its longest
     match does, so the match stands for the island's own longest completion.
@@ -124,11 +184,8 @@ def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     arms = [_arm_items(arm) for arm in rule.body]
     if any(len(arm) < 2 for arm in arms):
         return False
-    firsts = [analysis.seq_first(arm) for arm in arms]
-    for i, first in enumerate(firsts):
-        if any(first.overlaps(other) for other in firsts[i + 1 :]):
-            return False
-    return all(_arm_greedy_exact(analysis, arm) for arm in arms)
+    firsts = [{((analysis.seq_first(arm),), END)} for arm in arms]
+    return separable(firsts) and all(_arm_greedy_exact(analysis, arm) for arm in arms)
 
 
 def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
@@ -157,3 +214,32 @@ def _fixed(item: IrItem) -> bool:
     """Whether the item occurs a fixed number of times."""
     hi = item.quantifier.hi
     return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)
+
+
+def same_ref_extent_split(
+    rules: Mapping[str, IrRule], items: Sequence[IrItem], k: int
+) -> bool:
+    """Whether adjacent required refs need extent-aware splitting.
+
+    A variable-width child followed by another required occurrence of the
+    same rule cannot be cut by a one-character stop set: that assigns all
+    shared FIRST text to the right child. The Earley island owns this cold
+    structural case until the PDA has an extent-aware boundary primitive.
+    """
+    if k + 1 >= len(items):
+        return False
+    left, right = items[k], items[k + 1]
+    if not isinstance(left.atom, IrRuleRef) or not isinstance(right.atom, IrRuleRef):
+        return False
+    if str(left.atom) != str(right.atom):
+        return False
+    if int(left.quantifier.lo) < 1 or int(right.quantifier.lo) < 1:
+        return False
+    prefixes = KWindowFirst(rules, 5).rule_prefixes(str(left.atom), 5)
+    complete = [len(prefix) for prefix, state in prefixes if state == END]
+    if not complete:
+        return any(state == UNK for _prefix, state in prefixes)
+    shortest = min(complete)
+    return any(
+        len(prefix) > shortest and state in (END, MORE) for prefix, state in prefixes
+    )

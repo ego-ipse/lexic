@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any, cast
 
@@ -28,12 +29,14 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.gating import (
     gate_take,
+    select_arm,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_FOLD,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
+    GATE_STOP,
     OP_CC1,
     OP_LEAF1,
     OP_LIT,
@@ -56,23 +59,24 @@ from lexic.parsing.pda.runtime.build import (
     leaf_mismatch,
 )
 from lexic.parsing.pda.runtime.islands import (
+    IslandEnds,
     IslandPolicy,
     bounded_window,
     island_parse,
     island_value,
 )
 from lexic.parsing.pda.runtime.matchers import (
-    loop_spec,
     match_cc,
     match_cc1,
     match_chartable,
     match_lit,
+    match_runtable,
     run_span_once,
-    select_arm,
     vdisp_once,
     vstr_once,
 )
 from lexic.parsing.product import Completed
+from lexic.parsing.product.tree import CompletionResult
 
 
 class KernelExecutionMixin[Carry]:
@@ -86,6 +90,10 @@ class KernelExecutionMixin[Carry]:
     tables: PdaTables
     policy: IslandPolicy
     _caches: KernelCaches[Carry]
+    # Declared, not defined: the boundary verdict the kernel inherits answers
+    # an island with several followable ends (`Verdicts._extent`).
+    _extent: Callable[[IslandEnds, int, list[Carry]], None]
+    _descent_item: Callable[[list[Carry]], int]
 
     def _leaf_run(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """A frame-less leaf clone's whole run — one of three shapes.
@@ -95,15 +103,23 @@ class KernelExecutionMixin[Carry]:
         identical match, which by the leaf licence cannot descend. A REDUCE
         leaf is the twin of that: its reduction reads only its own span, so
         the value its completion would have built is computed here instead.
-        Anything else builds through :meth:`_run_leaf`.
+        A span-tabled ``value_str`` leaf goes straight to its run, as
+        :func:`vstr_once` would send it after reading a lookahead it never
+        uses. Anything else builds through :meth:`_run_leaf`.
         """
         if clone.mode == BUILD_VALUE_STR:
+            if clone.runarm is not None:  # one match, one lookup: no selection
+                self.pos = run_span_once(self.text, clone, out, self.pos)
+                return
             try:
                 self.pos = vstr_once(
                     self.text, self._caches.intern, clone, out, self.pos
                 )
             except IslandEscape as escape:
-                self._islanded(escape, out)
+                try:
+                    self._islanded(escape, out)
+                except IslandEnds as two:  # the whole leaf is the island
+                    self._extent(two, self._descent_item(out), out)
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
@@ -124,7 +140,9 @@ class KernelExecutionMixin[Carry]:
             neither the bound fields nor the empty arm.
         """
         text = self.text
-        arm = select_arm(clone, text[pos : pos + 1], pos)
+        arm = clone.entry  # one arm whose first item refuses alone: no walk
+        if arm is None:
+            arm = select_arm(clone, text[pos : pos + 1], pos)
         if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
@@ -199,17 +217,57 @@ class KernelExecutionMixin[Carry]:
         intern = self._caches.intern
         clone = arm.payloads[i]
         if clone.chartable is not None:
+            if clone.runarm is not None:  # keyed by the matched span, not the lookahead
+                return match_runtable(text, arm, i, sink, pos)
             return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]
-        gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+        # A stop gate — the common one — is read in place, as `match_cc` reads it:
+        # a call per iteration was most of what a short iteration cost. Its
+        # kind and its set are bound once, here, not read per iteration.
+        stop = arm.gate_kinds[i] == GATE_STOP
+        gchars, gneg = arm.gate_data[i] if stop else ((), False)
         count = 0
-        while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        while count < lo or (
+            (hi < 0 or count < hi)
+            and (
+                (
+                    (pos < len(text) and text[pos] not in gchars)
+                    if gneg
+                    else text[pos : pos + 1] in gchars
+                )
+                if stop
+                else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+            )
+        ):
             try:
                 pos = vstr_once(text, intern, clone, sink, pos)
             except IslandEscape as escape:
                 pos = self._islanded(escape, sink)
             count += 1
         return pos
+
+    def _match_once(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
+        """A framed exactly-once value reference — ``OP_VRUN`` or ``OP_V1`` —
+        calls its matcher once: it has no loop for :meth:`_match_vstr` to run.
+
+        Every code but ``OP_VRUN`` is read as ``OP_V1``: :meth:`_match_span`
+        routes only those two here, the leaf and dispatch codes before them.
+
+        :meth:`_run_leaf` spells the same two calls inline rather than calling
+        this. Measured in-process against routing those items through one
+        shared method (A/A floor 1.000 ± 0.005), the extra call cost 1.03-1.11
+        on every bench cell with leaf-walk exactly-once items: backtrack pda
+        1.107, mixedends pda 1.062, announced pda 1.053, split-nullable and
+        wrapped-unit 1.04.
+
+        :raises PdaFail: On the matcher's refusal.
+        """
+        if arm.kinds[i] == OP_VRUN:
+            return run_span_once(self.text, arm.payloads[i], sink, pos)
+        try:
+            return vstr_once(self.text, self._caches.intern, arm.payloads[i], sink, pos)
+        except IslandEscape as escape:
+            return self._islanded(escape, sink)
 
     def _match_vdisp(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.
@@ -223,9 +281,23 @@ class KernelExecutionMixin[Carry]:
         """
         text = self.text
         intern = self._caches.intern
-        lo, hi, gk, gate = loop_spec(arm, i)
+        lo, hi = arm.los[i], arm.his[i]
+        # A stop gate read in place, bound once, as `_match_vstr` reads it.
+        stop = arm.gate_kinds[i] == GATE_STOP
+        gchars, gneg = arm.gate_data[i] if stop else ((), False)
         count = 0
-        while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        while count < lo or (
+            (hi < 0 or count < hi)
+            and (
+                (
+                    (pos < len(text) and text[pos] not in gchars)
+                    if gneg
+                    else text[pos : pos + 1] in gchars
+                )
+                if stop
+                else gate_take(text, pos, arm.gate_kinds[i], arm.gate_data[i])
+            )
+        ):
             try:
                 pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
             except IslandEscape as escape:
@@ -275,23 +347,37 @@ class KernelExecutionMixin[Carry]:
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
         name, cont, exact, windows = ref
+        if self.policy.executor is None:
+            raise PdaFail(
+                f"island {name!r} at {self.pos}: no product for splice", self.pos
+            )
+        tree, end, built = self._island_subparse(name, cont, exact, windows)
+        result = self._island_value(name, tree, built)
+        if isinstance(result, Completed):
+            sink.append(result.value)
+        self.pos += end
+
+    def _island_value(
+        self, name: str, tree: Any, built: CompletionResult[Carry] | None
+    ) -> CompletionResult[Carry]:
+        """What one island completion splices: the value its settle step
+        built, else its tree completed through the product.
+
+        The settle step builds the value to answer the ambiguity question and
+        retains it for exactly this reason; splicing the same tree again would
+        build the same value twice.
+
+        :raises PdaFail: With no product to splice, or when the product
+            refuses the completion.
+        """
         executor = self.policy.executor
         if executor is None:
             raise PdaFail(
                 f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
-        tree, end, built = self._island_subparse(name, cont, exact, windows)
-        # The settle step builds the value to answer the ambiguity question
-        # and retains it for exactly this reason; splicing the same tree again
-        # would build the same value twice.
-        result = (
-            built
-            if built is not None
-            else island_value(lambda: executor.splice(tree), name, self.pos)
-        )
-        if isinstance(result, Completed):
-            sink.append(result.value)
-        self.pos += end
+        if built is not None:
+            return built
+        return island_value(lambda: executor.splice(tree), name, self.pos)
 
     def _island_subparse(
         self, name: str, cont: CharSet, exact: bool, windows: tuple[Pref, ...]
@@ -368,6 +454,7 @@ class KernelExecutionMixin[Carry]:
             window_text,
             self.policy.executor,
             config=self.policy.config,
+            scope=self._caches.scope,
         )
         return finish_delegate(sub, clone, window_text, pos)
 

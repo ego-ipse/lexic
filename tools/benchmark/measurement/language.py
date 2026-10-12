@@ -85,7 +85,7 @@ def _edits(text: str, rng: random.Random) -> list[str]:
     return out
 
 
-def _candidates(ast: IrAst, corpus: str) -> list[str]:
+def candidates(ast: IrAst, corpus: str) -> list[str]:
     """Every probe string for one bench, deduplicated in generation order."""
     rng = random.Random(0xC0FFEE)
     texts: list[str] = []
@@ -115,7 +115,7 @@ def probes(
         return held
     built = tuple(
         (text, accepts(reference, text, LEXIC_REFUSALS))
-        for text in _candidates(ast, corpus)
+        for text in candidates(ast, corpus)
     )
     _PROBES[name] = built
     return built

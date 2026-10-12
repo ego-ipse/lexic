@@ -29,24 +29,24 @@ from tools.benchmark.emitters.charsets import (
 )
 from tools.benchmark.emitters.directives import NO_MARKS, Marks, inlined_marks
 from tools.benchmark.emitters.emit import (
-    _ANTLR_SPECIALS,
-    _UNIT,
+    ANTLR_SPECIALS,
+    UNIT,
     Lex,
     Runs,
-    _antlr_escaped,
-    _bounds,
-    _choice_arms,
-    _known_ref,
-    _live,
-    _members,
-    _names,
-    _negated_class,
-    _quantified,
-    _ranges,
-    _rule_map,
-    _term_for,
+    antlr_escaped,
+    bounds,
     charset_of,
+    choice_arms,
+    class_members,
+    emitted_names,
+    known_ref,
     lexical_layer,
+    live_rules,
+    negated_class,
+    quantified,
+    range_body,
+    rule_map,
+    term_for,
 )
 
 
@@ -80,7 +80,7 @@ def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
         # only for the parsers that need it, because turning it on globally
         # would charge every other pyparsing row for a feature it never used.
         pp.ParserElement.enable_packrat()
-    rules, start = _rule_map(ast)
+    rules, start = rule_map(ast)
     # pyparsing SKIPS WHITESPACE BY DEFAULT, and a parser that quietly ignores
     # spaces is not the grammar it was given — it accepted `1 + 2` for a grammar
     # with no space in it. Leaving it off per leaf is not enough: every
@@ -100,11 +100,11 @@ def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
 def _pp_alternation(node: IrAlternation, fwd: dict[str, pp.Forward], choice):
     """Whichever alternation `pyparsing_parser` was asked for — see it for why.
 
-    Arms in :func:`_choice_arms` order: `Or` keeps the longest whatever the
+    Arms in :func:`choice_arms` order: `Or` keeps the longest whatever the
     order, and `MatchFirst` needs the empty arm last for the same reason PEG
     does.
     """
-    return choice([_pp(arm, fwd, choice) for arm in _choice_arms(node)])
+    return choice([_pp(arm, fwd, choice) for arm in choice_arms(node)])
 
 
 def _pp_sequence(node: IrSequence, fwd: dict[str, pp.Forward], choice):
@@ -114,8 +114,8 @@ def _pp_sequence(node: IrSequence, fwd: dict[str, pp.Forward], choice):
 
 def _pp_item(node: IrItem, fwd: dict[str, pp.Forward], choice):
     atom = _pp(node.atom, fwd, choice)
-    lo, hi = _bounds(node.quantifier)
-    if node.quantifier == _UNIT:
+    lo, hi = bounds(node.quantifier)
+    if node.quantifier == UNIT:
         return atom
     if (lo, hi) == (0, 1):
         return pp.Opt(atom)
@@ -131,7 +131,7 @@ def _pp_literal(node: IrLiteral | IrChr, _fwd: dict[str, pp.Forward], _choice):
 
 
 def _pp_charclass(node: IrCharClass, _fwd: dict[str, pp.Forward], _choice):
-    return pp.Regex(f"[{_members(node)}]")
+    return pp.Regex(f"[{class_members(node)}]")
 
 
 def _pp_ruleref(node: IrRuleRef, fwd: dict[str, pp.Forward], _choice):
@@ -147,7 +147,7 @@ def _pp_not(node: IrNot, _fwd: dict[str, pp.Forward], _choice):
         raise UnsupportedConstructError(
             f"benchmark: pyparsing cannot express IrNot over {type(inner).__name__}"
         )
-    return pp.Regex(f"[^{_members(inner)}]")
+    return pp.Regex(f"[^{class_members(inner)}]")
 
 
 _PP: dict[type, Callable[..., pp.ParserElement]] = {
@@ -315,9 +315,9 @@ def antlr_grammar(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> str:
     """
     ast = inlined_marks(ast, marks)
     candidates = lexical_layer(ast)
-    runs = safe_runs(_live(ast, candidates)[0], candidates)
-    rules, start = _live(ast, runs)
-    names = {n: _antlr_safe(v) for n, v in _names(rules).items()}
+    runs = safe_runs(live_rules(ast, candidates)[0], candidates)
+    rules, start = live_rules(ast, runs)
+    names = {n: _antlr_safe(v) for n, v in emitted_names(rules).items()}
     lex = Lex(runs, {})
     partitioned = partition_blocks(rules, runs)
     bodies = [
@@ -328,7 +328,7 @@ def antlr_grammar(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> str:
     lines.append(f"entry_ : {names[start]} EOF ;")
     lines += [f"{term} : {body} ;" for body, term in lex.terms.items()]
     lines += [
-        f"B{i} : [{_ranges(s, _antlr_escaped, _ANTLR_SPECIALS)}] ;"
+        f"B{i} : [{range_body(s, antlr_escaped, ANTLR_SPECIALS)}] ;"
         for i, s in enumerate(partitioned.sets)
     ]
     return "\n".join(lines) + "\n"
@@ -364,13 +364,13 @@ def _antlr_counted(atom: str, lo: int, hi: int) -> str:
 def _antlr_item(node, names, lex, blocks):
     run = lex.runs.get(node)
     if run is not None:
-        body = f"[{_ranges(run.chars, _antlr_escaped, _ANTLR_SPECIALS)}]+"
-        term = _term_for(body, lex, "RUN")
+        body = f"[{range_body(run.chars, antlr_escaped, ANTLR_SPECIALS)}]+"
+        term = term_for(body, lex, "RUN")
         return f"{term}?" if run.optional else term
     atom = _antlr(node.atom, names, lex, blocks)
     if isinstance(node.atom, (IrAlternation, IrSequence)):
         atom = f"({atom})"
-    return _quantified(atom, node.quantifier, _antlr_counted)
+    return quantified(atom, node.quantifier, _antlr_counted)
 
 
 def _antlr_literal(node, _names, _lex, blocks):
@@ -391,11 +391,11 @@ def _antlr_charclass(node, _names, _lex, blocks):
 
 
 def _antlr_ruleref(node, names, _lex, _blocks):
-    return _known_ref(node, names)
+    return known_ref(node, names)
 
 
 def _antlr_not(node, _names, _lex, blocks):
-    inner = _negated_class(node, "ANTLR")
+    inner = negated_class(node, "ANTLR")
     return _named(blocks.of_class[complement(charset_of(inner))])
 
 

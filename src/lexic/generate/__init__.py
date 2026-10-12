@@ -68,7 +68,7 @@ _UNIT = IrQuantifier(1, 1)
 
 _LOWER_BOUND_ODDS = 0.7
 """How often a variable count rolls its lower bound — the free walk's one knob,
-read by :func:`_pick_count` and by :func:`_pick_mean`, its expectation."""
+read by :func:`pick_count` and by :func:`pick_mean`, its expectation."""
 
 
 def _top(q: IrQuantifier) -> int:
@@ -76,7 +76,7 @@ def _top(q: IrQuantifier) -> int:
     return q.lo + 2 if isinstance(q.hi, IrNoneType) else min(q.hi, q.lo + 2)
 
 
-def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
+def pick_count(q: IrQuantifier, rng: _random.Random) -> int:
     """Pick a repetition count within the quantifier's bounds.
 
     A fixed count (``hi == lo``) is returned verbatim. Otherwise the lower
@@ -93,8 +93,8 @@ def _pick_count(q: IrQuantifier, rng: _random.Random) -> int:
     return rng.randint(q.lo + 1, hi)
 
 
-def _pick_mean(q: IrQuantifier) -> float:
-    """The expected value of :func:`_pick_count` — what size-steering predicts by."""
+def pick_mean(q: IrQuantifier) -> float:
+    """The expected value of :func:`pick_count` — what size-steering predicts by."""
     if q.hi == q.lo:
         return float(q.lo)
     tail = (q.lo + 1 + _top(q)) / 2
@@ -112,19 +112,19 @@ def _item(nc: Sequence[IrSelf]) -> IrItem:
     return item
 
 
-def _gen_literal(_d: _Generator, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
+def _gen_literal(_d: Generator, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
     """Emit a literal verbatim, repeated when quantified."""
     q = _item(nc).quantifier
-    return n * _pick_count(q, _d.rng) if q != _UNIT else n
+    return n * pick_count(q, _d.rng) if q != _UNIT else n
 
 
-def _gen_charclass(_d: _Generator, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
+def _gen_charclass(_d: Generator, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
     """Emit sampled characters from a char class under its quantifier."""
-    count = _pick_count(_item(nc).quantifier, _d.rng)
+    count = pick_count(_item(nc).quantifier, _d.rng)
     return "".join(chr(n.sample(_d.rng)) for _ in range(count))
 
 
-def _gen_ruleref(_d: _Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
+def _gen_ruleref(_d: Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
     """Expand a rule ref, recursing at ``max_depth - 1`` under its quantifier.
 
     At an exhausted budget the quantifier collapses to its lower bound — an
@@ -132,22 +132,22 @@ def _gen_ruleref(_d: _Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
     measure through its target's own minimal arms.
     """
     q = _item(nc).quantifier
-    count = q.lo if _d.max_depth <= 0 else _pick_count(q, _d.rng)
-    child = _Generator(
+    count = q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng)
+    child = Generator(
         rng=_d.rng, rules=_d.rules, heights=_d.heights, max_depth=_d.max_depth - 1
     )
     return "".join(child.run(str(n)) for _ in range(count))
 
 
-def _gen_group(_d: _Generator, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
+def _gen_group(_d: Generator, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
     """Expand an inline group, repeated under its quantifier."""
     q = _item(nc).quantifier
-    count = q.lo if _d.max_depth <= 0 else _pick_count(q, _d.rng)
+    count = q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng)
     return "".join(_d.alternation(n, "an inline group") for _ in range(count))
 
 
 # Dispatched on the atom; the owning IrItem rides the argument channel so each
-# body can read the quantifier, and the _Generator rides the dispatcher channel
+# body can read the quantifier, and the Generator rides the dispatcher channel
 # so each body can reach the rng/rules/depth. The raising default refuses any
 # unregistered atom type (e.g. a stray post-canon IrNot) instead of the old
 # silent "".
@@ -182,7 +182,7 @@ def _cost_ref(d: _Coster, n: IrRuleRef, _nc: Sequence[IrSelf]) -> float:
 
     An UNDEFINED target costs nothing — deliberately: pricing it bottomless
     would refuse it as "loops forever", which is not the fact. Free, it is
-    entered, and :meth:`_Generator.run` refuses with the missing rule's name.
+    entered, and :meth:`Generator.run` refuses with the missing rule's name.
     """
     return d.heights.get(str(n), 0.0)
 
@@ -262,7 +262,7 @@ def _open_arms(
     return [a for a, cost in zip(body, costs) if cost <= cap and cost < _INF]
 
 
-class _Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
+class Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
     """Random-string generator state over a rules-by-name view.
 
     Carries the shared random source, the grammar's rules, their computed
@@ -347,20 +347,20 @@ def generate(
         rng = _random.Random()
     heights = _rule_heights(rules)
     if size is None:
-        return _Generator(
+        return Generator(
             rng=rng, rules=rules, heights=heights, max_depth=max_depth
         ).run(rule_name)
     free = FreeWalk(
         rng,
         partial(_open_arms, heights),
         partial(_walker, rng, rules, heights),
-        _pick_mean,
+        pick_mean,
     )
     return steer(rule_name, rules, free, max_depth, size)
 
 
 def _walker(
     rng: _random.Random, rules: Rules, heights: dict[str, float], depth: int
-) -> _Generator:
+) -> Generator:
     """The free walk at ``depth`` — what :mod:`lexic.generate.sizing` spends a small budget by."""
-    return _Generator(rng=rng, rules=rules, heights=heights, max_depth=depth)
+    return Generator(rng=rng, rules=rules, heights=heights, max_depth=depth)

@@ -14,7 +14,7 @@ from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.core.errors import IslandEscape, PdaFail, ProbeFork
-from lexic.parsing.pda.runtime.admission import KernelCaches, admits
+from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
 
@@ -52,17 +52,16 @@ class AttemptInlineMixin[Carry]:
         self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """Run one attempt-aware value-string item's entire quantified loop."""
-        target = arm.payloads[i]
         if (
             arm.kinds[i] == OP_AVSTR
-            and target.chartable is not None
-            and target.runarm is None
+            and arm.payloads[i].chartable is not None
+            and arm.payloads[i].runarm is None
         ):
             return self._attempt_tabled_loop(frame, arm, i, pos)
         if arm.kinds[i] == OP_AVDISP:
             return self._attempt_vdisp_loop(frame, arm, i, pos)
         lo, hi = arm.los[i], arm.his[i]
-        first = arm.gate_data[i][0]
+        chars, negated = arm.gate_data[i][0]
         count = frame.count
         sink: list[Carry] | None = None
         frame.i = i
@@ -75,8 +74,8 @@ class AttemptInlineMixin[Carry]:
             count += 1
         while hi < 0 or count < hi:
             char = self.text[pos : pos + 1]
-            if not admits(char, *first):
-                break
+            if (char == "" or char in chars) if negated else char not in chars:
+                break  # `admits`, read in place
             got = self.attempt_inline(arm, i, pos)
             if got is None or got[0] == pos:
                 break
@@ -99,7 +98,7 @@ class AttemptInlineMixin[Carry]:
         """Attempt-aware loop over an inlinable dispatch chase."""
         sink = self._sink_for(frame, arm, i)
         lo, hi = arm.los[i], arm.his[i]
-        first, soft = arm.gate_data[i]
+        (chars, negated), (soft, soft_negated) = arm.gate_data[i]
         count = frame.count
         frame.i = i
         while count < lo:
@@ -107,9 +106,9 @@ class AttemptInlineMixin[Carry]:
             count += 1
         while hi < 0 or count < hi:
             char = self.text[pos : pos + 1]
-            if not admits(char, *first):
-                break
-            if not admits(char, *soft):
+            if (char == "" or char in chars) if negated else char not in chars:
+                break  # `admits`, read in place
+            if (char == "" or char in soft) if soft_negated else char not in soft:
                 try:
                     pos = vdisp_once(
                         self.text,
@@ -149,9 +148,8 @@ class AttemptInlineMixin[Carry]:
         """
         get = arm.payloads[i].chartable.get
         sink = self._sink_for(frame, arm, i)
-        append = sink.append
         bounds = arm.los[i], arm.his[i]
-        gates = arm.gate_data[i]
+        (chars, negated), soft = arm.gate_data[i]
         count = frame.count
         frame.i = i
         while count < bounds[0]:
@@ -162,14 +160,14 @@ class AttemptInlineMixin[Carry]:
                 sink.extend(got[1])
                 pos = got[0]
             else:
-                append(model)
+                sink.append(model)
                 pos += 1
             count += 1
         while bounds[1] < 0 or count < bounds[1]:
             char = self.text[pos : pos + 1]
-            if not admits(char, *gates[0]):
-                break
-            if not admits(char, *gates[1]):
+            if (char == "" or char in chars) if negated else char not in chars:
+                break  # `admits`, read in place
+            if (char == "" or char in soft[0]) if soft[1] else char not in soft[0]:
                 model = get(char)
                 if model is None:
                     got = self.attempt_inline(arm, i, pos)
@@ -178,7 +176,7 @@ class AttemptInlineMixin[Carry]:
                     sink.extend(got[1])
                     pos = got[0]
                 else:
-                    append(model)
+                    sink.append(model)
                     pos += 1
                 count += 1
                 continue

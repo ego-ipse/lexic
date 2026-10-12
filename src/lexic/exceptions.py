@@ -150,7 +150,7 @@ class EngineInvariantError(RuntimeError):
     ``except PdaFail`` sees a ``RuntimeError``.
 
     NOT :class:`BaseException`, and the precedent that suggests otherwise is
-    :class:`~lexic.ir.action.flow.control._Return`, which is CONTROL FLOW and
+    :class:`~lexic.ir.action.flow.control.ReturnSignal`, which is CONTROL FLOW and
     must escape everything including ``except Exception``. This is an error: it
     must escape the two fallback catches, which ``RuntimeError`` already does,
     and it must stay visible to a top-level ``except Exception`` so it reaches

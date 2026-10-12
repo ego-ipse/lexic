@@ -15,7 +15,7 @@ from lexic.ir.action.flow.control import (
     IrPipe,
     IrReturn,
     IrThis,
-    _Return,
+    ReturnSignal,
 )
 from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.nodes import (
@@ -29,34 +29,34 @@ from lexic.ir.spine.spine import IrLambda, IrNode, IrNone
 
 
 def test_return_inherits_base_exception_not_exception():
-    """_Return inherits BaseException but not Exception so action bodies that
+    """ReturnSignal inherits BaseException but not Exception so action bodies that
     wrap their work in ``except Exception:`` cannot swallow it."""
-    assert issubclass(_Return, BaseException)
-    assert not issubclass(_Return, Exception)
+    assert issubclass(ReturnSignal, BaseException)
+    assert not issubclass(ReturnSignal, Exception)
 
 
 def test_return_carries_value():
-    """_Return carries the value to surface to the dispatcher."""
-    sig = _Return(value=42)
+    """ReturnSignal carries the value to surface to the dispatcher."""
+    sig = ReturnSignal(value=42)
     assert sig.value == 42
 
 
 def test_return_not_swallowed_by_except_exception():
-    """_Return survives ``except Exception:`` inside a handler.
+    """ReturnSignal survives ``except Exception:`` inside a handler.
 
-    The catch-all IS the test: ``_Return`` derives from ``BaseException`` so
+    The catch-all IS the test: ``ReturnSignal`` derives from ``BaseException`` so
     that a user's handler cannot eat a control signal, and the only way to
     assert that is to write the handler that would have eaten it.
     """
 
     def body_that_catches_exception(_d, _n, _nc):
         try:
-            raise _Return(99)
+            raise ReturnSignal(99)
         except Exception:  # pylint: disable=broad-exception-caught  # the subject
             return IrStr("swallowed")
 
     op = IrLambda(body_that_catches_exception)
-    with pytest.raises(_Return) as exc_info:
+    with pytest.raises(ReturnSignal) as exc_info:
         op.eval(IrNone, IrNone, ())
     assert exc_info.value.value == 99
 
@@ -113,9 +113,9 @@ def test_irreturn_raises_self_and_is_node_and_exception():
 
 
 def test_irreturn_raises_return_with_value():
-    """IrReturn raises _Return carrying self.value when evaluated."""
+    """IrReturn raises ReturnSignal carrying self.value when evaluated."""
     r = IrReturn[IrStr](value=IrStr("done"))
-    with pytest.raises(_Return) as exc_info:
+    with pytest.raises(ReturnSignal) as exc_info:
         r.eval(IrNone, IrNone, ())
     assert exc_info.value.value == "done"
 
@@ -123,7 +123,7 @@ def test_irreturn_raises_return_with_value():
 def test_irreturn_never_returns_normally():
     """IrReturn always raises — it never returns a value."""
     r = IrReturn[IrStr](value=IrStr("x"))
-    with pytest.raises(_Return):
+    with pytest.raises(ReturnSignal):
         r.eval(IrNone, IrNone, ())
 
 

@@ -80,29 +80,27 @@ def test_a_scans_verdict_is_the_text_it_consumed(
         assert event.span.of(JSON_DOC) == event.verdict
 
 
-def test_a_forking_input_probes_and_rolls_back() -> None:
-    """The stream tells the story: a gate, the entries tried, a refusal.
+def test_a_forking_input_probes_and_ranks() -> None:
+    """The stream tells the story: a gate, the entries tried, and the run
+    going on with the carving the decider keeps.
 
-    The THIRD probe is the split fix earning its keep. A repeat no longer
-    treats its own next occurrence as a follower, so the boundary that used to
-    be settled by stopping early is now explored — an arm has a family of
-    extents, and the run tries one more of them before refusing. The claim the
-    test makes is unchanged: speculation happens, nothing is derived from it,
-    and the gate still names the two entries it chose between.
+    ``item`` can end after ``a`` or after ``ab``, and ``tail`` follows either,
+    so both entries are tried; the THIRD probe is the split fix exploring one
+    more extent of an arm. The candidates' text is no scan: the account picks
+    up where the committed reading reads, so the one scan covers the whole
+    document.
     """
     run = watched(forking(), "abc")
     assert [event.kind for event in run.events] == [
         "gate",
         "probe",
-        "scan",
         "probe",
-        "scan",
         "probe",
         "rollback",
-        "rollback",
+        "scan",
     ]
     assert run.events[0].verdict == "attempt over 2 entries"
-    assert not run.derived
+    assert run.derived
 
 
 def test_a_deterministic_input_needs_no_probe() -> None:
@@ -135,12 +133,18 @@ def test_the_cap_never_truncates_the_parse(json_grammar: CompiledGrammar) -> Non
     assert watched(json_grammar, JSON_DOC, cap=1).derived
 
 
+SAME_SPAN = 'root ::= item "b"\nitem ::= x | y\nx ::= "a"\ny ::= "a"\n'
+"""Two arms over the same text that build different values: a value question
+no carving settles."""
+
+
 def test_a_refusal_is_the_last_event_not_an_exception() -> None:
     """The run worth watching is the one that fails — so it comes back."""
-    run = watched(forking(), "abc")
+    compiled = compile_text(SAME_SPAN, cache_key="trace-same-span")
+    run = watched(compiled, "ab")
     last = run.events[-1]
     assert last.kind == "rollback"
-    assert "arm choice spans two ends" in last.verdict
+    assert "a value question" in last.verdict
     assert not run.derived
 
 

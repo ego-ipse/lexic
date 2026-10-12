@@ -59,7 +59,9 @@ def no_delegates_variant(source: DelegateSource) -> DelegateSource:
     """A no-delegates :class:`DelegateSource` built from ``source``'s own
     construction ingredients — the off arm of the injection seam, constructed
     through the same constructor as the real (on) source."""
-    return NoDelegates(source.lifted, source.name_to_rid, source.binding, source.seams)
+    return NoDelegates(
+        source.lifted, source.name_to_rid, source.binding, source.seams, source.grants
+    )
 
 
 def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:

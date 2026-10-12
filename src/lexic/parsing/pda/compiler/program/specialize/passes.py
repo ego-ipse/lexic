@@ -43,6 +43,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_RUNPAT,
     OP_V1,
     OP_VDISP,
     OP_VRUN,
@@ -55,7 +56,7 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
     vdisp_target,
     vstr_inlinable,
 )
-from lexic.parsing.pda.core.scanner import Pattern
+from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
 """What :func:`optimize_program` reads when no clone was proved regular.
@@ -83,7 +84,7 @@ def specialize_terminals(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
-def _inline_value_strs(arm: FlatArm) -> None:
+def inline_value_strs(arm: FlatArm) -> None:
     """Rewrite refs the runtime can match inline to ``OP_VSTR`` in place.
 
     A terminal-only ``value_str`` clone qualifies, and so does any TABLED clone
@@ -206,6 +207,30 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
     if clone.default.kinds[0] not in (OP_CC, OP_LIT):
         return None
     return clone.default
+
+
+def run_pattern(run: "FlatArm | None") -> "FlatArm | None":
+    """A nullable one-class run as the one pattern its loop is, else as it is.
+
+    With no mandatory iteration the loop takes characters while its stop gate
+    admits them, up to its bound, and can never refuse: exactly what
+    ``[gate]{0,hi}`` matches, in one C-level call instead of a Python
+    iteration per character. A run with a mandatory iteration keeps its loop,
+    whose miss is a refusal with its own words; so does any gate but a stop
+    set. The arm keeps the run's stop gate, so an empty run is answered by its
+    first character without the match call (:data:`OP_RUNPAT`).
+    """
+    if run is None or run.kinds[0] != OP_CC or run.los[0] != 0:
+        return run
+    if run.gate_kinds[0] != GATE_STOP:
+        return run
+    chars, negated = run.gate_data[0]
+    hi = run.his[0]
+    bound = "*" if hi < 0 else f"{{0,{hi}}}"
+    arm = _pattern_arm(compile_source(class_source(chars, negated) + bound))
+    arm.kinds = (OP_RUNPAT,)
+    arm.gate_data = run.gate_data
+    return arm
 
 
 def _pattern_arm(pattern: Pattern) -> FlatArm:
@@ -356,7 +381,7 @@ def bake_chartables(clones: list[FlatClone]) -> None:
         if clone.chartable is not None:
             continue
         if clone.runarm is None:
-            clone.runarm = runarm_for(clone)
+            clone.runarm = run_pattern(runarm_for(clone))
         filling = clone.runarm is not None or charcache_for(clone) is not None
         if filling:
             clone.chartable = {}
@@ -482,6 +507,51 @@ def _mark_arm_leaf_refs(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
+SELF_REFUSING_OPS = frozenset((OP_LIT1, OP_CC1, OP_LIT, OP_CC))
+"""Terminal item codes that refuse a lookahead outside their own first set at
+the position they start at — with a mandatory iteration, for the looping two."""
+
+
+def mark_entry(clone: FlatClone) -> None:
+    """Grant :attr:`FlatClone.entry` where the selector walk decides nothing.
+
+    One gated arm, no default, and no other selection: the walk can only find
+    that arm or refuse. The refusal is the first item's own when that item is
+    a mandatory terminal, or an exactly-once inline value-string reference to
+    a clone with no empty match and no longest take — each refuses at the
+    entry position exactly the lookaheads outside the arm's FIRST, which is
+    what the selector holds. So the entry pushes the arm and lets the item
+    refuse. A take is excluded because its miss can ask an island the
+    selector would never have reached. A leaf's frame-less run reads it as
+    the entry walk does.
+    """
+    clone.entry = None
+    if clone.mode == BUILD_DISPATCH or clone.default is not None:
+        return
+    gated = (
+        clone.attempt is not None
+        or clone.wide_selectors is not None
+        or clone.struct_arm is not None
+    )
+    if gated or len(clone.selectors) != 1:
+        return
+    arm = clone.selectors[0][2]
+    if arm.n and _refuses_alone(arm):
+        clone.entry = arm
+
+
+def _refuses_alone(arm: FlatArm) -> bool:
+    """Whether ``arm``'s first item refuses every lookahead outside its FIRST
+    by itself, at the arm's start."""
+    kind = arm.kinds[0]
+    if kind in SELF_REFUSING_OPS:
+        return arm.los[0] >= 1
+    if kind not in (OP_VRUN, OP_V1):
+        return False
+    target = arm.payloads[0]
+    return target.default is None and target.longest is None
+
+
 def optimize_program(
     roots: list[FlatClone], consults: Mapping[int, Pattern] = NO_CONSULTS
 ) -> None:
@@ -524,7 +594,7 @@ def optimize_program(
     bake_chartables(clones)
     for clone in clones:
         for arm in clone_arms(clone):
-            _inline_value_strs(arm)
+            inline_value_strs(arm)
     for clone in clones:
         _mark_leaves(clone)
     for clone in clones:
@@ -534,3 +604,5 @@ def optimize_program(
             _specialize_vruns(arm)
     for clone in clones:
         _specialize_leaf_refs(clone)
+    for clone in clones:
+        mark_entry(clone)

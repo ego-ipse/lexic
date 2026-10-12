@@ -15,7 +15,13 @@ import json as _json
 
 import pytest
 
-from lexic.api.json_tokenizer import _dyad, _vocab, read, read_from_path, tokenizer_of
+from lexic.api.json_tokenizer import (
+    extended_vocab,
+    merge_pair,
+    read,
+    read_from_path,
+    tokenizer_of,
+)
 from lexic.api.pretokens import (
     QWEN_PATTERN,
     IrByteLevel,
@@ -199,11 +205,11 @@ def test_an_added_token_already_in_the_vocab_keeps_its_vocab_id() -> None:
     assert tok.tokenize("hell") == [6]
 
 
-# --- _vocab / _dyad — no rebuild of the reduced leaves ----------------------
+# --- extended_vocab / merge_pair — no rebuild of the reduced leaves ----------------------
 
 
 def test_vocab_carries_the_reduced_leaves_by_identity() -> None:
-    """``_vocab``'s values ARE the reduced ``IrMap``'s value objects.
+    """``extended_vocab``'s values ARE the reduced ``IrMap``'s value objects.
 
     Identity, not just equality: an ``IrInt`` copy of the same ordinal is
     ``==`` to the original but is a fresh allocation, which is exactly the
@@ -214,7 +220,7 @@ def test_vocab_carries_the_reduced_leaves_by_identity() -> None:
     zero, one = IrInt(0), IrInt(1)
     table = IrMap(IrTuple(IrStr("h"), zero), IrTuple(IrStr("e"), one))
     model = IrMap(IrTuple(IrStr("vocab"), table))
-    vocab = _vocab(model, [])
+    vocab = extended_vocab(model, [])
     assert vocab["h"] is zero
     assert vocab["e"] is one
 
@@ -231,15 +237,15 @@ def test_an_added_token_absent_from_vocab_lands_with_its_own_id() -> None:
             IrTuple(IrStr("id"), IrInt(9)),
         )
     ]
-    vocab = _vocab(model, added)
+    vocab = extended_vocab(model, added)
     assert vocab["<end>"] == 9
 
 
 def test_dyad_array_form_carries_the_same_two_objects() -> None:
-    """``[l, r]``'s parts are already ``IrStr`` — ``_dyad`` carries them,
+    """``[l, r]``'s parts are already ``IrStr`` — ``merge_pair`` carries them,
     it does not rebuild a copy of either."""
     left, right = IrStr("a"), IrStr("b")
-    result = _dyad(IrTuple(left, right))
+    result = merge_pair(IrTuple(left, right))
     assert result == (left, right)
     assert result[0] is left
     assert result[1] is right
@@ -247,10 +253,10 @@ def test_dyad_array_form_carries_the_same_two_objects() -> None:
 
 def test_dyad_string_form_still_splits_at_the_first_space() -> None:
     """The ``"l r"`` string form genuinely produces new text, so it still
-    allocates — this is the one branch of ``_dyad`` that must keep doing
+    allocates — this is the one branch of ``merge_pair`` that must keep doing
     so, and it splits at the FIRST space only."""
-    assert _dyad(IrStr("h e")) == ("h", "e")
-    assert _dyad(IrStr("a b c")) == ("a", "b c")
+    assert merge_pair(IrStr("h e")) == ("h", "e")
+    assert merge_pair(IrStr("a b c")) == ("a", "b c")
 
 
 # --- refusals --------------------------------------------------------------

@@ -8,22 +8,24 @@ piece before — the one arithmetic difference between a proposal and a proof.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
-from lexic.parsing.parallel.discovery.scan import clustered
+from lexic.parsing.parallel import policy as policy_module
+from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.plan.cuts import (
-    _widths,
+    Level,
+    PlanMarks,
     after_mark,
     cut_offsets,
     cut_spans,
-    rebase,
-    scan_marks,
-    scan_windows,
     sole_mark,
 )
-from lexic.parsing.parallel.plan.split import matched, spellings
+from lexic.parsing.parallel.plan.split import SplitPlan, matched, spellings
 from lexic.parsing.parallel.planner import safe_plans, split_plans
-from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
+from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
+from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
     ANNOUNCED,
     announced_doc,
@@ -42,12 +44,17 @@ def _lines(size: int) -> str:
     return "".join(out)
 
 
-def _plan(source: str, key: str):
+def _safe(source: str, key: str) -> tuple[SplitPlan, ...]:
+    """Every plan ``source`` certifies."""
     compiled = compile_text(source, cache_key=key)
     grammar = compiled.codegen_grammar
     safe = safe_plans(split_plans(grammar), compiled.split_analysis or compiled.grammar)
     assert safe, "the fixture must certify a plan"
-    return safe[0]
+    return safe
+
+
+def _plan(source: str, key: str) -> SplitPlan:
+    return _safe(source, key)[0]
 
 
 # ── sole_mark ─────────────────────────────────────────────────────────────
@@ -101,8 +108,7 @@ def test_every_chosen_cut_clears_the_floor_on_both_sides() -> None:
     plan = _plan(ANNOUNCED, "cuts-announced")
     text = announced_doc(300)
     assert len(text) > 4 * MIN_CHUNK
-    with WorkPool(8) as pool:
-        cuts = cut_offsets(plan, text, 8, pool).offsets
+    cuts = cut_offsets(plan, text, 8, Level(plan.scanner, text)).offsets
     assert cuts
     bounds = [0, *cuts, len(text)]
     assert all(hi - lo >= MIN_CHUNK for lo, hi in zip(bounds, bounds[1:])), (
@@ -110,20 +116,57 @@ def test_every_chosen_cut_clears_the_floor_on_both_sides() -> None:
     )
 
 
+@pytest.mark.parametrize(("cpus", "pieces"), [(16, 15), (32, 16)])
+def test_a_plan_cut_spares_a_cpu_when_its_workers_claim_them_all(
+    cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sixteen workers on sixteen CPUs cut fifteen pieces, as the region route
+    does; on a host with CPUs to spare they cut sixteen."""
+    monkeypatch.setattr(policy_module, "available_workers", lambda: cpus)
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(40 * MIN_CHUNK)
+    assert (
+        len(cut_offsets(plan, text, 16, Level(plan.scanner, text)).offsets)
+        == pieces - 1
+    )
+
+
+def _candidates(plan: SplitPlan, text: str, cores: int = 8) -> list[int]:
+    """Every candidate the cut search would read, listed by walking it
+    nearest-first from offset 0 — which is ascending."""
+    return list(
+        cut_offsets(plan, text, cores, Level(plan.scanner, text)).marks(
+            0, 0, len(text) + 1
+        )
+    )
+
+
+def test_a_terminated_cut_may_stand_just_before_the_floor() -> None:
+    """A terminated piece KEEPS its mark, so a mark one character short of the
+    floor still leaves the piece before it a full ``MIN_PIECE`` — and, being
+    the nearest to the target, it is the cut taken over a farther one."""
+    plan = _plan(LINES, "cuts-lines")
+    assert plan.terminated
+    text = "a" * 1023 + "\n" + "b" * 2176 + "\n" + "c" * 999 + "\n" + "d" * 2098 + "\n"
+    marks = [at for at, char in enumerate(text) if char == "\n"]
+    assert (len(text), marks) == (6300, [1023, 3200, 4200, 6299])
+    # The first target is a third of the way in: 1023 stands nearer it than 3200.
+    assert abs(2100 - 1023) < abs(3200 - 2100)
+    assert cut_offsets(plan, text, 3, Level(plan.scanner, text)).offsets == [1023, 4200]
+
+
 def test_a_proposal_is_never_cut_at_offset_zero() -> None:
     """A cut at the document's first character leaves an empty first piece,
     which is not a document.
 
-    The candidate SCAN reports it — a unit does begin there — and the cut
-    selection drops it. Keeping the scan honest is what lets a re-selection
-    reach every real candidate; the floor is what refuses this one."""
+    The scan reports a mark there — a unit does begin there — and the
+    candidates drop it, so neither a choice nor a re-selection can reach it."""
     plan = _plan(ANNOUNCED, "cuts-announced")
     text = announced_doc(300)
     assert text[0] == "#", "the fixture must open ON a proposal character"
-    with WorkPool(8) as pool:
-        shared = rebase(plan.scanner, text, 8, pool)
-        assert 0 in scan_marks(plan, text, 8, pool, shared)
-        assert 0 not in cut_offsets(plan, text, 8, pool, shared).offsets
+    assert 0 in plan.scanner.level(text, 0, len(text), 0)
+    assert 0 not in _candidates(plan, text)
+    assert 0 not in cut_offsets(plan, text, 8, Level(plan.scanner, text)).offsets
 
 
 def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:
@@ -131,72 +174,176 @@ def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:
     is an occurrence of a spelling the plan named."""
     plan = _plan(ANNOUNCED, "cuts-announced")
     text = announced_doc(300)
-    with WorkPool(8) as pool:
-        marks = scan_marks(plan, text, 8, pool)
+    marks = _candidates(plan, text)
     assert marks
     assert all(text[at] in plan.mark for at in marks)
 
 
-# ── how many windows the scan uses, and why it changes no answer ──────────
+# ── searching near the targets, and why where it starts changes nothing ───
 
 
-def test_a_document_below_the_scan_floor_is_swept_once() -> None:
-    """A window must be worth handing to a worker.
-
-    Scanning is two orders of magnitude cheaper per byte than parsing, so the
-    chunk floor is the wrong unit for it: at one window per parse chunk a small
-    document spent more time dispatching windows than sweeping them.
-    """
+def test_where_a_search_starts_changes_no_candidate() -> None:
+    """Candidates are found where they are asked for, so the order a search
+    reads them in is a scheduling choice and never an answer: walked out from
+    any target, they are the plan's depth-0 marks of the whole document."""
     plan = _plan(LINES, "cuts-lines")
-    text = _lines(MIN_SCAN + MIN_CHUNK)
-    assert len(text) < 2 * MIN_SCAN
+    text = _lines(6 * MIN_CHUNK)
+    whole = [
+        at for at in plan.scanner.level(text, 0, len(text), 0) if text[at] in plan.mark
+    ]
+    assert len(whole) > 100, "the fixture must hold many marks, or nothing is compared"
+    # The last line's terminator would leave an empty last piece: no candidate.
+    assert after_mark(plan, text, whole[-1]) == len(text)
+    whole.pop()
+    marks = cut_offsets(plan, text, 8, Level(plan.scanner, text)).marks
+    for want in (0, len(text) / 3, len(text) - 1, len(text) + 50):
+        found = list(marks(want, 0, len(text) + 1))
+        assert sorted(found) == whole, want
+        gaps = [abs(at - want) for at in found]
+        assert gaps == sorted(gaps), "a search must read its candidates nearest first"
 
-    with WorkPool(8) as pool:
-        assert len(scan_windows(plan.scanner, text, 8, pool)) == 1
 
-
-def test_a_large_document_is_swept_in_windows_bounded_by_both_floors() -> None:
-    """Above the scan floor the sweep divides, and never past the workers."""
+def test_choosing_cuts_reads_only_the_text_near_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fifteen cuts in a large document read the stretches around their
+    targets, not every mark in it: the depth at a stretch's start is counted,
+    and only the stretch is walked."""
+    monkeypatch.setattr(policy_module, "available_workers", lambda: 16)
     plan = _plan(LINES, "cuts-lines")
-    text = _lines(5 * MIN_SCAN)
-    assert len(text) >= 5 * MIN_SCAN
+    text = _lines(64 * MIN_CHUNK)
+    read: list[int] = []
+    real = Scanner.level
 
-    with WorkPool(2) as pool:
-        assert len(scan_windows(plan.scanner, text, 2, pool)) == 2
-    with WorkPool(8) as pool:
-        assert len(scan_windows(plan.scanner, text, 8, pool)) == len(text) // MIN_SCAN
+    def counted(self: Scanner, doc: str, lo: int, hi: int, base: int) -> list[int]:
+        read.append(hi - lo)
+        return real(self, doc, lo, hi, base)
+
+    monkeypatch.setattr(Scanner, "level", counted)
+    cuts = cut_offsets(plan, text, 16, Level(plan.scanner, text)).offsets
+    assert len(cuts) == 14
+    assert 0 < sum(read) < len(text) // 8, f"read {sum(read)} of {len(text)}"
 
 
-def test_the_window_count_changes_no_mark_and_no_cut() -> None:
-    """Windows are arithmetic and self-locating, so their number is a
-    scheduling choice and never an answer."""
+PAIRED = 'root ::= item ("," item)*\nitem ::= "(" word ")"\nword ::= [a-z]+\n'
+"""Commas between real bracket pairs: depth decides which ones stand at 0."""
+
+
+def test_a_dense_plan_never_sweeps_the_whole_level() -> None:
+    """Candidates every few characters are found near the targets; the whole
+    level is never listed."""
     plan = _plan(LINES, "cuts-lines")
-    text = _lines(4 * MIN_SCAN)
+    text = _lines(32 * MIN_CHUNK)
+    level = Level(plan.scanner, text)
+    assert cut_offsets(plan, text, 16, level).offsets
+    assert level.listed is None
 
-    with WorkPool(8) as pool:
-        many = scan_windows(plan.scanner, text, 8, pool)
-        assert len(many) > 1, "the fixture must divide, or nothing is compared"
-        single = plan.scanner.offsets([plan.scanner.window(text, 0, len(text))])
-        assert single == plan.scanner.offsets(many), (
-            "the prefix rebase did not recover the whole-document depths"
-        )
-        # Supplied against SCANNED, not supplied against supplied: once the two
-        # rebases are known equal, handing the same list to both sides compares
-        # nothing. The second arm passes no offsets, so the callee divides for
-        # itself — which is the claim, that the count is a scheduling choice.
-        assert scan_marks(plan, text, 8, pool, single) == scan_marks(
-            plan, text, 8, pool
-        )
-        assert cut_offsets(plan, text, 8, pool, single) == cut_offsets(
-            plan, text, 8, pool
-        )
+
+def test_a_short_document_empty_at_its_start_is_still_read_to_its_end() -> None:
+    """Nothing in the first stretch says only that the plan is sparse there: a
+    document too short to be swept in windows is still read whole before its
+    one cut is declined — and here it has one."""
+    plan = _plan(LINES, "cuts-lines")
+    text = "a" * 2047 + "\n" + "b" * 2047 + "\n"
+    assert len(text) == 2 * MIN_CHUNK and "\n" not in text[:1024]
+    assert cut_offsets(plan, text, 2, Level(plan.scanner, text)).offsets == [2047]
+
+
+def _listed_lines() -> tuple[SplitPlan, str, Level]:
+    """LINES over a level already swept whole — the listed path every
+    envelope, opaque walk and sparse plan reads."""
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(6 * MIN_CHUNK)
+    level = Level(plan.scanner, text)
+    level.whole()
+    return plan, text, level
+
+
+def test_a_listed_plan_still_drops_its_skip_only_last_mark() -> None:
+    """Read from a list, a terminated plan's last mark — nothing but skip after
+    it — is still no candidate, and is not counted as one."""
+    plan, text, level = _listed_lines()
+    marks = [at for at in level.listed or () if text[at] in plan.mark]
+    assert after_mark(plan, text, marks[-1]) == len(text)
+    reader = PlanMarks(plan, level, None)
+    assert reader.found(10**6) == len(marks) - 1
+    assert list(reader.around(0, 0, len(text) + 1)) == marks[:-1]
+
+
+def test_a_listed_target_midway_between_two_candidates_takes_the_earlier() -> None:
+    """Read from a list, a tie still goes to the earlier candidate."""
+    plan, text, level = _listed_lines()
+    marks = cut_offsets(plan, text, 8, level).marks
+    whole = list(marks(0, 0, len(text) + 1))
+    earlier, later = whole[100], whole[101]
+    want = (earlier + later) / 2
+    assert want - earlier == later - want
+    assert list(marks(want, 0, len(text) + 1))[:2] == [earlier, later]
+
+
+def _envelope_plan() -> SplitPlan:
+    """ENVELOPE_SOURCE's envelope plan."""
+    plan = next(
+        (one for one in _safe(ENVELOPE_SOURCE, "cuts-envelope") if one.envelope),
+        None,
+    )
+    assert plan is not None, "the fixture must certify an envelope plan"
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("opening", "held", "kept"),
+    [
+        (True, [0, 100, 200], [100, 200]),  # an opening cut at 0: no piece before it
+        (True, [5, 100, 200], [5, 100, 200]),  # a first cut past 0 is a real one
+        (False, [0, 100, 200], [0, 100, 200]),  # a closing mark at 0 ends a piece
+    ],
+)
+def test_an_envelopes_cuts_are_its_candidates_bar_an_opening_zero(
+    opening: bool, held: list[int], kept: list[int]
+) -> None:
+    """An envelope's own cuts need no plan filter: every one is a candidate,
+    counted, except the empty first piece an opening cut at 0 would leave."""
+    plan = _envelope_plan()._replace(opening=opening)
+    text = "a = b\n" * 2000
+    reader = PlanMarks(plan, Level(plan.scanner, text), held)
+    assert reader.found(10**6) == len(kept)
+    assert list(reader.around(0, 0, len(text) + 1)) == kept
+
+
+def test_a_sparse_plan_is_answered_from_the_whole_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plan with no candidate near the start does not search the document out
+    stretch by stretch: past a first stretch with nothing in it, the whole level
+    is listed once, for every plan after it, and it is the level a single walk
+    reads."""
+    plan = _plan(PAIRED, "cuts-paired")
+    nested = "(" + "x" * 3000 + ")"
+    text = ",".join([nested] * 6 + ["(ab)"] * 400)
+    honest = plan.scanner.level(text, 0, len(text), 0)
+    read: list[int] = []
+    real = Scanner.level
+
+    def counted(self: Scanner, doc: str, lo: int, hi: int, base: int) -> list[int]:
+        read.append(hi - lo)
+        return real(self, doc, lo, hi, base)
+
+    monkeypatch.setattr(Scanner, "level", counted)
+    with WorkPool(4) as pool:
+        level = Level(plan.scanner, text, pool)
+        chosen = cut_offsets(plan, text, 4, level)
+    assert level.listed == honest
+    assert sum(read) - len(text) < 2 * 1024, "the search read on past a sparse start"
+    assert chosen.offsets
+    assert set(chosen.offsets) <= set(honest)
 
 
 # ── selecting this plan's own marks out of the grammar's ──────────────────
 
 
 def test_a_one_character_mark_set_selects_exactly_what_widths_would() -> None:
-    """The membership test and the width table must agree, mark for mark.
+    """The membership test and the width match must agree, mark for mark.
 
     A one-character spelling cannot overlap itself, so every width is 1 and the
     run thinning is the identity — the two paths are one answer, and this is
@@ -204,14 +351,99 @@ def test_a_one_character_mark_set_selects_exactly_what_widths_would() -> None:
     """
     plan = _plan(LINES, "cuts-lines")
     text = _lines(2 * MIN_CHUNK)
+    matched_marks = [
+        at
+        for at in plan.scanner.level(text, 0, len(text), 0)
+        if matched(text, at, spellings(plan.mark))
+    ]
+    assert after_mark(plan, text, matched_marks[-1]) == len(text)
+    assert _candidates(plan, text, 4) == matched_marks[:-1]
 
-    with WorkPool(4) as pool:
-        at_depth = rebase(plan.scanner, text, 4, pool)
-        widths = _widths(text, at_depth, spellings(plan.mark))
 
-        assert scan_marks(plan, text, 4, pool, at_depth) == clustered(
-            sorted(widths), widths, plan.trailing
-        )
+PARAS = 'root ::= para ("\\n\\n" para)*\npara ::= line ("\\n" line)*\nline ::= [a-z]+\n'
+"""Paragraphs separated by a spelling that is its own border."""
+
+
+def _paras_plan(trailing: bool) -> SplitPlan:
+    """PARAS's two-newline plan, with the overlap end the test asks for."""
+    plan = next(
+        one for one in _safe(PARAS, "cuts-paras") if one.mark == frozenset({"\n\n"})
+    )
+    return plan._replace(trailing=trailing)
+
+
+def _padded(core: str) -> str:
+    """``core`` placed mid-document, with enough text either side to be cut."""
+    side = "\n".join(["abcdefg"] * 600)
+    return side + "\n\n" + core + "\n\n" + side
+
+
+@pytest.mark.parametrize(("trailing", "kept"), [(False, [1, 8]), (True, [3, 10])])
+def test_overlapping_occurrences_thin_to_one_boundary_per_run(
+    trailing: bool, kept: list[int]
+) -> None:
+    """``"\\n\\n\\n\\n"`` reads three occurrences and the grammar has ONE
+    boundary in it. Which end it stands at is the plan's static answer; either
+    way no two boundaries are adjacent and no piece can be empty."""
+    core = "a\n\n\n\nbcd\n\n\n\ne"
+    text = _padded(core)
+    at = text.index(core)
+    found = [
+        one - at
+        for one in _candidates(_paras_plan(trailing), text)
+        if at <= one < at + len(core)
+    ]
+    assert found == kept
+
+
+@pytest.mark.parametrize("trailing", [False, True])
+def test_a_run_split_by_where_a_search_starts_still_thins_to_one(
+    trailing: bool,
+) -> None:
+    """A search that starts INSIDE an overlapping run reads the run's
+    neighbours past its first stretch's edge, so the run still keeps one
+    boundary — the one a search from the document's start keeps."""
+    plan = _paras_plan(trailing)
+    core = "a\n\n\n\n\nb"
+    text = _padded(core)
+    run = text.index(core) + 1
+    end = len(text) + 1
+    whole = _candidates(plan, text)
+    kept = [at for at in whole if run <= at < run + 5]
+    assert kept == ([run + 3] if trailing else [run])
+    marks = cut_offsets(plan, text, 8, Level(plan.scanner, text)).marks
+    for want in range(run - 1, run + 6):
+        assert sorted(marks(want, 0, end)) == whole, want
+
+
+def test_a_target_midway_between_two_candidates_takes_the_earlier() -> None:
+    """Nearest first, and the earlier on a tie — the order every divider's
+    choice is read in."""
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(6 * MIN_CHUNK)
+    marks = cut_offsets(plan, text, 8, Level(plan.scanner, text)).marks
+    whole = _candidates(plan, text)
+    earlier, later = whole[100], whole[101]
+    want = (earlier + later) / 2
+    assert want - earlier == later - want
+    assert list(marks(want, 0, len(text) + 1))[:2] == [earlier, later]
+
+
+ARROWS = 'root ::= item ("->" item)*\nitem ::= [a-z]+\n'
+"""A two-character separator that is NOT its own border."""
+
+
+@pytest.mark.parametrize("trailing", [False, True])
+def test_occurrences_exactly_width_apart_are_both_kept(trailing: bool) -> None:
+    """Two occurrences with nothing between them are NOT the same run — only
+    occurrences closer than the mark's own width overlap."""
+    plan = _plan(ARROWS, "cuts-arrows")._replace(trailing=trailing)
+    side = "->".join(["abcdefg"] * 600)
+    core = "x->->y"
+    text = side + "->" + core + "->" + side
+    at = text.index(core)
+    found = [one - at for one in _candidates(plan, text) if at <= one < at + len(core)]
+    assert found == [1, 3]
 
 
 def test_the_widest_spelling_at_an_offset_is_the_one_that_matches() -> None:

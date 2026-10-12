@@ -40,6 +40,7 @@ from lexic.parsing.pda.core.scanner import (
     scan_run,
     scan_run_any,
 )
+from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     self_grammar_analysis,
     sg_scan_arm_fixture_analysis,
@@ -283,6 +284,67 @@ def test_sg_scan_with_no_take_set_always_declines(probe_gate):
     assert scan_gate_take("{", 0, gate) is False
 
 
+def test_sg_scan_reads_a_negated_take_set_past_the_noise(probe_gate):
+    """A co-finite take-set admits every post-noise character it does not
+    hold, refuses one it holds, and refuses the end of the text."""
+    rec = probe_gate.rec
+    ws_idx = probe_gate.roots[0]
+    gate = ScanGate(SG_SCAN, rec, (ws_idx,), (frozenset({"}"}), True))
+    assert scan_gate_take("  x", 0, gate) is True
+    assert scan_gate_take("  }", 0, gate) is False
+    assert scan_gate_take("  ", 0, gate) is False
+
+
+ABNF_NOISE = ("\n", "  \n", ";c\n")
+"""ABNF noise lines: a bare ``crlf``, a ``blank`` (``wsp* crlf``) and a
+``comment``. ``c-nl`` takes the first and third, ``filler`` all three."""
+
+
+@pytest.mark.parametrize("flavour", ["gbnf", "abnf", "ebnf"])
+def test_a_roots_run_pattern_ends_where_its_per_step_loop_does(flavour: str) -> None:
+    """``scan_gate_take`` skips a one-root gate's noise with ``scan_run``, the
+    root's possessive run pattern, not ``scan_run_any``'s per-step loop: for
+    every rule of the flavour's self-grammar a recogniser takes as a root, both
+    end at the same offset everywhere in the corpus's own files of that
+    flavour, with empty, one-instance and longer runs all seen."""
+    rules = flavour_rules(flavour)
+    texts = [
+        p.read_text(encoding="utf-8")[:600]
+        for p in sorted(GROUND_TRUTH.glob(f"*.{flavour}"))
+    ]
+    seen = {"empty": 0, "one": 0, "more": 0}
+    for name in rules:
+        rec = build_recognizer(rules, frozenset({name}))
+        if rec is None:
+            continue  # not a regular root: no gate stands on it
+        root = rec.index[name]
+        for text in texts:
+            for at in range(len(text) + 1):
+                end = scan_run(text, at, rec, root)
+                assert end == scan_run_any(text, at, rec, (root,)), (name, at)
+                first = rec.pats[root].match(text, at)
+                one = at if first is None else first.end()
+                seen["empty" if end == at else "one" if end == one else "more"] += 1
+    assert all(seen.values()), seen
+
+
+def test_a_multi_root_scan_gate_skips_the_union_of_its_roots() -> None:
+    """A gate racing ABNF's ``c-nl`` and ``filler`` skips every noise line
+    either takes before its take-set reads the next character; ``c-nl`` alone
+    stops at the first ``blank``, so a gate reading one root would refuse."""
+    rec = build_recognizer(flavour_rules("abnf"), frozenset({"c-nl", "filler"}))
+    assert rec is not None
+    roots = (rec.index["c-nl"], rec.index["filler"])
+    gate = ScanGate(SG_SCAN, rec, roots, (frozenset({"q"}), False))
+    short = 0
+    for lines in ((0, 1), (1, 2), (2, 1, 0), (1,), (0, 2, 1, 1)):
+        noise = "".join(ABNF_NOISE[i] for i in lines)
+        assert scan_gate_take(noise + "q", 0, gate) is True, noise
+        assert scan_gate_take(noise + "!", 0, gate) is False, noise
+        short += scan_run(noise + "q", 0, rec, roots[0]) < len(noise)
+    assert short, "c-nl alone covers every text: the pin would pass vacuously"
+
+
 def test_single_literal_recognizer():
     """A one-rule, one-literal recogniser matches a single-char run."""
     rule = IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral(" ")))))
@@ -365,7 +427,7 @@ compiled spelling has to preserve. ``\\x00`` stands in for nothing; the EOF
 sentinel is the empty string, added by :func:`_with_eof`.
 
 No EMPTY SET here: an attempt arm whose windows are all empty carries no
-filter at all (:meth:`CloneCompiler._attempt_window` returns ``None``), so
+filter at all (:func:`~lexic.parsing.pda.compiler.eligibility.attempt_window` returns ``None``), so
 ``compile_admission(())`` is not a state the lowering can reach and pinning an
 answer for it would pin a shape nothing produces."""
 

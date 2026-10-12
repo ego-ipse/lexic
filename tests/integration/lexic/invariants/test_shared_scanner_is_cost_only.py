@@ -1,15 +1,16 @@
-"""The shared sweep moves scan COST, never a plan's answer.
+"""The shared scanner moves scan COST, never a plan's answer.
 
-One scanner sweeps the union of every certified plan's mark spellings, so a
-document is walked once rather than once per plan. That is only sound if the
-union changes what each plan PAYS and not what it FINDS — otherwise plans stop
-being independent and any table built by running them one at a time is
-measuring something the orchestrator never does.
+One scanner reads the union of every certified plan's mark spellings rather
+than the grammar's every mark, so a stretch the cut search reads carries only
+spellings some plan can cut at. That is only sound if the union changes what
+each plan PAYS and not what it FINDS — otherwise plans stop being independent
+and any table built by running them one at a time is measuring something the
+orchestrator never does.
 
-Two claims hold it up, both stated in `cuts.py` and neither tested until now:
+Two claims hold it up, both stated in `cuts.py`:
 
-* `scan_marks` filters the shared offsets back to the plan's OWN spelling —
-  "the scanner reports every mark of the GRAMMAR; this plan keeps its own";
+* the candidates keep only the plan's OWN spelling — the scanner reports
+  marks of the union, and each plan keeps its own;
 * the depth-carrying character sets (`openers` / `closers`) come from
   grammar-derived pairs, not from the union — "pairs come from the grammar,
   because depth does not belong to any one plan".
@@ -20,13 +21,12 @@ from __future__ import annotations
 import pytest
 
 from lexic.parsing.parallel.plan.cuts import (
+    Level,
+    cut_offsets,
     reads_a_sweep,
-    rebase,
-    scan_marks,
     shared_scanner,
 )
 from lexic.parsing.parallel.planner import safe_plans, split_plans
-from lexic.parsing.parallel.pool import PoolLease
 from tools.benchmark.cases.grammars import BENCHES
 
 WORKERS = 4
@@ -45,7 +45,8 @@ ROWS = [one.name for one in BENCHES]
 
 @pytest.mark.parametrize("name", ROWS)
 def test_the_union_does_not_change_what_a_plan_finds(name: str) -> None:
-    """Each plan's marks are the same under the shared sweep and its own.
+    """Each plan's candidates and cuts are the same under the shared scanner
+    and its own.
 
     This is the independence the cascade table rests on: if a plan's answer
     moved when another plan joined the union, running plans one at a time
@@ -57,13 +58,16 @@ def test_the_union_does_not_change_what_a_plan_finds(name: str) -> None:
     shared = shared_scanner(grammar, plans)
     assert shared is not None, "plans read a sweep but no scanner was built"
 
-    with PoolLease(WORKERS) as pool:
-        together = rebase(shared, bench.full, WORKERS, pool)
-        for plan in plans:
-            alone = scan_marks(plan, bench.full, WORKERS, pool)
-            shared_answer = scan_marks(plan, bench.full, WORKERS, pool, together)
-
-            assert shared_answer == alone, f"{name}: {plan.owner} moved"
+    end = len(bench.full) + 1
+    found = 0
+    for plan in plans:
+        alone = cut_offsets(plan, bench.full, WORKERS, Level(plan.scanner, bench.full))
+        together = cut_offsets(plan, bench.full, WORKERS, Level(shared, bench.full))
+        listed = list(together.marks(0, 0, end))
+        found += len(listed)
+        assert listed == list(alone.marks(0, 0, end)), f"{name}: {plan.owner} moved"
+        assert together.offsets == alone.offsets, f"{name}: {plan.owner}'s cuts moved"
+    assert found, f"{name}: no plan found a candidate — nothing was compared"
 
 
 @pytest.mark.parametrize("name", ROWS)

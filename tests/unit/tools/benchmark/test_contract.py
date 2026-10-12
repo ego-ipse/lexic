@@ -11,11 +11,9 @@ from typing import NamedTuple
 import pytest
 
 from lexic.compile import compile_text
+from tests.unit.tools.benchmark.benchmark_helpers import CONTRACT
 from tools.benchmark.measurement.contract import (
-    CLOCKS,
-    PROTOCOL,
     Observation,
-    RowContract,
     read_observation,
     shape,
 )
@@ -125,30 +123,18 @@ def test_a_deeply_nested_product_renders_rather_than_recursing() -> None:
 
 def test_an_observation_survives_the_wire_with_both_digests() -> None:
     """Both digests travel, or the comparator cannot ask for either."""
-    observation = Observation(1.5, 2.5, "text", "shape", "accepted", True, "plan", 8)
+    observation = Observation(
+        1.5, 2.5, "text", "shape", "accepted", True, "plan", 8, 2, 0.01
+    )
 
     assert read_observation(observation.wire()) == observation
 
 
 def test_a_contract_names_every_field_that_differs() -> None:
     """Mismatch is reported by field, in declaration order."""
-    contract = RowContract(
-        PROTOCOL,
-        "lexic-pda",
-        "json",
-        "abc123",
-        (),
-        (),
-        "def456",
-        2403,
-        "corpus",
-        "typed model",
-        1,
-        True,
-        CLOCKS,
-    )
+    contract = CONTRACT
 
-    assert contract.mismatch(contract) == ()
+    assert not contract.mismatch(contract)
     assert contract.mismatch(contract._replace(cores=8, scale="full")) == (
         "scale",
         "cores",
@@ -157,7 +143,9 @@ def test_a_contract_names_every_field_that_differs() -> None:
 
 def test_an_observation_missing_a_digest_is_not_read_as_empty() -> None:
     """An older harness's payload refuses rather than comparing as blank."""
-    wire = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1).wire()
+    wire = Observation(
+        1.0, 1.0, "text", "shape", "accepted", None, "plan", 1, 0, 0.0
+    ).wire()
     del wire["shape_digest"]
 
     with pytest.raises(KeyError):

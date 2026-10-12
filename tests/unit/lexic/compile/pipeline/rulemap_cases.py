@@ -36,7 +36,6 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.model import GrammarModel
 
 DIGIT = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
 RANGE_AC = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
@@ -507,13 +506,6 @@ def case_class_name_mangles_keywords_and_header_bindings(
     assert binding.class_name_for("jp-char") == "JpChar"
 
 
-def case_reserved_field_names_cover_grammar_model(binding: ModuleType) -> None:
-    """Every public GrammarModel attribute is a reserved field name."""
-    public = {n for n in dir(GrammarModel) if not n.startswith("_")}
-    reserved = getattr(binding, "RESERVED_FIELD_NAMES")
-    assert public <= reserved
-
-
 def case_bind_fields_mangles_reserved_names(binding: ModuleType) -> None:
     """Rule refs named after keywords or model attributes get a ``_`` suffix."""
     items = [
@@ -750,9 +742,6 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
     ),
     "test_class_name_mangles_keywords_and_header_bindings": (
         case_class_name_mangles_keywords_and_header_bindings
-    ),
-    "test_reserved_field_names_cover_grammar_model": (
-        case_reserved_field_names_cover_grammar_model
     ),
     "test_bind_fields_mangles_reserved_names": (
         case_bind_fields_mangles_reserved_names

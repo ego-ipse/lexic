@@ -28,7 +28,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_point
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items, to_chart
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.splits import canonical_indices, spec_for
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tests.earley_families import (
     baseline_recorder,
     before_group,
@@ -57,13 +57,13 @@ and every document is an ARM ambiguity, so the refusal and resolver paths run.""
 def seat(name: str):
     """The bench's own `lexic-earley` product, as `bench.py` builds it."""
     bench = next(one for one in BENCHES if one.name == name)
-    return bench, _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    return bench, model_product(bench.compiled.codegen_grammar, bench.compiled.product)
 
 
 def operators():
     """The operator grammar's compiled artefact and its `lexic-earley` product."""
     compiled = compile_text(OPERATORS)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 def handles(kern) -> list[int]:
@@ -88,7 +88,13 @@ def consumers(kern) -> dict[str, object]:
         out[f"points {handle}"] = points
         for point in points:
             bucket = reader[point]
-            spec = spec_for(codes, bits, kern.tables.code_choice, point)
+            spec = spec_for(
+                codes,
+                bits,
+                kern.tables.code_choice,
+                kern.tables.decode.code_droppable,
+                point,
+            )
             out[f"canonical {point}"] = canonical_indices(
                 reader, bucket, spec, LEFTMOST_LONGEST
             )

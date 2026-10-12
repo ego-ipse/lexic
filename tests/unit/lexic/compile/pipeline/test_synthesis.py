@@ -17,7 +17,7 @@ import pytest
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
-from lexic.compile.pipeline.synthesis import _declared_licence, synthesize
+from lexic.compile.pipeline.synthesis import declared_licence, synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
@@ -341,7 +341,7 @@ def test_declared_licence_refuses_a_class_that_overrides_from_values():
             return tuple.__new__(cls, values)
 
     with pytest.raises(UnsupportedConstructError, match="overrides _from_values"):
-        _declared_licence(Overridden, {})
+        declared_licence(Overridden, {})
 
 
 def test_declared_licence_names_the_overriding_class_in_the_message():
@@ -358,7 +358,7 @@ def test_declared_licence_names_the_overriding_class_in_the_message():
             return tuple.__new__(cls, values)
 
     with pytest.raises(UnsupportedConstructError, match="Named overrides"):
-        _declared_licence(Named, {})
+        declared_licence(Named, {})
 
 
 def test_declared_licence_refuses_an_inherited_override_too():
@@ -382,7 +382,7 @@ def test_declared_licence_refuses_an_inherited_override_too():
         __grammar__: ClassVar[IrRule] = _value_str_grammar("derived")
 
     with pytest.raises(UnsupportedConstructError, match="Base overrides"):
-        _declared_licence(Derived, {})
+        declared_licence(Derived, {})
 
 
 def test_declared_licence_grants_an_ordinary_class_the_spines_own_from_values():
@@ -390,7 +390,7 @@ def test_declared_licence_grants_an_ordinary_class_the_spines_own_from_values():
     carrying its own record class — the mirror of the refusal above."""
     classes, _grammar, _binding = synth('root ::= "hi"\n')
     cls = classes["Root"]
-    licence = _declared_licence(cls, {})
+    licence = declared_licence(cls, {})
     spine_construct, _defaults, _order = cls.fast_construct()
     assert licence.construct == spine_construct
     assert licence.record is cls

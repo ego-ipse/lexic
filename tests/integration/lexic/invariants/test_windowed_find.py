@@ -25,7 +25,7 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery import regions
-from lexic.parsing.parallel.discovery.regions import _vocabulary, find, par_find
+from lexic.parsing.parallel.discovery.regions import find, par_find, scan_vocabulary
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -97,7 +97,7 @@ def ragged(seed: int) -> str:
 
 def windowed(grammar) -> bool:
     """Whether this grammar's vocabulary is eligible for the windows."""
-    return not _vocabulary(grammar).skips
+    return not scan_vocabulary(grammar).skips
 
 
 def both_finds(grammar, text: str, min_span: int, windows: int):
@@ -196,7 +196,7 @@ def test_the_overlap_fixture_really_overlaps() -> None:
     Without a character in both roles the windowed sweep and the serial sweep
     cannot disagree, and every case below would pass on a broken sweep.
     """
-    vocab = _vocabulary(compile_text(OVERLAP).codegen_grammar)
+    vocab = scan_vocabulary(compile_text(OVERLAP).codegen_grammar)
     both = set(vocab.closers) & set(vocab.marks)
     assert both, f"no character is both closer and separator: {vocab}"
     assert windowed(compile_text(OVERLAP).codegen_grammar)

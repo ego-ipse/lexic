@@ -568,7 +568,7 @@ EBNF_ACTIONS = IrTypeMap(
 """The emit half: per-IR-type actions, doc-producing at structure levels."""
 
 
-class _EbnfFlavour(IrFlavour):
+class EbnfFlavour(IrFlavour):
     """EBNF flavour singleton class."""
 
     actions: IrTypeMap = EBNF_ACTIONS
@@ -582,5 +582,5 @@ class _EbnfFlavour(IrFlavour):
     reducer: ClassVar[Reducer] = EBNF_REDUCER
 
 
-EBNF_FLAVOUR = _EbnfFlavour()
+EBNF_FLAVOUR = EbnfFlavour()
 """The EBNF flavour singleton."""

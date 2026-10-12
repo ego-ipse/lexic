@@ -13,7 +13,7 @@ What IS deterministic is the hazard's precondition and the fix's effect, so
 those are what this pins.
 
 One trap is recorded here as an assertion rather than a comment, because it
-silently makes fork tests vacuous: **a non-empty ``_IDLE`` does not mean a
+silently makes fork tests vacuous: **a non-empty ``IDLE_POOLS`` does not mean a
 split engaged.** ``split_model`` takes its lease before deciding, so a
 declining grammar leaves a retained pool. Planning may already have submitted
 discovery work by then, so even executor-owned threads do not prove the final
@@ -32,7 +32,7 @@ from typing import cast
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.parsing.parallel import reset_pools
-from lexic.parsing.parallel.pool import _IDLE
+from lexic.parsing.parallel.pool import IDLE_POOLS
 from tests.integration.lexic.concurrency.fixtures import (
     FLAT,
     SPLITTING,
@@ -46,10 +46,10 @@ CHILD_TIMEOUT = 60.0
 
 
 def _retained_executor_threads() -> set[threading.Thread]:
-    """Return the threads owned by every executor retained in ``_IDLE``."""
+    """Return the threads owned by every executor retained in ``IDLE_POOLS``."""
     return {
         thread
-        for waiting in _IDLE.values()
+        for waiting in IDLE_POOLS.values()
         for work_pool in waiting
         for thread in cast(
             set[threading.Thread],
@@ -74,7 +74,7 @@ def _child_parses(queue: multiprocessing.queues.Queue[str]) -> None:
 
 
 def test_a_retained_pool_does_not_prove_a_split_engaged() -> None:
-    """The vacuity trap, pinned: ``_IDLE`` fills even when nothing split.
+    """The vacuity trap, pinned: ``IDLE_POOLS`` fills even when nothing split.
 
     The lease is taken before the final plan result, so a declining grammar
     leaves a retained pool. Its discovery phases may even have submitted work.
@@ -84,7 +84,7 @@ def test_a_retained_pool_does_not_prove_a_split_engaged() -> None:
     compiled = compile_text(FLAT, cache_key="concurrency-declines")
     text = flat_doc(0, 3000)
     assert not engages(compiled, text, WORKERS), "the decline witness engaged"
-    assert _IDLE, "expected the declining parse to retain a pool anyway"
+    assert IDLE_POOLS, "expected the declining parse to retain a pool anyway"
 
 
 def test_an_engaging_split_parse_leaves_live_pool_threads() -> None:
@@ -98,7 +98,7 @@ def test_an_engaging_split_parse_leaves_live_pool_threads() -> None:
     reset_pools()
     assert not _retained_executor_threads(), "reset left executor threads behind"
     _split_parse()
-    assert _IDLE, "no pool was retained"
+    assert IDLE_POOLS, "no pool was retained"
     assert any(thread.is_alive() for thread in _retained_executor_threads()), (
         "the engaging parse retained no live worker"
     )
@@ -110,7 +110,7 @@ def test_reset_pools_closes_all_retained_executor_threads() -> None:
     retained = _retained_executor_threads()
     assert any(thread.is_alive() for thread in retained)
     reset_pools()
-    assert not _IDLE
+    assert not IDLE_POOLS
     assert not any(thread.is_alive() for thread in retained)
 
 

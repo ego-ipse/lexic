@@ -65,9 +65,10 @@ def scan_table() -> None:
     for bench in BENCHES:
         derived = roles(bench.compiled.codegen_grammar)
         scanner = Scanner(derived)
-        window = scanner.window(bench.corpus, 0, len(bench.corpus))
-        top = len(scanner.offsets([window], depth=0))
-        inner = len(scanner.offsets([window], depth=1))
+        # A level read from depth -1 stands at 0 exactly where the marks
+        # one bracket deep do.
+        top = len(scanner.level(bench.corpus, 0, len(bench.corpus), 0))
+        inner = len(scanner.level(bench.corpus, 0, len(bench.corpus), -1))
         auto = worker_count(len(bench.corpus), max(top, inner))
         print(f"{bench.name:<12} {len(bench.corpus):>8d} {top:>8d} {inner:>8d}  {auto}")
 

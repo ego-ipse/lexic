@@ -33,7 +33,7 @@ from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig, parse
 from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tests.unit.lexic.parsing.parsing_helpers import engines_agree_or_both_refuse
 
 PURE_SPLIT = 'doc ::= a b c\na ::= "xx" "x"?\nb ::= "x" "xx"?\nc ::= "x"+\n'
@@ -54,7 +54,7 @@ passing. This shape separates them.
 def _product(source: str, key: str):
     """Compile ``source``; return the compiled grammar and its model product."""
     compiled = compile_text(source, cache_key=key)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
+    return compiled, model_product(compiled.codegen_grammar, compiled.product)
 
 
 def _model(source: str, key: str, text: str, config: ParseConfig = DEFAULT_CONFIG):
@@ -231,7 +231,7 @@ def test_a_non_nullable_item_still_carves_and_the_first_slot_wins(
     must give the same carving — the one where the first slot takes what it can.
     """
     compiled = compile_text(X_Y_PLUS, cache_key="xy-plus-split")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     gated = earley_model(
         product.instance_grammar, text, compiled.product, product.tables
     )

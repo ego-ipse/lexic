@@ -7,7 +7,7 @@ a worker registers the pool it holds and asserts on entry that nobody else
 already holds it, so a double hand-off is caught the first time it happens
 rather than the first time it happens to matter.
 
-The other observables are ``_IDLE`` growing past ``RETAINED`` (a lost return),
+The other observables are ``IDLE_POOLS`` growing past ``RETAINED`` (a lost return),
 a pool used after ``close()`` (``RuntimeError: cannot schedule new futures
 after shutdown``), and a deadlock. Deadlocks are made to FAIL rather than
 hang: every race here runs under the harness's deadline.
@@ -21,7 +21,7 @@ from functools import partial
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.parsing.parallel import reset_pools
-from lexic.parsing.parallel.pool import _IDLE, RETAINED, PoolLease, WorkPool
+from lexic.parsing.parallel.pool import IDLE_POOLS, RETAINED, PoolLease, WorkPool
 from tests.integration.lexic.concurrency.concurrency import clean, parallel
 from tests.integration.lexic.concurrency.fixtures import SPLITTING, split_doc
 
@@ -138,7 +138,7 @@ def test_the_idle_cache_never_exceeds_its_retention_bound() -> None:
     clean(parallel(partial(_borrow_repeatedly, ledger=ledger), 8))
     oversized = {
         width: len(waiting)
-        for width, waiting in _IDLE.items()
+        for width, waiting in IDLE_POOLS.items()
         if len(waiting) > RETAINED
     }
     assert not oversized, f"idle cache past RETAINED={RETAINED}: {oversized}"
@@ -165,7 +165,7 @@ def test_reset_pools_during_in_flight_parses_neither_corrupts_nor_deadlocks() ->
     """``reset_pools`` closes only IDLE pools, so a live lease is untouched.
 
     That is the obligation this pins, and it is safe by structure rather than
-    by luck: a lent pool is unreachable from ``_IDLE`` because the lease holds
+    by luck: a lent pool is unreachable from ``IDLE_POOLS`` because the lease holds
     the only reference. The reset thread therefore runs flat out for the whole
     race, every parse must still be exact, and the race must finish inside the
     harness deadline — a reset that closed a lent pool would surface as a

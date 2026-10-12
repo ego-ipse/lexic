@@ -16,9 +16,9 @@ from lexic.ir.text.tokenizer import (
     IrLongestMatch,
     IrRankedMerge,
     IrTokenizer,
-    _identifier,
-    _spelling,
-    _vocab_map,
+    as_spelling,
+    identifier,
+    vocab_map,
 )
 
 
@@ -103,16 +103,16 @@ def test_carries_is_true_for_a_vocab_covered_character_false_otherwise():
     assert not tok.carries("z")
 
 
-# ── _spelling / _identifier — exact-class carry ─────────────────────────────
+# ── as_spelling / identifier — exact-class carry ─────────────────────────────
 
 
 class _StrSubclass(IrStr):
-    """A local IrStr subclass — proves ``_spelling`` normalizes to exact
+    """A local IrStr subclass — proves ``as_spelling`` normalizes to exact
     ``IrStr`` rather than letting a subclass through."""
 
 
 class _ChrSubclass(IrChr):
-    """A local IrChr subclass — proves ``_identifier`` normalizes to exact
+    """A local IrChr subclass — proves ``identifier`` normalizes to exact
     ``IrChr`` rather than letting a subclass through."""
 
 
@@ -120,13 +120,13 @@ def test_spelling_carries_the_exact_irstr_object():
     """An exact ``IrStr`` in comes back as the SAME object — a regression
     that rebuilds it anyway would read as "the carry became a rebuild"."""
     value = IrStr("a")
-    assert _spelling(value) is value
+    assert as_spelling(value) is value
 
 
 def test_spelling_rebuilds_a_plain_str_into_a_new_exact_irstr():
     """A plain ``str`` is not the leaf kind the vocab is keyed on — it has to
     be built, not merely claimed."""
-    built = _spelling("a")
+    built = as_spelling("a")
     assert built == "a"
     assert built.__class__ is IrStr
 
@@ -140,7 +140,7 @@ def test_spelling_never_lets_an_irstr_subclass_leak_through():
     mode is "a subclass leaked through", not a raised error.
     """
     subclass_value = _StrSubclass("a")
-    built = _spelling(subclass_value)
+    built = as_spelling(subclass_value)
     assert built is not subclass_value
     assert built.__class__ is IrStr
     assert built == "a"
@@ -149,20 +149,20 @@ def test_spelling_never_lets_an_irstr_subclass_leak_through():
 def test_identifier_carries_the_exact_irchr_object():
     """An exact ``IrChr`` in comes back as the SAME object."""
     value = IrChr(60)
-    assert _identifier(value) is value
+    assert identifier(value) is value
 
 
 def test_identifier_rebuilds_a_plain_int_into_a_new_exact_irchr():
     """A plain ``int`` is not the leaf kind ``decode`` is keyed on."""
-    built = _identifier(60)
+    built = identifier(60)
     assert int(built) == 60
     assert built.__class__ is IrChr
 
 
 def test_identifier_never_lets_an_irchr_subclass_leak_through():
-    """Same exactness requirement as ``_spelling``'s, on the id side."""
+    """Same exactness requirement as ``as_spelling``'s, on the id side."""
     subclass_value = _ChrSubclass(60)
-    built = _identifier(subclass_value)
+    built = identifier(subclass_value)
     assert built is not subclass_value
     assert built.__class__ is IrChr
     assert int(built) == 60
@@ -174,7 +174,7 @@ def test_identifier_never_lets_an_irchr_subclass_leak_through():
 def test_an_irmap_keyed_on_irchr_misses_an_irint_probe_of_the_same_ordinal():
     """Distinct leaf kinds never compare equal — ``IrScalar.__eq__`` is
     type-aware by design, so an ``IrChr`` key and an ``IrInt`` probe of the
-    identical ordinal do not collide. This is the trap ``_identifier`` exists
+    identical ordinal do not collide. This is the trap ``identifier`` exists
     to close before a lookup ever runs."""
     table = IrMap(IrTuple(IrChr(40), IrStr("(")))
     assert table.get(IrInt(40)) is None
@@ -186,7 +186,7 @@ def test_identifier_rebuilds_a_reducers_irint_id_so_spell_hits():
     :meth:`IrTokenizer.spell` key on ``IrChr``. Building a tokenizer from a
     reducer-shaped vocab (``IrStr`` keys, ``IrInt`` ids — exactly what a
     reduced ``tokenizer.json`` document's ``vocab`` section carries) must
-    still make every id resolvable: if ``_identifier`` ever stopped
+    still make every id resolvable: if ``identifier`` ever stopped
     rebuilding an ``IrInt`` id, ``decode`` would be keyed on ``IrInt`` and
     ``spell()`` would silently fall through to its bracketed-id fallback
     instead of finding the token — a quiet lookup MISS, not a type error."""
@@ -201,8 +201,8 @@ def test_identifier_rebuilds_a_reducers_irint_id_so_spell_hits():
 
 def test_vocab_map_iterates_in_canonical_key_sorted_order_for_mixed_input():
     """``IrMap`` is key-ordered by design (key-repr-sorted) — the standing
-    product property — so ``_vocab_map`` must not leak whatever order the
+    product property — so ``vocab_map`` must not leak whatever order the
     input mapping happened to iterate in."""
     vocab = {"z": 0, "a": 1, "m": 2, "b": 3}
-    built = _vocab_map(vocab)
+    built = vocab_map(vocab)
     assert list(built.keys()) == sorted((IrStr(s) for s in vocab), key=repr)

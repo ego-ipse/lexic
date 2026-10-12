@@ -16,8 +16,8 @@ import threading
 import pytest
 
 from lexic.parsing.caches import (
-    _ADOPTED,
-    _CLAIMED,
+    ADOPTED,
+    CLAIMED,
     adopt,
     cached_entries,
     memo,
@@ -113,13 +113,13 @@ def test_a_second_claimant_does_not_steal_an_already_claimed_identity() -> None:
     entries[(id(shared), "k")] = "v"
 
     track(long_lived, shared)
-    assert id(shared) in _CLAIMED
+    assert id(shared) in CLAIMED
     track(short_lived, shared)  # already claimed by long_lived — skipped
 
     del short_lived
     gc.collect()
     assert entries == {(id(shared), "k"): "v"}  # survives the short release
-    assert id(shared) in _CLAIMED  # still claimed — by long_lived
+    assert id(shared) in CLAIMED  # still claimed — by long_lived
 
     del long_lived
     gc.collect()
@@ -184,7 +184,7 @@ def test_releasing_a_child_clears_it_from_every_other_owners_record() -> None:
     release((id(child),))
 
     assert not entries, "the child's own chain should have drained"
-    assert id(child) not in _ADOPTED.get(id(long_lived), set())
+    assert id(child) not in ADOPTED.get(id(long_lived), set())
 
 
 def test_the_surviving_owner_still_releases_what_it_kept() -> None:
@@ -220,8 +220,8 @@ def test_reset_caches_empties_every_registered_memo_and_bookkeeping() -> None:
     assert not entries_a
     assert not entries_b
     assert cached_entries() == 0
-    assert not _ADOPTED
-    assert not _CLAIMED
+    assert not ADOPTED
+    assert not CLAIMED
 
 
 def test_release_tolerates_a_concurrent_pop_during_the_sweep() -> None:

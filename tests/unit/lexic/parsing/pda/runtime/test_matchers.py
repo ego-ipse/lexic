@@ -13,36 +13,52 @@ from pathlib import Path
 
 import pytest
 
+import lexic.parsing.pda.runtime.kernel.execution as execution_mod
 import lexic.parsing.pda.runtime.kernel.kernel as kernel_mod
 import lexic.parsing.pda.runtime.matchers as matchers_mod
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrSelf
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import all_clones
+from lexic.parsing.pda.compiler.program.flatten import all_clones, clone_arms
 from lexic.parsing.pda.compiler.program.gating import arm_expected
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    GATE_STOP,
     OP_CC,
     OP_CONSULT,
+    OP_ISLAND,
     OP_LIT,
+    OP_LIT1,
+    OP_REF,
+    OP_REF1,
     OP_VSTR,
 )
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
+    REST_ADMITS_HARD,
+    REST_ASCEND,
+    REST_DEAD,
+    arm_rest_scan,
     consult_extent,
+    item_admits,
     match_arm,
     match_cc,
     match_chartable,
     match_lit,
-    select_arm,
+    spelled_run,
+    stop_side_dead,
     vstr_once,
 )
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import earley_model, model_product
 from tests.clone_walk import walk_program_clones
+from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 
 def pda_for(text: str):
@@ -147,25 +163,6 @@ def test_match_arm_refuses_a_mid_arm_mismatch() -> None:
     tables, _ = pda_for('root ::= "0x" [0-9a-f]+\n')
     with pytest.raises(PdaFail):
         match_arm("0xzz", start_arm(tables), 0)
-
-
-# ── arm selection ──────────────────────────────────────────────────────────
-
-
-def test_select_arm_picks_the_arm_whose_first_admits_the_char() -> None:
-    """Two arms with disjoint FIRST sets select by the lookahead char."""
-    tables, _ = pda_for('root ::= a | b\na ::= "x"\nb ::= "y"\n')
-    start = tables.program.start
-    assert select_arm(start, "x", 0) is not select_arm(start, "y", 0)
-
-
-def test_select_arm_refuses_when_no_arm_matches_and_no_default() -> None:
-    """No viable arm and no default raises by name, carrying the position."""
-    tables, _ = pda_for('root ::= "x"\n')
-    start = tables.program.start
-    assert start.default is None  # else the refusal below could not fire
-    with pytest.raises(PdaFail, match="no arm at 3"):
-        select_arm(start, "q", 3)
 
 
 # ── one value_str iteration ────────────────────────────────────────────────
@@ -299,6 +296,29 @@ def test_consult_extent_refuses_with_the_arm_selections_own_words_and_position()
     assert (caught.value.expected, caught.value.negated) == arm_expected(clone)
 
 
+def test_a_consult_run_matches_in_place_and_refuses_through_the_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proved run answers its span with the pattern inline; only a miss
+    reaches ``consult_extent``, whose words the refusal keeps."""
+    tables, _ = pda_for('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n')
+    clone = _consult_clone(tables)
+    asked: list[int] = []
+    real = matchers_mod.consult_extent
+
+    def refusal(text, clone_, runarm, pos):
+        asked.append(pos)
+        return real(text, clone_, runarm, pos)
+
+    monkeypatch.setattr(matchers_mod, "consult_extent", refusal)
+    sink: list = []
+    assert matchers_mod.run_span_once("ab;!", clone, sink, 0) == 3
+    assert not asked and len(sink) == 1
+    with pytest.raises(PdaFail) as caught:
+        matchers_mod.run_span_once("!!!", clone, [], 0)
+    assert asked == [0] and caught.value.rule == clone.name
+
+
 def test_vstr_multi_item_arm_takes_the_cold_span_path():
     """A ``value_str`` rule whose sole arm has MORE than one terminal item
     (``"0x" [0-9a-f]+`` — a literal then a char class) routes through
@@ -325,7 +345,7 @@ _WIDE_NOISE = "resources/ground_truth/commands.gbnf"
 def _wide_parse(source: str, document: str):
     """``(model, wide hops, lead hops)`` for one parse of ``source``."""
     compiled = compile_text(source, cache_key=f"wide-{hash(source)}")
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     real = matchers_mod.chase_dispatch
     hops = {"wide": 0, "lead": 0}
 
@@ -362,7 +382,7 @@ def test_a_window_selected_target_is_entered_with_the_parents_sink():
 
 def wide_selection_kinds(compiled) -> set[str]:
     """Every wide-selection kind reachable in one compiled program."""
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     return {
         type(one.wide_selectors).__name__
         for one in walk_program_clones(product.pda.program.start).values()
@@ -393,7 +413,7 @@ def test_a_wide_miss_refuses_with_the_rule_that_holds_the_selection():
     refused by a path a reader could not identify.
     """
     compiled = compile_from_path(Path(_WIDE_NOISE))
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
 
     with pytest.raises(PdaFail) as refusal:
         pda_model(product.pda, "   put alpha = 1\n", compiled.product.executor)
@@ -410,9 +430,331 @@ def test_a_lead_char_miss_keeps_the_words_it_always_had():
     compiled = compile_text(
         'root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n', cache_key="lead-miss"
     )
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
 
     with pytest.raises(PdaFail) as refusal:
         pda_model(product.pda, "9", compiled.product.executor)
 
     assert str(refusal.value).startswith("no arm at 0")
+
+
+# ── item / clone admission and the arm-rest walk ──────────────────────
+
+MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
+
+
+def test_item_admits_a_literal_only_its_own_character():
+    """A literal item admits only its exact character."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "a") is True
+    assert item_admits(arm, 0, "z") is False
+
+
+def test_item_admits_never_admits_the_empty_string():
+    """An empty lookahead character never admits, regardless of item kind."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 0, "") is False
+
+
+def test_item_admits_a_charclass_by_membership():
+    """A char class item admits by set membership."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 2, "5") is True
+    assert item_admits(arm, 2, "x") is False
+
+
+def test_item_admits_delegates_a_clone_reference_to_clone_admits():
+    """A clone-reference item defers to the target clone's own admission."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert item_admits(arm, 1, "m") is True
+    assert item_admits(arm, 1, "z") is False
+
+
+def test_arm_rest_scan_reports_admits_hard_for_a_mandatory_item():
+    """From item 0, item 1 (the mandatory ``mid`` clone) admits ``'m'`` —
+    settling the walk before item 2 is even reached."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "m", 0) == (REST_ADMITS_HARD, False)
+
+
+def test_arm_rest_scan_reports_dead_when_the_mandatory_item_refuses():
+    """A mandatory item refusing the char kills the stop side."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, 0, "5", 0) == (REST_DEAD, False)
+
+
+def test_arm_rest_scan_ascends_past_the_arms_final_item():
+    """Scanning past the arm's own end yields REST_ASCEND for the enclosing frame."""
+    pda = pda_from_text(MIXED)
+    arm = only_arm(pda.program.start)
+    assert arm_rest_scan(arm, arm.n - 1, "q", 0) == (REST_ASCEND, False)
+
+
+def _closing_arm():
+    """``x " " ">"``: an inline body, then its two-literal closer."""
+    return flat_arm(
+        3,
+        kinds=(OP_REF1, OP_LIT1, OP_LIT1),
+        payloads=(None, " ", ">"),
+        los=(1, 1, 1),
+    )
+
+
+def test_a_run_of_exactly_once_literals_is_read_whole():
+    """The stop side after ``x`` must spell ``" >"`` at the boundary: a space
+    followed by anything else is no closer, and the walk is dead there."""
+    arm = _closing_arm()
+    assert arm_rest_scan(arm, 0, "ab >", 2) == (REST_ADMITS_HARD, False)
+    assert arm_rest_scan(arm, 0, "ab c >", 2) == (REST_DEAD, False)
+    assert arm_rest_scan(arm, 0, "ab", 2) == (REST_DEAD, False)
+
+
+# ── spelled_run — a run of exactly-once literals, read at a position ──────
+
+
+def test_spelled_run_says_where_the_run_ends_and_where_it_refuses():
+    """``" " ">"`` then a reference: the run ends at the reference, past
+    ``" >"``; a space followed by anything else refuses at the second item."""
+    arm = flat_arm(
+        3,
+        kinds=(OP_LIT1, OP_LIT1, OP_REF1),
+        payloads=(" ", ">", None),
+        los=(1, 1, 1),
+    )
+    assert spelled_run(arm, 0, "a >b", 1) == (2, 3)
+    assert spelled_run(arm, 0, "a  b", 1) == (1, -1)
+
+
+# ── stop_side_dead — the stop side read against the text ──────────────────
+
+_ONE, _MANY = 1, -1
+"""Upper bounds: exactly or at most once, and unbounded."""
+
+
+def rest_arm(*items: tuple[int, object, int, int]):
+    """An arm whose item 0 is the stopped loop and whose rest is ``items``,
+    each ``(kind, payload, lo, hi)``."""
+    loop = (OP_LIT, "z", 0, _MANY)
+    kinds, payloads, los, his = zip(loop, *items, strict=True)
+    return flat_arm(len(kinds), kinds=kinds, payloads=payloads, los=los, his=his)
+
+
+def dead(arm, text: str, stack: list | None = None) -> bool:
+    """The walk from the stopped loop at item 0, at the start of ``text``,
+    under ``stack`` (the arm's own frame on top, and the frames below it)."""
+    return stop_side_dead(stack or [], arm, 0, text, 0)
+
+
+def test_a_mandatory_literal_the_text_cannot_match_kills_the_stop_side():
+    """``" >"`` against ``" n"``: no continuation begins with this text,
+    though its first character admits."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " n:7")
+
+
+def test_a_mandatory_empty_literal_matches_everywhere_and_never_kills():
+    """``""`` then ``" >"`` against ``" >"``: the empty literal consumes
+    nothing."""
+    arm = rest_arm((OP_LIT1, "", 1, _ONE), (OP_LIT1, " >", 1, _ONE))
+    assert not dead(arm, " >")
+
+
+def test_a_continuation_that_spends_the_document_lives():
+    """``" >"`` against ``" >"``, then the end of the document."""
+    assert not dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " >")
+
+
+def test_text_left_past_the_root_is_dead():
+    """The rest matches, but the document goes on where nothing may follow."""
+    assert dead(rest_arm((OP_LIT1, " >", 1, _ONE)), " > more")
+
+
+def test_skipping_a_matching_optional_item_can_be_the_reading_that_lives():
+    """``"a"? "ab"`` on ``ab``: taking the optional ``a`` leaves ``b`` against
+    ``ab`` and dies; skipping it matches. A walk that skips an optional item
+    only on a mismatch takes ``a``, dies, and calls a live stop side dead."""
+    arm = rest_arm((OP_LIT, "a", 0, _ONE), (OP_LIT1, "ab", 1, _ONE))
+    assert not dead(arm, "ab")
+    assert dead(arm, "ac")
+
+
+def test_an_optional_class_is_tried_both_ways_too():
+    """``[ab]? "b"`` on ``b``: the class takes the ``b`` and the literal then
+    meets the end; skipping the class is the reading that lives."""
+    arm = rest_arm((OP_CC, (frozenset("ab"), False), 0, _ONE), (OP_LIT1, "b", 1, _ONE))
+    assert not dead(arm, "b")
+    assert dead(arm, "c")
+
+
+def test_a_variable_width_item_stops_the_walk_undecided():
+    """``"x"+ "!"``: after a matching first ``x`` the walk cannot know where
+    the run ends, so the ``y`` that kills ``"!"`` later proves nothing; a
+    mandatory run that cannot even start kills."""
+    arm = rest_arm((OP_LIT, "x", 1, _MANY), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "xxy")
+    assert dead(arm, "y")
+
+
+def test_a_reference_that_could_start_stops_the_walk_undecided():
+    """A reference whose clone admits the character may derive anything."""
+    clone = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=None,
+    )
+    arm = rest_arm((OP_REF, clone, 1, _ONE), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "q?")
+    assert dead(arm, "?")  # it cannot start: read as empty, and "!" refuses
+
+
+def test_a_mandatory_reference_that_may_derive_empty_does_not_kill_at_the_end():
+    """A reference to a clone with a nullable default, at the end of input,
+    leaves the walk undecided; a mandatory literal there kills."""
+    nullable = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=flat_arm(0),
+    )
+    assert not dead(rest_arm((OP_REF, nullable, 1, _ONE)), "")
+    assert dead(rest_arm((OP_LIT1, "q", 1, _ONE)), "")
+
+
+def test_an_island_stops_the_walk_undecided():
+    """An island carries no first set the walk reads: never dead past it."""
+    arm = rest_arm((OP_ISLAND, None, 1, _ONE), (OP_LIT1, "!", 1, _ONE))
+    assert not dead(arm, "?")
+
+
+def _suspended_in(arm, i: int, count: int) -> Frame[IrSelf]:
+    """A frame over ``arm`` standing at item ``i`` with ``count`` iterations."""
+    frame: Frame[IrSelf] = Frame(arm, [], flat_clone(), 0)
+    frame.i, frame.count = i, count
+    return frame
+
+
+def test_the_walk_goes_on_into_the_enclosing_frame_s_rest():
+    """The top arm's rest is spelled through, so the enclosing frame's rest
+    decides: ``x "!"`` with ``x`` an exactly-once reference, suspended past
+    it, wants ``!``."""
+    top = rest_arm()
+    parent = flat_arm(
+        2, kinds=(OP_REF1, OP_LIT1), payloads=(None, "!"), los=(1, 1), his=(1, 1)
+    )
+    stack = [_suspended_in(parent, 1, 0), _suspended_in(top, 0, 0)]
+    assert dead(top, "?", stack)
+    assert not dead(top, "!", stack)
+
+
+def test_a_further_iteration_of_the_enclosing_item_leaves_it_undecided():
+    """The enclosing frame is inside ``q*`` then ``"!"``: another ``q`` could
+    follow, so a ``q`` that ``"!"`` refuses proves nothing; a character no
+    iteration can start falls through to ``"!"``."""
+    top = rest_arm()
+    clone = flat_clone(
+        attempt=None,
+        wide_selectors=None,
+        selectors=((frozenset("q"), False, None),),
+        default=None,
+    )
+    parent = flat_arm(
+        2, kinds=(OP_REF, OP_LIT1), payloads=(clone, "!"), los=(0, 1), his=(_MANY, 1)
+    )
+    stack = [_suspended_in(parent, 0, 1), _suspended_in(top, 0, 0)]
+    assert not dead(top, "q", stack)
+    assert dead(top, "?", stack)
+
+
+# ── a stop-gated value loop reads its gate in place ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("source", "text", "table", "negated"),
+    [
+        ('root ::= d+ ";"\nd ::= [0-9]\n', "0123456789;", "char", False),
+        ('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n', "ab;c;def;!", "span", False),
+        ('root ::= w+ ";"\nw ::= "ab"\n', "ababab;", "none", False),
+        ('root ::= chunk+ "!"\nchunk ::= [^!;]+ ";"\n', "ab;c d;!", "span", True),
+        ('root ::= w* "!"\nw ::= [^!b] | "b" "c"\n', "xbcy!", "none", True),
+        ('root ::= c+ "!"\nc ::= [^!]\n', "x y;z!", "char", True),
+    ],
+    ids=[
+        "char-tabled-loop",
+        "span-tabled-loop",
+        "value-string-loop",
+        "negated-span-tabled-loop",
+        "negated-value-string-loop",
+        "negated-char-tabled-loop",
+    ],
+)
+def test_a_stop_gated_value_loop_never_calls_the_gate(
+    source: str, text: str, table: str, negated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every iteration of a stop-gated loop asked its gate through a call; the
+    loop now reads the stop set in place, and builds the Earley engine's
+    model. The program must hold the loop each case names, stop-gated and of
+    the polarity it names, or the pin says nothing; a document cut before its
+    closing character runs the loop to the end of the text and refuses."""
+    compiled = compile_text(source, cache_key=f"inline-gate-{len(source)}")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    loops = [
+        (arm.payloads[i], arm.gate_data[i][1])
+        for clone in walk_program_clones(product.pda.program.start).values()
+        for arm in clone_arms(clone)
+        for i in range(arm.n)
+        if arm.kinds[i] == OP_VSTR and arm.gate_kinds[i] == GATE_STOP
+    ]
+    kinds = {
+        "none" if t.chartable is None else "span" if t.runarm is not None else "char"
+        for t, _negated in loops
+    }
+    assert kinds == {table}, kinds
+    assert {polarity for _t, polarity in loops} == {negated}
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def no_call(*_args: object) -> bool:
+        raise AssertionError("a stop gate went through gate_take")
+
+    monkeypatch.setattr(matchers_mod, "gate_take", no_call)
+    monkeypatch.setattr(execution_mod, "gate_take", no_call)
+    assert pda_model(product.pda, text, compiled.executor) == want
+    with pytest.raises(PdaFail):
+        pda_model(product.pda, text[:-1], compiled.executor)
+
+
+# ── a span-tabled loop runs its own loop ──────────────────────────────────
+
+CHUNKS = 'root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n'
+"""``chunk`` is proved regular: a span-tabled clone whose extent is one
+consult pattern, looped by ``root``."""
+
+
+def test_a_span_tabled_loop_never_asks_the_char_table_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The span table is keyed by the matched span, not the lookahead, so the
+    loop goes straight to ``match_runtable`` — not through ``match_chartable``
+    to be sent on — and a proved extent that matches never asks for the
+    refusal path. The model is still the Earley engine's."""
+    compiled = compile_text(CHUNKS, cache_key="span-tabled-loop")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    _consult_clone(product.pda)
+    text = "ab;c;def;!"
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+
+    def refused(*_args: object) -> int:
+        raise AssertionError("a span-tabled loop took the char-table or refusal path")
+
+    monkeypatch.setattr(execution_mod, "match_chartable", refused)
+    monkeypatch.setattr(matchers_mod, "consult_extent", refused)
+    assert pda_model(product.pda, text, compiled.executor) == want

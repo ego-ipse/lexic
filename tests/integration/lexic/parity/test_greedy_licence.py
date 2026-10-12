@@ -17,10 +17,10 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.pda.runtime.kernel import decisions
+from lexic.parsing.pda.runtime.kernel import sides
 from lexic.parsing.products import (
-    _model_product,
     earley_model,
+    model_product,
     parse_model,
     pda_model,
 )
@@ -291,30 +291,31 @@ def test_a_forking_parse_builds_the_model_earley_builds() -> None:
     crash — it would build a model with holes in it — so the assertion is
     `dump()` equality against Earley, not that the parse succeeds.
 
-    `gbnf-meta` is the witness because it is the roster's only heavy forker:
-    276 forks on its full sample, where every other row forks 18 times or
-    none. A grammar that never forks would pass this test without exercising
-    anything.
+    `vyx` is the witness because it is the roster row that still forks: its
+    sample forks six times. `gbnf-meta` forked on every trailing comment only
+    while an exactly-once reference's frame was read one item late, which made
+    the stop side look viable. A grammar that never forks would pass this test
+    without exercising anything.
     """
-    bench = next(one for one in BENCHES if one.name == "gbnf-meta")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    bench = next(one for one in BENCHES if one.name == "vyx")
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     seen = [0]
-    real = decisions.frames_copy
+    real = sides.frames_copy
 
-    def counted(stack):
+    def counted(stack, every_end=False, remap=None):
         """Count the forks, so a fixture that stops forking is visible."""
         seen[0] += 1
-        return real(stack)
+        return real(stack, every_end, remap)
 
-    decisions.frames_copy = counted
+    sides.frames_copy = counted
     try:
-        folded = pda_model(product.pda, bench.full, bench.compiled.product.executor)
+        folded = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
     finally:
-        decisions.frames_copy = real
+        sides.frames_copy = real
     reference = earley_model(
-        product.instance_grammar, bench.full, bench.compiled.product, product.tables
+        product.instance_grammar, bench.corpus, bench.compiled.product, product.tables
     )
 
     assert seen[0] > 0, "the witness stopped forking — this test proves nothing"
     assert folded.dump() == reference.dump()
-    assert folded.to_text() == reference.to_text() == bench.full
+    assert folded.to_text() == reference.to_text() == bench.corpus

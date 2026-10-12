@@ -59,12 +59,17 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.caches import adopt
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
-from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
+from lexic.parsing.pda.compiler.eligibility import (
+    attempt_window,
+    extent_consult,
+    matches_own_text,
+)
 from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -141,12 +146,6 @@ is overwritten by the finished :class:`CloneSpec`."""
 _EOF: CharSet = CharSet.from_chars("")
 """The start clone's hard continuation — end-of-input only (the ``""``
 sentinel), mirroring the FOLLOW-set seed in :mod:`lexic.parsing.pda.analysis.analysis`."""
-
-ATTEMPT_WINDOW_K = 5
-"""The attempt-entry admission window width. Measured on the vyx corpus:
-failed trial runs die within 1 char in ~38% of cases, 4 in ~83%, and ~13%
-run 7+ chars deep where no bounded window reaches — 5 is where the
-exclusion curve flattens against the derivation's fan-out cost."""
 
 
 # ── per-item context cursor (rides the argument channel) ───────────────────
@@ -355,32 +354,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.continuations = IslandContinuations(analysis, self.islands)
         self.folds = {}
 
-    def _attempt_window(
-        self, items: Sequence[IrItem]
-    ) -> tuple[tuple[CharSet, ...], ...] | None:
-        """An attempt arm's FIRST\\ :sub:`k` admission windows, or ``None``.
-
-        Computed by the full :class:`KWindowFirst` derivation — through refs,
-        alternations and nullables, with cycle/fan-out poisoning to the
-        always-consistent empty window — so exclusion is language-based: a
-        lookahead inconsistent with every window has NO derivation of this
-        arm, and the trial run it skips could only have failed. An END-state
-        prefix yields a short window whose tail admits anything (the
-        continuation's characters are not the arm's to constrain), which is
-        what keeps the filter sound without FOLLOW extension.
-
-        A whole-set poison (every window empty — nothing to test) returns
-        ``None``: no filter. Width costs nothing at consult time — the set
-        compiles to one alternation pattern
-        (:func:`~lexic.parsing.pda.core.scanner.compile_admission`), so a
-        wide set is one C-level match like a narrow one.
-        """
-        solver = KWindowFirst(self.analysis.rules, ATTEMPT_WINDOW_K)
-        windows = windows_of(solver.arm_prefixes(items, ATTEMPT_WINDOW_K))
-        if all(len(window) == 0 for window in windows):
-            return None
-        return windows
-
     @property
     def islands(self) -> frozenset[str]:
         """The island residue — conflicted rules no attempt can settle, never
@@ -468,12 +441,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
         A longest-take rule's body is compiled against the end of input, so
         its loops run greedily: the key's tail is the continuation its
-        :class:`LongestTake` checks, not one its loops stop at.
+        :class:`LongestTake` checks, not one its loops stop at. A rule whose
+        take only guards an item-wise match (:attr:`LongestTake.steals`) keeps
+        its tail.
         """
         name = key.name
         rule = self.analysis.rules[name]
         longest = self.continuations.longest_take(key.name, key.tail)
-        tail = key.tail if longest is None else _EOF
+        tail = key.tail if longest is None or longest.steals else _EOF
         arms, default, struct, follow = self._clone_shape(name, rule, tail)
         routine = self.routines.get(name)
         match_only = matches_own_text(routine)
@@ -542,7 +517,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         specs,
                         windows[idx] if windows is not None else None,
                         (peeks[0], peeks[1][idx]) if peeks is not None else None,
-                        self._attempt_window(items) if order is not None else None,
+                        attempt_window(self.analysis.rules, items)
+                        if order is not None
+                        else None,
                     )
                 )
         if order is None and windows is None and peeks is None and firsts_overlap(arms):
@@ -631,7 +608,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
 
 def _attach_delegates(
-    tables: PdaTables, lifted: IrAst, binding: ModelExecutable
+    tables: PdaTables, lifted: IrAst, binding: ModelExecutable, grants: frozenset[str]
 ) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's bound product; the injected
@@ -645,11 +622,16 @@ def _attach_delegates(
         name_to_rid,
         binding,
         (PdaCompiler, flatten_clones),
+        grants,
     )
+    # Its compile-once locks are keyed on its identity: they go with the tables.
+    adopt(id(tables), tables.program.delegates)
 
 
 def compile_clones(
-    lifted: IrAst, binding: ModelExecutable
+    lifted: IrAst,
+    binding: ModelExecutable,
+    grants: frozenset[str] = LEFTMOST_LONGEST.grants,
 ) -> tuple[PdaCompiler, CloneKey | IslandRef]:
     """Run the clone compiler and hand back what it built, unlowered.
 
@@ -662,12 +644,14 @@ def compile_clones(
 
     :param lifted: The lifted codegen grammar the clones are cut against.
     :param binding: The bound model product, for the verified routines.
+    :param grants: The licence kinds the parse's decider grants: a shortcut
+        outside them is not compiled, and its rule islands.
     :returns: The compiler, drained, and where it started.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle.
     """
     grammar, folds = folded_grammar(lifted, binding)
-    compiler = PdaCompiler(GrammarAnalysis(grammar), binding.routines)
+    compiler = PdaCompiler(GrammarAnalysis(grammar, grants=grants), binding.routines)
     compiler.folds = folds
     return compiler, compiler.compile_start()
 
@@ -676,8 +660,10 @@ def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
     binding: ModelExecutable,
+    grants: frozenset[str] = LEFTMOST_LONGEST.grants,
 ) -> PdaTables:
-    """Compile the predictive-parser tables for one grammar.
+    """Compile the predictive-parser tables for one grammar, under one decider's
+    grants.
 
     :param lifted: The lifted codegen grammar
         (``lift_optional_nullables(build_codegen_grammar(canonical))``) — the
@@ -686,11 +672,13 @@ def compile_pda(
         (``normalize(lifted)``) — the island sub-parses run over it.
     :param binding: The bound model product — its verified routines are baked
         into each clone's capture layout, constructor and build plan.
+    :param grants: The licence kinds the parse's decider grants.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
-    compiler, start_key = compile_clones(lifted, binding)
+    compiler, start_key = compile_clones(lifted, binding, grants)
     tables = PdaTables(compiler, start_key, instance_grammar)
-    _attach_delegates(tables, lifted, binding)
+    tables.program.grants = grants
+    _attach_delegates(tables, lifted, binding, grants)
     return tables  # `compiler` dies here, and the authored specs with it

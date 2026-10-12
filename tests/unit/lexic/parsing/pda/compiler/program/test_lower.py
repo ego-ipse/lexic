@@ -17,6 +17,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
     HI_UNBOUNDED,
 )
+from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 
 
@@ -57,3 +58,18 @@ def test_a_single_char_loop_item_flattens_a_stop_set_gate():
     chars, negated = arm.gate_data[0]
     assert negated is False
     assert chars == frozenset("0123456789")
+
+
+def test_a_stealing_rules_sole_arm_is_entered_where_its_span_is_checked():
+    """``item``'s extent proof declines, so it attempts. Its two-item arm,
+    entered alone when it is the only one admitted, runs as a leaf carrying
+    the rule's take: matched whole, its span checked, a miss asking the
+    island. The one-item arm stays framed, carrying the take too, so a
+    sub-run it roots that misses asks the island as well."""
+    pda = pda_from_text('root ::= item+ ";"?\nitem ::= [a;] | "a"+ "a"\n')
+    clones = walk_program_clones(pda.program.start).values()
+    item = next(one for one in clones if one.name == "item" and one.attempt)
+    subs = {entry[4].selectors[0][2].n: entry[4] for entry in item.attempt[1]}
+    assert item.longest is not None and item.longest.steals
+    assert subs[2].leaf and subs[2].longest is item.longest
+    assert not subs[1].leaf and subs[1].longest is item.longest

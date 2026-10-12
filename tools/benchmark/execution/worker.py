@@ -77,16 +77,18 @@ def _payload(
         )
         engaged, split, effective = split_fields(engagement(engine, built, cores))
         result = result_identity(built)
-        timing = observe(built, rounds)
+        observed = observe(built, rounds)
         observation = Observation(
-            timing.wall,
-            timing.cpu,
+            observed.timing.wall,
+            observed.timing.cpu,
             digest(result.text),
             digest(result.shape),
             "accepted",
             engaged,
             split,
             effective,
+            observed.collections,
+            observed.paused,
         )
         return {
             "contract": contract.wire(),

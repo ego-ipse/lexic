@@ -27,7 +27,7 @@ from lexic.exceptions import LexicError
 from lexic.parsing import ParseConfig
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 
 REFUSALS = (LexicError, PdaFail, RecursionError)
 """What a parse under test may legitimately raise — a refusal is a result."""
@@ -94,7 +94,7 @@ def _case(name: str):
         text = CONTROL_TEXT
     else:  # pragma: no cover - argparse/constant-owned call sites
         raise ValueError(name)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product), text
+    return compiled, model_product(compiled.codegen_grammar, compiled.product), text
 
 
 def _take_first[T](first: T, _other: T) -> T:

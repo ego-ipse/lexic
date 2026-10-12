@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING
 from lexic.ir import (
     IrAlphabet,
     IrCharClass,
+    IrItem,
     IrLeaf,
     IrLiteral,
     IrNot,
@@ -97,6 +98,42 @@ def code_choices(builder: TableBuilder) -> tuple[int, ...]:
         for aid, (_seq, rid, _base) in enumerate(builder.arms)
     )
     return tuple(arm_choice[aid] for aid, _ in builder.codes)
+
+
+def code_droppables(builder: TableBuilder) -> tuple[bool, ...]:
+    """code → whether the step that completes at it is a repetition's iteration
+    beyond the repetition's minimum, which a carving may drop when it takes
+    nothing (:func:`~lexic.parsing.earley.kernel.tables.decider.carving`).
+
+    Read off the quantifier helpers :mod:`~lexic.parsing.earley.normalize`
+    mints: every step of a helper with an empty arm (``*``, ``?``, an
+    opt-chain) is beyond the minimum, and so is every step of an arm
+    ``unit self`` (``+``'s recursion, whose own tail meets the minimum), and a
+    reference to a helper with an empty arm. A mandatory copy — ``m*``'s
+    leading copies, ``{n}``'s, ``+``'s single-unit arm — never is.
+    """
+    names = {rid: name for name, rid in builder.rule_ids.items()}
+    helpers = {
+        rid for rid, name in names.items() if name.startswith(QUANTIFIER_PREFIXES)
+    }
+    optional = {rid for seq, rid, _base in builder.arms if rid in helpers and not seq}
+    optional_names = {names[rid] for rid in optional}
+    out = [False] * len(builder.codes)
+    for seq, rid, base in builder.arms:
+        if rid not in helpers:
+            continue
+        recursive = rid in optional or (
+            len(seq) == 2 and _referenced(seq[1]) == names[rid]
+        )
+        for dot, item in enumerate(seq, 1):
+            out[base + dot] = recursive or _referenced(item) in optional_names
+    return tuple(out)
+
+
+def _referenced(item: IrItem) -> str:
+    """The rule an arm item references, or ``""`` for a terminal."""
+    atom = item.atom
+    return str(atom) if isinstance(atom, IrRuleRef) else ""
 
 
 class CodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -197,14 +234,18 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
     :ivar rule_ids: rule name → rule_id.
     :ivar rule_refs: rule_id → interned :class:`IrRuleRef` (for tree symbols).
     :ivar arm_seqs: arm_id → the arm's :class:`IrSequence`.
+    :ivar code_droppable: code → whether the step completing there is a
+        repetition's iteration beyond its minimum (:func:`code_droppables`),
+        read when a forest reader chooses among a key's families.
     """
 
-    __slots__ = ("rule_names", "rule_ids", "rule_refs", "arm_seqs")
+    __slots__ = ("rule_names", "rule_ids", "rule_refs", "arm_seqs", "code_droppable")
 
     rule_names: tuple[str, ...]
     rule_ids: dict[str, int]
     rule_refs: tuple[IrRuleRef, ...]
     arm_seqs: tuple[IrSequence, ...]
+    code_droppable: tuple[bool, ...]
 
     def __init__(self, builder: TableBuilder) -> None:
         """Freeze the IR-space half of a finished builder.
@@ -215,6 +256,7 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
         self.rule_ids = dict(builder.rule_ids)
         self.rule_refs = tuple(IrRuleRef(n) for n in self.rule_names)
         self.arm_seqs = tuple(seq for seq, _, _ in builder.arms)
+        self.code_droppable = code_droppables(builder)
 
 
 class TermTables(IrLeaf[IrSelf, IrSelf]):

@@ -7,7 +7,7 @@ unchanged). The raw soft-FOLLOW set cannot answer that — it forgets where its
 chars came from — so this module runs the same two fixpoints with **decomposed
 attribution**:
 
-- :func:`_sem_first_table` — per rule, the FIRST chars attributable to
+- :func:`sem_first_table` — per rule, the FIRST chars attributable to
   *semantic content*: a terminal (or inline group terminal) counts only inside
   a ``semantic=True`` rule; a ref to a non-semantic rule contributes nothing
   (its whole subtree is excluded from ``semantic_dump``, so chars stolen from
@@ -57,6 +57,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.pda.analysis.gates.windows import END, separable
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
@@ -67,6 +68,7 @@ __all__ = [
     "ResidualFirst",
     "peek_arm_gate",
     "peek_loop_gate",
+    "sem_first_table",
 ]
 
 
@@ -153,7 +155,7 @@ def _seq_sem_first(items: Sequence[IrItem], ctx: _SemCtx) -> CharSet:
     return out
 
 
-def _sem_first_table(analysis: Any) -> dict[str, CharSet]:
+def sem_first_table(analysis: Any) -> dict[str, CharSet]:
     """The per-rule semantic-FIRST fixpoint (chaotic iteration to stability)."""
     table: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
@@ -268,7 +270,7 @@ def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
         ``item_nullable`` oracle — ``Any``-typed to keep this module a leaf).
     :returns: The semantic-FOLLOW table.
     """
-    sem_first = _sem_first_table(analysis)
+    sem_first = sem_first_table(analysis)
     tgt: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
     while changed:
@@ -495,10 +497,8 @@ def peek_arm_gate(
         if open_end or chars.is_empty():
             return None
         sets.append(chars)
-    for i, chars_i in enumerate(sets):
-        for chars_j in sets[i + 1 :]:
-            if chars_i.overlaps(chars_j):
-                return None
+    if not separable([{((chars,), END)} for chars in sets]):
+        return None
     return tuple(sets)
 
 

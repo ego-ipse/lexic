@@ -20,13 +20,13 @@ from lexic.ir import (
 )
 
 
-def _mark(letter: str) -> IrCharClass:
+def mark(letter: str) -> IrCharClass:
     """Return the case-insensitive marker-letter class for ``letter``."""
     return IrCharClass(IrChr(letter.upper()), IrChr(letter))
 
 
-MARK_X, MARK_D, MARK_B = _mark("x"), _mark("d"), _mark("b")
-MARK_S, MARK_I = _mark("s"), _mark("i")
+MARK_X, MARK_D, MARK_B = mark("x"), mark("d"), mark("b")
+MARK_S, MARK_I = mark("s"), mark("i")
 
 ABNF_GRAMMAR = IrAst(
     IrSeq(

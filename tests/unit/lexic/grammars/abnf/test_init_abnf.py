@@ -14,22 +14,22 @@ from lexic.grammars.abnf import (
     ABNF_FLAVOUR,
     ABNF_NOISE,
     ABNF_REDUCER,
-    _AbnfFlavour,
+    AbnfFlavour,
 )
 from lexic.ir import DROP, IrFlavour, IrRuleRef
 
 
 def test_abnf_flavour_is_an_instance_of_its_own_private_flavour_class():
-    """The singleton is an ``_AbnfFlavour`` and an ``IrFlavour``."""
-    assert isinstance(ABNF_FLAVOUR, _AbnfFlavour)
+    """The singleton is an ``AbnfFlavour`` and an ``IrFlavour``."""
+    assert isinstance(ABNF_FLAVOUR, AbnfFlavour)
     assert isinstance(ABNF_FLAVOUR, IrFlavour)
 
 
 def test_abnf_flavour_declared_metadata():
     """The flavour's name, extension and comment marker are as documented."""
-    assert _AbnfFlavour.name == "abnf"
-    assert _AbnfFlavour.extensions == (".abnf",)
-    assert _AbnfFlavour.line_comment == ";"
+    assert AbnfFlavour.name == "abnf"
+    assert AbnfFlavour.extensions == (".abnf",)
+    assert AbnfFlavour.line_comment == ";"
 
 
 def test_abnf_escapes_quote_safe_covers_printable_ascii_but_not_the_quote():

@@ -13,8 +13,12 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import get_flavour
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, SCAN_SKIP
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.demote import demote_loop, store_loop_gate
+from lexic.parsing.pda.core.scanner import SG_MATCH, SG_PROBE, SG_SCAN, ScanGate
 
 SEPARABLE = 'doc ::= u+\nu ::= i+ tl\ni ::= [ab]* t\ntl ::= "."\nt ::= ";"\n'
 """The tail is a character no item can end with — the k-window separates it."""
@@ -103,3 +107,38 @@ def test_demote_loop_is_callable_as_a_free_function() -> None:
     """
     assert callable(demote_loop)
     assert demote_loop.__module__.endswith("analysis.demote")
+
+
+def _scan_kinds(grants: frozenset[str]) -> list[int]:
+    """The kinds of the structured loop gates GBNF's self-grammar is issued
+    under ``grants``."""
+    grammar = lift_optional_nullables(get_flavour("gbnf").grammar)
+    gates = GrammarAnalysis(grammar, grants=grants).taxonomy.ready_loop_gates
+    return sorted(g.kind for g in gates.values() if isinstance(g, ScanGate))
+
+
+def test_a_possessive_scan_gate_is_withheld_without_its_grant() -> None:
+    """``SG_SCAN`` and ``SG_PROBE`` skip a run whole before they peek, which is
+    how leftmost-longest carves it; a decider that does not grant
+    :data:`SCAN_SKIP` gets neither. The exact match decides no carving, so it
+    stays."""
+    withheld = LEFTMOST_LONGEST.grants - {SCAN_SKIP}
+    assert _scan_kinds(LEFTMOST_LONGEST.grants) == [
+        SG_MATCH,
+        SG_MATCH,
+        SG_SCAN,
+        SG_SCAN,
+        SG_SCAN,
+        SG_PROBE,
+    ]
+    assert _scan_kinds(withheld) == [SG_MATCH, SG_MATCH]
+
+
+def test_a_structured_arm_gate_is_withheld_without_its_grant() -> None:
+    """GBNF's ``arm`` chooses its empty arm by a possessive scan; without
+    :data:`SCAN_SKIP` that choice is not gated by one."""
+    grammar = lift_optional_nullables(get_flavour("gbnf").grammar)
+    withheld = LEFTMOST_LONGEST.grants - {SCAN_SKIP}
+    granted = GrammarAnalysis(grammar, grants=LEFTMOST_LONGEST.grants).taxonomy
+    assert set(granted.struct_arm_gates) == {"arm"}
+    assert not GrammarAnalysis(grammar, grants=withheld).taxonomy.struct_arm_gates

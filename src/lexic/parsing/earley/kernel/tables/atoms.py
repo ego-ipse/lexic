@@ -1,6 +1,6 @@
 """Atoms and packing — the primitives the tables are built out of.
 
-How an item is packed into an int, how a chart link is walked back, and what
+How an item is packed into an int, how a chart's families are read, and what
 a single atom accepts. Nothing here knows what a table is.
 """
 
@@ -21,8 +21,6 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
-from lexic.parsing.earley.kernel.tables.decider import Decider
-from lexic.parsing.earley.kernel.tables.splits import ChainSpec, leftmost_chain
 
 _MAX_CHARSET = 4096
 """Expansion cap for a char-class range — beyond it the set poisons."""
@@ -92,49 +90,6 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
         self.bits = bits
         self.mask = (1 << bits) - 1
         self.advance = 1 << bits
-
-
-def predecessor_chain(
-    links: FamilyReader,
-    handle: int,
-    spec: ChainSpec,
-    choices: dict[int, int] | None,
-    decide: Decider,
-) -> list[KLink] | None:
-    """Walk a packed handle's single-link predecessor chain down to ``base``.
-
-    Shared by forest readers that walk a packed predecessor chain.
-
-    :param links: The parse's SPPF family table.
-    :param handle: The packed ``(item << bits) | end`` — the same spelling
-        every other site carries the pair in.
-    :param spec: The arm base, packing tier and choice table to cut against.
-    :param choices: keys pinned to one family. When given, a packed key is no
-        longer a reason to bail — the chain is resolved by
-        :func:`~lexic.parsing.earley.kernel.tables.splits.leftmost_chain`, which
-        gives the text of an adjacent-nullable run to the FIRST slot that can
-        take it, and a pinned entry overrides it at that key (which is how the
-        ambiguity check flips one point). When ``None`` a packed key bails,
-        which is the fast path's contract.
-    :param decide: The split decider the resolving read keeps the carving of.
-    :returns: The chain's ``(predecessor_item, predecessor_end, child)``
-        triples in source order, or ``None`` when a key is missing, or packs
-        more than one family and no choice was supplied — the caller's cue to
-        bail (no build, or fall back to the ambiguity-aware path).
-    """
-    if choices is not None:
-        return leftmost_chain(links, handle, spec, choices, decide)
-    base, bits = spec.base, spec.bits
-    chain: list[KLink] = []
-    item, end = handle >> bits, handle & ((1 << bits) - 1)
-    while (item >> bits) != base:
-        bucket = links.get((item << bits) | end)
-        if bucket is None or len(bucket) > 1:
-            return None
-        item, end, child = bucket[0]
-        chain.append((item, end, child))
-    chain.reverse()
-    return chain
 
 
 def _charclass_contains(charclass: IrCharClass, char: str) -> bool:

@@ -33,15 +33,15 @@ from tools.benchmark.presentation.cli import (
     SCHEMA,
     UNMEASURED,
     Run,
-    _dump_json,
-    _isolated_bench,
-    _row_names,
-    _seats,
-    _unsettled,
+    dump_json,
+    isolated_bench,
+    row_names,
+    seat_filter,
+    unsettled_rows,
 )
 from tools.benchmark.presentation.reporting import Block
 from tools.benchmark.regression import row_contract
-from tools.render_readme import COMPETITORS, _measured_caption, column_workers
+from tools.render_readme import COMPETITORS, column_workers, measured_caption
 
 _WARMLESS = ReportRow([0.5], None, None, None, None, 0.0)
 """A row from a seat with no warm-up at all — every Python engine here."""
@@ -60,8 +60,8 @@ def _bench(name: str):
 
 def test_no_filter_means_every_seat() -> None:
     """An absent flag is not an empty selection."""
-    assert _seats(None) is None
-    assert _seats([]) is None
+    assert seat_filter(None) is None
+    assert seat_filter([]) is None
 
 
 def test_an_unknown_seat_is_refused_by_name() -> None:
@@ -69,21 +69,21 @@ def test_an_unknown_seat_is_refused_by_name() -> None:
     the run would splice an artifact missing exactly the column it was asked
     to refresh, and every untouched cell would still look freshly measured."""
     with pytest.raises(SystemExit) as raised:
-        _seats(["lexic-pda", "lexic-turbo"])
+        seat_filter(["lexic-pda", "lexic-turbo"])
     assert "lexic-turbo" in str(raised.value)
     assert "lexic-pda" not in str(raised.value).splitlines()[0]
 
 
 def test_every_known_seat_is_accepted() -> None:
     """The vocabulary is the engine legend, so a documented seat is askable."""
-    assert _seats(sorted(ENGINE)) == frozenset(ENGINE)
+    assert seat_filter(sorted(ENGINE)) == frozenset(ENGINE)
 
 
 def test_the_filter_narrows_the_roster_and_keeps_its_order() -> None:
     """A filtered roster is a subsequence of the unfiltered one."""
     bench = _bench("json")
-    everything = _row_names(bench, 16, None)
-    picked = _row_names(bench, 16, frozenset({"lexic-pda", "antlr", "msgspec"}))
+    everything = row_names(bench, 16, None)
+    picked = row_names(bench, 16, frozenset({"lexic-pda", "antlr", "msgspec"}))
     assert picked == [name for name in everything if name in picked]
     assert picked == ["lexic-pda", "antlr", "msgspec"]
 
@@ -92,16 +92,16 @@ def test_a_seat_the_grammar_does_not_offer_simply_does_not_appear() -> None:
     """A format specialist asked of another language is an empty column, not
     an error — the name is known, this grammar just has no seat for it."""
     bench = _bench("csv")
-    assert _row_names(bench, 16, frozenset({"msgspec"})) == []
-    assert _row_names(bench, 16, frozenset({"msgspec", "lexic-pda"})) == ["lexic-pda"]
+    assert row_names(bench, 16, frozenset({"msgspec"})) == []
+    assert row_names(bench, 16, frozenset({"msgspec", "lexic-pda"})) == ["lexic-pda"]
 
 
 def test_the_mt_rows_appear_only_when_cores_are_asked_for() -> None:
     """The filter narrows the roster; it does not widen it."""
     bench = _bench("csv")
     wanted = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
-    assert _row_names(bench, 16, wanted) == ["lexic-mt", "lexic-mt-lex-ns"]
-    assert _row_names(bench, None, wanted) == []
+    assert row_names(bench, 16, wanted) == ["lexic-mt", "lexic-mt-lex-ns"]
+    assert row_names(bench, None, wanted) == []
 
 
 # ── the artifact write: a splice, never a rewrite ─────────────────────────
@@ -130,7 +130,7 @@ def test_a_seat_filtered_write_leaves_every_other_cell_byte_identical(
     before = _seeded(path)
     bench = _bench("csv")
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5, 0.5, 0.5]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5, 0.5, 0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["values"]["csv"]["lexic-pda"] == 0.5
@@ -150,7 +150,7 @@ def test_a_refreshed_seat_keeps_its_column_and_a_new_one_is_appended(
     bench = _bench("csv")
     order = list(before["values"]["csv"])
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert list(after["values"]["csv"]) == order
@@ -174,7 +174,7 @@ def test_only_the_written_cells_take_todays_date(tmp_path: Path) -> None:
     before = _seeded(path, _dated)
     bench = _bench("csv")
 
-    _dump_json(path, Run(3, 8, False), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(3, 8, False), [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     written = after["provenance"]["csv"]["lexic-pda"]
@@ -202,7 +202,7 @@ def test_an_untouched_grammar_keeps_its_value_and_its_provenance(
     kept = before["provenance"]["json"]["lexic-mt"]
     assert kept["cores"] == 16 and kept["rounds"] != 3, "the fixture must differ"
 
-    _dump_json(path, Run(3, 2, False), [_block(_bench("csv"), {"lexic-mt": [0.5]})])
+    dump_json(path, Run(3, 2, False), [_block(_bench("csv"), {"lexic-mt": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["values"]["json"]["lexic-mt"] == before["values"]["json"]["lexic-mt"]
@@ -216,7 +216,7 @@ def test_a_non_threaded_seat_records_no_worker_request(tmp_path: Path) -> None:
     """``cores`` is the mt rows' request; every other seat is single-threaded."""
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
-    _dump_json(
+    dump_json(
         path,
         Run(7, 16, False),
         [_block(bench, {"lexic-pda": [0.5], "lexic-mt": [0.2]})],
@@ -232,9 +232,9 @@ def test_the_record_says_which_document_the_seat_read(tmp_path: Path) -> None:
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
     corpus = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
-    _dump_json(path, Run(7, 16, True), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(7, 16, True), [_block(bench, {"lexic-pda": [0.5]})])
     full = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
 
     assert (corpus["lexic-pda"]["scale"], full["lexic-pda"]["scale"]) == (
@@ -250,7 +250,7 @@ def test_a_threaded_seat_always_records_the_full_input(tmp_path: Path) -> None:
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-mt": [0.2]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-mt": [0.2]})])
 
     record = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
     assert record["lexic-mt"] == {
@@ -271,7 +271,7 @@ def test_the_noise_floor_is_recorded_per_grammar(tmp_path: Path) -> None:
     """A run that measured four grammars says nothing about the other eight."""
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["noise_floor_percent"] == {"csv": 1.25}
@@ -287,7 +287,7 @@ def test_a_foreign_schema_is_refused_rather_than_spliced_into(tmp_path: Path) ->
     _seeded(path, lambda payload: payload.update(schema=SCHEMA - 1))
 
     with pytest.raises(SystemExit, match="schema"):
-        _dump_json(
+        dump_json(
             path, Run(7, 16, False), [_block(_bench("csv"), {"lexic-pda": [0.5]})]
         )
 
@@ -297,14 +297,14 @@ def test_a_foreign_schema_is_refused_rather_than_spliced_into(tmp_path: Path) ->
 
 def test_one_date_reads_as_one_date() -> None:
     """Agreement is the common case and reads plainly."""
-    assert _measured_caption(["2026-09-06", "2026-09-06"]) == "measured 2026-09-06"
+    assert measured_caption(["2026-09-06", "2026-09-06"]) == "measured 2026-09-06"
 
 
 def test_cells_taken_apart_are_captioned_as_a_span() -> None:
     """One date over cells taken weeks apart claims a run that never
     happened."""
     assert (
-        _measured_caption(["2026-09-06", "2026-09-01"])
+        measured_caption(["2026-09-06", "2026-09-01"])
         == "measured 2026-09-01 to 2026-09-06, per cell"
     )
 
@@ -359,7 +359,7 @@ def test_a_cell_names_the_grammar_and_the_document_it_was_measured_on(
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"lexic-pda": [0.5]})])
 
     record = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
     assert record["lexic-pda"]["grammar_digest"] == digest(bench.source)
@@ -442,7 +442,7 @@ def test_a_warm_up_that_never_settled_publishes_no_cell() -> None:
     moving = ReportRow([0.5], None, None, (2400, False), None, 0.0)
     samples = {"antlr": [0.5], "antlr-lex": [0.5], "lexic-pda": [0.5]}
 
-    refused = _unsettled(
+    refused = unsettled_rows(
         {"antlr": settled, "antlr-lex": moving, "lexic-pda": _WARMLESS}, samples
     )
 
@@ -460,7 +460,7 @@ def test_a_settled_seat_records_the_budget_its_number_stands_on(
         warmed={"antlr": 2400}
     )
 
-    _dump_json(path, Run(7, 16, False), [block])
+    dump_json(path, Run(7, 16, False), [block])
 
     record = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
     assert record["antlr"]["warmed"] == 2400
@@ -480,7 +480,7 @@ def test_a_filtered_run_that_missed_the_anchor_leaves_the_floor_alone(
     before = _seeded(path)
     bench = _bench("csv")
 
-    _dump_json(path, Run(7, 16, False), [_block(bench, {"antlr": [0.5]}, floor=None)])
+    dump_json(path, Run(7, 16, False), [_block(bench, {"antlr": [0.5]}, floor=None)])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["noise_floor_percent"] == before["noise_floor_percent"]
@@ -494,17 +494,17 @@ def _crafted(cli_module, monkeypatch, rows: dict[str, ReportRow], bench) -> Bloc
     """One block built from crafted worker payloads, with no process spawned.
 
     The real isolation path IS the subject — the whole result-to-artifact-to-
-    render chain, not ``_unsettled`` alone — so the patches replace what it
-    calls and ``_isolated_bench`` itself runs.
+    render chain, not ``unsettled_rows`` alone — so the patches replace what it
+    calls and ``isolated_bench`` itself runs.
     """
     monkeypatch.setattr(
         cli_module, "run_report_row", lambda request, _root: rows[request.engine]
     )
-    monkeypatch.setattr(cli_module, "_row_names", lambda *_a, **_k: list(rows))
+    monkeypatch.setattr(cli_module, "row_names", lambda *_a, **_k: list(rows))
     monkeypatch.setattr(
         cli_module, "noise_floor", lambda *_a: pytest.fail("no floor to measure")
     )
-    block, _results = _isolated_bench(bench, Run(7, None, False))
+    block, _results = isolated_bench(bench, Run(7, None, False))
     return block
 
 
@@ -530,7 +530,7 @@ def test_an_unsettled_run_is_not_serialized_as_a_language_refusal(
     assert block.warmed["antlr"] == 2400, "the budget it spent is the evidence"
 
     path = tmp_path / "artifact.json"
-    _dump_json(path, Run(7, None, False), [block])
+    dump_json(path, Run(7, None, False), [block])
     written = json.loads(path.read_text(encoding="utf-8"))
 
     assert written["values"]["csv"]["antlr"] == UNMEASURED
@@ -553,7 +553,7 @@ def test_a_language_refusal_keeps_its_own_word_and_carries_its_reason(
     block = _crafted(cli, monkeypatch, rows, bench)
 
     path = tmp_path / "artifact.json"
-    _dump_json(path, Run(7, None, False), [block])
+    dump_json(path, Run(7, None, False), [block])
     written = json.loads(path.read_text(encoding="utf-8"))
 
     assert written["values"]["csv"]["lark-lalr"] == REFUSES

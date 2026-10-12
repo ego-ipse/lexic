@@ -15,40 +15,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.tools.benchmark.benchmark_helpers import BASE, CONTRACT, HEAD, OBSERVED
 from tools.benchmark import compare
 from tools.benchmark.execution.isolation import Job
 from tools.benchmark.judging import arithmetic
-from tools.benchmark.measurement.contract import (
-    CLOCKS,
-    PROTOCOL,
-    Observation,
-    RowContract,
-    RowResult,
-)
-
-BASE = Path("/tmp/base")
-HEAD = Path("/tmp/head")
-
-CONTRACT = RowContract(
-    PROTOCOL,
-    "lexic-pda",
-    "json",
-    "abc123",
-    (),
-    (),
-    "def456",
-    2403,
-    "corpus",
-    "typed model",
-    1,
-    True,
-    CLOCKS,
-)
-"""A well-formed contract for one sequential row."""
-
-
-OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1)
-"""A well-formed observation of one accepted sequential row."""
+from tools.benchmark.measurement.contract import Observation, RowResult
 
 
 def _result(cpu: float) -> RowResult:
@@ -157,7 +128,7 @@ def test_a_slot_penalty_reverses_in_the_control_instead_of_accumulating(
     itself in the control's mean and WIDENED the envelope. Alternating leaves
     the same cost summing to zero, so it is carried by the spread alone.
     """
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 6, 0)
 
@@ -175,7 +146,7 @@ def test_the_two_schedules_sample_the_first_slot_equally_often_at_even_counts(
 ) -> None:
     """Each ratio's numerator must occupy the first slot as often as the
     other's, or a slot cost enters one mean and not the other."""
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
 
     for pairs in (6, 8, 10):
         pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "x", pairs, 0)
@@ -195,7 +166,7 @@ def test_an_odd_pair_count_leaves_one_slot_in_each_mean_and_they_oppose(
     ``high <= envelope`` move by the same d/n and it cancels. What it does not
     cancel out of is the reported ratio — which is why the bounds are even.
     """
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
     step = math.log(2.0)
 
     for pairs in (5, 15):
@@ -220,7 +191,7 @@ def test_both_pair_bounds_are_even_so_the_reported_ratio_carries_no_slot_bias(
     assert compare.MIN_PAIRS % 2 == 0, "an odd floor biases every quick verdict"
     assert compare.MAX_PAIRS % 2 == 0, "an odd ceiling biases every hard one"
 
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
     for pairs in (compare.MIN_PAIRS, compare.MAX_PAIRS):
         pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "x", pairs, 0)
         assert sum(pairing.candidate) == pytest.approx(0.0), pairs
@@ -236,7 +207,7 @@ def test_the_candidate_holds_its_arm_while_reversing_execution_order(
     already right — pinned here so a later edit cannot "fix" the control by
     breaking this one into agreement with it.
     """
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 4, 0)
 
@@ -252,7 +223,7 @@ def test_the_control_reversal_survives_an_offset_growth_round(
     Index 2 is the swapped position, so a call that begins there must open
     with the reversed ratio rather than restarting the cycle.
     """
-    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    monkeypatch.setattr(compare, "run_pair", _slot_reading)
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 2, 2)
 
@@ -288,7 +259,7 @@ def test_a_true_regression_is_not_swallowed_by_a_permanent_slot_penalty(
     the penalty no longer stands as a fact about the code, and the row is no
     longer waved through.
     """
-    monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.10, 1.03))
+    monkeypatch.setattr(compare, "run_pair", _cost_under_a_slot_penalty(1.10, 1.03))
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
     verdict = arithmetic.decide("json/lexic-pda", pairing, "cpu")
@@ -305,7 +276,7 @@ def test_a_machine_with_no_slot_penalty_still_calls_an_equal_pair_ok(
     Same-cost arms on an even machine have to keep reading ``ok``, or the
     correction has traded a false pass for a false alarm.
     """
-    monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.0, 1.0))
+    monkeypatch.setattr(compare, "run_pair", _cost_under_a_slot_penalty(1.0, 1.0))
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
     verdict = arithmetic.decide("json/lexic-pda", pairing, "cpu")
@@ -504,7 +475,7 @@ def test_a_row_that_settles_mid_block_is_published_at_the_block_boundary(
     control's own log ratios sum to -0.10 at seven pairs instead of zero.
     """
     reading, reset = _settling_at_seven()
-    monkeypatch.setattr(compare, "_pair", reading)
+    monkeypatch.setattr(compare, "run_pair", reading)
     arms = compare.Arms(BASE, HEAD, 4)
 
     reset()
@@ -546,7 +517,9 @@ def test_an_already_balanced_result_is_not_grown(
 
 def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
-    observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, "plan", 4)
+    observation = Observation(
+        2.0, 9.0, "text", "shape", "accepted", True, "plan", 4, 0, 0.0
+    )
 
     assert arithmetic.primary_reading(observation, "lexic-mt") == 2.0
     assert arithmetic.primary_reading(observation, "lexic-pda") == 9.0
@@ -901,12 +874,39 @@ def test_growth_keeps_one_head_reading_per_candidate_pair(
 ) -> None:
     """Every growth round appends its readings, so none are lost to the bound."""
     reading, _reset = _settling_at_seven()
-    monkeypatch.setattr(compare, "_pair", reading)
+    monkeypatch.setattr(compare, "run_pair", reading)
     _verdict_out, pairing = compare.grow(compare.Arms(BASE, HEAD, 4), "json", "x")
 
     assert len(pairing.candidate) > compare.MIN_PAIRS, "the fixture must have grown"
     assert len(pairing.head_wall) == len(pairing.candidate)
     assert len(pairing.head_cpu) == len(pairing.candidate)
+    assert len(pairing.collections) == len(pairing.candidate)
+    assert len(pairing.paused) == len(pairing.candidate)
+
+
+def test_the_collector_report_names_rows_that_collected_and_skips_the_rest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A head collecting more, or longer, than its base reads beside the
+    verdicts; a row neither arm collected in is left out."""
+    collecting = arithmetic.Pairing(
+        (0.0,) * 3,
+        (0.0,) * 3,
+        (0.0,) * 3,
+        collections=((5, 0), (5, 0), (4, 1)),
+        paused=((0.05, 0.0), (0.04, 0.0), (0.06, 0.01)),
+    )
+    quiet = arithmetic.Pairing(
+        (0.0,), (0.0,), (0.0,), collections=((0, 0),), paused=((0.0, 0.0),)
+    )
+
+    compare.report_collections({"gbnf-meta/lexic-earley": collecting, "json/x": quiet})
+    out = capsys.readouterr().out
+
+    assert "gbnf-meta/lexic-earley" in out
+    assert "json/x" not in out
+    row = next(line for line in out.splitlines() if line.startswith("gbnf-meta"))
+    assert row.split()[1:] == ["5.0", "0.0", "50.00", "0.00"]
 
 
 def test_the_absolute_summary_uses_the_verdicts_own_arithmetic() -> None:

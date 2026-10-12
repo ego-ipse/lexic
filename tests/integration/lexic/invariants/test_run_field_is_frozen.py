@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.model import GrammarModel
-from lexic.parsing.products import _model_product, earley_model, pda_model
+from lexic.parsing.products import earley_model, model_product, pda_model
 from tools.benchmark.cases.grammars import BENCHES
 
 WITNESSES = ("csv", "nested")
@@ -58,7 +58,7 @@ def runs_of(model: object) -> list[object]:
 def test_the_fused_pda_build_freezes_its_runs(name: str) -> None:
     """`_read_models` returns `tuple(...)` — "the item's whole run, frozen"."""
     bench = next(one for one in BENCHES if one.name == name)
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
 
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
 
@@ -73,7 +73,7 @@ def test_the_earley_build_freezes_them_too(name: str) -> None:
     """`CaptureMode.MANY` hands a LIST to the checked constructor, which
     coerces it — a different mechanism reaching the same shape."""
     bench = next(one for one in BENCHES if one.name == name)
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
 
     model = earley_model(
         product.instance_grammar,
@@ -94,7 +94,7 @@ def test_both_engines_build_the_same_value(name: str) -> None:
     so the comparison is the assertion and the round-trip is not enough.
     """
     bench = next(one for one in BENCHES if one.name == name)
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
 
     fused = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
     gated = earley_model(
@@ -117,7 +117,7 @@ def test_the_validated_paths_own_constructor_coerces_a_list() -> None:
     function is pinned where the behaviour lives.
     """
     bench = next(one for one in BENCHES if one.name == "csv")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
     cls, names = type(model), type(model)._fields
 
@@ -136,7 +136,7 @@ def test_a_list_held_run_is_unhashable_and_unequal() -> None:
     nothing could violate.
     """
     bench = next(one for one in BENCHES if one.name == "csv")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
 
     # The UNCHECKED constructor is the SUBJECT of this test; reaching it any

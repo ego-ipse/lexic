@@ -245,7 +245,7 @@ def _collected(path: str) -> bool:
     return path.rsplit("/", 1)[-1].startswith("test_")
 
 
-def _test_targets(
+def targets_to_test(
     paths: Sequence[str],
     exists: Callable[[str], bool],
     importers: Mapping[str, tuple[str, ...]],
@@ -321,7 +321,7 @@ def plan(
             Command("pyright", ("uv", "run", "pyright", *python)),
             Command("pylint", ("uv", "run", "pylint", *python)),
         ]
-    targets, _cut = _test_targets(paths, exists, importers)
+    targets, _cut = targets_to_test(paths, exists, importers)
     if targets:
         commands.append(Command("pytest", ("uv", "run", "pytest", *targets, "-q")))
     return tuple(commands)
@@ -333,7 +333,7 @@ def cut_fanouts(
     importers: Mapping[str, tuple[str, ...]],
 ) -> tuple[tuple[str, int], ...]:
     """The modules whose transitive fan-out this diff is too wide to run."""
-    return _test_targets(paths, exists, importers)[1]
+    return targets_to_test(paths, exists, importers)[1]
 
 
 def run(commands: Sequence[Command]) -> int:

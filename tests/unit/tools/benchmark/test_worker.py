@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import subprocess
 from pathlib import Path
@@ -17,7 +18,7 @@ from tools.benchmark.bench import EngineBuild
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.execution import isolation, worker
 from tools.benchmark.execution.isolation import RowRequest
-from tools.benchmark.measurement import occupancy
+from tools.benchmark.measurement import occupancy, sampling
 from tools.benchmark.measurement.contract import (
     CLOCKS,
     PROTOCOL,
@@ -59,7 +60,7 @@ def test_one_engine_requests_only_the_exact_lexic_variant(
         seen.append(only)
         return {"lexic-lex-ns": parse}, {}
 
-    monkeypatch.setattr(benchmark, "_lexic", lexic)
+    monkeypatch.setattr(benchmark, "lexic_rows", lexic)
     monkeypatch.setattr(benchmark, "unfaithful", lambda *_args: None)
 
     built = benchmark.one_engine(bench, "lexic-lex-ns", 8, False)
@@ -280,7 +281,7 @@ def test_the_scheduler_alone_cannot_refuse_a_pair() -> None:
         worker.engagement("lexic-mt", built, 8)
     )
     observed = Observation(
-        1.0, 1.0, "text", "shape", "accepted", engaged, split, workers
+        1.0, 1.0, "text", "shape", "accepted", engaged, split, workers, 0, 0.0
     )
     scheduled = observed._replace(effective_workers=workers - 1)
 
@@ -318,3 +319,77 @@ def test_the_scheduler_alone_cannot_refuse_a_pair() -> None:
             ),
             "json/lexic-mt",
         )
+
+
+def test_every_observed_pass_starts_from_a_fresh_collection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row's observation primes once, then each round runs one untimed pass,
+    a collection, the timed pass and a collection. Without the first collection
+    whether the collector fired inside a timed pass depended on how large the
+    live heap was, so a few hundred more live objects read as a slower parse."""
+    events: list[str] = []
+
+    def parse(_text: str) -> object:
+        events.append("parse")
+        return object()
+
+    def timed(_parse: object, _text: str) -> sampling.Pass:
+        events.append("timed")
+        return sampling.Pass(1.0, 1.0)
+
+    monkeypatch.setattr(sampling, "timed", timed)
+    monkeypatch.setattr(sampling.gc, "collect", lambda: events.append("collect"))
+
+    benchmark.observe(EngineBuild(parse, "corpus", None, None), 2)
+
+    one_round = ["parse", "collect", "timed", "collect"]
+    assert events == ["parse", *one_round, *one_round]
+
+
+def _cycles(_text: str) -> None:
+    """A parse that leaves reference cycles behind it — garbage only the
+    collector reclaims."""
+    for _ in range(10_000):
+        node: list[object] = []
+        node.append(node)
+
+
+def test_a_collection_the_untimed_pass_brings_on_is_counted_not_timed() -> None:
+    """The two-parse window still SEES what the timed pass no longer pays: a
+    parse whose allocation crosses the collector's trigger inside the round
+    reports the passes it ran and their seconds, and a parse that allocates
+    nothing reports none. A zero second threshold makes the collector fire on
+    the first threshold alone, so the trigger does not depend on the size of
+    the test process's own heap."""
+    thresholds = gc.get_threshold()
+    gc.set_threshold(100, 0, 0)
+    try:
+        heavy = sampling.sample_round(_cycles, "x")
+        idle = sampling.sample_round(lambda _text: None, "x")
+    finally:
+        gc.set_threshold(*thresholds)
+
+    assert heavy.collections > 0
+    assert heavy.paused > 0.0
+    assert idle.collections == 0
+    assert idle.paused == 0.0
+
+
+def test_an_observation_sums_its_rounds_collections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The observation's clocks are each round's median; its collections and
+    pause are every round's sum, not the median round's."""
+    rounds = iter(
+        (
+            sampling.Sampled(sampling.Pass(3.0, 30.0), 1, 0.5),
+            sampling.Sampled(sampling.Pass(1.0, 10.0), 0, 0.0),
+            sampling.Sampled(sampling.Pass(2.0, 20.0), 2, 0.25),
+        )
+    )
+    monkeypatch.setattr(benchmark, "sample_round", lambda *_args: next(rounds))
+
+    seen = benchmark.observe(EngineBuild(lambda _text: None, "x", None, None), 3)
+
+    assert seen == sampling.Sampled(sampling.Pass(2.0, 20.0), 3, 0.75)

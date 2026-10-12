@@ -37,6 +37,9 @@ class Pairing(NamedTuple):
     :ivar head_cpu: The same pairs on the process clock.
     :ivar document_bytes: The document both arms read — the per-byte
         denominator, taken from the contract the two arms agreed on.
+    :ivar collections: Each candidate pair's ``(head, base)`` collector passes,
+        as :attr:`Observation.collections` counts them. Never judged.
+    :ivar paused: The same pairs' ``(head, base)`` collector seconds.
     """
 
     candidate: tuple[float, ...]
@@ -45,6 +48,8 @@ class Pairing(NamedTuple):
     head_wall: tuple[float, ...] = ()
     head_cpu: tuple[float, ...] = ()
     document_bytes: int = 0
+    collections: tuple[tuple[int, int], ...] = ()
+    paused: tuple[tuple[float, float], ...] = ()
 
 
 class Verdict(NamedTuple):

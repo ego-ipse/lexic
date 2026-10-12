@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
-from threading import Barrier, Event, Lock, Thread, active_count
+from threading import Barrier, Event, Lock, Thread, active_count, current_thread
 from threading import enumerate as enumerate_threads
 from time import monotonic, sleep
 
@@ -21,8 +21,8 @@ from lexic.exceptions import TargetRefusalError, UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
-from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE
-from tests.unit.lexic.parsing.parallel.test_orchestrate import _doc as _split_doc
+from tests.split_helpers import hold_workers
+from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE, sample_doc
 
 GRAMMAR = 'root ::= "(" [a-z]+ ")"\n'
 
@@ -387,7 +387,7 @@ def test_explicit_cores_is_the_worker_count():
 
 def test_auto_sizing_follows_the_policy(monkeypatch: pytest.MonkeyPatch):
     """The pool's default is the policy's auto — one worker under the GIL."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     compiled = compile_text(GRAMMAR)
     assert ParsePool(compiled.parse).workers == 1
     assert ParsePool(compiled.parse, cores=1).workers == 1
@@ -552,7 +552,7 @@ def test_reset_pools_returns_thread_count_to_baseline():
 def test_split_parse_matches_sequential_across_many_warm_pool_reuses():
     """Warm-pool state never leaks between documents on the public seam."""
     compiled = compile_text(LEAD_RULE)
-    texts = [_split_doc(400 + 25 * i) for i in range(12)]
+    texts = [sample_doc(400 + 25 * i) for i in range(12)]
     for text in texts:
         parallel = compiled.parse(text, cores=4)
         sequential = compiled.parse(text, cores=1)
@@ -749,6 +749,123 @@ def test_beside_submits_late_items_whose_results_follow_in_order() -> None:
             24,
         ]
     assert seen == ["beside"]
+
+
+def _held_worker(gate: Event, started: Event, ran: dict[int, tuple[str, bool]]):
+    """Work whose item 0 holds its worker until the calling thread runs item
+    1, so item 1 can only ever reach the calling thread."""
+    caller = current_thread()
+
+    def work(item: int) -> int:
+        ran[item] = (current_thread().name, pool_module.taking_back())
+        if item == 0:
+            started.set()
+            gate.wait(timeout=30)
+        if item == 1 and current_thread() is caller:
+            gate.set()
+        return item * 2
+
+    return work
+
+
+def _one_free_worker(work, items: list[int], beside) -> list[int]:
+    """``work`` over ``items`` on a three-worker pool with two workers held
+    elsewhere — one worker free, and one place the phase leaves unused."""
+    release = Event()
+    with WorkPool(3) as pool:
+        holder = hold_workers(pool, 2, release)
+        try:
+            return pool.map(work, items, beside)
+        finally:
+            release.set()
+            holder.join(timeout=30)
+
+
+def test_an_item_no_worker_started_is_taken_back_by_the_calling_thread() -> None:
+    """Once ``beside`` returns, an item still queued while the phase leaves a
+    worker's place unused runs on the calling thread, marked as taken back,
+    and the results keep their order."""
+    gate, started = Event(), Event()
+    ran: dict[int, tuple[str, bool]] = {}
+
+    got = _one_free_worker(
+        _held_worker(gate, started, ran),
+        [0, 1],
+        lambda _submit: started.wait(timeout=30),
+    )
+
+    me = current_thread().name
+    assert got == [0, 2]
+    assert ran[0][0] != me and ran[0][1] is False
+    assert ran[1] == (me, True)
+    assert pool_module.taking_back() is False, "the mark outlived the item"
+
+
+def test_an_item_a_worker_started_is_never_taken_back() -> None:
+    """With places unused, the calling thread still takes back only items no
+    worker has started: every item runs exactly once, and each result slot
+    holds its own item's result."""
+    started = {item: Event() for item in (0, 1)}
+    calls: dict[int, int] = {}
+    lock = Lock()
+
+    def work(item: int) -> int:
+        with lock:
+            calls[item] = calls.get(item, 0) + 1
+        started[item].set()
+        return item * 10
+
+    def both_started(_submit) -> None:
+        for event in started.values():
+            event.wait(timeout=30)
+
+    with WorkPool(3) as pool:  # two items, three workers: one place unused
+        got = pool.map(work, [0, 1], both_started)
+
+    assert got == [0, 10]
+    assert calls == {0: 1, 1: 1}
+
+
+def test_a_taken_back_items_refusal_drains_the_phase() -> None:
+    """An item the calling thread took back refuses like one a worker ran."""
+    gate, started = Event(), Event()
+    ran: dict[int, tuple[str, bool]] = {}
+    work = _held_worker(gate, started, ran)
+
+    def refusing(item: int) -> int:
+        if item == 1:
+            gate.set()
+            raise TargetRefusalError("no 1")
+        return work(item)
+
+    with pytest.raises(TargetRefusalError, match="no 1"):
+        _one_free_worker(refusing, [0, 1], lambda _submit: started.wait(timeout=30))
+
+
+def test_a_phase_with_an_item_for_every_worker_takes_nothing_back() -> None:
+    """The take-back never runs what a busy pool would have: with as many
+    items as workers, or more, every item is the pool's, queued or not."""
+    threads: list[str] = []
+
+    def work(item: int) -> int:
+        threads.append(current_thread().name)
+        return item
+
+    with WorkPool(2) as pool:
+        assert pool.map(work, list(range(6)), lambda _submit: None) == list(range(6))
+    assert _one_free_worker(work, [0, 1, 2], lambda _submit: None) == [0, 1, 2]
+
+    assert current_thread().name not in threads and len(threads) == 9
+
+
+def test_without_beside_the_calling_thread_takes_nothing_back() -> None:
+    """A phase with no calling-thread share leaves every item to the pool."""
+    threads: list[str] = []
+
+    with WorkPool(1) as pool:
+        pool.map(lambda item: threads.append(current_thread().name), [0, 1, 2])
+
+    assert current_thread().name not in threads and len(threads) == 3
 
 
 def test_a_late_items_refusal_drains_after_the_earlier_ones() -> None:

@@ -269,7 +269,7 @@ src/lexic/
             trampoline.py          Depth-safe forest tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
-          atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
+          atoms.py                 Packing tiers, the chart's family reader, what one terminal atom accepts
           builder.py               TableBuilder + compile_tables — the mutable half, and the entry point
           records.py               CodeTables / DecodeTables / TermTables / ParserTables — the artefact
           splits.py                Which slot owns the text — resolving a binarised chain from the left
@@ -383,6 +383,8 @@ src/lexic/
           __init__.py              the group's package marker
           attempt_inline.py        Frame-less attempt-aware value-string loops
           decisions.py             The attempt/probe method group — the kernel's decision half
+          sides.py                 Boundary sides — the stack copies a verdict is asked on, and the sub-runs they settle
+          verdicts.py              The boundary verdict — take, stop or fork, ranked by the decider
           execution.py             Leaf execution, island delegation, and completion
           kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree
 tests/
@@ -413,8 +415,8 @@ does not belong to that host.
 
 ## Directives
 
-Scanned from source comments *before* the grammar is parsed, by the private
-`compile._scan_directives`:
+Scanned from source comments *before* the grammar is parsed, by
+`compile.scan_directives`:
 
 ```
 # @start my_rule          — override the start rule (default: first defined)

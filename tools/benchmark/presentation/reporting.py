@@ -45,7 +45,7 @@ _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
 
 
-def _use_color(force: bool) -> bool:
+def use_color(force: bool) -> bool:
     """Colour when forced, else only on a real terminal nobody opted out of.
 
     ``NO_COLOR`` (the informal cross-tool convention) wins over tty detection;
@@ -147,7 +147,7 @@ class Block(NamedTuple):
     unmeasured: dict[str, str]
 
 
-def _report(block: Block, color: bool) -> None:
+def report_block(block: Block, color: bool) -> None:
     """One grammar's block: fastest first, with the bar and what each builds."""
     bench = block.bench
     sizes = {len(doc) for doc in block.documents.values()}
@@ -217,13 +217,13 @@ def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
     )
 
 
-def _warmup_note(engines: dict[str, Parse]) -> None:
+def warmup_note(engines: dict[str, Parse]) -> None:
     """What it took to make the JIT row honest, printed rather than assumed."""
     for name, parse in engines.items():
         warmed = getattr(parse, "warmed", None)
         if warmed is None:
             continue
-        _warmup_values(
+        warmup_values(
             name,
             warmed,
             getattr(parse, "cold_us_per_char", None),
@@ -231,7 +231,7 @@ def _warmup_note(engines: dict[str, Parse]) -> None:
         )
 
 
-def _warmup_values(
+def warmup_values(
     name: str,
     warmed: tuple[int, bool],
     cold: float | None,
@@ -240,7 +240,7 @@ def _warmup_values(
     """Print one Java worker's cold parse and warmup state.
 
     An unsettled row says NO NUMBER, because that is what the block above it
-    printed: `_isolated_bench` drops such a row's samples and `_report` marks
+    printed: `_isolated_bench` drops such a row's samples and `report_block` marks
     it `no number`. Calling the same row's figure "soft" here described a
     published-but-shaky number that does not exist, so one report gave two
     incompatible accounts of one row. The budget and the movement stay — they
@@ -259,7 +259,7 @@ def _warmup_values(
     )
 
 
-def _legend(color: bool) -> None:
+def legend(color: bool) -> None:
     """The engine roster, once, before any grammar's rows."""
     print(_paint("engines — what each row IS:", _DIM, color))
     for name, note in ENGINE.items():
@@ -267,6 +267,6 @@ def _legend(color: bool) -> None:
         print(f"  {_paint(f'{name:<16}', tint, color)} {_paint(note, _DIM, color)}")
 
 
-def _mark(cores: int | None) -> str:
+def cores_marker(cores: int | None) -> str:
     """The header's cores marker, empty when no MT rows were asked for."""
     return f"  cores={cores}" if cores is not None else ""

@@ -11,12 +11,15 @@ from __future__ import annotations
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import DEFAULT_CONFIG, ParseConfig
+from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import PdaCompiler, compile_clones
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
-    _model_product,
     earley_model,
+    grants_program,
+    model_product,
     parse_model,
     pda_model,
 )
@@ -24,10 +27,28 @@ from lexic.parsing.products import (
 PRODUCTS_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
 
 
+class Shortest(Decider):
+    """The reverse of leftmost-longest: the first slot takes as little as it
+    can. Built as ``Shortest(frozenset())`` — no licence is proven for it."""
+
+    def slot(self, end: int) -> int:
+        """The end negated: the earliest boundary first."""
+        return -end
+
+
 def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
     pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""
-    return _model_product(cg.codegen_grammar, cg.product)
+    return model_product(cg.codegen_grammar, cg.product)
+
+
+def decider_program(cg: CompiledGrammar, decide: Decider) -> PdaTables:
+    """The PDA program compiled for ``decide``'s grants — the one the public
+    parse runs under that decider."""
+    product = prod(cg)
+    return grants_program(
+        cg.codegen_grammar, cg.product, product.instance_grammar, decide.grants
+    )
 
 
 def clone_specs(cg: CompiledGrammar) -> PdaCompiler:

@@ -518,6 +518,33 @@ def test_genuine_prefix_ambiguity_declines_and_matches_sequential_refusal() -> N
             compiled.parse(text, cores=cores)
 
 
+# ── 5b: a neighbour of varying width is never read as one fixed string ────
+
+_VARYING_PREFIX = (
+    "root ::= pre{1,2} para*\n"
+    'pre ::= "#"\n'
+    'para ::= line+ "\\n"\n'
+    'line ::= [a-z# ]+ "\\n"\n'
+)
+"""A whole-extent interior behind ``pre{1,2}``: one ``#`` or two, and a body
+whose lines may start with ``#`` themselves."""
+
+
+@pytest.mark.parametrize("prefix", ["#", "##"])
+def test_a_bounded_repeat_before_the_interior_keeps_every_character(
+    prefix: str,
+) -> None:
+    """``pre{1,2}`` spells one ``#`` or two, so no one string bounds the
+    interior. Read as one, every piece wore a ``#`` in front of a line that
+    starts with one, parsed ``pre`` as two, and the stitched model lost a
+    character per piece; the split now declines and the answer is the
+    sequential one, character for character."""
+    compiled = compile_text(_VARYING_PREFIX)
+    text = prefix + "#line abc\n" * 1200 + "\n"
+    assert len(text) >= 4 * MIN_CHUNK
+    assert_parallel_matches_sequential(compiled, text, 4)
+
+
 # ── 6: this module itself must not privilege one formulation ──────────────
 
 

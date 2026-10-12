@@ -32,7 +32,7 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.parallel import available_workers, reset_pools
-from lexic.parsing.parallel.pool import _IDLE
+from lexic.parsing.parallel.pool import IDLE_POOLS
 from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, one_engine
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
 from tools.benchmark.emitters.charsets import CharSet, of_points
@@ -43,7 +43,7 @@ from tools.benchmark.engines.seats import SPECIALISTS, competitors
 from tools.benchmark.measurement import sampling
 from tools.benchmark.measurement.language import unfaithful
 from tools.benchmark.measurement.sampling import Parse, interleaved
-from tools.benchmark.presentation.reporting import _warmup_note, _warmup_values
+from tools.benchmark.presentation.reporting import warmup_note, warmup_values
 
 _ALL = frozenset(
     {
@@ -318,7 +318,8 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
     """Each isolated worker measures hot executions of its one engine.
 
     The initial parse is the ordinary one-time prime. Each timed sample then
-    gets one untimed pass of the SAME engine immediately before it, keeping the
+    gets one untimed pass of the SAME engine and a collection before it, so
+    every timed parse starts from the same collector state, keeping the
     reported value a median of individual timed parses. Public workers contain
     no other engine; this pins the low-level sampling protocol itself.
     """
@@ -328,15 +329,16 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
         events.append("parse")
         return object()
 
-    def timed(_parse: Parse, _text: str) -> float:
+    def timed(_parse: Parse, _text: str) -> sampling.Pass:
         events.append("timed")
-        return 1.0
+        return sampling.Pass(1e-6, 1e-6)
 
-    monkeypatch.setattr(sampling, "once", timed)
-    monkeypatch.setattr(sampling.gc, "collect", lambda: None)
+    monkeypatch.setattr(sampling, "timed", timed)
+    monkeypatch.setattr(sampling.gc, "collect", lambda: events.append("collect"))
 
     assert interleaved({"row": parse}, {"row": "x"}, 2) == {"row": [1.0, 1.0]}
-    assert events == ["parse", "parse", "timed", "parse", "timed"]
+    one_round = ["parse", "collect", "timed", "collect"]
+    assert events == ["parse", *one_round, *one_round]
 
 
 def test_peg_and_antlr_can_translate_the_directive_matched_variant() -> None:
@@ -371,7 +373,7 @@ def test_the_antlr_warmup_note_displays_its_cold_first_parse(
             return 0.2
 
     engines: dict[str, Parse] = {"antlr": Parser()}
-    _warmup_note(engines)
+    warmup_note(engines)
 
     shown = capsys.readouterr().out
     assert "antlr first" in shown
@@ -389,8 +391,8 @@ def test_an_unsettled_warm_up_reports_no_number_rather_than_a_soft_one(
     figure that is merely shaky. The budget and the movement stay: they are
     the evidence for the absence.
     """
-    _warmup_values("antlr", (2400, False), None, 0.2)
-    _warmup_values("antlr-lex", (24, True), None, 0.2)
+    warmup_values("antlr", (2400, False), None, 0.2)
+    warmup_values("antlr-lex", (24, True), None, 0.2)
 
     moving, settled = capsys.readouterr().out.splitlines()
 
@@ -506,7 +508,7 @@ def _lexic_passing(bench: Bench, seats: Iterable[str]) -> set[str]:
                 passing.add(row)
     finally:
         reset_pools()
-    assert not _IDLE, "the language check must leave no pool in the idle cache"
+    assert not IDLE_POOLS, "the language check must leave no pool in the idle cache"
     return passing
 
 

@@ -67,7 +67,7 @@ def _mapping(payload: Mapping[str, Json], field: str) -> Mapping[str, Json]:
     return value
 
 
-PROTOCOL = 6
+PROTOCOL = 7
 """The wire protocol's version.
 
 Bumped whenever a contract field or an observation field changes meaning. Two
@@ -273,6 +273,12 @@ class Observation(NamedTuple):
         read eight workers twenty-eight times and seven twice. Reported so a
         surprising row can be read, never compared — a pair of byte-identical
         trees must not be refused because one of them was scheduled.
+    :ivar collections: Collector passes that fired inside the observation's
+        untimed and timed parses, summed over its rounds. Reported, never
+        judged: every timed pass starts from a fresh collection, so a cost
+        that only shows as a collection two parses bring on reads here and not
+        in the clocks.
+    :ivar paused: Seconds those collector passes took, summed the same way.
     """
 
     wall: float
@@ -283,6 +289,8 @@ class Observation(NamedTuple):
     engaged: bool | None
     split_digest: str
     effective_workers: int
+    collections: int
+    paused: float
 
     def wire(self) -> dict[str, Json]:
         """The JSON-safe form written by a worker."""
@@ -301,6 +309,8 @@ def read_observation(payload: Mapping[str, Json]) -> Observation:
         None if engaged is None else _flag(payload, "engaged"),
         _text(payload, "split_digest"),
         int(_number(payload, "effective_workers")),
+        int(_number(payload, "collections")),
+        _number(payload, "paused"),
     )
 
 

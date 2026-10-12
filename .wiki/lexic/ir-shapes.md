@@ -147,7 +147,7 @@ Authoring coercion widens `__new__` on `IrSequence`/`IrAlternation`/`IrItem`/`Ir
 | `IrJoin(parts, separator, empty)` | `IrStr` | render `parts`; `bound(sep).join(rendered)` or `empty.eval(...)` |
 | `IrCond(test, then_op, else_op)` | any | `(then_op if test.eval(d, n, nc) else else_op).eval(...)`; `test: IrSelf` (any predicate node, e.g. `IrCompare`/`IrAnd`) |
 | `IrThis()` | any | returns the dispatched node `n` (identity body — declarative `lambda d, n, nc: n`) |
-| `IrReturn(value=IrThis(), lazy_eval=True)` | any | lazy-evaluates its body against `(d, n, nc)` and re-raises the result via `_Return`; `IrReturn()` surfaces the matched node (find-first). With `lazy_eval=False` or a non-`IrSelf` value, raises `self` carrying the static value. |
+| `IrReturn(value=IrThis(), lazy_eval=True)` | any | lazy-evaluates its body against `(d, n, nc)` and re-raises the result via `ReturnSignal`; `IrReturn()` surfaces the matched node (find-first). With `lazy_eval=False` or a non-`IrSelf` value, raises `self` carrying the static value. |
 | `IrAction(target_type, body)` | any | `body.eval(d, n, nc)` |
 
 `IrConcat`/`IrJoin` hold `parts: IrTuple` as a plain-record field (NOT `IrTuple` subclasses themselves — the dual generic lineage breaks `bound`). Only the grammar AST collections (`IrSequence`, `IrAlternation`) and `IrAnd` are `IrTuple`/`IrSeq` subclasses in their own right.
@@ -308,7 +308,7 @@ These moved out of the retired `ir/derive.py` into grammar→grammar passes over
 
 ## Open-set note (rework complete, 2026-07-04)
 
-`codegen/binding.py` and `codegen/passes.py` were first to move their classification/naming/mode logic onto open `IrDispatch`/`IrTypeMap` tables with raising defaults. The remaining closed-set holdouts — `generate.py`'s atom ladder, `codegen/model_emitter.py`'s `_base_field_type`/`_value_str_type`, `codegen/aliases.py`'s `regex_for_*` ladders — have since landed the same treatment: `_GEN_ATOM`+`_Generator`, `_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE`+`_VALUE_TYPE`, and `_FRAGMENT` respectively, all with raising defaults and the post-canon-dead `IrNot` branches deleted. `_group_union_type` (a ref-arm filter) and `_visit_item`'s recursing group-frame `isinstance` are deliberately not tabled — they're control flow, not atom-type classification. See [[decisions]], [[codegen]], [[field-naming]].
+`codegen/binding.py` and `codegen/passes.py` were first to move their classification/naming/mode logic onto open `IrDispatch`/`IrTypeMap` tables with raising defaults. The remaining closed-set holdouts — `generate.py`'s atom ladder, `codegen/model_emitter.py`'s `_base_field_type`/`_value_str_type`, `codegen/aliases.py`'s `regex_for_*` ladders — have since landed the same treatment: `_GEN_ATOM`+`Generator`, `_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE`+`_VALUE_TYPE`, and `_FRAGMENT` respectively, all with raising defaults and the post-canon-dead `IrNot` branches deleted. `_group_union_type` (a ref-arm filter) and `_visit_item`'s recursing group-frame `isinstance` are deliberately not tabled — they're control flow, not atom-type classification. See [[decisions]], [[codegen]], [[field-naming]].
 
 ---
 

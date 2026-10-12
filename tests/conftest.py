@@ -27,11 +27,11 @@ def registry_snapshot(monkeypatch: pytest.MonkeyPatch):
     The compile ``_CACHE`` is flavour-NAME-keyed, so a stale entry could let a
     registered-flavour integration run pass vacuously against an authored-built
     ``CompiledGrammar`` (Fable preflight #1); reset it on setup AND teardown.
-    ``monkeypatch`` swaps the private registry for a copy it restores on
+    ``monkeypatch`` swaps the registry for a copy it restores on
     teardown, absorbing the silent overwrite of an authored singleton.
     """
-    registry = getattr(grammars_pkg, "_FLAVOURS")
-    monkeypatch.setattr(grammars_pkg, "_FLAVOURS", dict(registry))
+    registry = grammars_pkg.FLAVOURS
+    monkeypatch.setattr(grammars_pkg, "FLAVOURS", dict(registry))
     compile_pkg.reset_cache_for_tests()
     yield
     compile_pkg.reset_cache_for_tests()

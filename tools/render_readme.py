@@ -108,7 +108,7 @@ def _style_classes() -> frozenset[str]:
     return _defined_classes(STYLE)
 
 
-def _palette_slots() -> list[str]:
+def palette_slots() -> list[str]:
     """The categorical class names, in the palette's fixed order."""
     slots = [name for name in _style_classes() if re.fullmatch(r"c\d+", name)]
     return sorted(slots, key=lambda name: int(name[1:]))
@@ -293,7 +293,7 @@ threaded row leads the pruned sequential one on all twelve.
 """
 
 
-def _measured_caption(dates: Iterable[str]) -> str:
+def measured_caption(dates: Iterable[str]) -> str:
     """What the artifact actually says about WHEN the shown cells were taken.
 
     Provenance is per cell, because a run may refresh one seat of one grammar
@@ -352,7 +352,7 @@ def competitor_data() -> tuple[
         workers = column_workers(name)
         if workers is not None:
             picked[name]["label"] = f"{picked[name]['label']} ({workers} workers)"
-    caption = _measured_caption(_shown_dates(shown))
+    caption = measured_caption(_shown_dates(shown))
     if hidden:
         caption += (
             f"; {hidden} further seats (directive-matched competitor variants,"
@@ -590,9 +590,9 @@ def _ce_row(
     return parts
 
 
-def _ce_slots(grammars: list[str]) -> dict[str, str]:
+def ce_slots(grammars: list[str]) -> dict[str, str]:
     """Each grammar's categorical class, refusing a roster the palette cannot hold."""
-    slots = _palette_slots()
+    slots = palette_slots()
     if len(grammars) > len(slots):
         raise SystemExit(
             f"cross-engine chart: {len(grammars)} grammars but only {len(slots)}"
@@ -667,7 +667,7 @@ def cross_engine_svg() -> str:
     geom, refusing = _ce_geometry(engines, by_engine, grammars, len(legend))
     lines = _wrap(caption, CE_W - 2 * CE_PAD, 11)
     height = geom.bottom + 60.0 + 14.0 * len(lines)
-    slot = _ce_slots(grammars)
+    slot = ce_slots(grammars)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CE_W:.0f} {height:.0f}"'
         f' width="{CE_W:.0f}" height="{height:.0f}" role="img"'
@@ -816,7 +816,7 @@ def _path_box(elem: str) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _box(elem: str) -> tuple[float, float, float, float]:
+def element_box(elem: str) -> tuple[float, float, float, float]:
     """The drawn bounding box of one emitted element, as ``(x0, y0, x1, y1)``."""
     if elem.startswith("<circle"):
         reach = _attr(elem, "r") + 1.0
@@ -861,7 +861,7 @@ def _overflows(elements: list[str], width: float, height: float) -> list[str]:
     """Elements whose drawn box leaves the declared viewBox."""
     out: list[str] = []
     for elem in elements:
-        x0, y0, x1, y1 = _box(elem)
+        x0, y0, x1, y1 = element_box(elem)
         if x0 >= -0.5 and y0 >= -0.5 and x1 <= width + 0.5 and y1 <= height + 0.5:
             continue
         box = f"({x0:.1f},{y0:.1f})-({x1:.1f},{y1:.1f})"

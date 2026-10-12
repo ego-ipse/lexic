@@ -20,13 +20,13 @@ from lexic.parsing.parallel import worker_count
 @pytest.fixture(name="eight_cores")
 def _eight_cores(monkeypatch: pytest.MonkeyPatch) -> None:
     """A free-threaded machine with eight cpus."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: True)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: True)
     monkeypatch.setattr(os, "process_cpu_count", lambda: 8)
 
 
 def test_auto_is_one_under_the_gil(monkeypatch: pytest.MonkeyPatch):
     """Threaded parsing measured a net loss under the GIL — auto declines."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert available_workers() == 1
     assert doc_workers(AUTO) == 1
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=AUTO) == 1
@@ -51,7 +51,7 @@ def test_an_explicit_count_is_a_ceiling_with_a_chunk_floor(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """An explicit N is honored once each requested chunk clears the floor."""
-    monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
+    monkeypatch.setattr(policy_module, "free_threaded", lambda: False)
     assert doc_workers(4) == 4
     assert worker_count(1000 * MIN_CHUNK, splits=100, cores=4) == 4
     assert worker_count(1000, splits=100, cores=4) == 1
@@ -76,3 +76,34 @@ def test_a_zero_or_negative_explicit_count_still_parses():
     """Never fewer than one worker — someone has to do the parse."""
     assert doc_workers(-1) == 1
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=-1) == 1
+
+
+def test_the_floor_holds_only_when_every_piece_clears_it():
+    """One piece far under the chunk fails the floor, however wide the others
+    are; a piece short of a whole chunk but holding half of one does not."""
+    half = policy_module.MIN_PIECE
+    assert half == MIN_CHUNK // 2
+    assert policy_module.clears_floor([half, 5 * MIN_CHUNK])
+    assert not policy_module.clears_floor([half - 1, 5 * MIN_CHUNK])
+    assert policy_module.capacity(3 * MIN_CHUNK - 1) == 2
+
+
+@pytest.mark.parametrize(
+    ("workers", "cpus", "pieces"),
+    [
+        (16, 16, 15),  # the pool claims every CPU of a big host: spare one
+        (8, 8, 7),  # the smallest host that spares
+        (32, 16, 31),  # asked for more workers than CPUs: still claims them all
+        (4, 4, 4),  # a small host keeps every piece — one is a quarter of it
+        (2, 2, 2),  # and a 2-CPU host must still split in two
+        (4, 16, 4),  # a pool leaving CPUs free spares nothing
+        (7, 8, 7),
+    ],
+)
+def test_a_split_spares_a_cpu_only_when_the_pool_claims_a_big_host(
+    workers: int, cpus: int, pieces: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The calling thread parses the shell beside the pieces; sparing it a CPU
+    pays on 16 CPUs and costs a quarter of the pool on 4."""
+    monkeypatch.setattr(policy_module, "available_workers", lambda: cpus)
+    assert policy_module.piece_count(workers) == pieces

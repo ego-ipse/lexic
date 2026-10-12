@@ -57,22 +57,22 @@ from tools.benchmark.emitters.directives import NO_MARKS, Marks, inlined_marks
 if TYPE_CHECKING:
     from tools.benchmark.emitters.structured import Blocks
 
-_UNIT = IrQuantifier(1, 1)
+UNIT = IrQuantifier(1, 1)
 _STAR = IrQuantifier(0, IrNone)
 _PLUS = IrQuantifier(1, IrNone)
 
 
-def _bounds(quant: IrQuantifier) -> tuple[int, int]:
+def bounds(quant: IrQuantifier) -> tuple[int, int]:
     """``(lo, hi)`` with ``-1`` for unbounded — absence is ``IrNone``, not None."""
     return int(quant.lo), int(quant.hi) if isinstance(quant.hi, int) else -1
 
 
-def _quantified(
+def quantified(
     atom: str, quantifier: IrQuantifier, counted: Callable[[str, int, int], str]
 ) -> str:
     """Apply shared optional/star/plus syntax or delegate a counted repeat."""
-    lo, hi = _bounds(quantifier)
-    if quantifier == _UNIT:
+    lo, hi = bounds(quantifier)
+    if quantifier == UNIT:
         return atom
     if (lo, hi) == (0, 1):
         return f"{atom}?"
@@ -83,7 +83,7 @@ def _quantified(
     return counted(atom, lo, hi)
 
 
-def _known_ref(node: IrRuleRef, names: dict[str, str]) -> str:
+def known_ref(node: IrRuleRef, names: dict[str, str]) -> str:
     """Resolve a rule reference or reject a dangling emitted grammar."""
     key = str(node)
     if key not in names:
@@ -91,7 +91,7 @@ def _known_ref(node: IrRuleRef, names: dict[str, str]) -> str:
     return names[key]
 
 
-def _negated_class(node: IrNot, engine: str) -> IrCharClass:
+def negated_class(node: IrNot, engine: str) -> IrCharClass:
     """Return the class under a supported character-class negation."""
     inner = node[0]
     if not isinstance(inner, IrCharClass):
@@ -101,7 +101,7 @@ def _negated_class(node: IrNot, engine: str) -> IrCharClass:
     return inner
 
 
-def _rule_map(ast: IrAst) -> tuple[dict[str, IrSelf], str]:
+def rule_map(ast: IrAst) -> tuple[dict[str, IrSelf], str]:
     """``{name: body}`` and the start name, refusing a start that is not defined."""
     rules = {str(rule.name): rule.body for rule in ast.rules}
     start = str(ast.start)
@@ -123,7 +123,7 @@ def _slug(name: str) -> str:
     return f"r_{base}" if not base or base[0].isdigit() else base
 
 
-def _names(rules: dict[str, IrSelf]) -> dict[str, str]:
+def emitted_names(rules: dict[str, IrSelf]) -> dict[str, str]:
     """Grammar name → emitted name, with collisions broken deterministically."""
     out: dict[str, str] = {}
     taken: set[str] = set()
@@ -220,14 +220,14 @@ def _refs(node: IrSelf, runs: Runs) -> Iterator[str]:
             yield from _refs(child, runs)
 
 
-def _live(ast: IrAst, runs: Runs) -> tuple[dict[str, IrSelf], str]:
+def live_rules(ast: IrAst, runs: Runs) -> tuple[dict[str, IrSelf], str]:
     """``ast``'s rules less every one only a collapsed run still reaches.
 
     A run's unit rule (`digit` under `digit+`) has no reference left once the run
     becomes one terminal, and emitting it anyway declares a second lexer rule
     over the same code points for the lexer to trip on.
     """
-    rules, start = _rule_map(ast)
+    rules, start = rule_map(ast)
     seen = {start}
     stack = [start]
     while stack:
@@ -262,7 +262,7 @@ def _escaped(char: str) -> str | None:
     return None
 
 
-def _antlr_escaped(char: str) -> str | None:
+def antlr_escaped(char: str) -> str | None:
     """ANTLR's own escapes — `\\uXXXX` only; it rejects `\\xNN` outright.
 
     Escaping has proved notation-specific three times over: Lark eats `/`, PEG
@@ -281,12 +281,12 @@ _LARK_SPECIALS = "\\][^-/"
 """What a Lark regex needs backslashed inside a class. `[` is in there because
 an unescaped one makes Python's `re` warn about a possible nested set."""
 
-_ANTLR_SPECIALS = "\\]-"
+ANTLR_SPECIALS = "\\]-"
 """What ANTLR backslashes INSIDE brackets. `^` is not special there and it
 rejects the file for a `\\^` the regex notations both accept."""
 
 
-def _members(node: IrCharClass, extra: str = "") -> str:
+def class_members(node: IrCharClass, extra: str = "") -> str:
     """A char class's body for a regex notation, ranges kept as ranges.
 
     ``extra`` is what the ENCLOSING syntax would otherwise eat: Lark writes its
@@ -309,7 +309,7 @@ def _members(node: IrCharClass, extra: str = "") -> str:
     return "".join(out)
 
 
-def _ranges(charset: CharSet, escape, specials: str) -> str:
+def range_body(charset: CharSet, escape, specials: str) -> str:
     """An interval set as a bracketed class body in one notation's spelling."""
 
     def one(point: int) -> str:
@@ -347,7 +347,7 @@ class Lex(NamedTuple):
     blocks: Blocks | None = None
 
 
-def _term_for(body: str, lex: Lex, prefix: str) -> str:
+def term_for(body: str, lex: Lex, prefix: str) -> str:
     """The terminal name for ``body``, minting one on first sight."""
     if body not in lex.terms:
         lex.terms[body] = f"{prefix}{len(lex.terms)}_"
@@ -424,11 +424,11 @@ def lark_grammar(ast: IrAst, refine: bool = False, marks: Marks = NO_MARKS) -> s
     blocks = None
     if refine:
         structured = import_module("tools.benchmark.emitters.structured")
-        runs = structured.safe_runs(_live(ast, runs)[0], runs)
-        blocks = structured.partition_blocks(_live(ast, runs)[0], runs)
-    rules, start = _live(ast, runs)
+        runs = structured.safe_runs(live_rules(ast, runs)[0], runs)
+        blocks = structured.partition_blocks(live_rules(ast, runs)[0], runs)
+    rules, start = live_rules(ast, runs)
     lex = Lex(runs, {}, blocks)
-    names = _names(rules)
+    names = emitted_names(rules)
     names.update(_folded(names, marks, rules, start))
     bodies = [(names[n], _lark(b, names, lex)) for n, b in rules.items()]
     lines = [f"start: {names[start]}"]
@@ -436,7 +436,7 @@ def lark_grammar(ast: IrAst, refine: bool = False, marks: Marks = NO_MARKS) -> s
     lines += [f"{name}: {body}" for body, name in lex.terms.items()]
     if lex.blocks is not None:
         lines += [
-            f"B{i}: /[{_ranges(s, _escaped, _LARK_SPECIALS)}]/"
+            f"B{i}: /[{range_body(s, _escaped, _LARK_SPECIALS)}]/"
             for i, s in enumerate(lex.blocks.sets)
         ]
     return "\n".join(lines) + "\n"
@@ -459,12 +459,12 @@ def _lark_sequence(node: IrSequence, names: dict[str, str], lex: Lex) -> str:
 def _lark_item(node: IrItem, names: dict[str, str], lex: Lex) -> str:
     run = lex.runs.get(node)
     if run is not None:
-        term = _term_for(f"/[{_ranges(run.chars, _escaped, '\\]^-/')}]+/", lex, "RUN")
+        term = term_for(f"/[{range_body(run.chars, _escaped, '\\]^-/')}]+/", lex, "RUN")
         return f"{term}?" if run.optional else term
     atom = _lark(node.atom, names, lex)
     if not isinstance(node.atom, (IrLiteral, IrCharClass, IrRuleRef, IrChr)):
         atom = f"({atom})"
-    return _quantified(atom, node.quantifier, _lark_counted)
+    return quantified(atom, node.quantifier, _lark_counted)
 
 
 def _lark_counted(atom: str, lo: int, hi: int) -> str:
@@ -488,7 +488,7 @@ def _lark_literal(node: IrLiteral | IrChr, _names: dict[str, str], lex: Lex) -> 
 
 def _lark_charclass(node: IrCharClass, _names: dict[str, str], lex: Lex) -> str:
     if lex.blocks is None:
-        return f"/[{_members(node, extra='/')}]/"
+        return f"/[{class_members(node, extra='/')}]/"
     indices = lex.blocks.of_class[charset_of(node)]
     if len(indices) == 1:
         return f"B{indices[0]}"
@@ -496,12 +496,12 @@ def _lark_charclass(node: IrCharClass, _names: dict[str, str], lex: Lex) -> str:
 
 
 def _lark_ruleref(node: IrRuleRef, names: dict[str, str], _lex: Lex) -> str:
-    return _known_ref(node, names)
+    return known_ref(node, names)
 
 
 def _lark_not(node: IrNot, _names: dict[str, str], _lex: Lex) -> str:
-    inner = _negated_class(node, "Lark")
-    return f"/[^{_members(inner, extra='/')}]/"
+    inner = negated_class(node, "Lark")
+    return f"/[^{class_members(inner, extra='/')}]/"
 
 
 _LARK: dict[type, Callable[..., str]] = {
@@ -529,7 +529,7 @@ def _lark(node: IrSelf, names: dict[str, str], lex: Lex) -> str:
 # ── ordered choice (PEG / MatchFirst) — the arm order an author would use ──
 
 
-def _choice_arms(node: IrAlternation) -> list[IrSequence]:
+def choice_arms(node: IrAlternation) -> list[IrSequence]:
     """``node``'s arms in the order an ordered-choice author would write them.
 
     A context-free ``|`` is unordered; PEG's ``/`` (and pyparsing's
@@ -558,14 +558,14 @@ def peg_grammar(ast: IrAst, marks: Marks = NO_MARKS) -> str:
     that avoids building their otherwise-mandatory ``Node`` wrappers.
     """
     ast = inlined_marks(ast, marks)
-    rules, start = _rule_map(ast)
-    names = _names(rules)
+    rules, start = rule_map(ast)
+    names = emitted_names(rules)
     ordered = [(start, rules[start])] + [(n, b) for n, b in rules.items() if n != start]
     return "\n".join(f"{names[n]} = {_peg(b, names)}" for n, b in ordered) + "\n"
 
 
 def _peg_alternation(node: IrAlternation, names: dict[str, str]) -> str:
-    return " / ".join(_peg(arm, names) for arm in _choice_arms(node))
+    return " / ".join(_peg(arm, names) for arm in choice_arms(node))
 
 
 def _peg_sequence(node: IrSequence, names: dict[str, str]) -> str:
@@ -577,7 +577,7 @@ def _peg_item(node: IrItem, names: dict[str, str]) -> str:
     atom = _peg(node.atom, names)
     if isinstance(node.atom, (IrAlternation, IrSequence)):
         atom = f"({atom})"
-    return _quantified(atom, node.quantifier, _peg_counted)
+    return quantified(atom, node.quantifier, _peg_counted)
 
 
 def _peg_counted(atom: str, lo: int, hi: int) -> str:
@@ -597,16 +597,16 @@ def _peg_charclass(node: IrCharClass, _names: dict[str, str]) -> str:
     reader refuses the file — read as "PEG cannot express this grammar" when
     the only problem was the quoting. ``\\"`` inside a Python regex is ``"``.
     """
-    return f'~r"[{_members(node, extra=chr(34))}]"'
+    return f'~r"[{class_members(node, extra=chr(34))}]"'
 
 
 def _peg_ruleref(node: IrRuleRef, names: dict[str, str]) -> str:
-    return _known_ref(node, names)
+    return known_ref(node, names)
 
 
 def _peg_not(node: IrNot, _names: dict[str, str]) -> str:
-    inner = _negated_class(node, "PEG")
-    return f'~r"[^{_members(inner, extra=chr(34))}]"'
+    inner = negated_class(node, "PEG")
+    return f'~r"[^{class_members(inner, extra=chr(34))}]"'
 
 
 _PEG: dict[type, Callable[..., str]] = {

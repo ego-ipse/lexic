@@ -11,14 +11,20 @@ from typing import Any
 import pytest
 
 from lexic.exceptions import EngineInvariantError
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, Pref
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.program.gating import (
+    FiledWindowSelect,
     KWindowSelect,
     NoiseSkipSelect,
+    continuation_windows,
     gate_take,
+    select_arm,
     select_gated,
+    window_admits,
+    window_select,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -26,7 +32,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_KWIN,
     GATE_STOP,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
 EOF_GATE = (";", "", None)
 
@@ -117,7 +125,7 @@ def test_every_gate_kind_still_answers_through_the_one_entry_point() -> None:
 
     The three one- and two-character kinds are answered in `gate_take` itself so
     a hot loop pays nothing to reach them; the wider kinds go on to
-    `_wide_gate_take`. A split like that is exactly where a kind can fall
+    `wide_gate_take`. A split like that is exactly where a kind can fall
     through a crack and start answering ``False`` for the wrong reason, so this
     drives one input of each kind through the single entry point and checks the
     answer against what that kind's own rule says.
@@ -185,6 +193,64 @@ def test_a_wide_selection_answers_with_its_own_matching_arm() -> None:
     assert select_gated("ab", 0, _gated(wide)) is hit
 
 
+def _naive(entries, text: str, pos: int):
+    """The selection read straight off the entries, every window tried in order."""
+    for at_eof in (False, True):
+        for windows, arm in entries:
+            if window_admits(text, pos, windows, at_eof=at_eof):
+                return arm
+    return None
+
+
+def test_filing_by_first_character_selects_what_every_window_would() -> None:
+    """The first-character filing keeps the answer and the arm order: a
+    co-finite first position, a two-position window, an empty window, a
+    character no first position names, and the end of the input."""
+    not_a = (frozenset("a"), True)
+    a, b, c = ((frozenset(x), False) for x in "abc")
+    entries = (
+        (((a, b),), "ab"),
+        (((not_a, c),), "not-a then c"),
+        (((a,), (b, b)), "a or bb"),
+        (((),), "anything"),
+    )
+    wide = window_select(entries)
+    for text in ("ab", "ac", "a", "bb", "bc", "zc", "zz", "", "b", "abc"):
+        for pos in range(len(text) + 1):
+            assert wide.select(text, pos) == _naive(entries, text, pos), (text, pos)
+    assert isinstance(wide, FiledWindowSelect)
+    assert set(wide.first) == {"a", "b"}, "c is never a first position"
+    assert [arm for _windows, arm in wide.other] == ["not-a then c", "anything"]
+
+
+def test_a_filed_selection_rescues_an_arm_that_ends_the_input() -> None:
+    """Only the second pass selects here: the window's co-finite second position
+    lies past the end of ``a``, which the first pass refuses and the rescue
+    admits. The filed selection spells both passes, so both are pinned."""
+    a, b, not_x = (
+        (frozenset("a"), False),
+        (frozenset("b"), False),
+        (frozenset("x"), True),
+    )
+    entries = ((((a, not_x),), "a, then anything or the end"), (((b,),), "b"))
+    wide = window_select(entries)
+    assert isinstance(wide, FiledWindowSelect)
+    assert window_admits("a", 0, ((a, not_x),)) is False, "the first pass refuses"
+    assert wide.select("a", 0) == "a, then anything or the end"
+    assert wide.select("a", 0) == _naive(entries, "a", 0)
+    assert wide.select("ax", 0) is None
+
+
+def test_a_selection_filing_would_not_cut_stays_plain() -> None:
+    """Every window begins with the same character: filing cuts nothing for it,
+    and the plain selection is kept rather than paying for a lookup."""
+    space = (frozenset(" "), False)
+    entries = ((((space, (frozenset("a"), False)),), 1), (((space, space),), 2))
+    wide = window_select(entries)
+    assert isinstance(wide, KWindowSelect), "FiledWindowSelect is not one"
+    assert wide.select(" a", 0) == 1 and wide.select("  ", 0) == 2
+
+
 def test_a_noise_skip_selection_peeks_past_the_run_it_skips() -> None:
     """The lead char is noise on every arm — the decision is the one after it."""
     hit = object()
@@ -225,3 +291,68 @@ def test_a_clone_with_no_wide_selection_is_an_impossible_state() -> None:
     """
     with pytest.raises(EngineInvariantError, match="no wide selection"):
         select_gated("a", 0, _gated(None, default=object()))
+
+
+# ── an island's continuation windows, read by the one window test ──────────
+
+
+def _continuation(chars: str, state: str) -> Pref:
+    """One window over single-character sets, spelled as a string."""
+    return (tuple(CharSet.from_chars(c) for c in chars), state)
+
+
+def test_no_windows_is_no_evidence_and_admits():
+    """Without windows the one-character test decides alone."""
+    assert window_admits("ab", 0, continuation_windows(()))
+
+
+def test_a_window_must_match_every_character_it_names():
+    """Two characters named, two characters checked."""
+    windows = (_continuation("+a", MORE),)
+    assert window_admits("x+a", 1, continuation_windows(windows))
+    assert not window_admits("x+b", 1, continuation_windows(windows))
+
+
+def test_a_window_past_the_end_of_the_text_cannot_match():
+    """Text too short for the window is not a continuation of it."""
+    assert not window_admits(
+        "x+", 1, continuation_windows((_continuation("+a", MORE),))
+    )
+
+
+def test_a_complete_window_matches_only_where_the_input_ends():
+    """END is the whole continuation, so anything after it disagrees."""
+    windows = (_continuation(";", END),)
+    assert window_admits("x;", 1, continuation_windows(windows))
+    assert not window_admits("x;y", 1, continuation_windows(windows))
+
+
+def test_unknown_past_its_characters_matches_on_them_alone():
+    """UNK says nothing beyond what it spells."""
+    assert window_admits("x y", 1, continuation_windows((_continuation(" ", UNK),)))
+
+
+def test_a_continuation_window_holding_eof_is_refused():
+    """END says where a derivation stops; EOF never appears as a character, so
+    a window holding it is a broken invariant, not a reading."""
+    with pytest.raises(EngineInvariantError, match="EOF"):
+        continuation_windows((((CharSet(frozenset({""})),), MORE),))
+
+
+# ── arm selection ──────────────────────────────────────────────────────────
+
+
+def test_select_arm_picks_the_arm_whose_first_admits_the_char() -> None:
+    """Two arms with disjoint FIRST sets select by the lookahead char."""
+    tables = pda_from_text('root ::= a | b\na ::= "x"\nb ::= "y"\n')
+    start = tables.program.start
+    assert select_arm(start, "x", 0) is not select_arm(start, "y", 0)
+
+
+def test_select_arm_refuses_when_no_arm_matches_and_no_default() -> None:
+    """No viable arm and no default raises by name, carrying the position."""
+    tables = pda_from_text('root ::= "x"\n')
+    start = tables.program.start
+    assert start.default is None  # else the refusal below could not fire
+    with pytest.raises(PdaFail, match="no arm at 3"):
+        select_arm(start, "q", 3)

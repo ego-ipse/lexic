@@ -8,7 +8,7 @@ this module only answers what is VISIBLE, never what to do about it.
 
 from __future__ import annotations
 
-from typing import Iterator, Mapping, Sequence
+from typing import Iterable, Iterator, Mapping, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -31,6 +31,7 @@ from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
     "END",
+    "Depth",
     "FollowWindows",
     "KWindowFirst",
     "MORE",
@@ -274,16 +275,31 @@ def _resolve(table: IrTypeMap, atom: IrSelf) -> IrSelf:
     return table.resolve(atom)
 
 
-def collide(a: Pref, b: Pref) -> bool:
+def collide(a: Pref, b: Pref, exits: CharSet | None = None, eof: bool = False) -> bool:
     """Whether two prefixes overlap positionwise over their min window.
 
     Two prefixes collide when every position of the shorter one's CharSet
     overlaps the other's — a shorter prefix (a nullable/short arm) collides with
     any longer prefix sharing its lead, which is exactly why ε keeps states short
     and short states are un-separable (the nullable hole closed structurally).
+
+    :param exits: When given, only a text whose first character is one of
+        these can fit both: the decision is asked at those characters alone.
+    :param eof: Whether :data:`END` is the end of the INPUT, as in windows
+        extended by FOLLOW\\ :sub:`k` from the start rule's end. Then a prefix
+        that ENDs where the other has more cannot fit the same text. Read as
+        the end of a sequence (the default), END says nothing past itself.
     """
     ta, tb = a[0], b[0]
     m = min(len(ta), len(tb))
+    if eof and len(ta) != len(tb) and (a if len(ta) < len(tb) else b)[1] == END:
+        return False
+    if (
+        exits is not None
+        and m
+        and not ta[0].subtract(ta[0].subtract(tb[0])).overlaps(exits)
+    ):
+        return False
     return all(ta[i].overlaps(tb[i]) for i in range(m))
 
 
@@ -298,6 +314,29 @@ def separable(sets: Sequence[set[Pref]]) -> bool:
             if any(collide(pa, pb) for pa in sa for pb in sb):
                 return False
     return True
+
+
+type Depth = tuple[int, KWindowFirst, CharSet | set[Pref]]
+"""One width a decision is asked at: ``k``, the FIRST\\ :sub:`k` solver of that
+width, and what follows the sides there — a one-character FOLLOW set or the
+FOLLOW\\ :sub:`k` windows."""
+
+
+def first_separating(
+    sides: Sequence[Sequence[IrItem]],
+    depths: Iterable[Depth],
+) -> tuple[int, list[set[Pref]]] | None:
+    """The first ``(k, each side's windows)`` among ``depths`` at which the
+    sides separate, or ``None``. Each depth names its width, the solver of that
+    width and what follows the sides there; they are built as they are tried,
+    so a decision settled shallow never pays for a deep one."""
+    for k, solver, follow in depths:
+        sets = [
+            extend_follow(solver.arm_prefixes(list(s), k), follow, k) for s in sides
+        ]
+        if separable(sets):
+            return k, sets
+    return None
 
 
 def _follow_prefs(follow: "CharSet | set[Pref]") -> set[Pref]:

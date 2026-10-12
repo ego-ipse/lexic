@@ -302,7 +302,7 @@ def _model_defaults(cls: type) -> Mapping[str, ProductValue[GrammarModel]]:
     return MappingProxyType(dict(cls.fast_construct()[1]))
 
 
-def _declared_licence(
+def declared_licence(
     cls: type[GrammarModel], defaults: Mapping[str, ProductValue[GrammarModel]]
 ) -> ConstructionLicence[GrammarModel]:
     """The class's own construction contract, as the record a rule carries.
@@ -360,4 +360,4 @@ def _fast_licence(
         return None
     if not all(names[at] in defaults for at in optional):
         return None
-    return _declared_licence(cls, defaults)
+    return declared_licence(cls, defaults)

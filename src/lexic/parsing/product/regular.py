@@ -117,7 +117,7 @@ def prove_regular(
     first = KWindowFirst(rules, _WINDOW)
     tail = extend_follow({((), END)}, follow, _WINDOW)
     proved: set[tuple[str, frozenset[Pref]]] = set()
-    if not _closure_holds(first, rules, root, tail, proved):
+    if not closure_holds(first, rules, root, tail, proved):
         return None
     if {name for name, _tail in proved} != set(recognizer.index):
         # The walk follows references; the recognizer follows its own closure.
@@ -127,7 +127,7 @@ def prove_regular(
     return RegularProof(root, recognizer, recognizer.index[root])
 
 
-def _closure_holds(
+def closure_holds(
     first: KWindowFirst,
     rules: Mapping[str, IrRule],
     name: str,
@@ -152,11 +152,11 @@ def _closure_holds(
     if not _rule_is_deterministic(first, rule, tail):
         return False
     return all(
-        _references_hold(first, rules, _items(arm), tail, proved) for arm in rule.body
+        references_hold(first, rules, arm_items(arm), tail, proved) for arm in rule.body
     )
 
 
-def _references_hold(
+def references_hold(
     first: KWindowFirst,
     rules: Mapping[str, IrRule],
     items: Sequence[IrItem],
@@ -176,16 +176,16 @@ def _references_hold(
         here = _repeat_tail(first, item, after)
         atom = item.atom
         if isinstance(atom, IrRuleRef):
-            if not _closure_holds(first, rules, str(atom), here, proved):
+            if not closure_holds(first, rules, str(atom), here, proved):
                 return False
         elif isinstance(atom, IrAlternation) and not all(
-            _references_hold(first, rules, _items(arm), here, proved) for arm in atom
+            references_hold(first, rules, arm_items(arm), here, proved) for arm in atom
         ):
             return False
     return True
 
 
-def _items(arm: Sequence[IrSelf]) -> list[IrItem]:
+def arm_items(arm: Sequence[IrSelf]) -> list[IrItem]:
     """The arm's items, in order."""
     return [item for item in arm if isinstance(item, IrItem)]
 
@@ -214,7 +214,7 @@ def _leads(prefixes: set[Pref]) -> set[Pref]:
 
 def _rule_is_deterministic(first: KWindowFirst, rule: IrRule, tail: set[Pref]) -> bool:
     """Whether one rule's arms separate and none of its boundaries steals."""
-    arms = [_items(arm) for arm in rule.body]
+    arms = [arm_items(arm) for arm in rule.body]
     if not _first_disjoint(first, arms, tail):
         return False
     return all(_arm_boundaries_hold(first, arm, tail) for arm in arms)
@@ -231,7 +231,7 @@ def _group_is_deterministic(
     enclosing arm's own remainder, so the munch obligation is asked of the
     text that actually follows it.
     """
-    arms = [_items(arm) for arm in group]
+    arms = [arm_items(arm) for arm in group]
     if not _first_disjoint(first, arms, tail):
         if not _ordered_literals(arms, tail):
             return False
@@ -316,12 +316,12 @@ def _arm_boundaries_hold(
         deciding = _decides_here(first, item)
         if deciding and not _boundary_separates(first, item, rest, tail):
             return False
-        if not _group_holds(first, item, rest, tail):
+        if not group_holds(first, item, rest, tail):
             return False
     return True
 
 
-def _group_holds(
+def group_holds(
     first: KWindowFirst, item: IrItem, rest: Sequence[IrItem], tail: set[Pref]
 ) -> bool:
     """Whether an inline-group atom's own arms hold, under its continuation.

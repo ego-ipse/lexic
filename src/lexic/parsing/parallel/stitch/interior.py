@@ -24,8 +24,9 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from lexic.exceptions import EngineInvariantError, LexicError
-from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
+from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
+from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import Region
@@ -91,7 +92,28 @@ def interior_route[M: IrNamedTuple](
     return None if child is None else (tuple(steps), child)
 
 
-def _walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None:
+type Route = tuple[tuple[ModelStep, ...], int]
+"""The steps down to a routed interior and the slot of its run."""
+
+_ROUTES: dict[
+    tuple[int, int], tuple[ModelExecutable[Any], RoutedPlan, Route | None]
+] = memo({}, 0, 1)
+"""Route memo — (id(binding), id(plan)) → (binding, plan, route). A pure
+function of the two, which every document split under them re-derived; the
+strong references pin both ids."""
+
+
+def _route(binding: ModelExecutable[Any], plan: RoutedPlan) -> Route | None:
+    """:func:`interior_route` for ``plan`` under ``binding``, derived once."""
+    key = (id(binding), id(plan))
+    entry = _ROUTES.get(key)
+    if entry is None:
+        route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
+        entry = _ROUTES[key] = (binding, plan, route)
+    return entry[2]
+
+
+def walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None:
     """The model the steps address, or ``None`` when the shape surprises.
 
     A slot the model does not have is a chain/model disagreement and RAISES; a
@@ -139,7 +161,7 @@ def stitch_interior[S: GrammarModel](
 ) -> S | None:
     """Put the pieces' runs back into the shell; ``None`` = shape surprise."""
     steps, child = route
-    stand = _walk_down(shell, steps)
+    stand = walk_down(shell, steps)
     if stand is None:
         return None
     merged = (
@@ -147,9 +169,23 @@ def stitch_interior[S: GrammarModel](
     )
     if merged is None:
         return None
-    rebuilt: list[Bound] = list(stand.children())
-    rebuilt[child] = merged
-    return splice(shell, steps, stand.rebuild(rebuilt))
+    return splice(shell, steps, _with_run(stand, child, merged))
+
+
+def _with_run(
+    stand: GrammarModel, child: int, merged: tuple[IrSelf, ...]
+) -> GrammarModel:
+    """``stand`` with its ``child``-th bound field replaced by ``merged``.
+
+    A trusted build, as the parse that made every element of ``merged`` is:
+    the checked :meth:`~lexic.model.GrammarModel.rebuild` re-validated each
+    element of a run the pieces had already built, once per document — most
+    of what the stitch cost.
+    """
+    step = type(stand)
+    values = list(stand)
+    values[step.child_order().indices[child]] = merged
+    return step.fast_construct()[0](values)
 
 
 def _merged_whole(
@@ -168,7 +204,7 @@ def _merged_whole(
     """
     merged: list[IrSelf] = []
     for piece in pieces:
-        node = _walk_down(piece, steps)
+        node = walk_down(piece, steps)
         if node is None:
             return None
         inner = list(node.children())
@@ -212,7 +248,7 @@ def routed_split[M: IrNamedTuple](
     parts = divide(text, region, pool.workers, plan) if region is not None else None
     if region is None or parts is None:
         return None
-    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
+    route = _route(binding, plan)
     if route is None:
         return None
     parsed = _parsed(parse, grammar, ask, (plan, region, parts), pool)
@@ -307,8 +343,8 @@ def left_slot(step: type[GrammarModel]) -> int:
     what the licence below wants is that field's index among all of them,
     which a class with an unbound field would put elsewhere.
     """
-    bound = sorted(step.bound_fields().items())
-    return step._fields.index(bound[0][1][0]) if bound else -1
+    indices = step.child_order().indices
+    return indices[0] if indices else -1
 
 
 def fold_spines(
@@ -412,7 +448,7 @@ def _folded_stitch[M: IrNamedTuple](
     out of whichever fields happened to line up.
     """
     roots, leads = parsed
-    spines = [_walk_down(root, route) for root in roots]
+    spines = [walk_down(root, route) for root in roots]
     if any(spine is None for spine in spines):
         return None
     found = cast(list[GrammarModel], spines)

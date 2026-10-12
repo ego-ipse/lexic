@@ -3,8 +3,8 @@
 Two obligations are pinned with a mutation control that proves each check is
 what makes its shape decline, rather than merely sitting there: an inline group owes the same
 first-disjoint/ordered-literal obligations a rule body does
-(``_group_holds``), and a rule reached through a reference is proved against
-its OWN continuation, not the region's (``_references_hold``). For four of
+(``group_holds``), and a rule reached through a reference is proved against
+its OWN continuation, not the region's (``references_hold``). For four of
 the declining shapes, the decline is also shown to prevent a concrete wrong
 answer: the pattern an unsound proof would license is built directly and
 compared against what the grammar's own engine derives.
@@ -19,7 +19,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlternation, IrRule, IrRuleRef
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import build_recognizer
-from lexic.parsing.product.regular import _closure_holds, _items, prove_regular
+from lexic.parsing.product.regular import arm_items, closure_holds, prove_regular
 
 RELATION = (
     "root ::= expr op expr\n"
@@ -168,11 +168,11 @@ def test_the_regions_follow_would_have_licensed_a_wrong_answer(source):
 
 
 def test_neutralising_the_group_obligation_revives_every_unsound_shape(monkeypatch):
-    """With ``_group_holds`` stubbed to always succeed, the unsound shapes
+    """With ``group_holds`` stubbed to always succeed, the unsound shapes
     that this module's own machinery declines would ALL prove again — proof
     that the obligation, not something else, is what makes them decline."""
     monkeypatch.setattr(
-        "lexic.parsing.product.regular._group_holds", lambda *_args: True
+        "lexic.parsing.product.regular.group_holds", lambda *_args: True
     )
     cases = [
         ('root ::= pair "c"\npair ::= ("a" | "ab")+\n', "pair", "c"),
@@ -197,15 +197,16 @@ def test_neutralising_the_reference_walk_revives_both_referenced_shapes(monkeypa
         for item in items:
             atom = item.atom
             if isinstance(atom, IrRuleRef):
-                if not _closure_holds(first, rules, str(atom), tail, proved):
+                if not closure_holds(first, rules, str(atom), tail, proved):
                     return False
             elif isinstance(atom, IrAlternation) and not all(
-                _old_question(first, rules, _items(arm), tail, proved) for arm in atom
+                _old_question(first, rules, arm_items(arm), tail, proved)
+                for arm in atom
             ):
                 return False
         return True
 
-    monkeypatch.setattr("lexic.parsing.product.regular._references_hold", _old_question)
+    monkeypatch.setattr("lexic.parsing.product.regular.references_hold", _old_question)
     for source in (
         'root ::= word "z"\nword ::= a b\na ::= ("px" | "p")\nb ::= "x"\n',
         'root ::= word "z"\nword ::= a b\na ::= "p" "x"?\nb ::= "x"\n',

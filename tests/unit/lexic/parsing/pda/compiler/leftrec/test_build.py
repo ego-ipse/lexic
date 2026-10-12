@@ -19,7 +19,7 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, Recursive, foldable
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import pda_and_earley
 
 
@@ -30,7 +30,7 @@ def parts(source: str, rule: str):
     analysis = GrammarAnalysis(grammar)
     rules = {str(one.name): one for one in grammar.rules}
     shape = foldable(rule, rules[rule], rules, analysis)
-    return shape, _model_product(compiled.codegen_grammar, compiled.product)
+    return shape, model_product(compiled.codegen_grammar, compiled.product)
 
 
 _TWO_ITEM = (

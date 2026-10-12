@@ -35,7 +35,7 @@ Merges = Sequence[tuple[str, str]] | IrTuple
 """Ordered merge dyads — position is rank; coerced to the ``ranks`` map."""
 
 
-def _spelling(value: str) -> IrStr:
+def as_spelling(value: str) -> IrStr:
     """``value`` as an ``IrStr``, reused when it already is exactly one.
 
     Both halves of the test do work: ``isinstance`` establishes the type, and
@@ -48,32 +48,32 @@ def _spelling(value: str) -> IrStr:
     return IrStr(value)
 
 
-def _identifier(value: int) -> IrChr:
+def identifier(value: int) -> IrChr:
     """``value`` as an ``IrChr``, reused when it already is exactly one.
 
     A reducer hands ids over as ``IrInt``, which is a different leaf kind and so
     unequal to the ``IrChr`` the ``decode`` map and :meth:`IrTokenizer.spell`
     key on — those genuinely have to be rebuilt. The exactness test is the one
-    :func:`_spelling` explains.
+    :func:`as_spelling` explains.
     """
     if isinstance(value, IrChr) and value.__class__ is IrChr:
         return value
     return IrChr(int(value))
 
 
-def _vocab_map(vocab: Vocab) -> IrMap:
+def vocab_map(vocab: Vocab) -> IrMap:
     """Coerce a pythonic ``spelling → id`` Mapping to the spine's ``IrMap``.
 
     Built through ``from_table`` so the pairs never become ``IrTuple`` dyads
     only to be unpacked again, and each leaf is carried when it is already the
     canonical one — a reducer's vocabulary arrives fully typed.
     """
-    return IrMap.from_table((_spelling(s), _identifier(i)) for s, i in vocab.items())
+    return IrMap.from_table((as_spelling(s), identifier(i)) for s, i in vocab.items())
 
 
 def _rank_map(merges: Merges) -> IrMap:
     """Index ordered merge dyads by position into the ``dyad → IrInt`` rank map."""
-    dyads = (IrTuple(_spelling(left), _spelling(right)) for left, right in merges)
+    dyads = (IrTuple(as_spelling(left), as_spelling(right)) for left, right in merges)
     return IrMap.from_table((dyad, IrInt(i)) for i, dyad in enumerate(dyads))
 
 
@@ -339,9 +339,7 @@ class IrTokenizer(
         :param pipeline: The segmentation pipeline data.
         :returns: The tokenizer, with the inverse ``decode`` map derived.
         """
-        return cls._build(
-            name, _vocab_map(vocab), (IrMap(), IrLongestMatch()), pipeline
-        )
+        return cls._build(name, vocab_map(vocab), (IrMap(), IrLongestMatch()), pipeline)
 
     @classmethod
     def from_merges(
@@ -364,7 +362,7 @@ class IrTokenizer(
         :returns: The tokenizer, carrying the merge model.
         """
         return cls._build(
-            name, _vocab_map(vocab), (_rank_map(merges), IrRankedMerge()), pipeline
+            name, vocab_map(vocab), (_rank_map(merges), IrRankedMerge()), pipeline
         )
 
     @classmethod

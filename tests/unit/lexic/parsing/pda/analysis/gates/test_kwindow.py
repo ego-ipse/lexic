@@ -32,13 +32,16 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis import analysis as analysis_module
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.cursors import Notes
+from lexic.parsing.pda.analysis.demote import demote_follow_windows
 from lexic.parsing.pda.analysis.gates.kwindow import (
     FOLLOW_LOOP_K,
     MAX_K,
+    arm_final_loop_depths,
     arm_gate,
-    follow_arm_gate,
-    follow_loop_gate,
+    follow_depths,
     loop_gate,
     rule_references,
     stop_exit_settles,
@@ -277,8 +280,8 @@ def test_finding1_lo_gt_k_unbounded_islands_at_k2_separates_at_k3():
     true separator surfaces only at k=3 (digit-vs-EOF at position 3)."""
     arm1 = [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
-    assert arm_gate({}, [arm1, arm2], EOF, max_k=2) is None
-    got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
+    assert arm_gate([arm1, arm2], follow_depths({}, EOF, 2)) is None
+    got = arm_gate([arm1, arm2], follow_depths({}, EOF, 3))
     assert got is not None
     assert got[0] == 3
 
@@ -288,8 +291,8 @@ def test_finding1_lo_gt_k_bounded_twin_islands_at_k2():
     to the unbounded one."""
     arm1 = [IrItem(digits(), IrQuantifier(4, 8)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
-    assert arm_gate({}, [arm1, arm2], EOF, max_k=2) is None
-    got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
+    assert arm_gate([arm1, arm2], follow_depths({}, EOF, 2)) is None
+    got = arm_gate([arm1, arm2], follow_depths({}, EOF, 3))
     assert got is not None
     assert got[0] == 3
 
@@ -300,7 +303,7 @@ def test_finding1_k3_separation_rides_an_eof_carrying_charset():
     runtime window matcher must special-case."""
     arm1 = [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
-    got = arm_gate({}, [arm1, arm2], EOF, max_k=3)
+    got = arm_gate([arm1, arm2], follow_depths({}, EOF, 3))
     assert got is not None
     arm1_set, arm2_set = got[1]
     ((arm1_tup, arm1_tag),) = arm1_set
@@ -325,15 +328,15 @@ def test_finding2_rep_depth_3_loop_stays_island():
         ),
     )
     items = [IrItem(IrRuleRef("r"), IrQuantifier(1, IrNone)), IrItem(IrLiteral("aab"))]
-    assert loop_gate({"r": r}, items, 0, EOF, max_k=3) is None
-    assert loop_gate({"r": r}, items, 0, EOF, max_k=2) is None
+    assert loop_gate(items, 0, follow_depths({"r": r}, EOF, 3)) is None
+    assert loop_gate(items, 0, follow_depths({"r": r}, EOF, 2)) is None
 
 
 def test_finding2_k2_loop_separation_still_works():
     """A basic k=2 loop separation (position-0 discriminator) is unaffected
     by the rep-depth-3 fix."""
     items = [IrItem(IrLiteral("x"), IrQuantifier(1, IrNone)), IrItem(IrLiteral("y"))]
-    got = loop_gate({}, items, 0, EOF, max_k=3)
+    got = loop_gate(items, 0, follow_depths({}, EOF, 3))
     assert got is not None
     assert got[0] == 2
 
@@ -371,8 +374,12 @@ def test_soft_follow_contract_hard_follow_would_be_unsound():
 
     assert analysis.follow["q"].has("q")
     assert not analysis.hard_follow["q"].has("q")
-    assert arm_gate(analysis.rules, arms, analysis.follow["q"], max_k=3) is None
-    unsound = arm_gate(analysis.rules, arms, analysis.hard_follow["q"], max_k=3)
+    assert (
+        arm_gate(arms, follow_depths(analysis.rules, analysis.follow["q"], 3)) is None
+    )
+    unsound = arm_gate(
+        arms, follow_depths(analysis.rules, analysis.hard_follow["q"], 3)
+    )
     assert unsound is not None, (
         "hard FOLLOW should (wrongly) separate here — exactly why the gate "
         "must never be fed hard FOLLOW"
@@ -390,7 +397,7 @@ def self_analysis(name: str) -> GrammarAnalysis:
 def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
     """``arm_gate``'s separating ``k`` for rule ``name``'s arms, or ``None``."""
     arms = [_rule_items(arm) for arm in analysis.rules[name].body]
-    got = arm_gate(analysis.rules, arms, analysis.follow[name])
+    got = arm_gate(arms, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
 
@@ -398,7 +405,7 @@ def loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
     """``loop_gate``'s separating ``k`` for item ``idx`` of rule ``name``'s
     (single-arm) body, or ``None``."""
     items = _rule_items(analysis.rules[name].body[0])
-    got = loop_gate(analysis.rules, items, idx, analysis.follow[name])
+    got = loop_gate(items, idx, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
 
@@ -463,14 +470,14 @@ def test_follow_windows_cc_tail_separates_take_from_escape():
     assert esc_dash and all(len(w) >= 2 and w[1] == close for w in esc_dash)
 
 
-def test_follow_arm_gate_returns_cc_tail_windows():
-    """``follow_arm_gate`` returns per-arm windows for ``cc-tail`` in body-arm
-    order (the ``- cc-hi`` take arm, then the ε escape arm) where the plain
-    FIRST :func:`arm_gate` — with only a single FOLLOW char to reach — cannot."""
+def test_the_follow_window_depths_settle_cc_tail():
+    """At FOLLOW_k depth the arm gate files per-arm windows for ``cc-tail`` in
+    body-arm order (the ``- cc-hi`` take arm, then the ε escape arm), where at
+    one FOLLOW character (:func:`follow_depths`) it cannot."""
     an = self_analysis("gbnf")
     arms = [_rule_items(a) for a in an.rules["cc-tail"].body]
-    assert arm_gate(an.rules, arms, an.follow["cc-tail"]) is None
-    gate = follow_arm_gate(an.rules, an.start, arms, "cc-tail")
+    assert arm_gate(arms, follow_depths(an.rules, an.follow["cc-tail"])) is None
+    gate = an.taxonomy.arm_gates.get("cc-tail")
     assert gate is not None
     assert len(gate) == 2  # take arm + escape arm, body order
     dash = CharSet.from_chars("-")
@@ -519,15 +526,14 @@ def test_json_value_arm_gate_stays_island():
     assert arm_k(_ground_truth_analysis("json.gbnf"), "value") is None
 
 
-# ── the FOLLOW-window loop gate ────────────────────────────────────────
+# ── the loop gate at FOLLOW_k depth ────────────────────────────────────
 #
-# `loop_gate` takes the enclosing rule's FOLLOW as a bare `CharSet`, which
-# becomes exactly ONE length-1 window, and `collide` compares over the shorter
-# prefix. So for a loop that is the arm's LAST item the skip side is one
-# position wide and separation collapses to the single-character stop-set test —
-# every character past the first is compared against nothing, and no `k` can
-# change the verdict. `follow_loop_gate` asks the same decision with both sides
-# `k` deep.
+# Asked at `follow_depths`, `loop_gate` reads the enclosing rule's FOLLOW as a
+# bare `CharSet`, which becomes exactly ONE length-1 window, and `collide`
+# compares over the shorter prefix. So for a loop that is the arm's LAST item
+# the skip side is one position wide and separation collapses to the
+# single-character stop-set test — no `k` can change the verdict.
+# `arm_final_loop_depths` asks the same gate with both sides `k` deep.
 #
 # Each test below takes a grammar satisfying the other preconditions and breaks
 # exactly ONE, so a refusal names its reason.
@@ -546,10 +552,10 @@ def _compiled_analysis(source: str, key: str) -> GrammarAnalysis:
 
 
 def _gate(source: str, rule: str, key: str, idx: int = 0):
-    """The windows the gate issues for ``rule``'s loop at ``idx``, or ``None``."""
+    """The windows the analysis filed for ``rule``'s loop at ``idx``, or ``None``."""
     analysis = _compiled_analysis(source, key)
     items = list(analysis.rules[rule].body[0])
-    return follow_loop_gate(analysis.rules, analysis.start, items, idx, rule)
+    return analysis.taxonomy.loop_gates.get(id(items[idx]))
 
 
 # ── the licence ────────────────────────────────────────────────────────
@@ -621,7 +627,10 @@ def test_a_rule_referenced_twice_is_refused() -> None:
 
     assert rule_references(analysis.rules, "run") == 2
     items = list(analysis.rules["run"].body[0])
-    assert follow_loop_gate(analysis.rules, analysis.start, items, 0, "run") is None
+    depths = arm_final_loop_depths(
+        analysis.rules, analysis.follows.windows, items, 0, "run"
+    )
+    assert depths is None
 
 
 def test_a_loop_that_is_not_arm_final_is_refused() -> None:
@@ -645,7 +654,10 @@ def test_a_loop_that_is_not_arm_final_is_refused() -> None:
 
     assert len(items) == 2, "the loop must have a real continuation after it"
     assert items[0].quantifier.hi is IrNone, "item 0 must be the unbounded loop"
-    assert follow_loop_gate(analysis.rules, analysis.start, items, 0, "run") is None
+    depths = arm_final_loop_depths(
+        analysis.rules, analysis.follows.windows, items, 0, "run"
+    )
+    assert depths is None
 
 
 def test_a_decision_needing_three_characters_is_refused() -> None:
@@ -730,7 +742,7 @@ def test_a_two_char_prefix_decision_separates_at_k2(source: str) -> None:
     """Prefix sets disjoint, windows per-derivation — the k-window settles it."""
     analysis = _compiled_analysis(source + "\n", f"kw-pair-{hash(source)}")
     items = list(analysis.rules["root"].body[0])
-    gate = loop_gate(analysis.rules, items, 0, analysis.follow["root"])
+    gate = loop_gate(items, 0, follow_depths(analysis.rules, analysis.follow["root"]))
 
     assert gate is not None, "the window must settle what the pair gate used to"
     assert gate[0] == 2
@@ -836,3 +848,45 @@ def test_a_take_and_a_stop_that_both_end_the_input_do_not_settle() -> None:
     windows.follow["s"] = {((), END), ((a,), END)}
     items = _rule_items(rules["r"].body[0])
     assert not stop_exit_settles(windows, items, 0, "r", a)
+
+
+def test_an_analysis_builds_each_follow_window_width_once(monkeypatch) -> None:
+    """FOLLOW_k as window sets is a whole-grammar fixpoint, and every decision
+    that reads it — the arm and loop gates, the stop-set proof, the audit set,
+    the island continuations — reads the analysis' own: the GBNF self-grammar
+    asks for it at several decisions and builds each width once."""
+    built: list[int] = []
+    real = analysis_module.FollowWindows
+
+    def counted(rules, start, k):
+        """The fixpoint, its builds counted by width."""
+        built.append(k)
+        return real(rules, start, k)
+
+    monkeypatch.setattr(analysis_module, "FollowWindows", counted)
+    analysis = GrammarAnalysis(lift_optional_nullables(get_flavour("gbnf").grammar))
+    assert built, "the self-grammar asks for FOLLOW windows while it is analysed"
+    asked = [analysis.follows.windows(k) for k in (2, 3, 2, 3)]
+    assert asked[0] is asked[2] and asked[1] is asked[3]
+    assert sorted(built) == sorted(set(built)), built
+
+
+def test_demotes_gbnf_self_cc_tail_via_follow_windows():
+    """``cc-tail``'s empty-arm overlap doesn't separate under the plain FIRST
+    arm gate (only one FOLLOW char reachable) — the demotion asks the arm gate
+    at FOLLOW_k depth (:func:`window_depths`) instead, and the taxonomy STORES
+    the resulting per-arm windows under the same ``arm_gates`` channel the
+    FIRST-gate demotion uses."""
+    analysis = GrammarAnalysis(lift_optional_nullables(get_flavour("gbnf").grammar))
+    assert "cc-tail" not in analysis.islands
+    assert analysis.demoted["cc-tail"] == [
+        "cc-tail: arms FOLLOW-window separable (demoted)"
+    ]
+    arms = [_rule_items(arm) for arm in analysis.rules["cc-tail"].body]
+    one_deep = follow_depths(analysis.rules, analysis.follow["cc-tail"])
+    assert arm_gate(arms, one_deep) is None
+    stored = analysis.taxonomy.arm_gates["cc-tail"]
+    assert len(stored) == len(arms)
+    filed = analysis.taxonomy.arm_gates.pop("cc-tail")
+    assert demote_follow_windows(analysis, arms, "cc-tail", Notes())
+    assert analysis.taxonomy.arm_gates["cc-tail"] == filed

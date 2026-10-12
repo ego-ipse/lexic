@@ -19,7 +19,7 @@ import pytest
 from lexic.compile import compile_from_path
 from lexic.ir import IrNone, IrSelf
 from lexic.ir.identity import field_children
-from lexic.parsing.products import _model_product, pda_model
+from lexic.parsing.products import model_product, pda_model
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -59,7 +59,7 @@ def positions(value: object) -> int:
 def test_a_models_census_equals_its_position_count(name: str) -> None:
     """Over a built model the two routes agree to the unit."""
     bench = next(one for one in BENCHES if one.name == name)
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
 
     assert census(model) == positions(model)
@@ -73,7 +73,7 @@ def test_the_csv_census_is_its_whole_document_not_its_first_field() -> None:
     invisible.
     """
     bench = next(one for one in BENCHES if one.name == "csv")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
 
     assert census(model) > 4, "the walk stopped at the first run again"
@@ -125,7 +125,7 @@ def test_a_model_does_hold_one_so_the_condition_can_fail() -> None:
     fires rather than a fact about grammars.
     """
     bench = next(one for one in BENCHES if one.name == "csv")
-    product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
+    product = model_product(bench.compiled.codegen_grammar, bench.compiled.product)
     model = pda_model(product.pda, bench.corpus, bench.compiled.product.executor)
 
     assert bare_runs(model), "the probe cannot see a run it is meant to find"

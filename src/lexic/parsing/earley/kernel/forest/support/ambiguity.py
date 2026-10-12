@@ -438,7 +438,9 @@ def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
     links = kernel.family_reader()
     found: set[tuple[int, int]] = set()
     for handle in memo.nodes:
-        spec = spec_for(tables.codes, bits, tables.code_choice, handle)
+        spec = spec_for(
+            tables.codes, bits, tables.code_choice, tables.decode.code_droppable, handle
+        )
         chain = leftmost_chain(links, handle, spec, {}, decide)
         key = handle
         for link in reversed(chain or ()):
@@ -476,7 +478,9 @@ def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int
     links = kernel.family_reader()
     flips: list[tuple[int, int]] = []
     for point in choices:
-        spec = spec_for(tables.codes, bits, tables.code_choice, point)
+        spec = spec_for(
+            tables.codes, bits, tables.code_choice, tables.decode.code_droppable, point
+        )
         indices = canonical_indices(links, links[point], spec, run.decide)
         flips.extend((point, family) for family in indices[1:])
     return flips

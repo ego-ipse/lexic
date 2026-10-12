@@ -81,7 +81,7 @@ def _reader_source() -> str:
     return banner + source
 
 
-def _sidecar(directory: Path) -> str:
+def emit_sidecar(directory: Path) -> str:
     """Emit the reader beside the artefacts, named for the digest of its source.
 
     :param directory: Where the artefact is being written.
@@ -357,7 +357,7 @@ def export_value(
     payload = project_checked(value)
     source = render(
         payload,
-        _sidecar(target.parent),
+        emit_sidecar(target.parent),
         module=module,
         reduction=reduction,
         ambiguous=ambiguous,

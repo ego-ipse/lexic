@@ -13,9 +13,12 @@ from typing import TYPE_CHECKING
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
-from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
 from lexic.parsing.earley.kernel.tables.decider import Decider
-from lexic.parsing.earley.kernel.tables.splits import ChainSpec
+from lexic.parsing.earley.kernel.tables.splits import (
+    ChainSpec,
+    leftmost_chain,
+    sole_chain,
+)
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -149,13 +152,18 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         t = self.kernel.tables
         bits = self._packing.bits
         base = t.codes.arm_base[t.codes.code_arm[(handle >> bits) >> bits]]
-        chain = predecessor_chain(
-            self._links,
-            handle,
-            ChainSpec(base, bits, t.code_choice, t.codes.code_arm, t.codes.arm_base),
-            self.choices,
-            self.decide,
-        )
+        if self.choices is None:
+            chain = sole_chain(self._links, handle, base, bits)
+        else:
+            spec = ChainSpec(
+                base,
+                bits,
+                t.code_choice,
+                t.codes.code_arm,
+                t.codes.arm_base,
+                t.decode.code_droppable,
+            )
+            chain = leftmost_chain(self._links, handle, spec, self.choices, self.decide)
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)
         return [

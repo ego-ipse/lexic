@@ -23,7 +23,7 @@ from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
-from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.products import earley_model, model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
@@ -208,7 +208,7 @@ def answer(run) -> str:
 
 def public_and_earley(compiled: CompiledGrammar, text: str) -> tuple[str, str]:
     """The public parse's answer and whole-document Earley's, as :func:`answer`."""
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     earley = answer(
         lambda: earley_model(
             product.instance_grammar, text, compiled.product, product.tables

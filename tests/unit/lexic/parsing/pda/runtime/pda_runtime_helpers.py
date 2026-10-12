@@ -17,7 +17,7 @@ from lexic.parsing import products
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.products import _model_product
+from lexic.parsing.products import model_product
 
 
 def compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
@@ -34,7 +34,7 @@ def compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
     canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_from_path(path)
-    instance = _model_product(
+    instance = model_product(
         compiled.codegen_grammar, compiled.product
     ).instance_grammar
     pda = compile_pda(lifted, instance, compiled.product)
@@ -64,7 +64,7 @@ def pda_and_earley(source: str, text: str, key: str) -> tuple[object, object]:
     fallback to the very engine it is being compared with.
     """
     compiled = compile_text(source, cache_key=key)
-    product = _model_product(compiled.codegen_grammar, compiled.product)
+    product = model_product(compiled.codegen_grammar, compiled.product)
     pda = products.pda_model(product.pda, text, compiled.product.executor)
     earley = products.earley_model(
         product.instance_grammar, text, compiled.product, product.tables

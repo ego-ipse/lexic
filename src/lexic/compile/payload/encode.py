@@ -226,7 +226,7 @@ class _Encoder:
                 self._visit(stack, open_ids, children[len(kids)], kids)
                 continue
             record = self.emit(
-                (tid, kind, payload), kids, share=not _in_place_mutable(value)
+                (tid, kind, payload), kids, share=not in_place_mutable(value)
             )
             # The value AND its synthesised children ride in the memo entry, so
             # the keepalive cannot be forgotten.
@@ -257,7 +257,7 @@ class _Encoder:
         stack.append((child, self.classify(child), []))
 
 
-def _in_place_mutable(value: object) -> bool:
+def in_place_mutable(value: object) -> bool:
     """Can this record be changed in place, so two equal ones must stay apart?
 
     NOT "is this type mutable". Identity already handles *the same object twice*;

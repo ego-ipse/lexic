@@ -2,8 +2,8 @@
 
 Pins the P3-structured / P5-probe classification: which comment-bearing /
 LWS-folding loop decisions demote to an ``SG_MATCH`` / ``SG_SCAN`` / ``SG_PROBE``
-:class:`~lexic.parsing.pda.core.scanner.ScanGate`, and the ``_exit_is_noise`` /
-``_sem_follow_clear`` / ``_probe_candidate`` licences behind them. Shares the
+:class:`~lexic.parsing.pda.core.scanner.ScanGate`, and the ``exit_is_noise`` /
+``sem_follow_clear`` / ``probe_candidate`` licences behind them. Shares the
 hand-grammar helpers with ``test_noise`` (the same idiom) and exercises the
 real GBNF/ABNF self-grammars.
 """
@@ -29,12 +29,12 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.structured import (
-    _exit_is_noise,
-    _probe_candidate,
-    _sem_follow_clear,
+    exit_is_noise,
     noise_roots,
+    probe_candidate,
     root_candidates,
     run_roots,
+    sem_follow_clear,
     structured_arm_gate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -161,8 +161,8 @@ def test_abnf_has_two_pure_folding_sg_match_gates():
 
 def test_gbnf_n_loop_demotes_to_sg_match_via_sem_follow_clear():
     """GBNF's own ``n`` rule (``nunit+``) demotes to ``SG_MATCH`` too — not via
-    :func:`_exit_is_noise` (its own body has no arm-local exit to inspect),
-    but via the P6 precision clause :func:`_sem_follow_clear`: the ``#``
+    :func:`exit_is_noise` (its own body has no arm-local exit to inspect),
+    but via the P6 precision clause :func:`sem_follow_clear`: the ``#``
     overlap with the trailing ``tail-comment`` resolves by exact recognition
     (an incomplete ``comment-line`` simply fails to match)."""
     analysis = self_grammar_analysis("gbnf")
@@ -170,12 +170,12 @@ def test_gbnf_n_loop_demotes_to_sg_match_via_sem_follow_clear():
     assert gate.kind == SG_MATCH
 
 
-# ── _sem_follow_clear (the P6 precision clause for SG_MATCH) ───────────────
+# ── sem_follow_clear (the P6 precision clause for SG_MATCH) ───────────────
 
 
 class Scope(NamedTuple):
     """A minimal duck-typed stand-in for analysis' private ``Scope`` — only
-    the ``rule``/``tail``/``body`` fields :func:`_sem_follow_clear` reads."""
+    the ``rule``/``tail``/``body`` fields :func:`sem_follow_clear` reads."""
 
     rule: str
     tail: CharSet
@@ -188,7 +188,7 @@ def test_sem_follow_clear_true_on_the_gbnf_n_shape():
     analysis = self_grammar_analysis("gbnf")
     items = [i for i in analysis.rules["n"].body[0] if isinstance(i, IrItem)]
     scope = Scope("n", analysis.follow["n"])
-    assert _sem_follow_clear(analysis, items, 0, scope) is True
+    assert sem_follow_clear(analysis, items, 0, scope) is True
 
 
 def test_sem_follow_clear_denies_on_a_semantic_follower():
@@ -200,7 +200,7 @@ def test_sem_follow_clear_denies_on_a_semantic_follower():
     shaped = IrRule("shaped", IrAlternation(IrSequence(*items)))
     analysis = make_analysis(shaped, nz, z, start="shaped")
     scope = Scope("shaped", analysis.follow["shaped"])
-    assert _sem_follow_clear(analysis, items, 0, scope) is False
+    assert sem_follow_clear(analysis, items, 0, scope) is False
 
 
 def test_sem_follow_clear_denies_when_the_overeaten_char_is_semantic():
@@ -218,10 +218,10 @@ def test_sem_follow_clear_denies_when_the_overeaten_char_is_semantic():
     )
     analysis = make_analysis(top, shaped, nz, start="top")
     scope = Scope("shaped", analysis.follow["shaped"])
-    assert _sem_follow_clear(analysis, items, 0, scope) is False
+    assert sem_follow_clear(analysis, items, 0, scope) is False
 
 
-# ── _exit_is_noise (the SG_MATCH licence) ───────────────────────────────────
+# ── exit_is_noise (the SG_MATCH licence) ───────────────────────────────────
 
 
 def test_exit_is_noise_denies_on_nullable_semantic_follower():
@@ -238,7 +238,7 @@ def test_exit_is_noise_denies_on_nullable_semantic_follower():
     items = [loop_item, item(IrRuleRef("z"), lo=0, hi=1)]
     root = IrRule("root", IrAlternation(IrSequence(*items)))
     analysis = make_analysis(root, nz, z, start="root")
-    assert _exit_is_noise(analysis, items, 0) is False
+    assert exit_is_noise(analysis, items, 0) is False
 
 
 def test_exit_is_noise_denies_on_empty_rest():
@@ -249,7 +249,7 @@ def test_exit_is_noise_denies_on_empty_rest():
     items = [item(IrRuleRef("nz"), lo=0, hi=None)]
     root = IrRule("root", IrAlternation(IrSequence(*items)))
     analysis = make_analysis(root, nz, start="root")
-    assert _exit_is_noise(analysis, items, 0) is False
+    assert exit_is_noise(analysis, items, 0) is False
 
 
 def test_exit_is_noise_licenses_a_required_noise_follower():
@@ -260,7 +260,7 @@ def test_exit_is_noise_licenses_a_required_noise_follower():
     items = [item(IrRuleRef("nz"), lo=0, hi=None), item(IrRuleRef("nz2"), lo=1, hi=1)]
     root = IrRule("root", IrAlternation(IrSequence(*items)))
     analysis = make_analysis(root, nz, nz2, start="root")
-    assert _exit_is_noise(analysis, items, 0) is True
+    assert exit_is_noise(analysis, items, 0) is True
 
 
 def test_exit_is_noise_licenses_an_optional_noise_only_run_to_arm_end():
@@ -271,10 +271,10 @@ def test_exit_is_noise_licenses_an_optional_noise_only_run_to_arm_end():
     items = [item(IrRuleRef("nz"), lo=0, hi=None), item(IrRuleRef("nz2"), lo=0, hi=1)]
     root = IrRule("root", IrAlternation(IrSequence(*items)))
     analysis = make_analysis(root, nz, nz2, start="root")
-    assert _exit_is_noise(analysis, items, 0) is True
+    assert exit_is_noise(analysis, items, 0) is True
 
 
-# ── _probe_candidate (P5 uniqueness + refutation licence) ──────────────────
+# ── probe_candidate (P5 uniqueness + refutation licence) ──────────────────
 
 
 def name_ws_headers(*extra: IrRule, start: str, headers: tuple[IrRule, ...]):
@@ -319,7 +319,7 @@ def test_probe_candidate_none_when_two_distinct_headers_cover_the_overlap():
     )
     analysis = name_ws_headers(root, start="root", headers=(h1, h2))
     overlap = CharSet.from_chars("a")
-    assert _probe_candidate(analysis, frozenset({"ws"}), overlap) is None
+    assert probe_candidate(analysis, frozenset({"ws"}), overlap) is None
 
 
 def test_probe_candidate_none_when_lead_char_follows_r_elsewhere():
@@ -348,12 +348,12 @@ def test_probe_candidate_none_when_lead_char_follows_r_elsewhere():
     )
     analysis = name_ws_headers(root, start="root", headers=(h1, other))
     overlap = CharSet.from_chars("a")
-    assert _probe_candidate(analysis, frozenset({"ws"}), overlap) is None
+    assert probe_candidate(analysis, frozenset({"ws"}), overlap) is None
 
 
 def test_probe_candidate_finds_the_unique_spec_with_no_interference():
     """The positive control: one header, no competing spec, no refutation —
-    ``_probe_candidate`` resolves the ``(R, noise root, L)`` triple."""
+    ``probe_candidate`` resolves the ``(R, noise root, L)`` triple."""
     h1 = IrRule(
         "h1",
         IrAlternation(
@@ -367,7 +367,7 @@ def test_probe_candidate_finds_the_unique_spec_with_no_interference():
     root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("h1")))))
     analysis = name_ws_headers(root, start="root", headers=(h1,))
     overlap = CharSet.from_chars("a")
-    assert _probe_candidate(analysis, frozenset({"ws"}), overlap) == (
+    assert probe_candidate(analysis, frozenset({"ws"}), overlap) == (
         "name",
         "ws",
         "::=",

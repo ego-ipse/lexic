@@ -29,6 +29,8 @@ failure, not a pass.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -394,3 +396,86 @@ def test_a_finalizer_cannot_identify_its_own_thread() -> None:
         time.sleep(0.01)
     assert seen, "no finalizer ran — the probe proved nothing"
     assert not any(seen), "a finalizer named its own thread; capture is moot"
+
+
+# ── a finalizer never waits on the claim lock ────────────────────────────
+
+NESTED_RETIREMENT = """
+import threading, weakref
+from lexic.compile import compile_text
+from lexic.parsing.parallel.replicas import retire_thread, worker_replica
+from lexic.parsing.products import model_product
+
+compiled = compile_text('root ::= [a-z]+\\n# nested retirement\\n')
+grammar, binding = compiled.codegen_grammar, compiled.product
+other = threading.Thread(target=lambda: None)
+armed = []
+
+
+def claim():
+    view = worker_replica(grammar, binding)
+    # The view's product lives in the memo alone, so it is freed when this
+    # thread's claim is released: inside the thread's own retirement.
+    armed.append(weakref.finalize(model_product(*view), retire_thread, other))
+
+
+worker = threading.Thread(target=claim)
+worker.start()
+worker.join()
+assert armed and not armed[0].alive, "the trap never fired"
+print("retired")
+"""
+"""A worker exits; releasing its claim frees an object whose finalizer
+retires ANOTHER thread — on the thread already holding the claim lock."""
+
+RETIREMENT_MID_CLAIM = """
+import threading, weakref
+from lexic.compile import compile_text
+from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.parallel.replicas import retire_thread, worker_replica
+
+compiled = compile_text('root ::= [a-z]+\\n# retirement mid-claim\\n')
+other = threading.Thread(target=lambda: None)
+class Trap:
+    pass
+
+
+trap = Trap()
+weakref.finalize(trap, retire_thread, other)
+held = [trap]
+del trap
+
+
+class Freeing(ModelExecutable):
+    __slots__ = ()
+
+    def replica(self):
+        held.clear()  # the finalizer fires here, mid-claim
+        return super().replica()
+
+
+binding = Freeing.__new__(Freeing)
+for name in ModelExecutable.__slots__:
+    object.__setattr__(binding, name, getattr(compiled.product, name))
+worker_replica(compiled.codegen_grammar, binding)
+assert not held, "the trap was never released"
+print("retired")
+"""
+"""A finalizer that retires a thread fires while this thread holds the claim
+lock, minting a replica."""
+
+
+@pytest.mark.parametrize("script", [NESTED_RETIREMENT, RETIREMENT_MID_CLAIM])
+def test_a_finalizer_firing_under_the_claim_lock_does_not_deadlock(script: str) -> None:
+    """A thread's exit signal runs on whatever thread the release happens on,
+    including one holding the claim lock. Run in its own interpreter, so a
+    deadlock is a timeout here rather than a hung test session."""
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stdout.strip() == "retired"

@@ -13,18 +13,20 @@ one grammar fragment that condition depends on.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
 from lexic.grammars import ABNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel.plan.routed import (
-    _optional_ref,
     divide,
     locate,
+    optional_ref,
     routed_plan,
     rule_emits_item,
     terminates_once_ref,
 )
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_PIECE
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
     routed_document,
@@ -189,7 +191,7 @@ def test_the_native_json_grammar_derives_no_route():
     items = tuple(tuple(start.body)[0])
 
     assert routed_plan(JSON_GRAMMAR) is None
-    assert all(_optional_ref(item) is None for item in items)
+    assert all(optional_ref(item) is None for item in items)
 
 
 def test_a_markdown_shaped_mandatory_repetition_derives_no_route():
@@ -201,7 +203,7 @@ def test_a_markdown_shaped_mandatory_repetition_derives_no_route():
     items = tuple(tuple(start.body)[0])
 
     assert routed_plan(grammar) is None
-    assert all(_optional_ref(item) is None for item in items)
+    assert all(optional_ref(item) is None for item in items)
 
 
 def test_the_real_abnf_self_grammar_derives_no_route():
@@ -213,7 +215,7 @@ def test_the_real_abnf_self_grammar_derives_no_route():
     rules = {str(rule.name): rule for rule in grammar.rules}
     start = rules[str(grammar.start)]
     items = tuple(tuple(start.body)[0])
-    candidate = next(item for item in items if _optional_ref(item) == "c-nl")
+    candidate = next(item for item in items if optional_ref(item) == "c-nl")
     emitting = next(item for item in items if str(item.atom) == "rule")
 
     assert routed_plan(grammar) is None
@@ -258,3 +260,62 @@ def test_a_multi_arm_head_unit_not_ending_at_the_mark_declines():
 
     assert not terminates_once_ref("head", "\n", rules)
     assert routed_plan(grammar) is None
+
+
+def test_a_neighbour_of_varying_width_declines_the_whole_extent_route():
+    """``pre{1,2}`` before a whole-extent interior spells ``#`` or ``##``: no
+    fixed width bounds where the interior starts, so no plan is derived. The
+    same grammar with ``pre`` exactly once is bounded by its one ``#``."""
+    varying = (
+        'root ::= pre{1,2} para*\npre ::= "#"\n'
+        'para ::= line+ "\\n"\nline ::= [a-z# ]+ "\\n"\n'
+    )
+    assert routed_plan(_grammar(varying)) is None
+    plan = routed_plan(_grammar(varying.replace("pre{1,2}", "pre")))
+    assert plan is not None and plan.whole and plan.before == "#"
+
+
+_PARAS = (
+    'root ::= pre para*\npre ::= "#"\npara ::= line+ "\\n"\nline ::= [a-z ]+ "\\n"\n'
+)
+"""A whole-extent interior of paragraph lines behind one ``#``."""
+
+
+@pytest.mark.parametrize(
+    ("unit", "count", "widths"),
+    [
+        (1500, 5, [3002, 1502, 3002]),
+        (1700, 4, [1702, 3402, 1702]),
+        (1900, 5, [1902, 3802, 1902, 1902]),
+    ],
+)
+def test_a_piece_short_of_a_chunk_keeps_its_worker(
+    unit: int, count: int, widths: list[int]
+) -> None:
+    """Lines of 1.5–1.9 KB: a cut snapped to the nearest mark leaves a piece
+    of one line, short of :data:`MIN_CHUNK` but above :data:`MIN_PIECE`. Its
+    worker still wins, so every worker the capacity allows is kept."""
+    plan = routed_plan(_grammar(_PARAS))
+    assert plan is not None
+    text = "#" + ("a" * (unit - 1) + "\n") * count + "\n"
+    region = locate(text, plan)
+    assert region is not None
+    pieces = divide(text, region, 4, plan)
+    assert pieces is not None
+    assert [len(piece) for piece in pieces] == widths
+
+
+def test_a_cut_far_under_the_floor_walks_to_the_next_mark() -> None:
+    """The first share's nearest mark ends a 500-character piece, far under
+    :data:`MIN_PIECE`: the cut walks on to the next mark, and all four
+    workers stay, each piece above the floor."""
+    plan = routed_plan(_grammar(_PARAS))
+    assert plan is not None
+    lines = (500, 3500, 1500, 900, 500, 200, 1500)
+    text = "#" + "".join("a" * (n - 1) + "\n" for n in lines) + "\n"
+    region = locate(text, plan)
+    assert region is not None
+    pieces = divide(text, region, 4, plan)
+    assert pieces is not None
+    assert [len(piece) for piece in pieces] == [4002, 1502, 1402, 1702]
+    assert min(len(piece) for piece in pieces) >= MIN_PIECE

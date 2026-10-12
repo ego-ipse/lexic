@@ -14,13 +14,18 @@ the container a worker must not share.
 
 from __future__ import annotations
 
-from types import MappingProxyType
+import threading
+from array import array
+from dataclasses import dataclass
+from types import FunctionType, MappingProxyType
 
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrItem, IrRuleRef
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import (
     CaptureMode,
     CaptureSpec,
@@ -177,3 +182,108 @@ def test_replica_gets_its_own_executor_over_its_own_private_container():
     assert replica.executor is not binding.executor
     assert replica.executor.routines == binding.executor.routines
     assert replica.executor.routines is not binding.executor.routines
+
+
+# ── copied() — a compiled artefact as a replica's private copy ─────────
+
+
+@dataclass(slots=True, eq=False, repr=False)
+class _Node:
+    """A slotted engine-like record: two fields, one of them a back edge."""
+
+    label: str
+    next: _Node | None = None
+
+
+def _baked(target: _Node):
+    """A closure over ``target``, as the clone bake makes one."""
+
+    def build() -> _Node:
+        return target
+
+    return build
+
+
+def _census(root: object) -> dict[int, object]:
+    """Every object the copier would walk from ``root``: containers, records,
+    closures and their cells."""
+    seen: dict[int, object] = {}
+    stack = [root]
+    while stack:
+        part = stack.pop()
+        if id(part) in seen or isinstance(part, (str, int, type)):
+            continue
+        seen[id(part)] = part
+        if isinstance(part, _Node):
+            stack.extend((part.label, part.next))
+        elif isinstance(part, FunctionType):
+            stack.extend(cell.cell_contents for cell in part.__closure__ or ())
+        elif isinstance(part, (tuple, list)):
+            stack.extend(part)
+        elif isinstance(part, dict):
+            stack.extend(part.values())
+    return seen
+
+
+def test_a_copy_makes_every_minted_object_anew_and_keeps_its_cycles() -> None:
+    """Two records reaching each other, a closure over one, and the containers
+    holding them are all new objects in the copy, linked as before."""
+    first, second = _Node("a"), _Node("b")
+    first.next, second.next = second, first
+    compiled = {"arms": [first, (second, _baked(first))]}
+    binding = ModelExecutable(_RULES)
+
+    copy = binding.copied(compiled, binding.replica())
+
+    assert not set(_census(copy)) & set(_census(compiled))
+    one, (two, build) = copy["arms"][0], copy["arms"][1]
+    assert one.next is two and two.next is one
+    assert build() is one
+    mine, theirs = build.__closure__, _baked(first).__closure__
+    assert mine is not None and theirs is not None and mine[0] is not theirs[0]
+
+
+def test_a_copy_keeps_a_module_constant_and_rebuilds_ir_values() -> None:
+    """A constant compared by identity is the process's, so the copy refers to
+    it; an IR record and the scalar leaf under it are made equal but new, once
+    however often they are reached."""
+    leaf = IrRuleRef("rule")
+    record = IrItem(leaf)
+    compiled = (CharSet.EMPTY, record, [record])
+    binding = ModelExecutable(_RULES)
+
+    copy = binding.copied(compiled, binding.replica())
+
+    assert copy[0] is CharSet.EMPTY
+    assert copy[1] == record and copy[1] is not record
+    assert copy[2][0] is copy[1] and copy[2] is not compiled[2]
+    assert copy[1].children()[0] == leaf and copy[1].children()[0] is not leaf
+    assert copy[1].children()[0].__class__ is IrRuleRef
+
+
+def test_a_copy_moves_the_binding_and_its_executor_to_the_replica() -> None:
+    """What the compile baked against the original binding reads the replica's
+    once copied; the read-only projections stay shared."""
+    binding = ModelExecutable(_RULES)
+    replica = binding.replica()
+    compiled = (binding, binding.executor, binding.routines, binding.routines["a"])
+
+    copy = binding.copied(compiled, replica)
+
+    assert copy == (
+        replica,
+        replica.executor,
+        binding.routines,
+        binding.routines["a"],
+    )
+    assert copy[0] is replica and copy[1] is replica.executor
+
+
+@pytest.mark.parametrize("opaque", [threading.Lock(), array("i", [1])])
+def test_a_copy_refuses_an_object_it_cannot_see_inside(opaque: object) -> None:
+    """A C-level type no row names could hold anything — even one that offers
+    its own ``__deepcopy__``, which says nothing about what it shares: the
+    copy says so rather than sharing it or guessing."""
+    binding = ModelExecutable(_RULES)
+    with pytest.raises(UnsupportedConstructError, match="no private copy"):
+        binding.copied([opaque], binding.replica())

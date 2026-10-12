@@ -64,7 +64,7 @@ WIDTH = 88
 _UNIT = IrQuantifier(1, 1)
 
 
-def _ws_inl_leak(text: str) -> str:
+def ws_inl_leak(text: str) -> str:
     """The first value-final token separated from its delimiter by a newline.
 
     A value-final token (bare name, ``)``, string, int) is followed by its
@@ -106,7 +106,7 @@ def _ref_class_name(ref: IrRuleRef, class_by_rule: dict[str, str]) -> str:
     return class_by_rule.get(str(ref), class_name_for(str(ref)))
 
 
-def _group_model_type(atom: IrAlternation, class_by_rule: dict[str, str]) -> str:
+def group_model_type(atom: IrAlternation, class_by_rule: dict[str, str]) -> str:
     """Union type for a model-mode inline group: each unit-ref arm's class.
 
     Model mode is only reached for an all-unit-ref group, so every arm
@@ -129,7 +129,7 @@ def _model_base_type(item: IrItem, class_by_rule: dict[str, str]) -> str:
     if isinstance(atom, IrRuleRef):
         return _ref_class_name(atom, class_by_rule)
     if isinstance(atom, IrAlternation):
-        return _group_model_type(atom, class_by_rule)
+        return group_model_type(atom, class_by_rule)
     return "GrammarModel"
 
 
@@ -238,7 +238,7 @@ def _indented_ir(prefix: str, node: IrSelf) -> _Rendered:
     notation = ir_doc(node)
     doc = IrCat(IrText(prefix), IrNest(base, notation.doc))
     text = render(doc, WIDTH)
-    leak = _ws_inl_leak(text)
+    leak = ws_inl_leak(text)
     if leak:
         raise UnsupportedConstructError(
             f"export: newline before a delimiter breaks module reparse: {leak!r}"

@@ -25,7 +25,7 @@ internal. This, and the engine-seam rule, are enforced by
 
 ```
 grammar text
-   ├─ _scan_directives ─────────────► (start, non_semantic)          [private helper]
+   ├─ scan_directives ──────────────► (start, non_semantic)
    └─ parse_grammar ───────────────► IrAst
             └─ canonicalize ────────► canonical IrAst                 [ir/canonical.py]
                   = canonical_grammar()   (start bound, noise flagged semantic=False)
@@ -136,7 +136,7 @@ from the view.
 Field naming is a three-tier cascade (rule-ref name → pattern library →
 positional), and reserved names mangle with a trailing `_`: field names in
 `_RESERVED_FIELD_NAMES` (keywords ∪ the record-spine protocol surface ∪
-`GrammarModel`'s methods) and class names in `_RESERVED_CLASS_NAMES` (the
+`GrammarModel`'s methods) and class names in `RESERVED_CLASS_NAMES` (the
 names the exporter's header binds), both drift-pinned by tests. See
 [`.wiki/lexic/field-naming.md`](../../../.wiki/lexic/field-naming.md).
 

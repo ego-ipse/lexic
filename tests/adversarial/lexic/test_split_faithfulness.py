@@ -19,10 +19,9 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel.plan.cuts import cut_offsets
+from lexic.parsing.parallel.plan.cuts import Level, cut_offsets
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from lexic.parsing.parallel.pool import PoolLease
 from tests.split_helpers import engages
 
 _CORES = (2, 3, 8)
@@ -469,8 +468,7 @@ def test_runs_of_the_mark_never_cut_adjacent_or_empty() -> None:
         compiled.split_analysis or compiled.grammar,
     )
     assert len(plans) == 1 and plans[0].trailing
-    with PoolLease(8) as pool:
-        cuts = cut_offsets(plans[0], text, 8, pool).offsets
+    cuts = cut_offsets(plans[0], text, 8, Level(plans[0].scanner, text)).offsets
     assert len(cuts) > 1
     assert all(text.startswith("\n\n", at) for at in cuts)
     assert all(later - earlier >= MIN_CHUNK for earlier, later in zip(cuts, cuts[1:]))

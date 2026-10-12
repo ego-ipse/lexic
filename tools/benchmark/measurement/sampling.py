@@ -3,8 +3,8 @@
 The sampling protocol, kept apart from what a row is and how it is built: a
 figure only means something with the state it was taken in stated beside it —
 the collector left enabled, the engine primed, one untimed pass of the row
-immediately before its timed one, and the median of independent passes rather
-than the fastest.
+and then a collection before its timed one, the collections the two passes
+ran, and the median of independent passes rather than the fastest.
 """
 
 from __future__ import annotations
@@ -53,9 +53,68 @@ def timed(parse: Parse, corpus: str) -> Pass:
     return Pass(inner() / 1e6 if inner else wall, cpu)
 
 
-def once(parse: Parse, corpus: str) -> float:
-    """Microseconds per input character for one timed pass — the report's cell."""
-    return timed(parse, corpus).wall * 1e6 / len(corpus)
+class Sampled(NamedTuple):
+    """What one or more sampling rounds read.
+
+    :ivar timing: The timed pass — or, over several rounds, each clock's median.
+    :ivar collections: Collector passes that fired inside the rounds' untimed
+        AND timed parses. A timed pass starts from a fresh collection, so its
+        time no longer carries a collection two parses' allocation brings on;
+        this count is where that cost stays visible.
+    :ivar paused: Seconds those passes took — where a larger live heap's
+        longer collections stay visible.
+    """
+
+    timing: Pass
+    collections: int
+    paused: float
+
+
+class Collections:
+    """Counts the collector's passes, and their seconds, while installed in
+    ``gc.callbacks``."""
+
+    def __init__(self) -> None:
+        self.seen = 0
+        self.paused = 0.0
+        self.started = 0.0
+
+    def __call__(self, phase: str, _info: dict[str, int]) -> None:
+        if phase == "start":
+            self.seen += 1
+            self.started = time.perf_counter()
+            return
+        self.paused += time.perf_counter() - self.started
+
+    def reading(self) -> tuple[int, float]:
+        """``(passes, seconds)`` so far."""
+        return self.seen, self.paused
+
+
+def sample_round(parse: Parse, corpus: str) -> Sampled:
+    """One round: an untimed pass, a collection, the timed pass, a collection.
+
+    The untimed pass keeps every sample in the same hot-parse state. The
+    collection after it makes every timed pass start from the same collector
+    state: otherwise whether the collector fires inside the timed pass depends
+    on the live heap's size, not on the parse. The collection after the timed
+    pass stops one sample's garbage landing in the next.
+    """
+    counter = Collections()
+    gc.callbacks.append(counter)
+    try:
+        parse(corpus)
+        untimed = counter.reading()
+        gc.collect()
+        before = counter.reading()
+        timing = timed(parse, corpus)
+        after = counter.reading()
+        fired = untimed[0] + after[0] - before[0]
+        paused = untimed[1] + after[1] - before[1]
+    finally:
+        gc.callbacks.remove(counter)
+    gc.collect()
+    return Sampled(timing, fired, paused)
 
 
 def prime(parse: Parse, corpus: str) -> None:
@@ -80,15 +139,11 @@ def interleaved(
     ``texts`` names each row's document: the mt rows always read the full
     corpus, everyone else reads whatever the ``--full`` decision assigned.
 
-    Each pass is followed by an UNTIMED ``gc.collect()``. The collector stays
-    ENABLED inside the timed pass, so a row pays its own allocation cost; the
-    collect afterwards only stops one sample's garbage landing in the next.
-    The same operation is applied to every row, so it cannot favour an arm.
-
-    Immediately before its timed pass, each row gets one untimed pass of ITSELF.
-    This keeps every sample in the same hot-parse state even after allocator or
-    collection work. The reported noun remains ONE timed parse and the
-    statistic remains the median — no batching or fastest-run selection.
+    Every row's sample is one :func:`sample_round`, with the collector
+    ENABLED inside the timed pass, so a row pays its own allocation cost. The
+    same round is applied to every row, so it cannot favour an arm. The
+    reported noun remains ONE timed parse, in microseconds per character, and
+    the statistic remains the median — no batching or fastest-run selection.
     """
     for name, parse in engines.items():
         prime(parse, texts[name])
@@ -98,9 +153,8 @@ def interleaved(
     for _ in range(rounds):
         rng.shuffle(seats)
         for name, parse in seats:
-            parse(texts[name])
-            samples[name].append(once(parse, texts[name]))
-            gc.collect()
+            timing = sample_round(parse, texts[name]).timing
+            samples[name].append(timing.wall * 1e6 / len(texts[name]))
     return samples
 
 
