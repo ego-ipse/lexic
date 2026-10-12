@@ -28,9 +28,9 @@ from lexic.parsing.parallel.discovery.partition import Division, Unit, partition
 from lexic.parsing.parallel.discovery.regions import Around, par_find
 from lexic.parsing.parallel.plan.cuts import (
     Cuts,
-    Level,
     cut_offsets,
     cut_spans,
+    level_of,
     reads_a_sweep,
     shared_scanner,
 )
@@ -480,12 +480,12 @@ def _split_on[M: IrNamedTuple](
     # The level belongs to the document, not to a plan: every plan reading the
     # sweep searches the same depth-0 marks, so the depths one plan counts and
     # the whole sweep a sparse one forces serve every plan after it.
-    level = Level(shared, ask.text, pool) if shared is not None else None
+    level = level_of(shared, ask.text, pool) if shared is not None else None
     for plan in licensed:
         # A walking scan owns its pass, and an envelope plan reads neither.
         own = level if level is not None and reads_a_sweep(plan) else None
         chosen = cut_offsets(
-            plan, ask.text, cores, own or Level(plan.scanner, ask.text, pool)
+            plan, ask.text, cores, own or level_of(plan.scanner, ask.text, pool)
         )
         if not chosen.offsets:
             continue

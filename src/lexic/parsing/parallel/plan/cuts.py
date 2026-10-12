@@ -168,6 +168,24 @@ class Level:
         return depth
 
 
+class FlatLevel(Level):
+    """A :class:`Level` under a scanner with no pair to open or close: every
+    mark stands at depth 0, so nothing is counted and nothing remembered."""
+
+    def depth(self, at: int) -> int:
+        """0, wherever ``at`` stands."""
+        return 0
+
+
+def level_of(scanner: Scanner, text: str, pool: WorkPool | None = None) -> Level:
+    """``text``'s level under ``scanner`` — flat when the scanner has no pair.
+
+    Chosen once per document, so a paired level runs exactly the counting code
+    it always ran and a flat one never asks for a count that can only be 0.
+    """
+    return (FlatLevel if scanner.flat else Level)(scanner, text, pool)
+
+
 class PlanMarks:
     """One plan's cut candidates in one document, found where they are asked for.
 

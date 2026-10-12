@@ -60,6 +60,8 @@ class Scanner:
     :ivar closers: Depth-decrement characters.
     :ivar separators: Mark spellings (roles' separators AND terminators, minus
         any whose characters also play a pair role).
+    :ivar flat: Whether there is no pair to open or close, so every mark stands
+        at depth 0 and no depth is ever counted.
     :ivar opaque: Regions that hide marks and open only where a unit begins;
         empty for every grammar whose marks are all visible, which is what
         keeps those on the windowed path.
@@ -70,6 +72,7 @@ class Scanner:
         self.openers = frozenset(opener for opener, _closer in derived.pairs)
         self.closers = frozenset(closer for _opener, closer in derived.pairs)
         paired = self.openers | self.closers
+        self.flat = not paired
         self.separators = frozenset(
             mark for mark in derived.marks if not set(mark) & paired
         )
@@ -103,7 +106,7 @@ class Scanner:
             return []
         found = [spelling_offsets(text, mark, lo, hi) for mark in self.separators]
         merged = found[0] if len(found) == 1 else sorted(set().union(*found))
-        if not self.openers and not self.closers:
+        if self.flat:
             return merged
         events = [(at, 0) for at in merged]
         for char in self.openers:
