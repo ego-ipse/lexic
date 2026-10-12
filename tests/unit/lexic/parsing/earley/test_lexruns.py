@@ -14,10 +14,14 @@ back-compat import path keeps working.
 
 from __future__ import annotations
 
+from lexic.compile import canonical_grammar
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.ir import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrChr,
     IrItem,
@@ -25,7 +29,9 @@ from lexic.ir import (
     IrNone,
     IrNot,
     IrQuantifier,
+    IrRange,
     IrRule,
+    IrRuleRef,
     IrSeq,
     IrSequence,
 )
@@ -45,6 +51,7 @@ from lexic.parsing.earley.lexruns import (
     unit_leaves,
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
+from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
@@ -99,6 +106,120 @@ def test_run_candidates_excludes_negated_class_star():
     rule = IrRule("s", IrAlternation(IrSequence(quote, body, quote)))
     g = normalize(IrAst(rules=IrSeq(rule), start="s"))
     assert run_candidates(compile_tables(g)) == {}
+
+
+# ── a follower the char sets could not list no longer poisons a run ────
+
+LOWER = frozenset("abcdefghijklmnopqrstuvwxyz")
+LETTERS = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+DIGITS = IrCharClass(IrRange(IrChr("0"), IrChr("9")))
+WIDE = IrCharClass(IrRange(IrChr(chr(0x100)), IrChr(chr(0x3000))))
+OPTIONAL_DASH = IrItem(IrLiteral("-"), IrQuantifier(0, 1))
+
+
+def _word() -> IrItem:
+    return IrItem(LETTERS, IrQuantifier(1, IrNone))
+
+
+def _rule(name: str, *arms: tuple[IrItem, ...]) -> IrRule:
+    return IrRule(name, IrAlternation(*(IrSequence(*arm) for arm in arms)))
+
+
+def _ref(name: str) -> IrItem:
+    return IrItem(IrRuleRef(name))
+
+
+def _lit(text: str) -> IrItem:
+    return IrItem(IrLiteral(text))
+
+
+def _units(*rules: IrRule) -> set[frozenset[str]]:
+    """The proved run units of the grammar whose first rule starts it."""
+    grammar = normalize(IrAst(rules=IrSeq(*rules), start=str(rules[0].name)))
+    shapes = run_candidates(compile_tables(grammar)).values()
+    return {unit for unit, _empty, _rid in shapes}
+
+
+def _after_word(follower: IrAtom) -> set[frozenset[str]]:
+    """The proved run units of ``root ::= [a-z]+ follower``."""
+    return _units(_rule("root", (_word(), IrItem(follower))))
+
+
+def test_a_negated_follower_that_holds_no_letter_lets_the_run_collapse():
+    """``[a-z]+ [^a-z]``: nothing after the run begins with a letter."""
+    assert LOWER in _after_word(IrNot(LETTERS))
+
+
+def test_a_follower_too_wide_to_list_lets_the_run_collapse():
+    """U+0100..U+3000 spans 12,033 code points and holds no letter a-z."""
+    assert LOWER in _after_word(WIDE)
+
+
+def test_a_negated_follower_that_holds_a_letter_keeps_the_run_per_char():
+    """``[a-z]+ [^0-9]``: a letter may follow, so the longest run is not forced."""
+    assert LOWER not in _after_word(IrNot(DIGITS))
+
+
+def test_a_token_follower_keeps_the_run_per_char():
+    """A token's spelling may begin with a letter, so the run's end is unproved."""
+    assert LOWER not in _after_word(IrAlphabet("tokens", IrLiteral("x")))
+
+
+def test_only_terminals_that_can_follow_the_run_decide_it():
+    """``"a"`` appears in the grammar but never after the run: it collapses."""
+    root = _rule("root", (_word(), _lit("!")), (_lit("q"), _ref("junk")))
+    assert LOWER in _units(root, _rule("junk", (_lit("a"),)))
+
+
+def test_a_follower_inherited_from_the_owner_keeps_the_run_per_char():
+    """``w ::= [a-z]+`` ends its rule; ``"a"`` follows ``w`` at its call site."""
+    assert LOWER not in _units(
+        _rule("root", (_ref("w"), _lit("a"))), _rule("w", (_word(),))
+    )
+
+
+def test_a_follower_past_a_nullable_tail_keeps_the_run_per_char():
+    """``x ::= [a-z]+ n`` with ``n`` nullable: ``"a"`` after ``x`` can follow."""
+    assert LOWER not in _units(
+        _rule("root", (_ref("x"), _lit("a"))),
+        _rule("x", (_word(), _ref("n"))),
+        _rule("n", (OPTIONAL_DASH,)),
+    )
+
+
+def test_a_follower_first_reached_through_a_nullable_prefix_keeps_it_per_char():
+    """``y ::= n "a"`` with ``n`` nullable: ``y`` may begin with ``"a"``."""
+    assert LOWER not in _units(
+        _rule("root", (_word(), _ref("y"))),
+        _rule("y", (_ref("n"), _lit("a"))),
+        _rule("n", (OPTIONAL_DASH,)),
+    )
+
+
+def test_vyx_indent_run_collapses():
+    """``indent ::= " "*`` is followed by key, scope-path, ``"- "`` and
+    ``"$"``, none of which begins with a space."""
+    source = (GROUND_TRUTH / "vyx.gbnf").read_text(encoding="utf-8")
+    grammar = normalize(canonical_grammar(source, GBNF_FLAVOUR))
+    shapes = run_candidates(compile_tables(grammar)).values()
+    assert (frozenset(" "), True) in {(unit, empty) for unit, empty, _rid in shapes}
+
+
+INDENTED = (
+    'line ::= indent key "="\nindent ::= " "*\nkey ::= [A-Za-z\\x80-\\U0010FFFF]+\n'
+)
+
+
+def test_a_collapsed_indent_recognises_what_the_plain_tables_do():
+    """vyx's shape in miniature: the indent run collapses, and the collapsed
+    tables accept and refuse exactly what the plain ones do."""
+    grammar = normalize(canonical_grammar(INDENTED, GBNF_FLAVOUR))
+    plain, collapsed = compile_tables(grammar), recognition_tables(grammar)
+    assert any(isinstance(atom, RunTerm) for atom in collapsed.terms.atoms)
+    for text in ("a=", "   ab=", " \u00e9=", " =", "  ", "a"):
+        want = accept_item(Kernel(plain, text, record_links=False).run()) >= 0
+        got = accept_item(Kernel(collapsed, text, record_links=False).run()) >= 0
+        assert got == want, text
 
 
 # ── recognition_tables ────────────────────────────────────────────────

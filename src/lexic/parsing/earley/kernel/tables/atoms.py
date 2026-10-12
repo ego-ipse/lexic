@@ -6,19 +6,23 @@ a single atom accepts. Nothing here knows what a table is.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Protocol
+from bisect import bisect_right
+from collections.abc import Iterable, Sequence
+from typing import Protocol, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    IrAction,
     IrAlphabet,
     IrAtom,
     IrCharClass,
+    IrLambda,
     IrLeaf,
     IrLiteral,
     IrNot,
     IrRange,
     IrSelf,
+    IrTypeMap,
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 
@@ -136,6 +140,10 @@ def atom_accepts(
 ) -> bool:
     """Whether a terminal atom can **begin** with ``char`` — the scan filter.
 
+    The char scan's question: a token answers ``False`` because the char
+    scan never tries one, though its spelling may begin with anything —
+    :func:`may_begin_within` asks that, the run proof's question.
+
     A multi-char literal is begun by its first character (the full match is
     the scanner's ``startswith``); a negated char class (``IrNot`` over an
     ``IrCharClass``) by any char outside its set; a :class:`RunTerm` by any
@@ -202,3 +210,100 @@ class RunTerm(IrLeaf[IrSelf, IrSelf], IrAtom):
         self.charset = charset
         self.lo = lo
         self.mode = mode
+
+
+Cover = tuple[tuple[int, int], ...]
+"""Code points as sorted, disjoint, coalesced ``(lo, hi)`` intervals."""
+
+
+def char_cover(chars: frozenset[str]) -> Cover:
+    """``chars`` as a :data:`Cover`, coalesced by the IR's own interval merge."""
+    points = ((ord(c), ord(c)) for c in chars)
+    return tuple(IrCharClass.from_intervals(points).intervals())
+
+
+def _covers_meet(a: Sequence[tuple[int, int]], b: Sequence[tuple[int, int]]) -> bool:
+    """Whether two sorted disjoint covers share a point — one merge walk."""
+    i = j = 0
+    while i < len(a) and j < len(b):
+        if a[i][1] < b[j][0]:
+            i += 1
+        elif b[j][1] < a[i][0]:
+            j += 1
+        else:
+            return True
+    return False
+
+
+def _cover_within(a: Sequence[tuple[int, int]], b: Sequence[tuple[int, int]]) -> bool:
+    """Whether every point of cover ``a`` lies in cover ``b`` — one merge walk.
+
+    ``b`` is coalesced, so an interval of ``a`` it holds lies inside one of
+    its intervals.
+    """
+    j = 0
+    for lo, hi in a:
+        while j < len(b) and b[j][1] < lo:
+            j += 1
+        if j == len(b) or b[j][0] > lo or b[j][1] < hi:
+            return False
+    return True
+
+
+def _within_literal(_d: object, n: IrSelf, nc: Sequence[object]) -> bool:
+    """A literal begins with its first character; the empty one with none."""
+    text = str(n)
+    if not text:
+        return False
+    cover = cast(Cover, nc[0])
+    code = ord(text[0])
+    at = bisect_right(cover, (code, 0x110000)) - 1
+    return at >= 0 and cover[at][1] >= code
+
+
+def _within_class(_d: object, n: IrSelf, nc: Sequence[object]) -> bool:
+    """A class begins with any member: does it meet the cover?"""
+    return _covers_meet(IrCharClass.ensure(n).intervals(), cast(Cover, nc[0]))
+
+
+def _within_not(_d: object, n: IrSelf, nc: Sequence[object]) -> bool:
+    """A negated class begins with anything its inner class leaves out."""
+    inner = IrNot.ensure(n)[0]
+    if not isinstance(inner, IrCharClass):
+        raise UnsupportedConstructError(
+            f"parsing: IrNot over {type(inner).__name__} — "
+            "only IrNot(IrCharClass) is a terminal atom"
+        )
+    return not _cover_within(cast(Cover, nc[0]), inner.intervals())
+
+
+def _within_token(_d: object, _n: IrSelf, _nc: Sequence[object]) -> bool:
+    """A token's spelling may begin with any character — the sound answer."""
+    return True
+
+
+MAY_BEGIN_WITHIN: IrTypeMap = IrTypeMap(
+    IrAction(IrLiteral, IrLambda(_within_literal)),
+    IrAction(IrCharClass, IrLambda(_within_class)),
+    IrAction(IrNot, IrLambda(_within_not)),
+    IrAction(IrAlphabet, IrLambda(_within_token)),
+)
+"""Per terminal kind: can its text begin inside a :data:`Cover`?
+
+Exactly the kinds a plain table layout holds; anything else — a
+:class:`RunTerm`, which only a collapsed layout holds, or a kind not yet
+written — raises rather than answering no."""
+
+
+def may_begin_within(atom: IrSelf, cover: Cover) -> bool:
+    """Whether ``atom``'s text can begin with a code point of ``cover``.
+
+    Interval work throughout, never point by point: a literal is one bisect,
+    a class or a negated class one merge walk over the two covers.
+
+    :param atom: A terminal of a plain table layout.
+    :param cover: The characters asked about (:func:`char_cover`).
+    :returns: ``True`` when it may; a token always may.
+    :raises IrKeyError: On an atom kind no row names.
+    """
+    return cast(bool, MAY_BEGIN_WITHIN.resolve(atom).eval(None, atom, (cover,)))

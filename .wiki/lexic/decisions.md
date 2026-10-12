@@ -1619,3 +1619,22 @@ once per build and never per parse. `rule_extensions` builds the fixpoint once
 per analysis and keeps it in `Follows.extended`, beside the FOLLOW windows: the
 stop-set settle, the island steal, the left-recursion fold and the licence each
 built their own before.
+
+## Earley's FIRST is one set of term ids; a run's FOLLOW is checked once, on covers
+
+**Decision:** `tables/builder.first_ids` computes, per rule, the term ids it can
+begin with — one exact fixpoint, stored nowhere. The seed gates read it as
+characters (the union of each terminal's listed first chars, poisoned when one
+is unlistable), byte-identical to their old char-set fixpoint. The run proofs
+(`earley/lexruns.py`) build FOLLOW over the same ids and ask the character
+question once per FOLLOW terminal and run unit, through
+`atoms.may_begin_within` on interval covers: a literal is one bisect, a class
+or negated class one merge walk, a token always may. A grammar with no
+candidate run does no run analysis at all.
+
+**Why:** both analyses ran their own FIRST over character sets, and any
+terminal they could not list — a negated class, one wider than 4,096 code
+points, a token — poisoned every set it reached, so a narrow run (vyx's
+indent) stayed per-char because of an unrelated wide class. Term ids are exact;
+characters are asked about only where a decision needs them. A newly proved
+run also leaves the MT anchor set (`parallel/discovery/anchors.py`).

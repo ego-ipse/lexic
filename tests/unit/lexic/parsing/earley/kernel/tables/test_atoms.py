@@ -6,6 +6,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -22,7 +23,9 @@ from lexic.parsing.earley.kernel.tables.atoms import (
     TIERS,
     RunTerm,
     atom_accepts,
+    char_cover,
     expand_atom,
+    may_begin_within,
     tier_for,
 )
 from lexic.parsing.earley.kernel.tables.builder import build_tables
@@ -156,3 +159,50 @@ def test_tier_for_backstop_is_the_last_tier():
     capacity raise stays the backstop."""
     assert tier_for(2 ** TIERS[-1]) == TIERS[-1]
     assert tier_for(2 ** (TIERS[-1] + 1)) == TIERS[-1]
+
+
+# ── may_begin_within: the run proof's question, on interval covers ─
+
+A_TO_Z = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+
+
+def test_char_cover_coalesces_adjacent_points():
+    """``{a, b, c, x}`` is two intervals, not four points."""
+    assert char_cover(frozenset("abcx")) == ((97, 99), (120, 120))
+
+
+def test_a_class_meets_a_cover_at_either_bound():
+    """``[a-z]`` meets ``{z}`` and ``{a}`` at its edges and misses ``{`, {}``."""
+    assert may_begin_within(A_TO_Z, char_cover(frozenset("z")))
+    assert may_begin_within(A_TO_Z, char_cover(frozenset("a")))
+    assert not may_begin_within(A_TO_Z, char_cover(frozenset("`{")))
+
+
+def test_a_negated_class_meets_what_its_inner_class_leaves_out():
+    """``[^a-z]`` misses a cover inside a-z, meets one partly or wholly outside."""
+    negated = IrNot(A_TO_Z)
+    assert not may_begin_within(negated, char_cover(frozenset("az")))
+    assert may_begin_within(negated, char_cover(frozenset("a0")))
+    assert may_begin_within(negated, char_cover(frozenset("09")))
+
+
+def test_a_literal_meets_by_its_first_character_and_the_empty_one_never():
+    """``"-x"`` begins with ``-``; ``"x-"`` does not; ``""`` begins with nothing."""
+    dash = char_cover(frozenset("-"))
+    assert may_begin_within(IrLiteral("-x"), dash)
+    assert not may_begin_within(IrLiteral("x-"), dash)
+    assert not may_begin_within(IrLiteral(""), dash)
+
+
+def test_a_token_may_begin_with_anything_though_the_char_scan_skips_it():
+    """The run proof answers yes where the scan filter answers no."""
+    token = IrAlphabet("tokens", IrLiteral("x"))
+    assert may_begin_within(token, char_cover(frozenset("q")))
+    assert not atom_accepts(token, "x")
+
+
+def test_a_run_terminal_has_no_row_and_raises():
+    """A RunTerm only appears in a collapsed layout, which no run proof reads."""
+    run = RunTerm(frozenset("a"), 1, RUN_STR)
+    with pytest.raises(UnsupportedConstructError):
+        may_begin_within(run, char_cover(frozenset("a")))
