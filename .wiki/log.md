@@ -1,5 +1,16 @@
 # Log
 
+## Earley FIRST over term ids; run FOLLOW on covers (2026-10-12)
+
+`decisions.md` records `first_ids` as Earley's one FIRST, the seed gates read
+from it, and the run proofs asking `may_begin_within` on interval covers.
+
+## The speculation licence asks the PDA's EXTEND (2026-10-12)
+
+`decisions.md` records why the exclusive-opening clause reads `rule_extensions`
+and runs after the other three clauses, and why the fixpoint is built once per
+analysis for all four readers.
+
 ## A one-root noise skip is its run pattern (2026-10-12)
 
 `decisions.md` records why `scan_gate_take` reads a one-root gate's noise with

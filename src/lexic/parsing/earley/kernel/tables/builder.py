@@ -7,6 +7,8 @@ are computed once here rather than per parse.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlphabet,
@@ -251,6 +253,55 @@ class TableBuilder:
         return _FirstGates(self).gates()
 
 
+def first_ids(
+    next_sym: Sequence[int],
+    rule_dot0: Sequence[Sequence[int]],
+    nullable: Collection[int],
+) -> list[frozenset[int]]:
+    """Per rule, the ids of the terminals it can begin with — a least fixpoint.
+
+    An arm contributes its symbols left to right until one cannot vanish; a
+    terminal contributes its own id. Exact, since an id never needs listing,
+    and built from what a builder and a finished table both carry, so each
+    caller computes it when it needs it and nothing stores it.
+
+    :param next_sym: code → symbol (``< 0`` terminal, ``> 0`` rule + 1, ``0`` end).
+    :param rule_dot0: rule_id → the dot-0 codes of its arms.
+    :param nullable: The ids of the rules deriving the empty string.
+    :returns: rule_id → the term ids it can begin with.
+    """
+    first: list[set[int]] = [set() for _ in rule_dot0]
+    changed = True
+    while changed:
+        changed = False
+        for rid, dot0 in enumerate(rule_dot0):
+            mine = first[rid]
+            before = len(mine)
+            for base in dot0:
+                _grow_arm_first(next_sym, base, nullable, mine, first)
+            changed = changed or len(mine) != before
+    return [frozenset(ids) for ids in first]
+
+
+def _grow_arm_first(
+    next_sym: Sequence[int],
+    base: int,
+    nullable: Collection[int],
+    mine: set[int],
+    first: list[set[int]],
+) -> None:
+    """Grow ``mine`` by the term ids the arm at ``base`` can begin with."""
+    code = base
+    while (sym := next_sym[code]) != 0:
+        if sym < 0:
+            mine.add(-sym - 1)
+            return
+        mine |= first[sym - 1]
+        if sym - 1 not in nullable:
+            return
+        code += 1
+
+
 class _FirstGates(IrLeaf[IrSelf, IrSelf]):
     """Per-arm FIRST seed gates — the compile-time half of gated prediction.
 
@@ -261,27 +312,36 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
     than :data:`_MAX_CHARSET`, or anything transitively reaching one);
     otherwise it is the arm's FIRST char set with nullable-prefix
     continuation, and the predictor seeds the arm only when the column's
-    char is in it.
+    char is in it. A rule's FIRST is :func:`first_ids` read as characters:
+    the union of its terminals' listed first chars, poisoned when one is not
+    listable.
 
     :ivar builder: The builder whose layout to analyse.
     :ivar atoms: term_id → the terminal atom (for terminal FIRST chars).
     :ivar nullable_rules: Rule ids deriving the empty string.
-    :ivar first: rule_id → FIRST char set (``None`` = poisoned).
+    :ivar first: rule_id → the term ids it can begin with.
+    :ivar chars: rule_id → its FIRST as characters, read on first use.
+    :ivar term_chars: term_id → its begin-chars, read on first use.
     """
 
-    __slots__ = ("builder", "atoms", "nullable_rules", "first")
+    __slots__ = ("builder", "atoms", "nullable_rules", "first", "chars", "term_chars")
 
     builder: TableBuilder
     atoms: tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]
     nullable_rules: set[int]
-    first: list[set[str] | None]
+    first: list[frozenset[int]]
+    chars: dict[int, Charset]
+    term_chars: dict[int, Charset]
 
     def __init__(self, builder: TableBuilder) -> None:
         """Run the FIRST analysis over ``builder``'s finished layout."""
         self.builder = builder
         self.atoms = builder.term_atoms()
         self.nullable_rules = builder.nullable_rules()
-        self.first = self._first_sets()
+        next_sym = [sym for _, sym in builder.codes]
+        self.first = first_ids(next_sym, builder.rule_dot0, self.nullable_rules)
+        self.chars = {}
+        self.term_chars = {}
 
     def gates(self) -> list[tuple[Charset, ...]]:
         """Per rule, per dot-0 arm, the seed gate (``None`` = always seed)."""
@@ -295,22 +355,39 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
         arm_id = self.builder.codes[base][0]
         if self.builder.arm_nullable(arm_id, self.nullable_rules):
             return None  # empty-deriving — must always seed
-        return self._arm_first(base, self.first)
+        return self._arm_first(base)
 
-    def _term_first(self, sym: int) -> Charset:
-        """Begin-chars of terminal symbol ``sym`` (< 0), or poisoned.
+    def _term_first(self, tid: int) -> Charset:
+        """Begin-chars of terminal ``tid``, or poisoned — read once per terminal.
 
         A multi-char literal is begun by its first char; a :class:`RunTerm`
         by any char of its set; the rest is :func:`expand_atom`.
         """
-        atom = self.atoms[-sym - 1]
-        if isinstance(atom, IrLiteral):
-            return frozenset(atom[0]) if atom else frozenset()
-        if isinstance(atom, RunTerm):
-            return atom.charset
-        return expand_atom(atom)
+        if tid not in self.term_chars:
+            atom = self.atoms[tid]
+            if isinstance(atom, IrLiteral):
+                got = frozenset(atom[0]) if atom else frozenset()
+            elif isinstance(atom, RunTerm):
+                got = atom.charset
+            else:
+                got = expand_atom(atom)
+            self.term_chars[tid] = got
+        return self.term_chars[tid]
 
-    def _arm_first(self, base: int, first: list[set[str] | None]) -> Charset:
+    def _rule_chars(self, rid: int) -> Charset:
+        """Rule ``rid``'s FIRST as characters — poisoned when a terminal is."""
+        if rid not in self.chars:
+            out: set[str] = set()
+            for tid in self.first[rid]:
+                got = self._term_first(tid)
+                if got is None:
+                    self.chars[rid] = None
+                    return None
+                out |= got
+            self.chars[rid] = frozenset(out)
+        return self.chars[rid]
+
+    def _arm_first(self, base: int) -> Charset:
         """The FIRST of the arm at ``base``, with nullable-prefix continuation.
 
         Walks the arm's symbols left to right, unioning each symbol's
@@ -321,43 +398,14 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
         out: set[str] = set()
         code = base
         while (sym := codes[code][1]) != 0:
-            if sym < 0:
-                add = self._term_first(sym)
-                if add is None:
-                    return None
-                return frozenset(out | add)
-            target = first[sym - 1]
-            if target is None:
+            add = self._term_first(-sym - 1) if sym < 0 else self._rule_chars(sym - 1)
+            if add is None:
                 return None
-            out |= target
-            if sym - 1 not in self.nullable_rules:
+            out |= add
+            if sym < 0 or sym - 1 not in self.nullable_rules:
                 return frozenset(out)
             code += 1
         return frozenset(out)
-
-    def _first_sets(self) -> list[set[str] | None]:
-        """Per-rule FIRST char sets by least fixpoint (poison propagates)."""
-        first: list[set[str] | None] = [set() for _ in self.builder.rule_dot0]
-        changed = True
-        while changed:
-            changed = False
-            for rid, mine in enumerate(first):
-                if mine is not None and self._grow_first(rid, mine, first):
-                    changed = True
-        return first
-
-    def _grow_first(
-        self, rid: int, mine: set[str], first: list[set[str] | None]
-    ) -> bool:
-        """Grow ``first[rid]`` from its arms; ``True`` when it changed."""
-        before = len(mine)
-        for base in self.builder.rule_dot0[rid]:
-            arm = self._arm_first(base, first)
-            if arm is None:
-                first[rid] = None
-                return True
-            mine |= arm
-        return len(mine) != before
 
 
 def build_tables(

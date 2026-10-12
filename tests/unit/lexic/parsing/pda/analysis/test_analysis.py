@@ -34,6 +34,7 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, nullable_names
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.windows import windows_of
+from lexic.parsing.pda.analysis.predicates import rule_extensions
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN, ScanGate
 from tests.paths import GROUND_TRUTH
@@ -979,3 +980,18 @@ def test_a_stop_set_in_a_rule_that_builds_structure_islands() -> None:
     source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= [ab]* "!"\n'
     _demoted, conflicts = stop_set_notes(source, "r")
     assert conflicts == ["r[0]: loop stop-set reaches FOLLOW"]
+
+
+def test_extend_filled_mid_construction_is_what_every_reader_gets() -> None:
+    """``w``'s deferred stop-set asks EXTEND mid-construction; every later ask
+    gets that fill, and it equals the fixpoint built afresh afterwards."""
+    source = 's ::= w ";"\nw ::= [ab]* "a" [ab]* "!"\n'
+    grammar = compile_text(source, cache_key="analysis-extend-settle").codegen_grammar
+    analysis = GrammarAnalysis(lift_optional_nullables(grammar))
+    assert analysis.demoted["w"] == ["w[0]: loop stop-set applied"]
+    (held,) = analysis.follows.extended
+    assert rule_extensions(analysis) is held
+    analysis.follows.extended.clear()
+    fresh = rule_extensions(analysis)
+    assert fresh is not held
+    assert fresh.found == held.found
