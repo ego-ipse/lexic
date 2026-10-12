@@ -1588,3 +1588,17 @@ by exactly the runs that carried the gain: in subprocess, mixedends' PDA seat
 ran 1.050, markdown 1.024, lexruns 1.013–1.023, and the long-run rows kept only
 0.96–0.98. A run arm's tail without the item's is `OP_RUNPAT` under another name,
 so neither ships alone.
+
+## A one-root noise skip is its run pattern
+
+**Decision:** `scan_gate_take` skips a scan gate's leading noise with
+`scan_run` — the root's compiled possessive run, one match — when the gate races
+one noise root, and with `scan_run_any`'s per-step loop only when it races
+several.
+
+**Why:** `scan_run_any` lets the LONGEST of several roots win at each step,
+which one root cannot need; as a loop it paid a match per step and one more to
+find the run's end, two for the commonest run of one instance. On gbnf-meta
+every scan gate races one root, 0.25 gates per character, 96% of runs one
+instance long. A pin holds the two forms to the same end for every regular rule
+of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.

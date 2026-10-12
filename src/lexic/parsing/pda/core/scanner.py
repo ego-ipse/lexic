@@ -511,7 +511,15 @@ def scan_gate_take(text: str, pos: int, gate: ScanGate) -> bool:
     """
     if gate.kind == SG_MATCH:
         return scan_match(text, pos, gate.rec, gate.roots[0])
-    p = scan_run_any(text, pos, gate.rec, gate.roots)
+    roots = gate.roots
+    p = (
+        # One root has no longest to choose between: its run pattern is the
+        # whole skip in one match, where the per-step loop pays one per step
+        # and one more to find the run's end.
+        scan_run(text, pos, gate.rec, roots[0])
+        if len(roots) == 1
+        else scan_run_any(text, pos, gate.rec, roots)
+    )
     ch = text[p : p + 1]
     if gate.take is not None:  # the post-noise char against the take-set
         chars, negated = gate.take

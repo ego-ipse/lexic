@@ -1,5 +1,10 @@
 # Log
 
+## A one-root noise skip is its run pattern (2026-10-12)
+
+`decisions.md` records why `scan_gate_take` reads a one-root gate's noise with
+`scan_run` and keeps `scan_run_any` for several roots.
+
 ## An item's char-class run is matched by its count loop (2026-10-10)
 
 `decisions.md` records why `match_cc` keeps its count loop: a compiled tail for
