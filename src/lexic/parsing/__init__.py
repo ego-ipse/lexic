@@ -223,9 +223,10 @@ def parse_first(
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :param tables: Optional pre-built (run-collapsed) tables for ``grammar`` —
-        the instance path passes product-licenced collapsed tables (see
-        :func:`lexic.parsing.product.collapsed_product_tables`) for a faster
-        lexical layer; ``None`` compiles the plain tables.
+        the instance path passes a product's collapsed tables
+        (:meth:`~lexic.parsing.pda.compiler.tables.PdaTables.product_tables`,
+        under the :func:`lexic.parsing.product.collapsed_product_tables`
+        licence) for a faster lexical layer; ``None`` compiles the plain tables.
     :param decide: The split decider whose carving the derivation keeps, as
         :meth:`~lexic.compile.CompiledGrammar.parse` takes it.
     :returns: One derivation of ``text`` under the start rule.

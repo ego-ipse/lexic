@@ -1638,3 +1638,23 @@ points, a token — poisoned every set it reached, so a narrow run (vyx's
 indent) stayed per-char because of an unrelated wide class. Term ids are exact;
 characters are asked about only where a decision needs them. A newly proved
 run also leaves the MT anchor set (`parallel/discovery/anchors.py`).
+
+## A product's collapsed Earley tables are built on first use, held by its PDA
+
+**Decision:** `PdaTables` holds every Earley table a model product parses with,
+keyed `(start, bits, collapsed)`: each island's plain tables, and the whole
+product's run-collapsed ones (`PdaTables.product_tables`, licensed by the
+binding's routines at the call). An original builds a table under
+`caches.once` on its first use. A worker's replica is made from an original
+that has built its product tables first, so the replica's one pda copy carries
+them, as the old eager product's joint copy did. The pool warm copies every
+table the replica lacks in one `private_copy` over the replica's own arms
+(`executable.arm_pairs`), and a table met after that is copied on first use.
+`product.collapsed_product_tables` is the unmemoised builder.
+
+**Why:** most parses never leave the PDA, yet every product compile ran the run
+analysis and a second table build and kept the result for life. A product with
+no replica now never builds them unless it falls back. Every `private_copy`
+starts with a sweep of the process's constants, so a replica takes its tables
+in the copy it was already making, never in a second one. That keeps its first
+fallback, and the warm, at the old cost or below.

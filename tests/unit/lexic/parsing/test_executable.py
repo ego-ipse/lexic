@@ -21,10 +21,11 @@ from types import FunctionType, MappingProxyType
 
 import pytest
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrItem, IrRuleRef
+from lexic.compile import compile_text
+from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
+from lexic.ir import IrAst, IrItem, IrRuleRef
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
-from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.executable import ModelExecutable, arm_pairs, private_copy
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import (
     CaptureMode,
@@ -287,3 +288,35 @@ def test_a_copy_refuses_an_object_it_cannot_see_inside(opaque: object) -> None:
     binding = ModelExecutable(_RULES)
     with pytest.raises(UnsupportedConstructError, match="no private copy"):
         binding.copied([opaque], binding.replica())
+
+
+# ── arm_pairs: a later copy reuses a private copy's arms ──
+
+
+def _grammar(source: str) -> IrAst:
+    return compile_text(source, cache_key=f"arm-pairs-{source}").codegen_grammar
+
+
+def test_arm_pairs_maps_each_arm_to_its_private_copy() -> None:
+    """Every arm of every rule pairs with the arm the copy rebuilt for it, and a
+    later copy through the pairs holds those arms."""
+    original = _grammar('root ::= a | "b"\na ::= "x" a | "y"\n')
+    copy = private_copy(original)
+    pairs = arm_pairs(original, copy)
+    for mine, theirs in zip(original.rules, copy.rules):
+        for arm, their_arm in zip(mine.body, theirs.body):
+            assert pairs[id(arm)] is their_arm
+    old = tuple(arm for rule in original.rules for arm in rule.body)
+    assert all(arm is pairs[id(o)] for arm, o in zip(private_copy(old, pairs), old))
+
+
+def test_arm_pairs_refuses_a_grammar_that_is_no_copy() -> None:
+    """Another rule set, or a rule with another arm count, is refused — never
+    zipped short."""
+    original = _grammar('root ::= "ab" | "cd"\n')
+    with pytest.raises(EngineInvariantError):
+        arm_pairs(original, _grammar('root ::= "ab"\nother ::= "cd"\n'))
+    with pytest.raises(EngineInvariantError):
+        arm_pairs(original, _grammar('root ::= "ab" | "cd" | "ef"\n'))
+    with pytest.raises(EngineInvariantError):
+        arm_pairs(original, _grammar('other ::= "ab" | "cd"\n'))

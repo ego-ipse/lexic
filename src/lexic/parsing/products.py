@@ -22,6 +22,7 @@ every other consumer) sees.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import NamedTuple
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
@@ -52,9 +53,6 @@ from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
-from lexic.parsing.product import (
-    collapsed_product_tables,
-)
 
 __all__ = [
     "parse_model",
@@ -179,21 +177,32 @@ def token_model[M](
 
 @dataclass(frozen=True)
 class ModelProduct:
-    """An instance product compiled once — the model PDA + collapsed tables.
+    """An instance product compiled once — the model PDA, which also holds its
+    collapsed Earley tables.
 
     :ivar grammar: The authored codegen grammar (held to pin its identity key).
     :ivar binding: The bound model product (held to pin its identity key).
     :ivar pda: The model PDA (immediate-PdaFail start ⇒ Earley every parse).
-    :ivar instance_grammar: ``normalize(lift_optional_nullables(grammar))`` — the
-        completion grammar and island sub-parse shape.
-    :ivar tables: The run-collapsed Earley tables for ``instance_grammar``.
+    :ivar bits: The packing tier its Earley tables compile at.
     """
 
     grammar: IrAst
     binding: ModelExecutable
     pda: PdaTables
-    instance_grammar: IrAst
-    tables: ParserTables
+    bits: int
+
+    @property
+    def instance_grammar(self) -> IrAst:
+        """``normalize(lift_optional_nullables(grammar))`` — the completion
+        grammar and island sub-parse shape, which :attr:`pda` holds."""
+        return self.pda.instance_grammar
+
+    @cached_property
+    def tables(self) -> ParserTables:
+        """The run-collapsed Earley tables for ``instance_grammar``, built on
+        the first Earley use and held by :attr:`pda` — then bound here, so
+        every later read is a plain attribute."""
+        return self.pda.product_tables(self.bits, self.binding.routines)
 
 
 MODEL_CACHE: dict[tuple[int, int, int], ModelProduct] = memo({}, 0, 1)
@@ -274,8 +283,7 @@ def _compiled_product(
         grammar,
         binding,
         compile_pda(lifted, instance, binding),
-        instance,
-        collapsed_product_tables(instance, binding.routines, bits),
+        bits,
     )
     MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
@@ -288,8 +296,8 @@ def _compiled_product(
     # thread that came and went. A rebind is the mirror case: a fresh codegen
     # grammar over a SHARED product, where owning them by the binding alone
     # leaves the chain pinned to a product that never dies.
-    adopt(id(grammar), lifted, instance, product.pda, product.tables)
-    adopt(id(binding), lifted, instance, product.pda, product.tables)
+    adopt(id(grammar), lifted, instance, product.pda)
+    adopt(id(binding), lifted, instance, product.pda)
     return product
 
 
@@ -413,14 +421,15 @@ def _replica_product(origin: _Replica, bits: int) -> ModelProduct:
     made without a lock, on the thread that will parse through it.
     """
     held = model_product(origin.grammar, origin.binding, bits)
-    pda, tables = origin.binding.copied((held.pda, held.tables), origin.view_binding)
+    # Built on the original first, so the one copy below carries them and a
+    # replica's first fallback finds them present.
+    held.pda.product_tables(bits, held.binding.routines)
+    pda = origin.binding.copied(held.pda, origin.view_binding)
     _attach_origin(pda, held.pda)
-    product = ModelProduct(
-        origin.view, origin.view_binding, pda, pda.instance_grammar, tables
-    )
+    product = ModelProduct(origin.view, origin.view_binding, pda, bits)
     MODEL_CACHE[(id(origin.view), id(origin.view_binding), bits)] = product
-    adopt(id(origin.view), pda, tables)
-    adopt(id(origin.view_binding), pda, tables)
+    adopt(id(origin.view), pda)
+    adopt(id(origin.view_binding), pda)
     return product
 
 
