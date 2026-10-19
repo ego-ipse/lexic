@@ -1,12 +1,14 @@
 """``PdaTables`` — what a compiled grammar's predictive half IS.
 
 The artifact `compile_pda` returns and the runtime executes: the flat program
-and the island tables the cold path falls back to. The authored clone specs it
-was lowered from are a compile-time intermediate and do not survive here.
+and the Earley tables the cold path falls back to — each island's, and the
+whole product's run-collapsed ones. The authored clone specs it was lowered
+from are a compile-time intermediate and do not survive here.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from lexic.ir import (
@@ -17,7 +19,7 @@ from lexic.ir import (
 from lexic.parsing.caches import once
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
-from lexic.parsing.executable import private_copy
+from lexic.parsing.executable import arm_pairs, private_copy
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     PdaProgram,
@@ -27,16 +29,21 @@ from lexic.parsing.pda.compiler.specs import (
     CloneKey,
     IslandRef,
 )
+from lexic.parsing.product import collapsed_product_tables
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
+
+EarleyKey = tuple[str, int, bool]
+"""``(start rule, packing tier, run-collapsed)`` — one Earley table a PDA holds."""
 
 
 class PdaTables(IrLeaf[IrSelf, IrSelf]):
     """The compiled predictive-parser artifact — the sibling of :class:`ParserTables`.
 
-    Complete and immutable after :func:`compile_pda`; only the island cache
-    fills lazily (in place, the :class:`ParserTables` scanning-cache precedent).
+    Complete and immutable after :func:`compile_pda`; only the Earley tables
+    it holds fill lazily (in place, the :class:`ParserTables` scanning-cache
+    precedent).
 
     The authored :class:`CloneSpec` layer is **not** part of it. Those specs
     are what the clone compiler produces on the way here; once
@@ -56,13 +63,13 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         followed by, not what the island rule's own FOLLOW contains, and that
         set rides on the reference
         (:attr:`~lexic.parsing.pda.compiler.specs.IslandRef.cont`).
-    :ivar instance_grammar: The Earley-normalised instance grammar island
+    :ivar instance_grammar: The Earley-normalised instance grammar the Earley
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
         :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
     :ivar origin: For a worker's private copy, the tables it was copied from:
-        an island it has not met yet is compiled there and copied here. ``None``
-        on the tables a compile built.
+        an Earley table it has not met yet is built there and copied here.
+        ``None`` on the tables a compile built.
     """
 
     __slots__ = (
@@ -70,7 +77,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         "islands",
         "instance_grammar",
         "program",
-        "_island_tables",
+        "_start",
+        "_earley",
         "origin",
     )
 
@@ -78,7 +86,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     islands: frozenset[str]
     instance_grammar: IrAst
     program: PdaProgram
-    _island_tables: dict[tuple[str, int], ParserTables]
+    _start: str
+    _earley: dict[EarleyKey, ParserTables]
     origin: PdaTables | None
 
     def __init__(
@@ -99,7 +108,8 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         self.islands = compiler.islands
         self.instance_grammar = instance_grammar
         self.program = flatten_program(compiler.clones, start_key, compiler.folds)
-        self._island_tables = {}
+        self._start = str(instance_grammar.start)
+        self._earley = {}
         self.origin = None
 
     def island_tables(self, name: str, bits: int = ORIGIN_BITS) -> ParserTables:
@@ -108,39 +118,68 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         with ``name`` as the start rule (the Earley sub-parser for a
         conflicted rule), at the run's packing tier ``bits`` (an island window
         can span the whole remaining input)."""
-        cached = self._island_tables.get((name, bits))
-        return self._island_miss(name, bits) if cached is None else cached
+        key = (name, bits, False)
+        cached = self._earley.get(key)
+        return self._earley_miss(key, ()) if cached is None else cached
 
-    def _island_miss(self, name: str, bits: int) -> ParserTables:
-        """Island ``name``'s tables where none is held: a replica copies its
-        origin's, which compiles them once whichever replica asked first."""
-        if self.origin is not None:
-            held = self.origin.island_tables(name, bits)
-            made = private_copy(held)
-            self._island_tables[(name, bits)] = made
+    def product_tables(self, bits: int, rules: Collection[str]) -> ParserTables:
+        """The model product's Earley tables at tier ``bits``: the whole
+        :attr:`instance_grammar`, every run collapsed that hides none of
+        ``rules`` (:func:`collapsed_product_tables`) — built on the first
+        Earley use."""
+        key = (self._start, bits, True)
+        cached = self._earley.get(key)
+        return self._earley_miss(key, rules) if cached is None else cached
+
+    def _earley_miss(self, key: EarleyKey, rules: Collection[str]) -> ParserTables:
+        """Table ``key`` where none is held: a replica copies its origin's,
+        which builds it once whichever replica asked first. A product table's
+        copy holds the replica's own arms; an island's is copied whole."""
+        origin = self.origin
+        if origin is not None:
+            start, bits, collapsed = key
+            if collapsed:
+                held = origin.product_tables(bits, rules)
+                pairs = arm_pairs(origin.instance_grammar, self.instance_grammar)
+                made = private_copy(held, pairs)
+            else:
+                made = private_copy(origin.island_tables(start, bits))
+            self._earley[key] = made
             return made
-        with once((id(self), name, bits)):
-            cached = self._island_tables.get((name, bits))
+        with once((id(self), *key)):
+            cached = self._earley.get(key)
             if cached is None:
-                cached = compile_tables(IrAst(self.instance_grammar.rules, name), bits)
-                self._island_tables[(name, bits)] = cached
+                cached = self._build(key, rules)
+                self._earley[key] = cached
         return cached
 
-    def held_island_tables(self) -> tuple[tuple[str, int], ...]:
-        """The ``(island, tier)`` tables built (or copied) here so far — a
-        snapshot, since a thread parsing on these tables may add one meanwhile."""
-        return tuple(self._island_tables.copy())
+    def _build(self, key: EarleyKey, rules: Collection[str]) -> ParserTables:
+        """Compile table ``key`` over :attr:`instance_grammar`."""
+        start, bits, collapsed = key
+        if collapsed:
+            return collapsed_product_tables(self.instance_grammar, rules, bits)
+        return compile_tables(IrAst(self.instance_grammar.rules, start), bits)
 
-    def copy_held_islands(self) -> None:
-        """A replica's own copies of every island its origin holds right now —
-        the Earley tables at every tier met and the delegate clones — made at
-        once rather than on each island's first meeting in a later parse.
+    def held_tables(self) -> dict[EarleyKey, ParserTables]:
+        """The Earley tables built (or copied) here so far — a snapshot, since
+        a thread parsing on these tables may add one meanwhile."""
+        return self._earley.copy()
+
+    def copy_held_tables(self) -> None:
+        """A replica's own copies of every Earley table its origin holds and
+        it lacks — each island's at every tier met, and the product's — and of
+        the delegate clones, made at once rather than on first use in a later
+        parse: one copy for all the tables, over the replica's own arms.
         Nothing on tables a compile built (no origin)."""
         origin = self.origin
         if origin is None:
             return
-        for name, bits in origin.held_island_tables():
-            self.island_tables(name, bits)
+        held = origin.held_tables()
+        missing = [key for key in held if key not in self._earley]
+        if missing:
+            pairs = arm_pairs(origin.instance_grammar, self.instance_grammar)
+            copies = private_copy(tuple(held[key] for key in missing), pairs)
+            self._earley.update(zip(missing, copies))
         delegates = origin.program.delegates
         for name in delegates.held_islands() if delegates is not None else ():
             self.island_delegates(name)

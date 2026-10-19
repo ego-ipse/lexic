@@ -368,11 +368,24 @@ def arms_extension(
 
 
 def rule_extensions(d: GrammarAnalysis) -> Extensions:
-    """Every rule's EXTEND — the least fixpoint, grown from empty.
+    """Every rule's EXTEND, built once per analysis and kept on its FOLLOW views.
+
+    A whole-grammar fixpoint, read by the stop-set settle, the island steal,
+    the left-recursion fold and the speculation licence: the first to ask
+    builds it, during construction or after, and every later one reads it.
+    """
+    held = d.follows.extended
+    if not held:
+        held.append(_extensions_fixpoint(d))
+    return held[0]
+
+
+def _extensions_fixpoint(d: GrammarAnalysis) -> Extensions:
+    """The least EXTEND fixpoint, grown from empty.
 
     Every rule above is monotone and stays within ALPHABET, so the iteration
     terminates, and the least fixpoint is sound by induction on derivation
-    height. Built on demand: its one consumer is the left-recursion fold.
+    height.
     """
     maps = Extensions(
         {name: CharSet.EMPTY for name in d.rules}, rule_alphabets(d.rules)

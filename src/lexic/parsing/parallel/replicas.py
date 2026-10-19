@@ -579,13 +579,13 @@ def _warm(
     grammar: IrAst, binding: ModelExecutable, arrive: threading.Barrier, _slot: int
 ) -> None:
     """One worker's copy of the pair, its product at the tier every piece under
-    2**28 characters parses at, and every island the original has met."""
+    2**28 characters parses at, and every Earley table the original holds."""
     try:
         arrive.wait()
     except threading.BrokenBarrierError:
         return
     view_grammar, view_binding = _view(grammar, binding, False, share_first=False)
-    model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_islands()
+    model_product(view_grammar, view_binding, tier_for(0)).pda.copy_held_tables()
 
 
 def warm_census() -> tuple[int, int, int]:

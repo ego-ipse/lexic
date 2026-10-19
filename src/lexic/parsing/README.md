@@ -208,9 +208,10 @@ disjoint alternatives, so the collapse hides no ambiguity from the SPPF), and
 follow disjointness (`FOLLOW(rule) ∩ charset = ∅`, so no continuation ever
 needs a shorter match). The fold-side licence is
 `product.collapsed_product_tables` (safe iff no constructor-bearing rule sits
-among a run's unit leaves). Collapsed tables are per (policy, grammar) and
-memoised; `parse`/`recognize`/forest readers keep plain tables and exact
-`ParseTree` shapes.
+among a run's unit leaves), built anew on each call; a model product's are
+built on its first Earley use and held by its PDA (`PdaTables.product_tables`).
+`parse`/`recognize`/forest readers keep plain tables and exact `ParseTree`
+shapes.
 
 ## 6. Normalisation (`earley/normalize.py`)
 

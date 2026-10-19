@@ -399,8 +399,8 @@ met for the first time (`replicas.settle_first_meetings`), keyed by the
 document's executable view, so they retire with it; the pool's next split
 through the SAME view first gives every worker its own copy, one task per worker behind a
 barrier, before any piece goes out (`replicas.warm_due`), along with every
-island table and delegate set the original has met so far
-(`PdaTables.copy_held_islands`). A repeatedly split
+island table, collapsed product table and delegate set the original holds so
+far (`PdaTables.copy_held_tables`, one copy for all the tables). A repeatedly split
 artefact therefore copies once per thread at the start of its second split,
 and no later split ever copies. A split through another view warms nothing, so
 a one-shot split still mints no copy and a gone document thread's pairs are

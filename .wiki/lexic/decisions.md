@@ -1602,3 +1602,59 @@ find the run's end, two for the commonest run of one instance. On gbnf-meta
 every scan gate races one root, 0.25 gates per character, 96% of runs one
 instance long. A pin holds the two forms to the same end for every regular rule
 of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
+
+## The speculation licence asks the PDA's EXTEND
+
+**Decision:** the exclusive-opening clause of `speculative_openings` reads
+`predicates.rule_extensions` off the lifted analysis its determinism clause
+already builds, and runs after the determinism, vanishing and visibility
+clauses. The parallel layer derives no continuation set of its own.
+
+**Why:** EXTEND is one fact with one derivation. The least fixpoint is sound
+on every cycle, where a walk per derivation can only give up to ANY — a right
+recursive unit was refused for it and is now licensed. Every clause only
+refuses, so their order changes no answer; ordered last, the fixpoint runs only
+for a unit every other clause passes, which on the bench is `announced` alone,
+once per build and never per parse. `rule_extensions` builds the fixpoint once
+per analysis and keeps it in `Follows.extended`, beside the FOLLOW windows: the
+stop-set settle, the island steal, the left-recursion fold and the licence each
+built their own before.
+
+## Earley's FIRST is one set of term ids; a run's FOLLOW is checked once, on covers
+
+**Decision:** `tables/builder.first_ids` computes, per rule, the term ids it can
+begin with — one exact fixpoint, stored nowhere. The seed gates read it as
+characters (the union of each terminal's listed first chars, poisoned when one
+is unlistable), byte-identical to their old char-set fixpoint. The run proofs
+(`earley/lexruns.py`) build FOLLOW over the same ids and ask the character
+question once per FOLLOW terminal and run unit, through
+`atoms.may_begin_within` on interval covers: a literal is one bisect, a class
+or negated class one merge walk, a token always may. A grammar with no
+candidate run does no run analysis at all.
+
+**Why:** both analyses ran their own FIRST over character sets, and any
+terminal they could not list — a negated class, one wider than 4,096 code
+points, a token — poisoned every set it reached, so a narrow run (vyx's
+indent) stayed per-char because of an unrelated wide class. Term ids are exact;
+characters are asked about only where a decision needs them. A newly proved
+run also leaves the MT anchor set (`parallel/discovery/anchors.py`).
+
+## A product's collapsed Earley tables are built on first use, held by its PDA
+
+**Decision:** `PdaTables` holds every Earley table a model product parses with,
+keyed `(start, bits, collapsed)`: each island's plain tables, and the whole
+product's run-collapsed ones (`PdaTables.product_tables`, licensed by the
+binding's routines at the call). An original builds a table under
+`caches.once` on its first use. A worker's replica is made from an original
+that has built its product tables first, so the replica's one pda copy carries
+them, as the old eager product's joint copy did. The pool warm copies every
+table the replica lacks in one `private_copy` over the replica's own arms
+(`executable.arm_pairs`), and a table met after that is copied on first use.
+`product.collapsed_product_tables` is the unmemoised builder.
+
+**Why:** most parses never leave the PDA, yet every product compile ran the run
+analysis and a second table build and kept the result for life. A product with
+no replica now never builds them unless it falls back. Every `private_copy`
+starts with a sweep of the process's constants, so a replica takes its tables
+in the copy it was already making, never in a second one. That keeps its first
+fallback, and the warm, at the old cost or below.

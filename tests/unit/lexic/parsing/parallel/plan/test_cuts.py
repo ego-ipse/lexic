@@ -14,11 +14,13 @@ from lexic.compile import compile_text
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.plan.cuts import (
+    FlatLevel,
     Level,
     PlanMarks,
     after_mark,
     cut_offsets,
     cut_spans,
+    level_of,
     sole_mark,
 )
 from lexic.parsing.parallel.plan.split import SplitPlan, matched, spellings
@@ -479,3 +481,42 @@ def test_the_ordering_a_plan_carries_is_the_one_matching_uses() -> None:
 
     assert after_mark(wide, text, 1) == 3
     assert after_mark(plan, text, 1) == 2
+
+
+# ── a level under a scanner with no pair counts nothing ───────────────────
+
+
+def test_a_scanner_with_no_pair_reads_a_flat_level_and_a_paired_one_counts() -> None:
+    """Chosen once per document, by the scanner's own roles: a flat level for a
+    scanner that opens and closes nothing, the counting level otherwise."""
+    flat = _plan(LINES, "cuts-lines").scanner
+    paired = _plan(PAIRED, "cuts-paired").scanner
+    assert isinstance(level_of(flat, "x\n"), FlatLevel)
+    assert not isinstance(level_of(paired, "(x)"), FlatLevel)
+
+
+def test_a_flat_level_chooses_the_counting_levels_cuts_without_counting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every mark of a flat scanner stands at depth 0, so the flat level's
+    candidates and cuts are the counting level's, with no count asked."""
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(32 * MIN_CHUNK)
+    counted = cut_offsets(plan, text, 16, Level(plan.scanner, text))
+    expected = (counted.offsets, list(counted.marks(0, 0, len(text) + 1)))
+
+    def refused(*_args: object) -> int:
+        raise AssertionError("a flat level asked for a count")
+
+    monkeypatch.setattr(Scanner, "drift", refused)
+    flat = cut_offsets(plan, text, 16, level_of(plan.scanner, text))
+    assert (flat.offsets, list(flat.marks(0, 0, len(text) + 1))) == expected
+    assert expected[0]
+
+
+def test_a_paired_level_still_counts_its_depth() -> None:
+    """Inside a bracket the counting level reads depth 1 — what a flat level
+    could never say, and why a paired scanner never gets one."""
+    plan = _plan(PAIRED, "cuts-paired")
+    text = "(ab)," * 10 + "(" + ",".join(["(x)"] * 30) + ")"
+    assert level_of(plan.scanner, text).depth(text.index("(x)")) == 1

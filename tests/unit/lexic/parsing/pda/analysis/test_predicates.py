@@ -39,6 +39,7 @@ from lexic.parsing.pda.analysis.predicates import (
     rule_spans,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.unit.lexic.parsing.parallel.speculation_fixtures import ANNOUNCED
 
 
 def test_nullable_names_finds_an_empty_literal_arm():
@@ -138,6 +139,7 @@ def members(source: str, alphabet: str, longest: int) -> set[str]:
         ('x ::= "(" x ")" | "y"\n', "", "()y"),
         ('x ::= "a"? "a"\n', "a", "b"),
         ('x ::= y y\ny ::= "a" | "aa"\n', "a", "b"),
+        ('x ::= ("#" [a-z])+\n', "#", "ab"),
     ],
     ids=[
         "literal",
@@ -148,6 +150,7 @@ def members(source: str, alphabet: str, longest: int) -> set[str]:
         "balanced",
         "unsettled-seq",
         "unsettled-repeat",
+        "repeated-item",
     ],
 )
 def test_extend_holds_what_lengthens_a_match_and_nothing_that_cannot(
@@ -188,6 +191,14 @@ def test_extend_covers_every_extension_the_language_has(
     }
     got = extension(source)
     assert all(got.has(char) for char in seen), f"{seen} not all in EXTEND"
+
+
+def test_extend_reaches_a_vanishable_tail_below_the_top_level() -> None:
+    """A section's ``line*`` vanishes, so a complete section goes on with
+    another line, and never with a header's ``#``."""
+    got = extension(ANNOUNCED, "section")
+    assert got.has("a") and got.has(" ")
+    assert not got.has("#")
 
 
 # ── SPAN — how short and how long a match can be ──────────────────────────

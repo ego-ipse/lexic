@@ -21,7 +21,11 @@ from copy import deepcopy
 from types import CellType, FunctionType, MappingProxyType, MethodType
 from typing import Any, TypeVar
 
-from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
+from lexic.exceptions import (
+    EngineInvariantError,
+    SemanticVerdict,
+    UnsupportedConstructError,
+)
 from lexic.ir import IrAst, IrSelf, Singleton
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig, same_value
 from lexic.parsing.product import (
@@ -38,7 +42,13 @@ from lexic.parsing.product import (
     verify_program,
 )
 
-__all__ = ["ModelExecutable", "ModelParse", "private_copy", "process_constants"]
+__all__ = [
+    "ModelExecutable",
+    "ModelParse",
+    "arm_pairs",
+    "private_copy",
+    "process_constants",
+]
 
 
 type ModelParse[M] = Callable[[IrAst, str, ModelExecutable[M], ParseConfig], M]
@@ -221,6 +231,33 @@ def private_copy[T](compiled: T, remap: Mapping[int, object] | None = None) -> T
     kept = process_constants()
     kept.update(remap or {})
     return PrivateCopy(kept).of(compiled)
+
+
+def arm_pairs(original: IrAst, copy: IrAst) -> dict[int, IrSelf]:
+    """Each arm of ``original``'s rules → the same arm in ``copy``, its private copy.
+
+    The remap a later :func:`private_copy` of tables built over ``original``
+    passes, so the copy holds ``copy``'s arms rather than rebuilding them: a
+    table holds its grammar's arms and otherwise only atoms, which every copy
+    shares, and objects it minted itself.
+
+    :raises EngineInvariantError: Where a rule's name, its arm count or an
+        arm's type differ — ``copy`` is not a copy of ``original``, and the
+        remap would rewire the arms a parse reads.
+    """
+    pairs: dict[int, IrSelf] = {}
+    rules, copied = tuple(original.rules), tuple(copy.rules)
+    if len(rules) != len(copied):
+        raise EngineInvariantError("parsing: the copied grammar's rules differ")
+    for mine, theirs in zip(rules, copied):
+        arms, their_arms = tuple(mine.body), tuple(theirs.body)
+        if str(mine.name) != str(theirs.name) or len(arms) != len(their_arms):
+            raise EngineInvariantError(f"parsing: rule {mine.name!s} is not copied")
+        for arm, their_arm in zip(arms, their_arms):
+            if type(arm) is not type(their_arm):
+                raise EngineInvariantError(f"parsing: an arm of {mine.name!s} differs")
+            pairs[id(arm)] = their_arm
+    return pairs
 
 
 _NOT_MADE = object()

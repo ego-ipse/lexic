@@ -18,7 +18,6 @@ from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrLiteral, IrSpan
-from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
@@ -420,26 +419,25 @@ def run_ok(tables: ParserTables, unit_rid: int, rules: Collection[str]) -> bool:
     return not any(names[rid] in rules for rid in leaf_rids)
 
 
-_COLLAPSED: dict[
-    tuple[int, int, int],
-    tuple[Mapping[str, RuleRoutine], IrAst, ParserTables],
-] = memo({}, 0, 1)
-
-
 def collapsed_product_tables(
     grammar: IrAst,
-    routines: Mapping[str, RuleRoutine],
+    rules: Collection[str],
     bits: int = ORIGIN_BITS,
 ) -> ParserTables:
-    """Return product-safe run-collapsed Earley tables, identity memoised."""
-    key = (id(routines), id(grammar), bits)
-    entry = _COLLAPSED.get(key)
-    if entry is not None and entry[0] is routines and entry[1] is grammar:
-        return entry[2]
-    tables = collapse_runs(
+    """Build product-safe run-collapsed Earley tables: every run collapsed
+    whose unit hides none of ``rules``.
+
+    Built anew on each call. A model product's are built once, on its first
+    Earley use, and held by its PDA
+    (:meth:`~lexic.parsing.pda.compiler.tables.PdaTables.product_tables`).
+
+    :param grammar: The Earley-normalised instance grammar.
+    :param rules: The product-bearing rule names no run may hide.
+    :param bits: The packing tier.
+    :returns: The collapsed tables, or the plain ones when nothing collapses.
+    """
+    return collapse_runs(
         grammar,
-        lambda plain, unit_rid: RUN_STR if run_ok(plain, unit_rid, routines) else None,
+        lambda plain, unit_rid: RUN_STR if run_ok(plain, unit_rid, rules) else None,
         bits,
     )
-    _COLLAPSED[key] = (routines, grammar, tables)
-    return tables

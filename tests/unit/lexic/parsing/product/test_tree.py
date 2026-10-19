@@ -395,7 +395,7 @@ def test_run_ok_true_when_the_transitive_leaf_is_untracked():
     assert run_ok(tables, outer_rid, frozenset()) is True
 
 
-# ── collapsed_product_tables — identity memoisation ──────────────────────
+# ── collapsed_product_tables — built anew; a product's held by its PDA ───
 
 
 def test_collapsed_product_tables_collapses_a_run_on_arithmetic(arithmetic):
@@ -408,12 +408,13 @@ def test_collapsed_product_tables_collapses_a_run_on_arithmetic(arithmetic):
     assert any(length == 0 for length in collapsed.terms.lens)
 
 
-def test_collapsed_product_tables_memoises_per_routines_and_grammar(arithmetic):
-    """The same (grammar, routines) pair returns the identical tables object."""
-    grammar = _instance_grammar(arithmetic)
-    first = collapsed_product_tables(grammar, arithmetic.product.routines)
-    second = collapsed_product_tables(grammar, arithmetic.product.routines)
-    assert first is second
+def test_collapsed_product_tables_builds_anew_and_a_product_holds_one(arithmetic):
+    """The builder keeps nothing; a product's tables are its PDA's, held once."""
+    product = model_product(arithmetic.codegen_grammar, arithmetic.product)
+    grammar, routines = product.instance_grammar, arithmetic.product.routines
+    first = collapsed_product_tables(grammar, routines)
+    assert first is not collapsed_product_tables(grammar, routines)
+    assert product.tables is product.pda.product_tables(product.bits, routines)
 
 
 def test_collapsed_product_tables_returns_plain_when_no_candidates(optional_shapes):
@@ -424,10 +425,9 @@ def test_collapsed_product_tables_returns_plain_when_no_candidates(optional_shap
     assert collapsed is plain
 
 
-def test_collapsed_product_tables_memo_keys_on_identity_not_equality():
-    """Two independently compiled instances of the same source produce
-    structurally equal but DISTINCT (grammar, routines) objects — the
-    identity-keyed memo must not alias across them."""
+def test_two_compiles_of_one_source_hold_distinct_product_tables():
+    """Two independently compiled instances of the same source are equal but
+    distinct products, and each PDA holds its own tables."""
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     cg1 = compile_text(text)
     reset_cache_for_tests()  # force a genuinely fresh second compile
@@ -435,22 +435,34 @@ def test_collapsed_product_tables_memo_keys_on_identity_not_equality():
     grammar1, grammar2 = _instance_grammar(cg1), _instance_grammar(cg2)
     assert grammar1 == grammar2
     assert grammar1 is not grammar2
-    tables1 = collapsed_product_tables(grammar1, cg1.product.routines)
-    tables2 = collapsed_product_tables(grammar2, cg2.product.routines)
+    tables1 = model_product(cg1.codegen_grammar, cg1.product).tables
+    tables2 = model_product(cg2.codegen_grammar, cg2.product).tables
     assert tables1 is not tables2
 
 
-def test_collapsed_product_tables_distinct_routines_objects_do_not_share_cache(
-    arithmetic,
-):
-    """A routines mapping EQUAL in content to the original is still a
-    distinct object — the memo must recompute, not alias, for it (the same
-    identity discipline ``ModelExecutable.replica()`` relies on)."""
+def test_a_product_collapses_under_its_binding_routines():
+    """The product's licence is its own routines: a run whose unit is a
+    product rule stays per-char, where an unlicensed collapse folds it."""
+    compiled = compile_text("root ::= d+\nd ::= [0-9]\n", cache_key="licence-pin")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    grammar, routines = product.instance_grammar, compiled.product.routines
+    assert "d" in routines
+    licensed = collapsed_product_tables(grammar, routines)
+    unlicensed = collapsed_product_tables(grammar, frozenset())
+    assert product.tables.terms.lens == licensed.terms.lens
+    assert unlicensed.terms.lens != licensed.terms.lens
+
+
+def test_collapsed_product_tables_reads_only_the_rule_names(arithmetic):
+    """The licence asks which rules a run may not hide, by name: the routines
+    mapping and the frozenset of its keys collapse the same runs."""
     grammar = _instance_grammar(arithmetic)
-    duplicate = dict(arithmetic.product.routines)
-    first = collapsed_product_tables(grammar, arithmetic.product.routines)
-    second = collapsed_product_tables(grammar, duplicate)
-    assert first is not second
+    routines = arithmetic.product.routines
+    by_mapping = collapsed_product_tables(grammar, routines)
+    by_names = collapsed_product_tables(grammar, frozenset(routines))
+    assert by_mapping.terms.lens == by_names.terms.lens
+    assert by_mapping.decode.rule_names == by_names.decode.rule_names
+    assert any(length == 0 for length in by_names.terms.lens)
 
 
 def _instance_grammar(compiled):

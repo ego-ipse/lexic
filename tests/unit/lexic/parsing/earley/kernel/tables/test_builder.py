@@ -20,11 +20,13 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
     IrAst,
+    IrAtom,
     IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
     IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
@@ -39,6 +41,8 @@ from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     ParserTables,
 )
+from lexic.parsing.earley.lexruns import recognition_tables
+from lexic.parsing.earley.normalize import normalize
 from tests.unit.lexic.parsing.earley.kernel.loop.test_kernel import (
     undefined_ref_grammar,
 )
@@ -492,3 +496,75 @@ def test_small_tier_capacity_boundary_is_exact():
 
 
 # ── tier selection (TIERS / tier_for; parse entries pick by input size) ──
+
+
+# ── seed gates read the one FIRST over term ids ──────────────────────
+
+WIDE = IrCharClass(IrRange(IrChr(chr(0x100)), IrChr(chr(0x3000))))
+P_TO_R = IrCharClass(IrRange(IrChr("p"), IrChr("r")))
+K_TO_M = IrCharClass(IrRange(IrChr("k"), IrChr("m")))
+
+
+def _arm(*atoms: IrAtom) -> IrSequence:
+    return IrSequence(*(IrItem(atom) for atom in atoms))
+
+
+def _rule(name: str, *arms: IrSequence) -> IrRule:
+    return IrRule(name, IrAlternation(*arms))
+
+
+def _gates(tables: ParserTables, name: str) -> list[object]:
+    """The seed gates of rule ``name``'s arms, in arm order."""
+    rid = list(tables.decode.rule_names).index(name)
+    return [gate for _code, _sym, gate in tables.codes.rule_seed_gates[rid]]
+
+
+GATE_GRAMMAR = IrAst(
+    rules=IrSeq(
+        _rule(
+            "root",
+            _arm(IrRuleRef("neg")),
+            _arm(IrRuleRef("listed")),
+            _arm(IrRuleRef("wide")),
+            _arm(IrRuleRef("empty")),
+            _arm(IrRuleRef("through")),
+            _arm(IrRuleRef("deep")),
+        ),
+        _rule("neg", _arm(IrNot(IrCharClass(IrChr("x"))), IrLiteral("1"))),
+        _rule("listed", _arm(P_TO_R, IrLiteral("2"))),
+        _rule("wide", _arm(WIDE, IrLiteral("3"))),
+        _rule("empty", IrSequence(), _arm(IrLiteral("4"))),
+        _rule("through", _arm(IrRuleRef("dash"), IrLiteral("5"))),
+        _rule("dash", IrSequence(), _arm(IrLiteral("-"))),
+        _rule("deep", _arm(IrRuleRef("wide"))),
+    ),
+    start="root",
+)
+
+
+def test_seed_gates_list_or_poison_each_arm_by_its_first_terminals():
+    """A negated or wide first terminal, or a rule reaching one, always seeds;
+    a listed class gates on its members; an empty arm always seeds; a
+    nullable prefix adds the terminal after it."""
+    tables = compile_tables(normalize(GATE_GRAMMAR))
+    assert _gates(tables, "neg") == [None]
+    assert _gates(tables, "listed") == [frozenset("pqr")]
+    assert _gates(tables, "wide") == [None]
+    assert _gates(tables, "empty") == [None, frozenset("4")]
+    assert _gates(tables, "through") == [frozenset("-5")]
+    assert _gates(tables, "deep") == [None]
+
+
+def test_a_collapsed_run_arm_gates_on_the_run_set():
+    """In a run-collapsed layout the run terminal's arm gates on its set."""
+    letters = IrItem(K_TO_M, IrQuantifier(1, IrNone))
+    rule = IrRule("root", IrAlternation(IrSequence(letters, IrItem(IrLiteral("!")))))
+    tables = recognition_tables(normalize(IrAst(rules=IrSeq(rule), start="root")))
+    names = list(tables.decode.rule_names)
+    runs = [
+        gate
+        for rid, seeds in enumerate(tables.codes.rule_seed_gates)
+        if names[rid] != "root"
+        for _code, _sym, gate in seeds
+    ]
+    assert runs == [frozenset("klm")]
