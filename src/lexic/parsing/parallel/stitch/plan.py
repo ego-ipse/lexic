@@ -27,7 +27,6 @@ from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
-    unbounded,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
@@ -165,7 +164,7 @@ def _candidate(
         and len(tail_arm) == 2
         and _ref_at(tail_arm, 1) == head
     )
-    if head is None or tail_name is None or not unbounded(items_arm[1]):
+    if head is None or tail_name is None or not items_arm[1].quantifier.unbounded():
         return None
     return (
         (items_name, tail_name, head, separator) if valid_tail and separator else None
@@ -186,7 +185,7 @@ def _direct_candidate(
         if not isinstance(tail_arm, IrNoneType) and len(tail_arm) == 2
         else None
     )
-    repeats = unbounded(outer_arm[at + 1])
+    repeats = outer_arm[at + 1].quantifier.unbounded()
     returns_head = (
         not isinstance(tail_arm, IrNoneType)
         and len(tail_arm) == 2

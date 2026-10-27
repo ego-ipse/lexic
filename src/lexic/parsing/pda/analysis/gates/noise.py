@@ -50,7 +50,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRuleRef,
@@ -247,9 +246,8 @@ def _feed_sem(
     cont = tail
     for item in reversed(items):
         atom = item.atom
-        hi = item.quantifier.hi
         eff = cont
-        if isinstance(hi, IrNoneType) or int(hi) > 1:
+        if item.quantifier.repeats():
             eff = eff.union(_atom_sem_first(atom, ctx))
         fd = _SemFeed(eff, tgt, ctx)
         if cast(bool, _SEM_FEED.resolve(atom).eval(ctx.analysis, atom, (fd,))):

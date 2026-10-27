@@ -19,7 +19,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
@@ -246,8 +245,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
             if all(state != END or len(tup) >= r for tup, state in states):
                 break
             lo = int(item.quantifier.lo)
-            hi = item.quantifier.hi
-            hi_i = None if isinstance(hi, IrNoneType) else int(hi)
+            hi_i = item.quantifier.upper()
             reps = r if hi_i is None else min(hi_i, r)
             acc: set[Pref] = set(states) if lo == 0 else set()
             cur = set(states)
@@ -503,9 +501,8 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         is its own seed.
         """
         item = items[i]
-        hi = item.quantifier.hi
-        if isinstance(hi, IrNoneType) or int(hi) > 1:
-            loop = IrItem(item.atom, IrQuantifier(0, hi))
+        if item.quantifier.repeats():
+            loop = IrItem(item.atom, IrQuantifier(0, item.quantifier.hi))
             rest_items: list[IrItem] = [loop, *items[i + 1 :]]
         else:
             rest_items = list(items[i + 1 :])

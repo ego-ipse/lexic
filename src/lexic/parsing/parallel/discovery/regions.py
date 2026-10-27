@@ -35,7 +35,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     skip_leads,
     stray_spellings,
 )
-from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import standing_pairs
@@ -150,7 +150,7 @@ def _repeated_bodies(
             body = target.body if target is not None else None
         elif isinstance(atom, IrAlternation):
             body = atom
-        if body is not None and unbounded(item):
+        if body is not None and item.quantifier.unbounded():
             out.append(body)
         if isinstance(atom, IrAlternation):
             for arm in atom:

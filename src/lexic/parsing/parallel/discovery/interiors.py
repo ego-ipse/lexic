@@ -45,7 +45,6 @@ from lexic.parsing.parallel.discovery.shapes import (
     item_spells,
     literal_char,
     literal_text,
-    unbounded,
 )
 
 
@@ -279,7 +278,7 @@ def _arm_interior(
     # members-rest*`` as opening at the colon its first member carries, and
     # skip from there to the end of the document.
     literal = isinstance(items[0].atom, IrLiteral)
-    if not literal or len(items) != 2 or not unbounded(items[1]):
+    if not literal or len(items) != 2 or not items[1].quantifier.unbounded():
         return None
     return Interior(name, at, opening, "", "", 0, 1)
 

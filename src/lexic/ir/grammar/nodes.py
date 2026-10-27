@@ -199,6 +199,32 @@ class IrQuantifier(IrBounds):
         hi_val = hi if isinstance(hi, IrNoneType) else int(hi)
         return super().__new__(cls, int(lo), hi_val)
 
+    def once(self) -> bool:
+        """Whether the item occurs exactly once — no postfix operator."""
+        return self.lo == 1 and self.hi == 1
+
+    def optional(self) -> bool:
+        """Whether the item occurs at most once and may be absent — ``?``."""
+        return self.lo == 0 and self.hi == 1
+
+    def unbounded(self) -> bool:
+        """Whether the item may repeat without an upper bound."""
+        return isinstance(self.hi, IrNoneType)
+
+    def repeats(self) -> bool:
+        """Whether the item may occur more than once, beside itself."""
+        hi = self.upper()
+        return hi is None or hi > 1
+
+    def fixed(self) -> bool:
+        """Whether the item occurs a fixed number of times."""
+        return self.upper() == self.lo
+
+    def upper(self) -> int | None:
+        """The upper bound, or ``None`` when there is none."""
+        hi = self.hi
+        return None if isinstance(hi, IrNoneType) else int(hi)
+
 
 class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
     """An atom paired with a quantifier — the universal wrapper node.
@@ -238,7 +264,7 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
         :returns: The reference, or ``IrNone`` for any other atom or quantifier.
         """
         atom = self.atom
-        if isinstance(atom, IrRuleRef) and self.quantifier == IrQuantifier():
+        if isinstance(atom, IrRuleRef) and self.quantifier.once():
             return atom
         return IrNone
 

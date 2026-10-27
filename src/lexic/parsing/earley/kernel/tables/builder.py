@@ -19,7 +19,6 @@ from lexic.ir import (
     IrLeaf,
     IrLiteral,
     IrNot,
-    IrQuantifier,
     IrRuleRef,
     IrSelf,
     IrSequence,
@@ -35,8 +34,6 @@ from lexic.parsing.earley.kernel.tables.records import (
     Charset,
     ParserTables,
 )
-
-_ONE = IrQuantifier(1, 1)
 
 _EMPTY_RUN = RunTerm(frozenset(), 1, RUN_DROP)
 """Placeholder for :attr:`ParserTables.term_runs`' non-run slots — never
@@ -199,7 +196,7 @@ class TableBuilder:
 
         :raises UnsupportedConstructError: If the item is not normalised.
         """
-        if item.quantifier != _ONE:
+        if not item.quantifier.once():
             raise UnsupportedConstructError(
                 f"parsing: unnormalised quantifier {item.quantifier!r} — "
                 "run normalize() before compiling"

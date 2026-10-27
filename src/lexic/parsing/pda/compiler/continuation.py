@@ -19,7 +19,7 @@ import math
 from collections.abc import Mapping
 from typing import Iterator
 
-from lexic.ir import IrAlternation, IrItem, IrNoneType, IrRule, IrRuleRef
+from lexic.ir import IrAlternation, IrItem, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.conflicts import may_steal
 from lexic.parsing.pda.analysis.gates.windows import (
@@ -41,17 +41,11 @@ from lexic.parsing.pda.compiler.eligibility import (
     extent_pattern,
     greedy_extent,
 )
-from lexic.parsing.pda.compiler.specs import LongestTake, arm_items, upper_bound
+from lexic.parsing.pda.compiler.specs import LongestTake, arm_items
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 _EOF = CharSet.from_chars("")
-
-
-def _repeats(item: IrItem) -> bool:
-    """Whether ``item`` can occur more than once in a row."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
 
 
 WINDOW = 2
@@ -157,7 +151,7 @@ class IslandContinuations:
         for rule, items, at, groups in self._sites(name, site):
             tail = self._group_tail(analysis.follow[rule], groups)
             found = found.union(analysis.cont_at(items, at, tail))
-            if _repeats(items[at]):  # the next occurrence follows this one
+            if items[at].quantifier.repeats():  # the next occurrence follows this one
                 found = found.union(analysis.atom_first(items[at].atom))
         self._follows[key] = found
         return found
@@ -194,7 +188,7 @@ class IslandContinuations:
                 _group_windows(deep, deep.follow[rule], groups),
                 WINDOW,
             )
-            if _repeats(items[at]):
+            if items[at].quantifier.repeats():
                 rest = _after_repeats(deep.solver.rule_prefixes(name, WINDOW), rest)
             found |= rest
         # A window the full width deep may go on past it (FIRST-k stops walking
@@ -233,7 +227,7 @@ class IslandContinuations:
         analysis = self.analysis
         for items, at in groups:
             after = analysis.cont_at(items, at, tail)
-            if _repeats(items[at]):
+            if items[at].quantifier.repeats():
                 after = after.union(analysis.atom_first(items[at].atom))
             tail = after
         return tail
@@ -295,7 +289,7 @@ class IslandContinuations:
             if not items:
                 return False
             last = items[-1]
-            if upper_bound(last) is not None:
+            if last.quantifier.upper() is not None:
                 return False
             if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
                 return False
@@ -410,7 +404,7 @@ def _place(here: Span, items: list[IrItem], at: int, spans: dict[str, Span]) -> 
     earlier items can span, and, if it repeats, through its later
     occurrences too."""
     before = seq_span(items[:at], spans)
-    later = seq_span([items[at]], spans)[1] if _repeats(items[at]) else 0.0
+    later = seq_span([items[at]], spans)[1] if items[at].quantifier.repeats() else 0.0
     return (here[0] + before[0], here[1] + before[1] + later)
 
 
@@ -464,7 +458,7 @@ def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[
         after = extend_follow(
             deep.solver.arm_prefixes(items[at + 1 :], WINDOW), tail, WINDOW
         )
-        if _repeats(items[at]):
+        if items[at].quantifier.repeats():
             group = items[at].atom
             assert isinstance(group, IrAlternation)
             after = _after_repeats(deep.solver.group_prefixes(group, WINDOW), after)

@@ -42,7 +42,6 @@ from lexic.ir import (
     IrLambda,
     IrLiteral,
     IrNoneType,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
@@ -53,8 +52,6 @@ from lexic.ir import (
 )
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
-
-_UNIT = IrQuantifier(1, 1)
 
 
 # ── field-naming lookup tables ────────────────────────────────────────
@@ -313,17 +310,11 @@ def _alphabet_mode(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
 # ── fold-mode derivation ──────────────────────────────────────────────
 
 
-def _many(item: IrItem) -> bool:
-    """Whether the item repeats (``hi`` unbounded or above one)."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
-
-
 def _ref_mode(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
     """Mode body: a rule ref folds to its sub-model(s)."""
     item = nc[0]
     assert isinstance(item, IrItem)
-    return IrStr("models" if _many(item) else "model")
+    return IrStr("models" if item.quantifier.repeats() else "model")
 
 
 def _all_unit_ref_arms(alt: IrAlternation) -> bool:
@@ -384,7 +375,7 @@ def mode_for(item: IrItem) -> str:
 
 def _is_structural_literal(item: IrItem) -> bool:
     """Unit-quantified literal — matched text with no field of its own."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier == _UNIT
+    return isinstance(item.atom, IrLiteral) and item.quantifier.once()
 
 
 def _is_semantic_field(item: IrItem, non_semantic: frozenset[str]) -> bool:

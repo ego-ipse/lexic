@@ -97,7 +97,6 @@ from lexic.parsing.pda.compiler.specs import (
     arm_items,
     firsts_overlap,
     resolve_struct_arm,
-    upper_bound,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
@@ -179,7 +178,7 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     @property
     def hi(self) -> int | None:
         """The item's quantifier upper bound, or ``None``."""
-        return upper_bound(self.site)
+        return self.site.quantifier.upper()
 
 
 # ── atom-type dispatch bodies ──────────────────────────────────────────────
@@ -571,7 +570,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         analysis = self.analysis
         item = items[idx]
         lo = int(item.quantifier.lo)
-        hi = upper_bound(item)
+        hi = item.quantifier.upper()
         first = analysis.atom_first(item.atom)
         if hi is None or hi > lo:
             # A stored gate is the analysis's DECISION for this item node —

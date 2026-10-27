@@ -51,7 +51,6 @@ from lexic.ir import (
     IrItem,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrRule,
     IrRuleRef,
@@ -267,8 +266,8 @@ def compile_admission(
 
 def _hi(item: IrItem) -> int:
     """The item's upper bound as an int, :data:`_HI_UNBOUNDED` for unbounded."""
-    hi = item.quantifier.hi
-    return _HI_UNBOUNDED if isinstance(hi, IrNoneType) else int(hi)
+    hi = item.quantifier.upper()
+    return _HI_UNBOUNDED if hi is None else hi
 
 
 def _membership(atom: IrCharClass | IrNot) -> "tuple[frozenset[str], bool] | None":

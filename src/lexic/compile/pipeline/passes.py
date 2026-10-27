@@ -136,7 +136,7 @@ def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
     """
     if not isinstance(d, _HoistTransformer):
         raise TypeError(f"Expected _HoistTransformer, got {type(d).__name__}")
-    if item.quantifier == IrQuantifier(1, 1):
+    if item.quantifier.once():
         return item
     extracted = _EXTRACT_BODY.apply(item.atom)
     if extracted is IrNone:

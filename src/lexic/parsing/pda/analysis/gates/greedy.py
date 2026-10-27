@@ -35,7 +35,6 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-from lexic.ir import IrNone
 from lexic.ir.grammar.charclass import IrCharClass
 from lexic.ir.grammar.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.gates.kwindow import rule_references
@@ -101,7 +100,7 @@ def _unit_shape(
     :returns: ``(body items, terminator, tail)``.
     """
     item = items[idx]
-    if item.quantifier.hi is not IrNone or idx != 0 or len(items) != 2:
+    if not item.quantifier.unbounded() or idx != 0 or len(items) != 2:
         return None  # (a) unbounded, and the shape is `I+ T` — one loop, one tail
     item_rule = _sole_arm(rules, item.atom)
     if item_rule is None or len(item_rule) < 2:
@@ -111,16 +110,11 @@ def _unit_shape(
     if terminator is None or not _item_is_delimited(rules, body, term, terminator):
         return None
     tail = _spelling(rules, items[1].atom)
-    if tail is None or not _exactly_once(items[1]):
+    if tail is None or not items[1].quantifier.once():
         return None
     if not tail or tail != terminator * len(tail):
         return None  # (d)
     return body, terminator, tail
-
-
-def _exactly_once(item: IrItem) -> bool:
-    """Does ``item`` occur exactly once — read off its bounds, not its repr."""
-    return int(item.quantifier.lo) == 1 and item.quantifier.hi == 1
 
 
 def _item_is_delimited(
@@ -138,7 +132,7 @@ def _item_is_delimited(
     held = _alphabet_of(rules, body)
     return (
         len(terminator) == 1
-        and _exactly_once(term)
+        and term.quantifier.once()
         and held is not None
         and terminator not in held
         and not any(int(one.quantifier.lo) for one in body)
@@ -175,7 +169,7 @@ def _continuation(
     before, outer, after = found
     if (
         int(outer.quantifier.lo) > 1  # (f): one unit must be permitted
-        or outer.quantifier.hi is not IrNone  # (f): a bounded outer cannot absorb
+        or not outer.quantifier.unbounded()  # (f): a bounded outer cannot absorb
         or _spelling_of(rules, before) is None  # (h): the prefix must be fixed
     ):
         return None
@@ -223,7 +217,7 @@ def _occurrence(
         if str(item.atom) == unit:
             return list(arm[:index]), item, list(arm[index + 1 :])
     for index, item in enumerate(arm):
-        if not _exactly_once(item) or rule_references(rules, str(item.atom)) != 1:
+        if not item.quantifier.once() or rule_references(rules, str(item.atom)) != 1:
             continue
         inner = _sole_arm(rules, item.atom)
         if inner is not None and len(inner) == 1 and str(inner[0].atom) == unit:
@@ -261,7 +255,7 @@ def _spelling_of(
     """The one fixed string a sequence derives, or ``None``."""
     out: list[str] = []
     for item in items:
-        if not _exactly_once(item):
+        if not item.quantifier.once():
             return None
         text = _spelling(rules, item.atom, depth)
         if text is None:

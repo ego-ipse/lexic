@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import NamedTuple, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrItem, IrNoneType, IrSelf
+from lexic.ir import IrItem, IrSelf
 from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, Pattern, ScanGate
@@ -381,12 +381,6 @@ class CloneSpec(NamedTuple):
 def arm_items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order."""
     return [i for i in seq if isinstance(i, IrItem)]
-
-
-def upper_bound(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
 
 
 def firsts_overlap(arms: Sequence[ArmSpec]) -> bool:

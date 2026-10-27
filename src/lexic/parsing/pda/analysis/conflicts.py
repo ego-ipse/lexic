@@ -186,13 +186,17 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
     for j, item in enumerate(items):
         if not isinstance(item.atom, (IrLiteral, IrCharClass, IrNot)):
             return False
-        if j + 1 == len(items) or _fixed(item):
+        if j + 1 == len(items) or item.quantifier.fixed():
             continue
         rest, first = items[j + 1 :], analysis.atom_first(item.atom)
         if not first.overlaps(analysis.seq_first(rest)):
             continue
         last = rest[-1]
-        absorbs = len(rest) == 1 and int(last.quantifier.lo) == 0 and not _fixed(last)
+        absorbs = (
+            len(rest) == 1
+            and int(last.quantifier.lo) == 0
+            and not last.quantifier.fixed()
+        )
         if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
             return False
     return True
@@ -201,12 +205,6 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
 def _arm_items(arm: Sequence[object]) -> list[IrItem]:
     """The :class:`IrItem` members of an arm, in order."""
     return [item for item in arm if isinstance(item, IrItem)]
-
-
-def _fixed(item: IrItem) -> bool:
-    """Whether the item occurs a fixed number of times."""
-    hi = item.quantifier.hi
-    return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)
 
 
 def same_ref_extent_split(

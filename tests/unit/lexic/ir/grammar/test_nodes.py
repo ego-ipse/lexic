@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import parse_grammar
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.grammar.charclass import IrCharClass, IrRange
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
@@ -957,3 +959,46 @@ def test_sole_ref_is_absent_for_a_quantified_reference_or_another_shape(arm):
     """A repeated reference holds a run, not the rule; two items, a literal and
     an empty arm name no rule either."""
     assert arm.sole_ref() is IrNone
+
+
+# ── quantifier facts ──────────────────────────────────────────────────────
+
+_QUANTIFIER_FACTS = [
+    # (lo, hi, once, optional, unbounded, repeats, fixed, upper)
+    (1, 1, True, False, False, False, True, 1),
+    (0, 1, False, True, False, False, False, 1),
+    (0, IrNone, False, False, True, True, False, None),
+    (1, IrNone, False, False, True, True, False, None),
+    (2, IrNone, False, False, True, True, False, None),
+    (2, 3, False, False, False, True, False, 3),
+    (3, 3, False, False, False, True, True, 3),
+    (0, 0, False, False, False, False, True, 0),
+]
+
+
+@pytest.mark.parametrize("facts", _QUANTIFIER_FACTS)
+def test_a_quantifier_answers_its_own_shape(facts):
+    """``1``, ``?``, ``*``, ``+``, ``{2,}``, ``{2,3}``, ``{3}`` and ``{0}``: a
+    bounded ``{2,3}`` still repeats, and ``+`` is unbounded although ``lo`` is
+    one."""
+    lo, hi, *want = facts
+    q = IrQuantifier(lo, hi)
+    got = [q.once(), q.optional(), q.unbounded(), q.repeats(), q.fixed(), q.upper()]
+    assert got == want
+
+
+def test_the_default_quantifier_is_once():
+    """An item built without a quantifier occurs exactly once."""
+    assert IrItem(IrRuleRef("x")).quantifier.once()
+
+
+@pytest.mark.parametrize(
+    ("source", "unbounded"),
+    [("x*", True), ("x+", True), ("x", False), ("x?", False)],
+)
+def test_a_parsed_item_reads_its_bound_off_the_quantifier(source, unbounded):
+    """Through the standard pipeline: ``x*`` and ``x+`` have no upper bound,
+    ``x`` and ``x?`` have one."""
+    grammar = parse_grammar(f'root ::= {source}\nx ::= "a"\n', GBNF_FLAVOUR)
+    item = tuple(grammar.rules[0].body[0])[0]
+    assert item.quantifier.unbounded() is unbounded

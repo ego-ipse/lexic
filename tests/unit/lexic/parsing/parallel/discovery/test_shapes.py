@@ -1,7 +1,8 @@
 """Tests for ``lexic.parsing.parallel.discovery.shapes`` — the arm-shape questions.
 
-Three facts the split analyses ask a grammar for: what an item spells,
-whether it repeats, and what every arm of an alternation carries at one end.
+Two facts the split analyses ask a grammar for: what an item spells, and
+what every arm of an alternation carries at one end. Whether an item repeats
+is its quantifier's own question (``IrQuantifier``).
 Every case here goes through the standard pipeline — nothing is hardcoded per
 formulation.
 """
@@ -14,7 +15,6 @@ from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlphabet, IrAlternation, IrAst, IrItem, IrLiteral, IrRule
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
     arm_spells,
     derives_empty,
     edge_char,
@@ -29,7 +29,6 @@ from lexic.parsing.parallel.discovery.shapes import (
     rule_emits,
     rule_spells,
     sole_char,
-    unbounded,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -45,34 +44,6 @@ def _arm_items(rule_map: dict[str, IrRule], name: str) -> tuple[IrItem, ...]:
 
 def _body(rule_map: dict[str, IrRule], name: str) -> IrAlternation:
     return rule_map[name].body
-
-
-# ── unbounded ─────────────────────────────────────────────────────────────
-
-
-def test_a_starred_item_is_unbounded():
-    """``x*`` has no upper bound."""
-    items = _arm_items(_rule_map('root ::= x*\nx ::= "a"'), "root")
-    assert unbounded(items[0])
-
-
-def test_a_plussed_item_is_unbounded():
-    """``x+`` has no upper bound either — ``lo`` is not what is asked."""
-    items = _arm_items(_rule_map('root ::= x+\nx ::= "a"'), "root")
-    assert unbounded(items[0])
-
-
-def test_a_unit_item_is_not_unbounded():
-    """Exactly-once is bounded above."""
-    items = _arm_items(_rule_map('root ::= x\nx ::= "a"'), "root")
-    assert not unbounded(items[0])
-    assert items[0].quantifier == UNIT
-
-
-def test_an_optional_item_is_not_unbounded():
-    """``x?`` is bounded above at one."""
-    items = _arm_items(_rule_map('root ::= x?\nx ::= "a"'), "root")
-    assert not unbounded(items[0])
 
 
 # ── literal_char ──────────────────────────────────────────────────────────

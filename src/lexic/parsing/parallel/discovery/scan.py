@@ -27,7 +27,6 @@ from lexic.parsing.parallel.discovery.interiors import (
 )
 from lexic.parsing.parallel.discovery.regions import pair_rules
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
     emit_charset,
     first_charset,
     last_charset,
@@ -276,7 +275,7 @@ def _depth_walk(
     walk = _DepthWalk({opener for opener, _closer in own}, {c for _o, c in own})
     for item in items:
         atom = item.atom
-        if isinstance(atom, IrLiteral) and item.quantifier == UNIT:
+        if isinstance(atom, IrLiteral) and item.quantifier.once():
             walk.spell(item, str(atom), joined)
             continue
         char = literal_char(item, rules)

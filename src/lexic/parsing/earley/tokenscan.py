@@ -23,7 +23,6 @@ from lexic.ir import (
     IrItem,
     IrLiteral,
     IrNot,
-    IrQuantifier,
     IrRule,
     IrSeq,
     IrSequence,
@@ -39,8 +38,6 @@ from lexic.parsing.lift import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
 """A token terminal's ``(id-set, negated)`` — the id test the scan applies."""
-
-_UNIT = IrQuantifier(1, 1)
 
 
 def split_literals(ast: IrAst) -> IrAst:
@@ -64,7 +61,7 @@ def split_literals(ast: IrAst) -> IrAst:
         if (
             isinstance(atom, IrLiteral)
             and len(str(atom)) > 1
-            and item.quantifier == _UNIT
+            and item.quantifier.once()
         ):
             return [IrItem(IrLiteral(ch)) for ch in str(atom)]
         return [item]

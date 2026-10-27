@@ -45,7 +45,6 @@ from lexic.ir.grammar.nodes import (
     IrChr,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -55,9 +54,6 @@ from lexic.ir.grammar.transform.order import order_by_refs
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import glyph
 from lexic.ir.spine.spine import IrLambda, IrSelf
-
-_UNIT = IrQuantifier(1, 1)
-
 
 # ── char-class normal form + single-member literal (rewrites 1, 8) ─────
 
@@ -114,7 +110,7 @@ def _arm_intervals(arm: IrSequence) -> list[tuple[int, int]] | None:
     if len(arm) != 1:
         return None
     item = arm[0]
-    if item.quantifier != _UNIT:
+    if not item.quantifier.once():
         return None
     atom = item.atom
     if isinstance(atom, IrCharClass):
@@ -175,7 +171,7 @@ def _single_arm_group(item: IrItem) -> IrSequence | None:
     :returns: The inner ``IrSequence`` when ``item`` is a ``(1,1)`` group with
         one arm, else ``None``.
     """
-    if item.quantifier != _UNIT:
+    if not item.quantifier.once():
         return None
     atom = item.atom
     if isinstance(atom, IrAlternation) and len(atom) == 1:
@@ -196,7 +192,7 @@ def _collapse_quantified_group(item: IrItem) -> IrItem:
     atom = item.atom
     if isinstance(atom, IrAlternation) and len(atom) == 1:
         arm = atom[0]
-        if len(arm) == 1 and arm[0].quantifier == _UNIT:
+        if len(arm) == 1 and arm[0].quantifier.once():
             return IrItem(arm[0].atom, item.quantifier)
     return item
 
@@ -208,7 +204,7 @@ def _is_empty_literal(item: IrItem) -> bool:
 
 def _is_plain_literal(item: IrItem) -> bool:
     """True if ``item`` is an unquantified literal (mergeable in a run)."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier == _UNIT
+    return isinstance(item.atom, IrLiteral) and item.quantifier.once()
 
 
 def _merge_literal_runs(items: list[IrItem]) -> list[IrItem]:

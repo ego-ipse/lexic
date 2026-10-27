@@ -300,6 +300,8 @@ The arm-merge (`_merge_arms`) is **interval-native**: it collects each mergeable
 
 Three arm facts are intrinsic too, with `IrNone` for absence: `IrItem.unit_ref()` is the `IrRuleRef` an item references exactly once, `IrSequence.sole_ref()` the rule an arm consists of when it is one such reference, and `IrRule.sole_arm()` the items of a one-arm rule. Every analysis that asks one reads the node, so no layer keeps a copy of its own. A REPEATED reference is never an arm's rule: `p ::= ("<" w ">")*` holds a run of its hoisted group, so the reduce fold splices the group into `p` instead of folding each instance through `p` as an arm.
 
+A quantifier answers its own shape the same way: `IrQuantifier.once()` (exactly once — the default, no postfix), `optional()` (`?`), `unbounded()` (no upper bound), `repeats()` (may stand beside itself: unbounded or `hi > 1`, so a bounded `{2,3}` repeats), `fixed()` (`lo == hi`) and `upper()` (`hi` as an `int`, `None` when unbounded). No module keeps a unit-quantifier constant or a copy of these tests; a bare field read (`q.lo == 0`) is the record itself and stays.
+
 ## Hoisting and non-semantic relaxation (`codegen/passes.py`)
 
 These moved out of the retired `ir/derive.py` into grammar→grammar passes over the *canonical* grammar, composed as `build_codegen_grammar = relax_non_semantic(hoist_arms(hoist_groups(ast)))`:

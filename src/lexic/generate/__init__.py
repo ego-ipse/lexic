@@ -52,7 +52,6 @@ from lexic.ir import (
     IrLambda,
     IrLiteral,
     IrNamedTuple,
-    IrNoneType,
     IrQuantifier,
     IrRaise,
     IrRule,
@@ -63,8 +62,6 @@ from lexic.ir import (
 
 Rules = dict[str, IrRule]
 
-_UNIT = IrQuantifier(1, 1)
-
 
 _LOWER_BOUND_ODDS = 0.7
 """How often a variable count rolls its lower bound — the free walk's one knob,
@@ -73,7 +70,8 @@ read by :func:`pick_count` and by :func:`pick_mean`, its expectation."""
 
 def _top(q: IrQuantifier) -> int:
     """The largest count a variable quantifier is rolled to: ``lo + 2`` at most."""
-    return q.lo + 2 if isinstance(q.hi, IrNoneType) else min(q.hi, q.lo + 2)
+    hi = q.upper()
+    return q.lo + 2 if hi is None else min(hi, q.lo + 2)
 
 
 def pick_count(q: IrQuantifier, rng: _random.Random) -> int:
@@ -115,7 +113,7 @@ def _item(nc: Sequence[IrSelf]) -> IrItem:
 def _gen_literal(_d: Generator, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
     """Emit a literal verbatim, repeated when quantified."""
     q = _item(nc).quantifier
-    return n * pick_count(q, _d.rng) if q != _UNIT else n
+    return n * pick_count(q, _d.rng) if not q.once() else n
 
 
 def _gen_charclass(_d: Generator, n: IrCharClass, nc: Sequence[IrSelf]) -> str:

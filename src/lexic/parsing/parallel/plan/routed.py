@@ -44,7 +44,6 @@ from lexic.parsing.parallel.discovery.shapes import (
     first_charset,
     literal_text,
     rule_emits,
-    unbounded,
 )
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import terminates_once
@@ -137,7 +136,7 @@ class RoutedPlan(NamedTuple):
 def optional_ref(item: IrItem) -> str | None:
     """The rule an optional single-occurrence item references."""
     atom = item.atom
-    optional = item.quantifier.lo == 0 and not unbounded(item)
+    optional = item.quantifier.lo == 0 and not item.quantifier.unbounded()
     return str(atom) if optional and isinstance(atom, IrRuleRef) else None
 
 
@@ -157,7 +156,7 @@ def _delimited_arm(
         found = _delimited_arm(arms[0], rules) if len(arms) == 1 else None
         return None if found is None else (str(named), *found[1:])
     items = tuple(arm)
-    if len(items) != 3 or not unbounded(items[1]):
+    if len(items) != 3 or not items[1].quantifier.unbounded():
         return None
     opening = literal_text(items[0], rules)
     closing = literal_text(items[2], rules)
@@ -182,7 +181,7 @@ def _terminated_arm(
     An arm whose tail is a character class or another repetition is refused:
     there would be no one string to append.
     """
-    if len(items) < 2 or not unbounded(items[0]):
+    if len(items) < 2 or not items[0].quantifier.unbounded():
         return None
     repeated = items[0].atom
     if not isinstance(repeated, IrRuleRef):
@@ -221,7 +220,7 @@ def _head_lead(
     rest = CharSet.EMPTY
     for item in before:
         atom = item.atom
-        repeated = unbounded(item) and isinstance(atom, IrRuleRef)
+        repeated = item.quantifier.unbounded() and isinstance(atom, IrRuleRef)
         if repeated and terminates_once_ref(str(atom), mark, rules):
             lead = lead.union(first_charset((item,), rules, frozenset()))
             continue
@@ -350,7 +349,7 @@ def _descend(
         atom = item.atom
         if not isinstance(atom, IrRuleRef):
             continue
-        kind = INTO_UNIT if unbounded(item) else REF
+        kind = INTO_UNIT if item.quantifier.unbounded() else REF
         below = _descend(
             grammar, rules, str(atom), chain + (Descent(name, at, kind),), seen | {name}
         )

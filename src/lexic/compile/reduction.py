@@ -135,26 +135,13 @@ def _dropped(reducer: Reducer, rule: str) -> bool:
     return reducer.noise.resolve(IrRuleRef(rule)) is DROP
 
 
-def _unbounded(quantifier: IrQuantifier) -> bool:
-    """Whether the quantifier has no upper bound (``hi`` is ``IrNone``)."""
-    return isinstance(quantifier.hi, IrNoneType)
-
-
-def _exactly_once(quantifier: IrQuantifier) -> bool:
-    """Whether the quantifier is the plain single occurrence."""
-    hi = quantifier.hi
-    if isinstance(hi, IrNoneType):
-        return False
-    return int(quantifier.lo) == 1 and int(hi) == 1
-
-
 def _single_literal(rule: IrRule) -> str | None:
     """The rule's whole language when it is one plain literal, else ``None``."""
     arms = [tuple(arm) for arm in rule.body]
     if len(arms) != 1 or len(arms[0]) != 1:
         return None
     item = arms[0][0]
-    if not isinstance(item.atom, IrLiteral) or not _exactly_once(item.quantifier):
+    if not isinstance(item.atom, IrLiteral) or not item.quantifier.once():
         return None
     return str(item.atom)
 
@@ -260,7 +247,7 @@ def _arm_ref(arm: IrSequence) -> str | None:
     items = tuple(arm)
     if len(items) != 1 or not isinstance(items[0].atom, IrRuleRef):
         return None
-    if not _exactly_once(items[0].quantifier):
+    if not items[0].quantifier.once():
         return None
     return str(items[0].atom)
 
@@ -328,7 +315,7 @@ def _run_replacement(
     allowed: frozenset[str] | None,
 ) -> IrItem | None:
     """A run item's replacement ref (registering its :class:`RunSpec`), or ``None``."""
-    if not isinstance(item.atom, IrRuleRef) or not _unbounded(item.quantifier):
+    if not isinstance(item.atom, IrRuleRef) or not item.quantifier.unbounded():
         return None
     element = str(item.atom)
     if int(item.quantifier.lo) != 0 or _dropped(reducer, element):
@@ -651,6 +638,5 @@ def _fold_tables(
 
 absent = _absent
 as_node = _as_node
-exactly_once = _exactly_once
 fold_tables = _fold_tables
 YieldNode = _YieldNode

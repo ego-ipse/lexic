@@ -40,7 +40,6 @@ from lexic.ir import (
     IrLambda,
     IrLiteral,
     IrNamedTuple,
-    IrNoneType,
     IrQuantifier,
     IrRaise,
     IrRule,
@@ -53,7 +52,6 @@ from lexic.ir import (
 
 Rules = dict[str, IrRule]
 _INF = float("inf")
-_UNIT = IrQuantifier(1, 1)
 
 
 class Walk(Protocol):
@@ -114,7 +112,8 @@ expansion can yield within its depth."""
 
 def _most(q: IrQuantifier) -> float:
     """The most repetitions an item allows; unbounded is infinite."""
-    return _INF if isinstance(q.hi, IrNoneType) else float(q.hi)
+    hi = q.upper()
+    return _INF if hi is None else float(hi)
 
 
 def _scaled(d: _Shape, q: IrQuantifier, depth: int, size: Size) -> Size:
@@ -246,7 +245,7 @@ class _Shape(
     def unit_mean(self, item: IrItem) -> float:
         """One repetition of the atom, spent freely: a reference's target walked
         at the natural depth, as :meth:`_Filler.rule` walks it. At least 1."""
-        unit = IrItem(item.atom, _UNIT)
+        unit = IrItem(item.atom)
         return max(1.0, self.item_size(unit, _NATURAL_DEPTH + 1)[0])
 
 
@@ -344,7 +343,7 @@ class _Filler(IrNamedTuple[_random.Random, _Shape, Walker, int, float]):
 
     def item(self, item: IrItem) -> str:
         """Spend the budget on one item's repetitions, measuring as it goes."""
-        unit = IrItem(item.atom, _UNIT)
+        unit = IrItem(item.atom)
         each = self.shape.item_size(unit, self.max_depth)[1]
         natural = self.shape.unit_mean(item)
         q, most = item.quantifier, _most(item.quantifier)
@@ -369,7 +368,7 @@ class _Filler(IrNamedTuple[_random.Random, _Shape, Walker, int, float]):
         for a recursive atom, so it nests; exactly natural for any other, which
         the free walk varies. A bounded count spreads what is left over its slots.
         """
-        if item.quantifier.hi == item.quantifier.lo:
+        if item.quantifier.fixed():
             return left / slots
         piece = unit
         if self.shape.atom_recursive(item):

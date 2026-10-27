@@ -85,12 +85,7 @@ def _leads_with(items: list[IrItem], name: str) -> bool:
     if not items or not isinstance(items[0].atom, IrRuleRef):
         return False
     quantifier = items[0].quantifier
-    return (
-        str(items[0].atom) == name
-        and int(quantifier.lo) == 1
-        and isinstance(quantifier.hi, int)
-        and int(quantifier.hi) == 1
-    )
+    return str(items[0].atom) == name and quantifier.once()
 
 
 def any_candidate(rules: dict[str, IrRule]) -> bool:

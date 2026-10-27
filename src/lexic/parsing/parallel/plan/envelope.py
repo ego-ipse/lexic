@@ -34,7 +34,6 @@ from lexic.parsing.parallel.discovery.interiors import Skip, as_skip, skip_delim
 from lexic.parsing.parallel.discovery.shapes import (
     derives_empty,
     emit_charset,
-    unbounded,
 )
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
@@ -109,7 +108,7 @@ def _core_at(items: tuple[IrItem, ...], item: str) -> int | None:
         if (
             not isinstance(items[at].unit_ref(), IrNoneType)
             and names
-            and unbounded(items[at + 1])
+            and items[at + 1].quantifier.unbounded()
         ):
             return at
     return None
@@ -263,7 +262,9 @@ def repetition_of(rules: dict[str, IrRule], container: str) -> Envelope | None:
     items = tuple(arms[0]) if len(arms) == 1 else ()
     for at in range(len(items) - 1):
         repeated = items[at + 1].atom
-        if not unbounded(items[at + 1]) or not isinstance(repeated, IrRuleRef):
+        if not items[at + 1].quantifier.unbounded() or not isinstance(
+            repeated, IrRuleRef
+        ):
             continue
         unit = items[at].unit_ref()
         lead = _lead_items(rules, str(repeated))

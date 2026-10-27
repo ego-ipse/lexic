@@ -19,7 +19,6 @@ from lexic.ir import (
     IrAtom,
     IrItem,
     IrLeaf,
-    IrNoneType,
     IrRule,
     IrSelf,
 )
@@ -77,19 +76,6 @@ sentinel in a positive :class:`CharSet`."""
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-# ── the analysis ──────────────────────────────────────────────────────────
-
-
-# Taxonomy (and its _GateStore) moved to lexic.parsing.pda.analysis.taxonomy by pure
-# motion (C0302 headroom, Task 6.6); re-exported above for the public surface.
 
 
 class Follows(NamedTuple):
@@ -309,7 +295,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             first = self.atom_first(item.atom)
             if not self.item_nullable(item):
                 return cont.union(first)
-            hi = _hi(item)
+            hi = item.quantifier.upper()
             if hi is not None and hi <= 1:
                 cont = cont.union(first)
             else:
@@ -344,7 +330,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         :returns: ``"stopset"`` for a non-greedy single-char loop, else
             ``"island"``.
         """
-        if _hi(item) is None and self._stopset_eligible(item.atom):
+        if item.quantifier.upper() is None and self._stopset_eligible(item.atom):
             return "stopset"
         return "island"
 
@@ -404,7 +390,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         cont = tail
         for item in reversed(items):
             atom = item.atom
-            hi = _hi(item)
+            hi = item.quantifier.upper()
             eff = cont
             if (hi is None or hi > 1) and pass_.loopback:
                 # Loopback is a MAY-follow. Treating it as hard makes a repeated
@@ -602,7 +588,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         item = items[k]
         atom = item.atom
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = item.quantifier.upper()
         if hi is not None and hi <= lo:
             return
         if self.atom_nullable(atom) and (hi is None or hi - lo > 1):

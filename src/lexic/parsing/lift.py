@@ -20,8 +20,6 @@ from lexic.ir import (
     IrAlternation,
     IrAst,
     IrItem,
-    IrNoneType,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSeq,
@@ -53,11 +51,9 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
         if (
             isinstance(atom, IrRuleRef)
             and str(atom) in nullable
-            and int(quantifier.lo) == 0
-            and not isinstance(quantifier.hi, IrNoneType)
-            and int(quantifier.hi) == 1
+            and quantifier.optional()
         ):
-            return IrItem(atom, IrQuantifier(1, 1))
+            return IrItem(atom)
         return item
 
     lifted = tuple(

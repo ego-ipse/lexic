@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from lexic.ir import IrAlternation, IrItem, IrLiteral, IrNoneType, IrRuleRef, IrSelf
+from lexic.ir import IrAlternation, IrItem, IrLiteral, IrRuleRef, IrSelf
 from lexic.parsing.pda.analysis.gates.noise import sem_follow_table
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import (
@@ -255,8 +255,7 @@ def _grow_post_noise(
                 if skip is not None and id(item) == skip:
                     continue
                 cont = _follow_content(analysis, roots, its[i + 1 :], follow[name])
-                hi = item.quantifier.hi
-                if isinstance(hi, IrNoneType) or int(hi) > 1:
+                if item.quantifier.repeats():
                     cont = cont.union(
                         _content_first(analysis, roots, atom, frozenset())
                     )
@@ -578,13 +577,10 @@ def _header_shape(
     if not arm_items:
         return None
     head = arm_items[0]
-    hi = head.quantifier.hi
     if (
         not isinstance(head.atom, IrRuleRef)
         or str(head.atom) not in analysis.rules
-        or int(head.quantifier.lo) != 1
-        or isinstance(hi, IrNoneType)
-        or int(hi) != 1
+        or not head.quantifier.once()
     ):
         return None
     mid: str | None = None

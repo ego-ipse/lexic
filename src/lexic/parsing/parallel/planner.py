@@ -19,7 +19,6 @@ from lexic.ir import (
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.scan import Scanner
-from lexic.parsing.parallel.discovery.shapes import unbounded
 from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
@@ -61,7 +60,8 @@ def _wrapper_chain(
             return None
         child = items[0].unit_ref()
         empty_tails = all(
-            unbounded(item) and item.quantifier.lo == 0 for item in items[1:]
+            item.quantifier.unbounded() and item.quantifier.lo == 0
+            for item in items[1:]
         )
         if isinstance(child, IrNoneType) or not empty_tails or current in seen:
             return None
@@ -134,7 +134,11 @@ def _terminated_plans(
     if start is None:
         return ()
     items = start.sole_arm()
-    if isinstance(items, IrNoneType) or len(items) != 1 or not unbounded(items[0]):
+    if (
+        isinstance(items, IrNoneType)
+        or len(items) != 1
+        or not items[0].quantifier.unbounded()
+    ):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):
@@ -175,7 +179,11 @@ def _speculative_plans(
     """
     start = rule_map.get(str(grammar.start))
     items = start.sole_arm() if start is not None else IrNone
-    if isinstance(items, IrNoneType) or len(items) != 1 or not unbounded(items[0]):
+    if (
+        isinstance(items, IrNoneType)
+        or len(items) != 1
+        or not items[0].quantifier.unbounded()
+    ):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):

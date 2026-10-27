@@ -26,28 +26,12 @@ from lexic.ir import (
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNoneType,
     IrNot,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-
-UNIT = IrQuantifier()
-"""The unit quantifier — exactly one occurrence."""
-
-
-def unbounded(item: IrItem) -> bool:
-    """Whether the item repeats without an upper bound."""
-    return isinstance(item.quantifier.hi, IrNoneType)
-
-
-def repeats(item: IrItem) -> bool:
-    """Whether the item may occur more than once, so it stands beside itself."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
 
 
 def _one_char(text: str) -> bool:
@@ -69,7 +53,7 @@ def _spelling(
     the punctuation may sit among noise, so a rule spells one literal when
     exactly one of its items does.
     """
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return None
     atom = item.atom
     if isinstance(atom, IrLiteral):
@@ -342,7 +326,7 @@ def _item_interior(
     interior one; a reference is followed; a literal contributes all but its
     last character; a single-character atom contributes nothing.
     """
-    if repeats(item):
+    if item.quantifier.repeats():
         return emit_charset(item, rule_map, frozenset())
     atom = item.atom
     if isinstance(atom, IrRuleRef):
@@ -527,7 +511,7 @@ def exact_text(item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]) 
     item spells among noise. A caller reaching leftward for the character
     BEFORE a spelling needs the item's whole text, not its punctuation.
     """
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return ""
     atom = item.atom
     if isinstance(atom, IrLiteral):
@@ -639,7 +623,7 @@ def item_spells(
         return emits(item, mark, rule_map, hidden, path)
     if len(mark) > MARK_ARITY:
         return True
-    if repeats(item) and _self_joins(item, mark, rule_map, path):
+    if item.quantifier.repeats() and _self_joins(item, mark, rule_map, path):
         return True
     return _atom_spells(item.atom, mark, rule_map, hidden, path)
 

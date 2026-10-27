@@ -43,10 +43,8 @@ from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.anchors import anchor_site_counts, anchors
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
-    UNIT,
     exact_text,
     last_charset,
-    unbounded,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -132,7 +130,7 @@ def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
 def _anchor_chars(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     """All finite anchor alternatives one unit-quantified item can emit."""
     atom = item.atom
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return frozenset()
     if isinstance(atom, IrLiteral):
         text = str(atom)
@@ -158,7 +156,7 @@ def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     if found:
         return found
     atom = item.atom
-    if item.quantifier != UNIT or not isinstance(atom, IrLiteral):
+    if not item.quantifier.once() or not isinstance(atom, IrLiteral):
         return frozenset()
     text = str(atom)
     wide = len(text) > 1 and set(text) <= anchor_set
@@ -217,7 +215,7 @@ def _lead_info(
     atom = item.atom
     resolvable = (
         isinstance(atom, IrRuleRef)
-        and item.quantifier == UNIT
+        and item.quantifier.once()
         and str(atom) in by_name
         and str(atom) not in seen
     )
@@ -377,7 +375,7 @@ def _terminators(
         for arm in rule.body:
             for item in arm:
                 target = item.atom
-                if not unbounded(item) or not isinstance(target, IrRuleRef):
+                if not item.quantifier.unbounded() or not isinstance(target, IrRuleRef):
                     continue
                 unit = str(target)
                 if unit not in by_name:
@@ -457,7 +455,7 @@ def _item_edge(
     if char is not None:
         return char
     atom = item.atom
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return None
     if isinstance(atom, IrLiteral):
         text = str(atom)
@@ -501,7 +499,7 @@ def _repeated_separators(
     records: list[Separator],
 ) -> None:
     """Collect the separator records an unbounded item contributes."""
-    if not unbounded(item):
+    if not item.quantifier.unbounded():
         return
     atom = item.atom
     if isinstance(atom, IrRuleRef) and str(atom) in by_name:
@@ -576,7 +574,7 @@ def _open_tail(
     atom = last.atom
     name = str(atom) if isinstance(atom, IrRuleRef) else ""
     target = rule_map.get(name) if name and name not in path else None
-    if target is not None and last.quantifier == UNIT:
+    if target is not None and last.quantifier.once():
         found = agreed_tail(target.body, want, rule_map, path | {name})
         if found:
             return found

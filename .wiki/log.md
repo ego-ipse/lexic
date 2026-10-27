@@ -1,5 +1,10 @@
 # Log
 
+## A quantifier answers its own shape (2026-10-27)
+
+`ir-shapes.md` records `IrQuantifier.once/optional/unbounded/repeats/fixed/upper`,
+which replace ten unit-quantifier constants and their spelled-out twins.
+
 ## The rule-reference graph is asked in one place (2026-10-27)
 
 `decisions.md`: `lexic.ir.grammar.graph` — references, reach, reachable,

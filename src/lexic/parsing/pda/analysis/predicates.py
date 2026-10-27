@@ -27,7 +27,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrRule,
     IrRuleRef,
@@ -49,12 +48,6 @@ if TYPE_CHECKING:  # `analysis` imports this module, so the reference is mutual
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
 
 
 class _Nullability(IrLeaf[IrSelf, IrSelf]):
@@ -311,7 +304,7 @@ def item_extension(d: GrammarAnalysis, item: IrItem, maps: Extensions) -> CharSe
     """
     atom = item.atom
     ext = cast(CharSet, EXTEND.resolve(atom).eval(d, atom, maps))
-    lo, hi = int(item.quantifier.lo), _hi(item)
+    lo, hi = int(item.quantifier.lo), item.quantifier.upper()
     first = d.atom_first(atom)
     if hi == 0:
         return CharSet.EMPTY
@@ -443,7 +436,7 @@ def seq_span(items: Sequence[IrItem], spans: dict[str, Span]) -> Span:
     lo_sum, hi_sum = 0.0, 0.0
     for item in items:
         lo, hi = cast(Span, SPAN.resolve(item.atom).eval(None, item.atom, (spans,)))
-        least, most = int(item.quantifier.lo), _hi(item)
+        least, most = int(item.quantifier.lo), item.quantifier.upper()
         if least:
             lo_sum += lo * least
         if most is None:

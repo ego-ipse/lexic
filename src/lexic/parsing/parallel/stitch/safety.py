@@ -33,7 +33,6 @@ from lexic.parsing.parallel.discovery.scan import (
 )
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
-    UNIT,
     arm_empty,
     arm_spells,
     derives_empty,
@@ -208,7 +207,7 @@ def _ends_once(rule: IrRule, mark: str, scope: Scope, path: frozenset[str]) -> b
     """Whether every arm spells ``mark`` once, as its final visible edge."""
     for at, arm in enumerate(rule.body):
         items = _visible(rule, at, tuple(arm), scope)
-        if not items or items[-1].quantifier != UNIT:
+        if not items or not items[-1].quantifier.once():
             return False
         if arm_spells(items[:-1], mark, scope.rules, scope.protected, path):
             return False
