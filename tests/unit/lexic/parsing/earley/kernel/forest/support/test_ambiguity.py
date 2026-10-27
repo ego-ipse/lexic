@@ -29,6 +29,8 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     ambiguity_points,
     chosen_meaning,
     different_meaning,
+    dirty_cone,
+    parent_edges,
     remembered,
     same_value,
 )
@@ -147,9 +149,9 @@ def test_every_other_arm_is_asked_not_only_the_first(monkeypatch):
     real = ambiguity.replayed
     calls: list[int] = []
 
-    def first_fails(run, point, family, memo):
+    def first_fails(run, point, family, memo, parents):
         calls.append(family)
-        return None if len(calls) == 1 else real(run, point, family, memo)
+        return None if len(calls) == 1 else real(run, point, family, memo, parents)
 
     monkeypatch.setattr(ambiguity, "replayed", first_fails)
     pair = _settled("n", repr, "meaning-three-arms", THREE_ARMS)
@@ -227,3 +229,52 @@ def test_remembered_folds_a_streamed_tree_fresh_with_an_empty_memo(monkeypatch):
     base, memo = remembered(run, streamed)
     assert (base.tree, base.value) == (built.tree, repr(built.tree))
     assert (memo.nodes, memo.values) == ({}, {})
+
+
+def test_dirty_cone_is_the_flipped_point_and_every_handle_above_it():
+    """Read backwards over the parent index: the point, its parents, theirs."""
+    parents = {3: [2], 2: [1], 4: [1]}
+    assert dirty_cone(parents, 1, 3) == frozenset({3, 2, 1})
+    assert dirty_cone(parents, 1, 4) == frozenset({4, 1})
+
+
+def test_dirty_cone_is_empty_for_a_point_outside_the_root():
+    """Nothing about this root changes when a point it never reaches flips."""
+    assert dirty_cone({3: [2]}, 1, 9) == frozenset()
+
+
+def test_parent_edges_put_every_ambiguity_point_under_the_root():
+    """Each point of an ambiguous span is reached from its root, so its cone
+    climbs back to it."""
+    kernel, handle = kernel_and_handle("n+n+n", AMBIGUOUS_EXPR, "parents-expr")
+    parents = parent_edges(kernel, handle)
+    points = ambiguity_points(kernel, handle)
+    assert points
+    for point in points:
+        assert handle in dirty_cone(parents, handle, point)
+
+
+def test_a_span_walks_its_parent_index_once_however_many_points_it_flips(
+    monkeypatch,
+):
+    """Every flip of one span reads its cone off one walk of the link table —
+    a walk per flip was the cost the shared index removes."""
+    walks: list[int] = []
+    real = ambiguity.parent_edges
+
+    def counted(kernel, root):
+        walks.append(root)
+        return real(kernel, root)
+
+    flips: list[int] = []
+    replay = ambiguity.replayed
+
+    def counted_replay(run, point, family, memo, parents):
+        flips.append(point)
+        return replay(run, point, family, memo, parents)
+
+    monkeypatch.setattr(ambiguity, "parent_edges", counted)
+    monkeypatch.setattr(ambiguity, "replayed", counted_replay)
+    _settled("n", lambda tree: "same", "parents-once", THREE_ARMS)
+    assert len(flips) == 2
+    assert len(walks) == 1

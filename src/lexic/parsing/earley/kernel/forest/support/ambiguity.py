@@ -142,7 +142,9 @@ def _reachable(bucket: list, bits: int, mask: int) -> list[int]:
     return out
 
 
-def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
+def dirty_cone(
+    parents: dict[int, list[int]], root: int, flipped: int
+) -> frozenset[int]:
     """Every handle whose meaning can change when ``flipped`` chooses again.
 
     Flipping one ambiguity point cannot change a value that does not contain
@@ -151,12 +153,10 @@ def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
     meaning is exactly what it already was, which is what makes an alternate
     derivation reusable rather than a second whole-document fold.
 
-    Computed by walking the link table forward once to learn who reaches whom,
-    then reading that relation backwards from ``flipped``. The forward walk is
-    the same reachability :func:`ambiguity_points` uses, so the two agree on
-    what "inside" means.
+    Read backwards from ``flipped`` over ``root``'s :func:`parent_edges`,
+    which a span walks once however many points it flips.
 
-    :param kernel: The finished kernel whose links to walk.
+    :param parents: ``root``'s parent index, from :func:`parent_edges`.
     :param root: The packed accepting handle the meaning is wanted for.
     :param flipped: The ambiguity point choosing a different family.
     :returns: The handles to recompute — always containing ``flipped``, and
@@ -164,7 +164,6 @@ def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
         ``flipped`` is not under ``root`` at all, which is the honest answer
         that nothing about this root changes.
     """
-    parents = _parent_edges(kernel, root)
     if flipped not in parents and flipped != root:
         return frozenset()
     cone = {flipped}
@@ -263,6 +262,7 @@ def replayed[Value, NodeValue](
     point: int,
     family: int,
     memo: MeaningMemo[NodeValue],
+    parents: dict[int, list[int]],
 ) -> BuiltMeaning[Value] | None:
     """One alternate derivation's value, recomputing only the dirty cone.
 
@@ -278,9 +278,10 @@ def replayed[Value, NodeValue](
     :param point: The ambiguity point taking a different family.
     :param family: The packed-family index selected at ``point``.
     :param memo: What the default derivation meant.
+    :param parents: ``run.root``'s parent index, shared by every flip of the span.
     :returns: The alternate's value, or ``None`` when it does not build.
     """
-    cone = dirty_cone(run.kernel, run.root, point)
+    cone = dirty_cone(parents, run.root, point)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
     tree = FastTree(run.kernel, {point: family}, run.decide)
     tree.memo.update(keep)
@@ -295,8 +296,13 @@ def replayed[Value, NodeValue](
     return BuiltMeaning(built, run.builder.replay(built, seeded))
 
 
-def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
-    """Reverse reachability under ``root`` — handle → the handles containing it."""
+def parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
+    """Reverse reachability under ``root`` — handle → the handles containing it.
+
+    The link table walked forward once from ``root``, by the reachability
+    :func:`ambiguity_points` uses, so a cone and an ambiguity point agree on
+    what "inside" means.
+    """
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
     codes, links = kernel.tables.codes, kernel.family_reader()
     parents: dict[int, list[int]] = {}
@@ -418,10 +424,14 @@ def _flipped_witness[Value, NodeValue](
     stops at the first difference, so a span whose first alternate settles the
     question never enumerates the rest.
 
+    The root's parent index is walked once, before the first replay, and
+    every flip reads its cone off it.
+
     :param flips: ``(point, family)`` pairs, each one alternative to try.
     """
+    parents = parent_edges(run.kernel, run.root) if flips else {}
     for point, family in flips:
-        built = replayed(run, point, family, memo)
+        built = replayed(run, point, family, memo, parents)
         if built is not None and not same_value(base.value, built.value):
             return built
     return None

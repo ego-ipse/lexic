@@ -1,5 +1,10 @@
 # Log
 
+## A span's flips share one parent index (2026-10-27)
+
+`decisions.md` records `parent_edges` walked once per span, with `dirty_cone`
+reading each flip's cone off it.
+
 ## A span's first derivation is read in one place (2026-10-27)
 
 `decisions.md` records `fasttree.first_tree` / `streamed_first` / `FirstTree`

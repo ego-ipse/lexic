@@ -1882,3 +1882,14 @@ terminals shape the chart, a fact about the tables. The island's bail-mode
 build is handed on with its memo. It reaches `remembered` only through an arm
 choice, and a bail build declines on every key that packs two families, so
 that memo is never replayed.
+
+## A span's flips share one parent index
+
+**Decision:** `ambiguity.parent_edges(kernel, root)` walks a span's link table
+forward once, and `dirty_cone(parents, root, flipped)` reads each flip's cone
+backwards off that index.
+
+**Why:** the cone used to be recomputed by a whole forward walk on every flip.
+That is linear in the span's link table each time, so a span that flips many
+points without its value changing paid the walk once per point. The index
+depends only on the root, so one walk serves every flip.
