@@ -236,3 +236,15 @@ def test_an_unmeasured_rule_under_a_zero_count_does_not_poison_the_low_end() -> 
         low, high = span_of(source, rule)
         assert not (math.isnan(low) or math.isnan(high)), rule
         assert (low, high) == (1.0, math.inf), rule
+
+
+def test_extend_is_built_once_per_analysis_and_shared() -> None:
+    """Every reader of one analysis gets the SAME EXTEND: the second ask returns
+    the first's maps, and they hold the fixpoint, not an empty start."""
+    grammar = compile_text(
+        'root ::= unit+\nunit ::= [a-z]+ "!"\n', cache_key="pred-extend-once"
+    ).codegen_grammar
+    analysis = GrammarAnalysis(lift_optional_nullables(grammar))
+    first = rule_extensions(analysis)
+    assert rule_extensions(analysis) is first
+    assert first.found["root"].has("a")

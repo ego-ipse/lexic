@@ -1680,3 +1680,26 @@ rule, the plan found two arms of references and declined, so a bracket that
 shares its rule never split while the same bracket in a rule of its own did.
 The opening character picks the arm, so two bracket arms in one rule each
 divide under their own plan.
+
+## The speculation licence reads the PDA's EXTEND, built once per analysis
+
+**Decision:** the exclusive-opening clause of `parallel/plan/speculation`
+reads `analysis/predicates.rule_extensions` over the one `GrammarAnalysis` the
+determinism clause builds, and runs last, after determinism, vanishing and
+visibility, so only a unit every other clause passes asks for it.
+`rule_extensions` builds EXTEND once per analysis, on the first ask, and keeps
+it in `Follows.extended` beside the FOLLOW windows; the stop-set settle, the
+island steal, the left-recursion fold and the licence all read that one copy.
+The walk the clause read before (`continues`) is deleted.
+
+**Why:** `continues` was not a sound EXTEND. It misses an extension that
+re-reads the prefix: `r3 ::= [ab]* "ab"` lengthens `ab` to `abab`, and the
+walk answered nothing, and on chess.gbnf it licensed `move` although `Nd2` and
+`Nd2f3` are both complete moves. `rule_extensions` is the least fixpoint, sound
+by induction, but coarser: on a repetition whose iteration's EXTEND meets its
+own FIRST it falls back to the rule's ALPHABET. Over every bench compile and
+the ground-truth corpus, the 24 units a planner asks are licensed identically
+(one licence, `#` on announced's `section`); 8 unplanned units (chess
+`pawn`/`nonpawn`, json `member`/`object-item2` in three flavours) lose a
+licence to that fallback; a more precise EXTEND is TODO 16′. Chess `move` is
+the licence the swap revokes, and its pin parses both moves.

@@ -94,10 +94,11 @@ def _hi(item: IrItem) -> int | None:
 
 class Follows(NamedTuple):
     """An analysis' FOLLOW views: the soft, hard and structural CharSet
-    fixpoints, and the FOLLOW\\ :sub:`k` window sets built on demand.
+    fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
 
     :ivar deep: The window sets built so far, by width — filled by
         :meth:`windows`, never by a caller.
+    :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
     """
 
     soft: dict[str, CharSet]
@@ -106,6 +107,7 @@ class Follows(NamedTuple):
     rules: dict[str, IrRule]
     start: str
     deep: dict[int, FollowWindows]
+    extended: list[Extensions]
 
     def windows(self, k: int) -> FollowWindows:
         """FOLLOW\\ :sub:`k` as window sets, built once per width.
@@ -174,6 +176,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self.rules,
             self.start,
             {},
+            [],
         )
         self.taxonomy = Taxonomy(delegated)
         self._classify(grants)
@@ -434,7 +437,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         position), so its decision points are never analysed for gates.
         """
         left = left_recursive_names(self)
-        extents: list[Extensions] = []  # built once, and only if a stop-set asks
         for name, rule in self.rules.items():
             if name in left:
                 self.taxonomy.conflicts[name] = [
@@ -456,7 +458,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
-            self._settle(name, notes, extents)
+            self._settle(name, notes)
             fail = notes.f1 and self.rules[name].semantic
             if notes.hard:
                 self.taxonomy.conflicts[name] = notes.hard
@@ -469,7 +471,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if notes.policy:
                 self.taxonomy.policy_ends.add(name)
 
-    def _settle(self, name: str, notes: Notes, extents: list[Extensions]) -> None:
+    def _settle(self, name: str, notes: Notes) -> None:
         """Grant each stop-set :meth:`_stop_set` deferred only where its first
         exit is invisible; file the rest hard, so the rule islands.
 
@@ -482,9 +484,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         if not notes.stop_sets:
             return
-        if not extents:
-            extents.append(rule_extensions(self))
-        extends = extents[0].found[name]
+        extends = rule_extensions(self).found[name]
         invisible = text_only(self.rules[name]) and not extends.overlaps(
             self.follow[name]
         )

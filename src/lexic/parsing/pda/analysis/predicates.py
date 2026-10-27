@@ -372,8 +372,13 @@ def rule_extensions(d: GrammarAnalysis) -> Extensions:
 
     Every rule above is monotone and stays within ALPHABET, so the iteration
     terminates, and the least fixpoint is sound by induction on derivation
-    height. Built on demand: its one consumer is the left-recursion fold.
+    height. Built once per analysis, on the first ask, and kept beside the
+    FOLLOW windows (``d.follows.extended``): the stop-set settle, the island
+    steal, the left-recursion fold and the speculation licence all read it.
     """
+    held = d.follows.extended
+    if held:
+        return held[0]
     maps = Extensions(
         {name: CharSet.EMPTY for name in d.rules}, rule_alphabets(d.rules)
     )
@@ -385,6 +390,7 @@ def rule_extensions(d: GrammarAnalysis) -> Extensions:
             if got != maps.found[name]:
                 maps.found[name] = got
                 changed = True
+    held.append(maps)
     return maps
 
 

@@ -1,5 +1,10 @@
 # Log
 
+## The speculation licence reads the PDA's EXTEND (2026-10-27)
+
+`decisions.md` records why the exclusive-opening clause reads `rule_extensions`,
+built once per analysis for all four readers, and what that costs and fixes.
+
 ## An arm of one unit reference, read off the node (2026-10-27)
 
 `ir-shapes.md` adds `IrSequence.sole_ref()` and records that a repeated
