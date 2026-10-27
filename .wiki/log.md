@@ -1,5 +1,10 @@
 # Log
 
+## A pair stands only where every site of its characters delimits (2026-10-27)
+
+`decisions.md` records why `roles` drops a bracket pair whose opener or closer is
+also spelled at a site that delimits nothing, and what the census found.
+
 ## A one-root noise skip is its run pattern (2026-10-12)
 
 `decisions.md` records why `scan_gate_take` reads a one-root gate's noise with

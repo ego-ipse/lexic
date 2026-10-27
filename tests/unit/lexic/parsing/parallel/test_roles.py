@@ -225,3 +225,58 @@ def test_a_multi_character_separator_derives_as_one_mark():
     source = 'root ::= block (sep block)*\nsep ::= "\\n\\n"\nblock ::= [a-z]+\n'
     got = roles(compile_text(source).codegen_grammar)
     assert [record.mark for record in got.records] == ["\n\n"]
+
+
+def _arrows(operator: str) -> str:
+    """A bracket around a separated list of ``key <operator> value`` entries."""
+    return (
+        'root ::= "<" list ">"\n'
+        'list ::= entry ("," entry)*\n'
+        f'entry ::= key "{operator}" value\n'
+        "key ::= [a-z]+\n"
+        "value ::= [0-9]+\n"
+    )
+
+
+def test_a_closer_also_spelled_outside_a_pair_arm_derives_no_pair():
+    """Depth is counted one character at a time over the WHOLE text, so a pair
+    is only sound when every site spelling its characters delimits a pair
+    arm. ``>`` is also the tail of ``"=>"``, which brackets nothing."""
+    assert roles(parse_grammar(_arrows("=>"), GBNF_FLAVOUR)).pairs == ()
+
+
+def test_a_pair_whose_every_site_delimits_still_derives():
+    """The same bracket with ``:`` between key and value: ``<`` and ``>`` are
+    spelled only by the bracketing arm, so the pair stands."""
+    assert roles(parse_grammar(_arrows(":"), GBNF_FLAVOUR)).pairs == (("<", ">"),)
+
+
+def test_an_opener_spelled_inside_another_construct_derives_no_pair():
+    """The opener's stray site counts the same as the closer's: ``[`` is also
+    the second character of ``"<["``."""
+    grammar = (
+        "root ::= item+\n"
+        "item ::= cls | tok\n"
+        'cls ::= "[" word "]"\n'
+        'tok ::= "<[" word ">"\n'
+        "word ::= [a-z]+\n"
+    )
+    assert ("[", "]") not in roles(parse_grammar(grammar, GBNF_FLAVOUR)).pairs
+
+
+def test_a_fallen_pairs_delimiters_stop_vouching_for_another_pair():
+    """``range`` closes ``(`` with ``]``, and ``call``'s ``(`` is stray, so that
+    pair falls; its ``]`` is then a stray site of root's ``[``/``]`` too. The
+    scan counts every opener and closer on one counter: on ``[(1,2],a,b]`` the
+    range's ``]`` would close root's bracket and read ``,a`` at depth 0."""
+    grammar = (
+        'root ::= "[" items "]"\n'
+        'items ::= item ("," item)*\n'
+        "item ::= range | word\n"
+        'range ::= "(" num "," num "]"\n'
+        "word ::= [a-z]+ | call\n"
+        'call ::= name "(" word ")"\n'
+        "num ::= [0-9]+\n"
+        "name ::= [a-z]+\n"
+    )
+    assert roles(parse_grammar(grammar, GBNF_FLAVOUR)).pairs == ()

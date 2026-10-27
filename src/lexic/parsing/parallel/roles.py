@@ -8,7 +8,9 @@ shapes are derived from the grammar, never hardcoded per formulation:
   LAST anchor literal closes over a reference or group interior:
   ``"{" ws members "}" ws`` derives the pair ``{`` → ``}`` (trailing noise
   after the closer is fine; a closer is the last structural mark, not the
-  last item).
+  last item). Depth is counted over the WHOLE text, so the pair stands only
+  when every site spelling either character is a delimiter of such an arm: a
+  ``>`` that is also the tail of ``"=>"`` would close every bracket early.
 - **Separator** — the anchor literal every arm of a repeated body leads
   with: a rule referenced with an unbounded quantifier (the hoisted
   ``(sep unit)*`` shape) or an inline unbounded group. The lead resolves
@@ -36,7 +38,7 @@ from lexic.ir import (
     IrRuleRef,
 )
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.anchors import anchors
+from lexic.parsing.parallel.discovery.anchors import anchor_site_counts, anchors
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
     UNIT,
@@ -276,19 +278,16 @@ def roles(grammar: IrAst) -> Roles:
 
 
 def _derive_roles(grammar: IrAst) -> Roles:
-    """Walk every arm of every rule and classify its anchors, once."""
+    """Classify every arm's anchors: separators and terminators in one walk,
+    pairs in :func:`_pairs`'s own."""
     anchor_set = anchors(grammar)
     by_name: dict[str, IrRule] = {str(rule.name): rule for rule in grammar.rules}
-    pairs: list[tuple[str, str]] = []
     records: list[Separator] = []
     for rule in grammar.rules:
         for arm in rule.body:
-            items = tuple(arm)
-            pair = _arm_pair(items, anchor_set)
-            if pair is not None and pair not in pairs:
-                pairs.append(pair)
-            for item in items:
+            for item in arm:
                 _repeated_separators(str(rule.name), item, by_name, anchor_set, records)
+    pairs = _pairs(grammar, anchor_set)
     paired = {char for pair in pairs for char in pair}
     kept = tuple(record for record in records if not set(record.mark) & paired)
     ended = tuple(
@@ -296,7 +295,39 @@ def _derive_roles(grammar: IrAst) -> Roles:
         for record in _terminators(grammar, by_name, anchor_set)
         if (narrowed := _unpaired(record, paired)) is not None
     )
-    return Roles(tuple(pairs), kept, ended)
+    return Roles(pairs, kept, ended)
+
+
+def _pairs(grammar: IrAst, anchor_set: frozenset[str]) -> tuple[tuple[str, str], ...]:
+    """Every bracketing arm's pair whose characters no other site spells.
+
+    Each such arm contributes one opener and one closer site; a pair stands when
+    the arms of STANDING pairs account for every site of both characters
+    (:func:`~lexic.parsing.parallel.discovery.anchors.anchor_site_counts`). A
+    fallen pair's delimiters are stray sites like any other — the scan counts
+    every opener and closer on one counter — so the check repeats until no pair
+    falls.
+    """
+    arms = [
+        pair
+        for rule in grammar.rules
+        for arm in rule.body
+        if (pair := _arm_pair(tuple(arm), anchor_set)) is not None
+    ]
+    sites = anchor_site_counts(grammar)
+    standing = list(dict.fromkeys(arms))
+    while True:
+        delimiting: dict[str, int] = {}
+        for char in (char for pair in arms if pair in standing for char in pair):
+            delimiting[char] = delimiting.get(char, 0) + 1
+        kept = [
+            pair
+            for pair in standing
+            if all(delimiting[char] == sites.get(char, 0) for char in pair)
+        ]
+        if kept == standing:
+            return tuple(kept)
+        standing = kept
 
 
 def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:

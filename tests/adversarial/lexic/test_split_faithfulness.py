@@ -22,7 +22,7 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.plan.cuts import Level, cut_offsets
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from tests.split_helpers import engages
+from tests.split_helpers import assert_parallel_matches_sequential, engages
 
 _CORES = (2, 3, 8)
 """Worker counts every faithfulness case is driven at — two is the smallest
@@ -577,3 +577,39 @@ def test_the_reviews_document_never_engages_at_any_worker_count() -> None:
     for cores in (2, 3, 8):
         assert not engages(compiled, _REVIEW_DOC, cores)
         assert compiled.parse(_REVIEW_DOC, cores=cores) == sequential
+
+
+# ── a pair delimiter also spelled at a site that brackets nothing ─────────
+
+_STRAY_CLOSER = (
+    'root ::= item ("," item)*\n'
+    "item ::= group | cmp | word\n"
+    'group ::= "<" elems ">"\n'
+    'elems ::= elem ("," elem)*\n'
+    "elem ::= name\n"
+    "name ::= [a-z]+\n"
+    'cmp ::= word ">" word\n'
+    "word ::= [a-z]+\n"
+)
+"""A bracket pair whose closer is also a comparison operator: one ``a>b``
+before a long group leaves a depth count over ``>`` one short for the rest of
+the document."""
+
+
+def _stray_closer_doc() -> str:
+    """``a>b,<...>,...``: one stray closer, a long group, a long top level."""
+
+    def body(n: int) -> str:
+        return ",".join(chr(97 + i % 8) * (1 + i % 3) for i in range(n))
+
+    return "a>b,<" + body(6000) + ">," + body(3000)
+
+
+@pytest.mark.parametrize("cores", _CORES)
+def test_a_stray_closer_before_a_group_keeps_the_sequential_model(
+    cores: int,
+) -> None:
+    """The MODEL, not only the bytes: the split may engage or decline, and the
+    model must hold either way."""
+    compiled = compile_text(_STRAY_CLOSER, cache_key="adv-faith-stray-closer")
+    assert_parallel_matches_sequential(compiled, _stray_closer_doc(), cores)

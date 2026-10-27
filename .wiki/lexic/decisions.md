@@ -1602,3 +1602,20 @@ find the run's end, two for the commonest run of one instance. On gbnf-meta
 every scan gate races one root, 0.25 gates per character, 96% of runs one
 instance long. A pin holds the two forms to the same end for every regular rule
 of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
+
+## A pair stands only where every site of its characters delimits
+
+**Decision:** `roles` derives an opener/closer pair only when the delimiter
+items of the arms that spell it account for every site emitting either
+character (`anchors.anchor_site_counts`, counted by the same site walk that
+certifies anchors). A fallen pair's delimiters are stray sites too, so the check
+repeats until no pair falls.
+
+**Why:** the scan counts depth one character at a time over the whole text, so
+a closer also spelled elsewhere — `>` as the tail of `"=>"`, or as a comparison
+— moves the count where no bracket closes. The pair was derived from its arm
+alone, so such grammars carried a depth count that was wrong on their own text.
+No case tried changes its model or its engagement without it. Over the benches (three
+compiles each) and the ground-truth corpus no pair changes; among the split
+tests' grammars two lose theirs, both with a stray site (`ROUTED_GRAMMAR`'s
+`\n`/`>`, `_CLASSY`'s `[` inside `"<["`).

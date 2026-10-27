@@ -12,7 +12,11 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlphabet, IrAst, IrLiteral, IrRule, IrSeq, IrSequence
-from lexic.parsing.parallel import anchor_sites, anchors
+from lexic.parsing.parallel.discovery.anchors import (
+    anchor_site_counts,
+    anchor_sites,
+    anchors,
+)
 
 JSONISH = """\
 root ::= object
@@ -68,6 +72,16 @@ def test_multi_site_structural_characters_qualify():
     sites = anchor_sites(ast)
     assert sites["a"] == ("x", "y")
     assert sites["b"] == ("x", "y")
+
+
+def test_site_counts_count_occurrences_not_rules():
+    """One rule spelling ``>`` twice is two sites; a wider literal is one site
+    for each of its characters."""
+    ast = parse_grammar('root ::= x y\nx ::= ">" [a-z]+ ">"\ny ::= "=>"', GBNF_FLAVOUR)
+    counts = anchor_site_counts(ast)
+    assert counts[">"] == 3
+    assert counts["="] == 1
+    assert anchor_sites(ast)[">"] == ("x", "y")
 
 
 def test_site_map_names_the_defining_rules():
