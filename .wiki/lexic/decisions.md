@@ -344,7 +344,7 @@ has an item filed in the edge zone — the last `max(terms.lens)` columns
 completion yet; completion touches the edge; `can_extend_at` at the completion
 column) are deleted, along with `can_extend_at` itself.
 
-**Why it is sound:** `longest_start_completion` scans the whole window, so
+**Why it is sound:** the island's run scans the whole window, so
 every completion inside it is already known — more input can only add a
 completion that consumes past the edge, and any derivation doing so leaves
 visible evidence: a scanner filed at the edge column, or a multi-char literal
@@ -1893,3 +1893,19 @@ backwards off that index.
 That is linear in the span's link table each time, so a span that flips many
 points without its value changing paid the walk once per point. The index
 depends only on the root, so one walk serves every flip.
+
+## One Earley fill; the island's span is a readout
+
+**Decision:** `Kernel.run` is the only fill loop. It skips an empty column,
+which a multi-char literal, a run terminal or a token steps over. A skipped
+column is never a stop. The island sub-parse runs its window and reads the
+longest origin-0 start completion off the chart with
+`readout.longest_start_completion`, which is `start_completions`' latest end
+and the last accepting item there.
+
+**Why:** `longest_start_completion` was a second copy of `run`'s seeding and
+column loop, differing in two ways. It skipped empty columns, and it read the
+start completions as it went. The read belongs to the readout seam. The skip
+belongs in `run` too. Every item a column will ever hold arrives from an
+earlier column's scan, so a column that is empty at its turn stays empty. On
+run-collapsed tables most columns of a long run are such columns.

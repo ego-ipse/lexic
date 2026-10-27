@@ -41,6 +41,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     handle_node,
+    longest_start_completion,
     start_completion_ends,
     start_completions,
     to_chart,
@@ -102,7 +103,7 @@ def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
 def _may_extend(kern: Kernel) -> bool:
     """Whether more input could lengthen the island — chart liveness at the edge.
 
-    ``longest_start_completion`` scans the whole window, so every completion
+    The island's run scans the whole window, so every completion
     inside it is already known: more input can only add a completion that
     consumes PAST the window edge, and any derivation doing so leaves an item
     the chart can see near it — either one filed at the edge column itself, or
@@ -447,8 +448,8 @@ def island_run(
         on a miss — and ``(accepting_item, end)`` for the longest completion,
         ``None`` when the rule never completes in the window.
     """
-    kern = Kernel(tables, window, delegates=delegates)
-    return kern, kern.longest_start_completion()
+    kern = Kernel(tables, window, delegates=delegates).run()
+    return kern, longest_start_completion(kern)
 
 
 def island_derivation(

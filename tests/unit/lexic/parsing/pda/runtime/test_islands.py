@@ -35,6 +35,7 @@ from lexic.ir import (
 )
 from lexic.parsing import ParseConfig
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support.readout import longest_start_completion
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
@@ -348,8 +349,8 @@ def _vyx_span(seed: int):
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
     )
-    kern = Kernel(product.tables, text)
-    best = kern.longest_start_completion()
+    kern = Kernel(product.tables, text).run()
+    best = longest_start_completion(kern)
     assert best is not None
     return compiled, kern, best
 

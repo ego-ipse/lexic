@@ -187,9 +187,9 @@ column to a fixpoint, scan between columns.
   them. Same-column (empty-span) steps are rejected from the climb — the
   normal completer handles them — so columns strictly decrease and no cycle
   guard is needed.
-- **`longest_start_completion`** — a public windowed prefix-completion seam:
-  run a rule over a text window, return the longest completion. The PDA
-  island sub-parse (§13) drives it; additive, off the `run()` fast path.
+- **`longest_start_completion`** — the windowed prefix-completion readout:
+  `run()` a rule over a text window, then read the longest origin-0
+  completion off the finished chart. The PDA island sub-parse (§13) reads it.
 
 `FastTree` is the unambiguous fast path: an explicit-stack walk of the packed
 links building the single `ParseTree`; any multi-family key aborts to the
@@ -340,7 +340,7 @@ completion; the completion owns user-facing diagnostics.
 A decision no gate family can license makes its rule an island: the ref is
 compiled as an `IslandRef` marker with a lazy per-island `ParserTables`
 cache, and the runtime runs a **windowed Earley sub-parse**
-(`longest_start_completion`, doubling window) over just that span, folds the
+(`run()` plus the `longest_start_completion` readout, doubling window) over just that span, folds the
 sub-tree, and splices the sub-product into the current capture. A
 **fail-island** (a semantic escape whose ref must fail to the full engine)
 raises `PdaFail` instead. `DelegateSource` cuts island cost from the inside:

@@ -35,8 +35,8 @@ cheap. Logic stays on the class and per-parse state on the `Kernel` cursor, but
 no `eval` runs per item and no IR object is ever a hot-path key. The **Leo
 optimisation** keeps right-recursive derivations linear. `to_chart` decodes the
 finished SPPF back out for the IR-native forest readers.
-`longest_start_completion` is the windowed prefix seam the PDA island sub-parse
-calls to complete a bounded slice of the input.
+The PDA island sub-parse `run()`s a bounded slice of the input and reads its
+longest start completion off the chart (`readout.longest_start_completion`).
 
 ## `forest.py` / `chart.py` — the shared packed parse forest
 

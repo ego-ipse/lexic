@@ -40,7 +40,7 @@ def accept_item(kern: Kernel) -> int:
 
     Computed on read from the final column rather than stored — one fewer
     per-parse slot, and only read a handful of times after a full run (the
-    island path reads its completion off ``longest_start_completion`` instead,
+    island path reads its completion off :func:`longest_start_completion` instead,
     never this).
     """
     accepts = kern.tables.codes.accept_codes
@@ -89,12 +89,27 @@ def accept_items(kern: Kernel) -> list[int]:
     return [it for it in kern.cols[n] if it >> bits in accepts and it & mask == 0]
 
 
+def longest_start_completion(kern: Kernel) -> tuple[int, int] | None:
+    """The longest completion of the start rule from origin 0 in a finished
+    chart — the island seam's span.
+
+    :returns: ``(accepting_item, end_column)`` at the latest end that has one,
+        the last accepting item found there (:func:`start_completions`), or
+        ``None`` when the start rule never completes.
+    """
+    completions = start_completions(kern)
+    if not completions:
+        return None
+    end = max(completions)
+    return completions[end], end
+
+
 def start_completion_ends(kern: Kernel) -> tuple[int, ...]:
     """Every distinct end column where the start rule completes from origin 0.
 
-    The island seam's cross-span evidence: after a windowed
-    ``longest_start_completion`` drove the chart, these are ALL the spans the
-    island could be — the (fixed) growth predicate guarantees none is
+    The island seam's cross-span evidence: after the island's window ran,
+    these are ALL the spans the island could be — the (fixed) growth
+    predicate guarantees none is
     reachable beyond the longest. More than one end is an arm choice the
     same-span gate cannot see; whether it must refuse is the caller's
     composition question.
@@ -106,8 +121,7 @@ def start_completion_ends(kern: Kernel) -> tuple[int, ...]:
 
 def start_completions(kern: Kernel) -> dict[int, int]:
     """Each end column where the start rule completes from origin 0, with the
-    last accepting item found there — packed, as
-    :meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel.longest_start_completion`
+    last accepting item found there — packed, as :func:`longest_start_completion`
     reports one and keeps the last, which is what decodes that completion.
 
     :returns: End column → accepting item.
