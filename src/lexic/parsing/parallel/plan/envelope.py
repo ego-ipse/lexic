@@ -32,10 +32,10 @@ from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import Skip, as_skip, skip_delimited
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
     derives_empty,
     emit_charset,
     unbounded,
+    unit_ref,
 )
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
@@ -69,14 +69,6 @@ class Envelope(NamedTuple):
         return not self.head and not self.tail
 
 
-def _unit_ref(item: IrItem) -> str | None:
-    """The unit rule an item references, when it is a plain unit reference."""
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
-        return str(atom)
-    return None
-
-
 def envelope_of(
     container: IrRule, rules: dict[str, IrRule], item: str
 ) -> Envelope | None:
@@ -102,7 +94,7 @@ def envelope_of(
         return None
     return Envelope(
         str(container.name),
-        str(_unit_ref(items[core])),
+        str(unit_ref(items[core])),
         item,
         core,
         tuple(at for at in outside if at < core),
@@ -115,7 +107,7 @@ def _core_at(items: tuple[IrItem, ...], item: str) -> int | None:
     for at in range(len(items) - 1):
         repeated = items[at + 1].atom
         names = isinstance(repeated, IrRuleRef) and str(repeated) == item
-        if _unit_ref(items[at]) is not None and names and unbounded(items[at + 1]):
+        if unit_ref(items[at]) is not None and names and unbounded(items[at + 1]):
             return at
     return None
 
@@ -270,10 +262,10 @@ def repetition_of(rules: dict[str, IrRule], container: str) -> Envelope | None:
         repeated = items[at + 1].atom
         if not unbounded(items[at + 1]) or not isinstance(repeated, IrRuleRef):
             continue
-        unit = _unit_ref(items[at])
+        unit = unit_ref(items[at])
         lead = _lead_items(rules, str(repeated))
         tail_arm = tuple(tuple(rules[str(repeated)].body)[0])
-        repeats = bool(lead) and _unit_ref(tail_arm[-1]) == unit
+        repeats = bool(lead) and unit_ref(tail_arm[-1]) == unit
         if unit is not None and repeats and rule is not None:
             return envelope_of(rule, rules, str(repeated))
     return None

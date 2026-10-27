@@ -6,7 +6,7 @@ from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.partition import Division
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.stitch.merge import MergeRequest, assign_witnesses
-from lexic.parsing.parallel.stitch.plan import RegionWork, derive_plan
+from lexic.parsing.parallel.stitch.plan import RegionWork, bracket_rule, derive_plan
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 
 
@@ -42,7 +42,8 @@ def bound_works[M](
     """
     text, works = request.text, []
     for region, cuts in divided:
-        plan = derive_plan(grammar, request.binding, region.rule)
+        rule = bracket_rule(grammar, region.rule, text[region.opener])
+        plan = derive_plan(grammar, request.binding, rule)
         if plan is None or not owner_excludes(
             analysis, plan.head_rule, plan.separator, region_scan=True
         ):

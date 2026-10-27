@@ -16,13 +16,19 @@ from lexic.model import GrammarModel
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
-from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import (
+    literal_char,
+    single_arm,
+    unbounded,
+    unit_ref,
+)
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
 
 __all__ = [
     "RegionPlan",
     "RegionWork",
+    "bracket_rule",
     "derive_plan",
     "field_slot",
     "model_type",
@@ -77,9 +83,50 @@ def field_slot(routine: RuleRoutine, item: int) -> int | None:
     return next((rank for rank, slot in enumerate(ordered) if slot == item), None)
 
 
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The items of a rule's sole arm, when it has exactly one."""
-    return tuple(rule.body[0]) if len(rule.body) == 1 else None
+_BRACKET_RULES: dict[tuple[int, str, str], tuple[IrAst, str]] = memo({}, 0)
+"""Per-grammar bracket-arm rules, with a strong identity pin."""
+
+
+def bracket_rule(grammar: IrAst, rule_name: str, opener: str) -> str:
+    """The rule whose sole arm spells the bracket a region opens with.
+
+    Regions are found over the analysis view, where one rule may bracket more
+    than one way (``value ::= "[" … "]" | "{" … "}" | num``); the codegen
+    grammar hoists each such arm into a single-arm rule of its own, and THAT is
+    the rule a plan binds to. A single-arm rule is its own answer; otherwise the
+    one arm that is a unit reference to a single-arm rule opening with
+    ``opener`` names it. Anything else answers ``rule_name`` unchanged, and its
+    plan declines as before. Memoised: a region asks once per document.
+
+    :param grammar: The codegen grammar.
+    :param rule_name: The rule the region was discovered under.
+    :param opener: The region's opening character.
+    :returns: The rule to derive the region's plan for.
+    """
+    key = (id(grammar), rule_name, opener)
+    entry = _BRACKET_RULES.get(key)
+    if entry is None:
+        entry = (grammar, _bracket_rule(grammar, rule_name, opener))
+        _BRACKET_RULES[key] = entry
+    return entry[1]
+
+
+def _bracket_rule(grammar: IrAst, rule_name: str, opener: str) -> str:
+    """Resolve :func:`bracket_rule` once."""
+    rules = {str(rule.name): rule for rule in grammar.rules}
+    outer = rules.get(rule_name)
+    if outer is None or len(outer.body) == 1:
+        return rule_name
+    found = [
+        target
+        for arm in outer.body
+        if len(arm) == 1
+        and (target := unit_ref(arm[0])) is not None
+        and (held := rules.get(target)) is not None
+        and (inner := single_arm(held))
+        and literal_char(inner[0], rules) == opener
+    ]
+    return found[0] if len(found) == 1 else rule_name
 
 
 def _ref_at(items: tuple[IrItem, ...], at: int) -> str | None:
@@ -94,12 +141,12 @@ def _candidate(
     """The items/tail recurrence rooted at one outer-arm position."""
     items_name = _ref_at(outer_arm, at)
     items_rule = rules.get(items_name or "")
-    items_arm = _single_arm(items_rule) if items_rule is not None else None
+    items_arm = single_arm(items_rule) if items_rule is not None else None
     if items_name is None or items_arm is None or len(items_arm) != 2:
         return None
     head, tail_name = _ref_at(items_arm, 0), _ref_at(items_arm, 1)
     tail_rule = rules.get(tail_name or "")
-    tail_arm = _single_arm(tail_rule) if tail_rule is not None else None
+    tail_arm = single_arm(tail_rule) if tail_rule is not None else None
     separator = (
         literal_char(tail_arm[0], rules)
         if tail_arm is not None and len(tail_arm) == 2
@@ -123,7 +170,7 @@ def _direct_candidate(
         return None
     head, tail_name = _ref_at(outer_arm, at), _ref_at(outer_arm, at + 1)
     tail_rule = rules.get(tail_name or "")
-    tail_arm = _single_arm(tail_rule) if tail_rule is not None else None
+    tail_arm = single_arm(tail_rule) if tail_rule is not None else None
     separator = (
         literal_char(tail_arm[0], rules)
         if tail_arm is not None and len(tail_arm) == 2
@@ -357,7 +404,7 @@ def derive_plan(
     if entry is None:
         rules = {str(rule.name): rule for rule in grammar.rules}
         outer = rules.get(rule_name)
-        outer_arm = _single_arm(outer) if outer is not None else None
+        outer_arm = single_arm(outer) if outer is not None else None
         candidates = (
             [
                 (at, *candidate)

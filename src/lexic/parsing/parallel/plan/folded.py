@@ -26,7 +26,7 @@ from __future__ import annotations
 from functools import partial
 from typing import NamedTuple
 
-from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst, IrItem, IrRule
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.regions import (
     Cutting,
@@ -34,7 +34,7 @@ from lexic.parsing.parallel.discovery.regions import (
     floor_cuts,
     listed,
 )
-from lexic.parsing.parallel.discovery.shapes import UNIT, exact_text
+from lexic.parsing.parallel.discovery.shapes import exact_text, single_arm, unit_ref
 from lexic.parsing.parallel.plan.routed import REF, Descent
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import owner_excludes
@@ -90,20 +90,6 @@ def folded_plan(grammar: IrAst) -> FoldedPlan | None:
     return entry[1]
 
 
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The rule's only arm, when it has exactly one."""
-    arms = tuple(rule.body)
-    return tuple(arms[0]) if len(arms) == 1 else None
-
-
-def _unit_ref(item: IrItem) -> str | None:
-    """The rule an item references exactly once, or ``None``."""
-    atom = item.atom
-    return (
-        str(atom) if isinstance(atom, IrRuleRef) and item.quantifier == UNIT else None
-    )
-
-
 class _Step(NamedTuple):
     """One descent through a rule that wraps the spine in fixed text."""
 
@@ -125,7 +111,7 @@ def _through(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> _Step | Non
     if len(open_at) != 1:
         return None
     at = open_at[0]
-    ref = _unit_ref(items[at])
+    ref = unit_ref(items[at])
     if ref is None:
         return None
     return _Step(at, ref, "".join(spelled[:at]), "".join(spelled[at + 1 :]))
@@ -146,7 +132,7 @@ def _descend(
     seen: set[str] = set()
     while name not in folds:
         rule = rules.get(name)
-        items = _single_arm(rule) if rule is not None else None
+        items = single_arm(rule) if rule is not None else None
         step = _through(items, rules) if items else None
         if step is None or name in seen:
             return None
@@ -217,7 +203,7 @@ def _owners(rule: IrRule, fold: Fold) -> tuple[str, ...] | None:
     arms = tuple(rule.body)
     items = [one for at in fold.base for one in tuple(arms[at])]
     items.extend(fold.steps[0].rest[1:])
-    named = [found for one in items if (found := _unit_ref(one)) is not None]
+    named = [found for one in items if (found := unit_ref(one)) is not None]
     return (
         None if len(named) != len(items) or not named else tuple(dict.fromkeys(named))
     )
@@ -251,7 +237,7 @@ def _certified(
     """The plan the boundary proof licenses over this shell, or ``None``."""
     name, fold = taken
     chain, before, after = shell
-    lead = _unit_ref(fold.steps[0].rest[0]) if fold.steps[0].rest else None
+    lead = unit_ref(fold.steps[0].rest[0]) if fold.steps[0].rest else None
     owners = _owners(rules[name], fold)
     marks = _marks(lead, rules) if lead else ()
     if lead is None or owners is None or not _aligned(grammar, owners, marks):

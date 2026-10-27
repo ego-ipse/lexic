@@ -1653,3 +1653,18 @@ note as a list item: the split returned a different model with the same text.
 The proof, not the stitch, is where this is decided; the stitch's boundary
 reparse builds a node from a drawn witness and proves nothing about the real
 text at the cut.
+
+## A region's plan is the plan of the arm its bracket opens
+
+**Decision:** a divided region's plan is derived for the rule that holds its
+bracket ARM, resolved from the rule it was found under and its own opening
+character (`stitch.plan.bracket_rule`).
+
+**Why:** regions are found over the authored grammar, where one rule may
+bracket several ways beside other arms (`val ::= "[" … "]" | "{" … "}" | num`);
+the codegen grammar hoists each multi-item arm into a single-arm rule of its
+own, and a plan binds to that rule's class and slots. Asked for the authored
+rule, the plan found two arms of references and declined, so a bracket that
+shares its rule never split while the same bracket in a rule of its own did.
+The opening character picks the arm, so two bracket arms in one rule each
+divide under their own plan.

@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from lexic.ir import (
     IrAst,
-    IrItem,
     IrLiteral,
     IrRule,
     IrRuleRef,
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.scan import Scanner
-from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.parallel.discovery.shapes import single_arm, unbounded, unit_ref
 from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
@@ -35,28 +34,14 @@ from lexic.parsing.parallel.stitch.safety import (
 )
 
 
-def _unit_ref(item: IrItem) -> str | None:
-    """The unit rule an item references, when it is a plain unit reference."""
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
-        return str(atom)
-    return None
-
-
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The rule's only arm, when it has exactly one."""
-    arms = tuple(rule.body)
-    return tuple(arms[0]) if len(arms) == 1 else None
-
-
 def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
     """Whether the repeated rule is ``lead unit`` for this separator."""
-    items = _single_arm(rule)
-    if items is None or len(items) != 2 or _unit_ref(items[1]) != unit:
+    items = single_arm(rule)
+    if items is None or len(items) != 2 or unit_ref(items[1]) != unit:
         return False
     lead_atom = items[0].atom
     if sep.lead:
-        return _unit_ref(items[0]) == sep.lead
+        return unit_ref(items[0]) == sep.lead
     return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.mark
 
 
@@ -69,8 +54,8 @@ def _wrapper_chain(
     current = start
     while current != target:
         rule = rule_map.get(current)
-        items = _single_arm(rule) if rule is not None else None
-        child = _unit_ref(items[0]) if items else None
+        items = single_arm(rule) if rule is not None else None
+        child = unit_ref(items[0]) if items else None
         empty_tails = items is not None and all(
             unbounded(item) and item.quantifier.lo == 0 for item in items[1:]
         )
@@ -93,17 +78,17 @@ def _plan_for(
     wrappers = _wrapper_chain(rule_map, str(grammar.start), sep.container)
     if wrappers is None:
         return None
-    items = _single_arm(container)
+    items = single_arm(container)
     if items is None or len(items) != 2:
         return None
-    unit = _unit_ref(items[0])
+    unit = unit_ref(items[0])
     repeated = items[1].atom
     repeats = isinstance(repeated, IrRuleRef) and str(repeated) == sep.item
     if unit is None or not repeats or not _item_shape(item_rule, sep, unit):
         return None
     if sep.lead:
         lead_grammar, literal = IrAst(grammar.rules, sep.lead), ""
-        skip = lead_skip(_single_arm(rule_map[sep.lead]), rule_map, sep.mark)
+        skip = lead_skip(single_arm(rule_map[sep.lead]), rule_map, sep.mark)
     else:
         lead_grammar, literal = None, sep.mark
         skip = frozenset()
@@ -137,7 +122,7 @@ def _terminated_plans(
     start = rule_map.get(str(grammar.start))
     if start is None:
         return ()
-    items = _single_arm(start)
+    items = single_arm(start)
     if items is None or len(items) != 1 or not unbounded(items[0]):
         return ()
     target = items[0].atom
@@ -178,7 +163,7 @@ def _speculative_plans(
     the unit's opening alphabet goes in where a terminator's would.
     """
     start = rule_map.get(str(grammar.start))
-    items = _single_arm(start) if start is not None else None
+    items = single_arm(start) if start is not None else None
     if items is None or len(items) != 1 or not unbounded(items[0]):
         return ()
     target = items[0].atom

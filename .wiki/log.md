@@ -1,5 +1,10 @@
 # Log
 
+## A region's plan is the plan of the arm its bracket opens (2026-10-27)
+
+`decisions.md` records why a bracket arm that shares its rule now divides: the
+region's opening character resolves the codegen rule its plan binds to.
+
 ## A delimited rule hides only what lies inside its delimiters (2026-10-27)
 
 `decisions.md` records why the ownership proof no longer hides a paired or
