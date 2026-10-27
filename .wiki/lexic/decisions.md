@@ -1634,3 +1634,22 @@ filter dropped every start-rule region because the stitch had no owner to
 splice it into. A language-preserving wrapper flipping the split is a
 privileged formulation. A recursive start rule's nested regions open later in
 the document, so they keep being spliced into the region that holds them.
+
+## A delimited rule hides only what lies inside its delimiters
+
+**Decision:** the ownership proof (`stitch.safety.owner_excludes`, and the
+terminator proof beside it) hides a paired or interior rule from a mark only
+when nothing it spells OUTSIDE its delimiters can spell that mark: whatever an
+arm spells at depth 0 of a walk over the rule's own openers and closers (an arm
+may close and reopen, `"(" a ")" "," "(" b ")"`), around an interior region,
+or anywhere in an arm that delimits nothing (`safety._protected`, mark by
+mark).
+
+**Why:** a scan owns a delimited rule only between its delimiters. A rule that
+closes and keeps going — `row ::= "{" … "}" ("," note)*` — spells the list's
+own separator at the list's depth, and hiding it wholesale licensed a cut on
+the comma before a note. The pieces then parsed, and the stitch rebuilt the
+note as a list item: the split returned a different model with the same text.
+The proof, not the stitch, is where this is decided; the stitch's boundary
+reparse builds a node from a drawn witness and proves nothing about the real
+text at the cut.

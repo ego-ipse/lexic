@@ -613,3 +613,64 @@ def test_a_stray_closer_before_a_group_keeps_the_sequential_model(
     model must hold either way."""
     compiled = compile_text(_STRAY_CLOSER, cache_key="adv-faith-stray-closer")
     assert_parallel_matches_sequential(compiled, _stray_closer_doc(), cores)
+
+
+# ── an owner that spells the separator past its own closer ────────────────
+
+_ROW_TAIL = (
+    'row ::= "{" [a-z]+ ":" [0-9]+ "}" ("," note)*\nnote ::= "{" "n" ":" [0-9]+ "}"\n'
+)
+"""A row closes its braces and then keeps going: every ``,{n:…}`` after it is
+one of its own notes, though it is spelled exactly like the next list item."""
+
+_TAIL_FORMS = {
+    "wrapped": 'root ::= arr\narr ::= "[" row ("," row)* "]"\n' + _ROW_TAIL,
+    "at-root": 'root ::= "[" row ("," row)* "]"\n' + _ROW_TAIL,
+    "shared-rule": 'root ::= arr\narr ::= "[" row ("," row)* "]"\n'
+    + _ROW_TAIL.replace("\nnote", ' | "<" [a-z]+ ">"\nnote', 1),
+}
+
+
+def _tailed_rows(entries: int, every: int) -> str:
+    """Entries whose every ``every``-th key is ``n``, so a note follows a row."""
+    keys = (
+        "n" if i % every == 1 else "k" + "abcdefg"[: i % 7 + 1] for i in range(entries)
+    )
+    return "[" + ",".join(f"{{{key}:{i}}}" for i, key in enumerate(keys)) + "]"
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("every", (2, 3, 7))
+@pytest.mark.parametrize("form", sorted(_TAIL_FORMS))
+def test_a_separator_spelled_past_an_owners_closer_keeps_the_sequential_model(
+    form: str, every: int, cores: int
+) -> None:
+    """The sequential parse files each ``{n:…}`` after a row as that row's
+    note. A cut on the comma before it would rebuild it as a row of its own,
+    so the split must decline there — engaging or not, the model is the
+    sequential one."""
+    compiled = compile_text(_TAIL_FORMS[form], cache_key=f"adv-faith-tail-{form}")
+    assert_parallel_matches_sequential(compiled, _tailed_rows(4000, every), cores)
+
+
+_REOPENING_PAIRS = (
+    "root ::= arr\n"
+    'arr ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" num ")" "," "(" num ")" | "(" num ")"\n'
+    "num ::= [0-9]+\n"
+)
+"""A pair that closes and reopens around the list's own separator, or stands
+alone: the sequential parse pairs from the left, so every other comma is a
+pair's own, at the same depth as the ones between pairs."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("brackets", (900, 901))
+def test_a_separator_between_an_owners_brackets_keeps_the_sequential_model(
+    brackets: int, cores: int
+) -> None:
+    """A cut on a pair's own comma leaves its first bracket a pair alone and
+    re-pairs every bracket after it, so the split must decline there."""
+    compiled = compile_text(_REOPENING_PAIRS, cache_key="adv-faith-reopening")
+    text = "[" + ",".join(f"({n})" for n in range(brackets)) + "]"
+    assert_parallel_matches_sequential(compiled, text, cores)

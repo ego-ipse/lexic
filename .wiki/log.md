@@ -1,5 +1,10 @@
 # Log
 
+## A delimited rule hides only what lies inside its delimiters (2026-10-27)
+
+`decisions.md` records why the ownership proof no longer hides a paired or
+interior rule wholesale, and the wrong model hiding it produced.
+
 ## A start rule's own bracket divides like any other (2026-10-27)
 
 `decisions.md` records why a region whose rule is the start rule now divides,
