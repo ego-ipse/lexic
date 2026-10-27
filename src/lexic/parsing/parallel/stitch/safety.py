@@ -26,8 +26,11 @@ from lexic.parsing.parallel.discovery.interiors import (
     interior_shapes,
     interiors,
 )
-from lexic.parsing.parallel.discovery.regions import pair_rules
-from lexic.parsing.parallel.discovery.scan import mark_overlap
+from lexic.parsing.parallel.discovery.scan import (
+    delimiting,
+    mark_overlap,
+    read_outside,
+)
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
     UNIT,
@@ -42,7 +45,6 @@ from lexic.parsing.parallel.discovery.shapes import (
     joins,
     last_charset,
     leads_with,
-    literal_char,
     literal_text,
     rule_emits,
     rule_spells,
@@ -53,147 +55,20 @@ from lexic.parsing.pda.core.charsets import CharSet
 
 
 def _protected(grammar: IrAst, region_scan: bool, mark: str) -> frozenset[str]:
-    """Rules hidden or depth-owned by the scan the caller actually uses.
-
-    A scan owns only what lies INSIDE a delimited span: a paired rule's arm
-    from its opener to its last closer, an interior's region from its opening
-    to its closing. What an arm spells outside that span — after the closer
-    (``"}" ("," note)*``), around an interior, or in an arm that delimits
-    nothing — the scan reads at the depth the rule stands at. So a rule hides
-    ``mark`` only when none of its visible parts spells it; otherwise the proof
-    reads it like any other rule.
-    """
-    pairs = pair_rules(grammar)
-    tracked = None if region_scan else set(roles(grammar).pairs)
-    delimited = {
-        (opener, closer, rule)
-        for opener, (closer, rule) in pairs.items()
-        if tracked is None or (opener, closer) in tracked
-    }
-    regions = interiors(grammar) if region_scan else ()
+    """Rules hidden or depth-owned by the scan the caller actually uses: the
+    delimited rules that spell ``mark`` nowhere the scan reads them
+    (:func:`~...discovery.scan.read_outside`)."""
     rules = {str(rule.name): rule for rule in grammar.rules}
-    candidates = {rule for _opener, _closer, rule in delimited} | {
-        region.rule for region in regions
-    }
+    seen = delimiting(grammar, region_scan)
     return frozenset(
         name
-        for name in candidates
+        for name in seen.rules()
         if name in rules
-        and not _visible_spells(rules[name], delimited, regions, mark, rules)
+        and not any(
+            arm_spells(part, mark, rules, frozenset(), frozenset({name}))
+            for part in read_outside(seen, rules[name], rules, len(mark) > 1)
+        )
     )
-
-
-def _visible_spells(
-    rule: IrRule,
-    delimited: set[tuple[str, str, str]],
-    regions: tuple[Interior, ...],
-    mark: str,
-    rules: dict[str, IrRule],
-) -> bool:
-    """Whether any arm of ``rule`` spells ``mark`` where a scan reads it.
-
-    Nothing is hidden inside what is read, so a ``False`` holds whatever the
-    scan skips.
-    """
-    name = str(rule.name)
-    own = {(opener, closer) for opener, closer, owner in delimited if owner == name}
-    spans = {region.arm: region for region in regions if region.rule == name}
-    path = frozenset({name})
-    for at, arm in enumerate(rule.body):
-        items = tuple(arm)
-        for part in _visible_parts(items, own, spans.get(at), rules, len(mark) > 1):
-            if arm_spells(part, mark, rules, frozenset(), path):
-                return True
-    return False
-
-
-def _visible_parts(
-    items: tuple[IrItem, ...],
-    own: set[tuple[str, str]],
-    region: Interior | None,
-    rules: dict[str, IrRule],
-    joined: bool,
-) -> list[tuple[IrItem, ...]]:
-    """The stretches of one arm a scan reads at the rule's own depth.
-
-    Around an interior region, its closing included (it stays scan-visible).
-    Otherwise the arm is walked counting depth over the rule's own openers and
-    closers on one counter, as the scan counts them, and every item that
-    stands at depth 0 is read: an arm may close and reopen
-    (``"(" a ")" "," "(" b ")"``), and what stands between is the rule's own.
-    A literal is walked character by character, so a merged ``"),("`` shows
-    its comma. A literal spelling a delimiter under any other quantifier
-    (``")"?``) leaves the depth unknown wherever it stands, and then the whole
-    arm is read. Inside a span, a reference's own brackets are a nested
-    region's, as the scan reads them; at depth 0 a reference that may emit a
-    delimiter leaves the depth unknown too.
-    """
-    if region is not None:
-        return [items[: region.opens], items[region.closes :]]
-    delimiters = {char for pair in own for char in pair}
-    walk = _DepthWalk({opener for opener, _closer in own}, {c for _o, c in own})
-    for item in items:
-        atom = item.atom
-        if isinstance(atom, IrLiteral) and item.quantifier == UNIT:
-            walk.spell(item, str(atom), joined)
-            continue
-        if isinstance(atom, IrLiteral) and delimiters & set(str(atom)):
-            return [items]  # a repeated or optional delimiter: depth unknowable
-        char = literal_char(item, rules)
-        if char in delimiters:
-            walk.spell(item, str(char), True)
-            continue
-        if walk.depth == 0 and _may_emit(item, delimiters, rules):
-            return [items]
-        walk.plain(item)
-    return walk.done()
-
-
-def _may_emit(item: IrItem, chars: set[str], rules: dict[str, IrRule]) -> bool:
-    """Whether ``item`` may emit any of ``chars`` — unknowns answer yes."""
-    emitted = emit_charset(item, rules, frozenset())
-    return any(emitted.has(char) for char in chars)
-
-
-class _DepthWalk:
-    """One arm's depth walk: the stretches read at depth 0, as they close."""
-
-    __slots__ = ("openers", "closers", "depth", "stretch", "parts")
-
-    def __init__(self, openers: set[str], closers: set[str]) -> None:
-        """Start at the rule's own depth with nothing read."""
-        self.openers = openers
-        self.closers = closers
-        self.depth = 0
-        self.stretch: list[IrItem] = []
-        self.parts: list[tuple[IrItem, ...]] = []
-
-    def plain(self, item: IrItem) -> None:
-        """An item that neither opens nor closes: read when at depth 0."""
-        if self.depth == 0:
-            self.stretch.append(item)
-
-    def spell(self, item: IrItem, text: str, border: bool) -> None:
-        """An item spelling ``text``: move the depth character by character,
-        and read the item when any of its own characters stands at depth 0 —
-        or when it borders a read stretch and ``border`` asks for its edges."""
-        seen = border and self.depth == 0
-        for char in text:
-            if char in self.openers:
-                self.depth += 1
-            elif char in self.closers and self.depth > 0:
-                self.depth -= 1
-            elif self.depth == 0:
-                seen = True
-        if seen or (border and self.depth == 0):
-            self.stretch.append(item)
-        if self.depth > 0:
-            self.parts.append(tuple(self.stretch))
-            self.stretch = []
-
-    def done(self) -> list[tuple[IrItem, ...]]:
-        """Every stretch read, the last one closed."""
-        return [*self.parts, tuple(self.stretch)]
 
 
 _OWNER_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = memo({}, 0)
