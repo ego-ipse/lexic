@@ -274,9 +274,9 @@ def _depth_walk(
     delimiters = {char for pair in own for char in pair}
     walk = _DepthWalk({opener for opener, _closer in own}, {c for _o, c in own})
     for item in items:
-        atom = item.atom
-        if isinstance(atom, IrLiteral) and item.quantifier.once():
-            walk.spell(item, str(atom), joined)
+        literal = item.unit_literal()
+        if isinstance(literal, IrLiteral):
+            walk.spell(item, str(literal), joined)
             continue
         char = literal_char(item, rules)
         if char in delimiters:

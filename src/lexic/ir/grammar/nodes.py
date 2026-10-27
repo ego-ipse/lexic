@@ -268,6 +268,13 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
             return atom
         return IrNone
 
+    def unit_literal(self) -> IrLiteral | IrNoneType:
+        """The literal this item spells exactly once, or ``IrNone``."""
+        atom = self.atom
+        if isinstance(atom, IrLiteral) and self.quantifier.once():
+            return atom
+        return IrNone
+
 
 class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
     """An atom read under a named encoding — the alphabet binding.

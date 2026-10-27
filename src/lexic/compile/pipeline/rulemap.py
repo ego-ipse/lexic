@@ -373,11 +373,6 @@ def mode_for(item: IrItem) -> str:
 # ── field binding ─────────────────────────────────────────────────────
 
 
-def _is_structural_literal(item: IrItem) -> bool:
-    """Unit-quantified literal — matched text with no field of its own."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier.once()
-
-
 def _is_semantic_field(item: IrItem, non_semantic: frozenset[str]) -> bool:
     """False when the item refs a structural-noise rule."""
     return not (isinstance(item.atom, IrRuleRef) and item.atom in non_semantic)
@@ -425,7 +420,7 @@ def bind_fields(
     counts: defaultdict[str, int] = defaultdict(int)
     pattern_pos = 0
     for index, item in enumerate(items):
-        if _is_structural_literal(item):
+        if isinstance(item.unit_literal(), IrLiteral):  # matched text, no field
             continue
         base = TIER2.apply(item.atom)
         if isinstance(base, IrNoneType):

@@ -140,10 +140,8 @@ def _single_literal(rule: IrRule) -> str | None:
     arms = [tuple(arm) for arm in rule.body]
     if len(arms) != 1 or len(arms[0]) != 1:
         return None
-    item = arms[0][0]
-    if not isinstance(item.atom, IrLiteral) or not item.quantifier.once():
-        return None
-    return str(item.atom)
+    literal = arms[0][0].unit_literal()
+    return str(literal) if isinstance(literal, IrLiteral) else None
 
 
 def _channel_free(body: Any) -> bool:

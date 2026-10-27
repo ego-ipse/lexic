@@ -1002,3 +1002,25 @@ def test_a_parsed_item_reads_its_bound_off_the_quantifier(source, unbounded):
     grammar = parse_grammar(f'root ::= {source}\nx ::= "a"\n', GBNF_FLAVOUR)
     item = tuple(grammar.rules[0].body[0])[0]
     assert item.quantifier.unbounded() is unbounded
+
+
+def test_unit_literal_is_the_literal_an_item_spells_once():
+    """A plain literal item spells its literal."""
+    literal = IrItem(IrLiteral("ab")).unit_literal()
+    assert isinstance(literal, IrLiteral)
+    assert literal == "ab"
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        IrItem(IrLiteral("ab"), IrQuantifier(0, 1)),
+        IrItem(IrLiteral("ab"), IrQuantifier(1, IrNone)),
+        IrItem(IrRuleRef("ab")),
+        IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("b")))),
+    ],
+)
+def test_unit_literal_is_absent_for_a_quantified_literal_or_another_atom(item):
+    """``"ab"?`` and ``"ab"+`` spell no fixed text; a reference and a class
+    spell no literal at all."""
+    assert item.unit_literal() is IrNone

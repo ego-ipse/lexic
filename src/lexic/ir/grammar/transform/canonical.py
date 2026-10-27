@@ -53,7 +53,7 @@ from lexic.ir.grammar.operators import IrNot
 from lexic.ir.grammar.transform.order import order_by_refs
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import glyph
-from lexic.ir.spine.spine import IrLambda, IrSelf
+from lexic.ir.spine.spine import IrLambda, IrNone, IrSelf
 
 # ── char-class normal form + single-member literal (rewrites 1, 8) ─────
 
@@ -202,17 +202,14 @@ def _is_empty_literal(item: IrItem) -> bool:
     return isinstance(item.atom, IrLiteral) and len(item.atom) == 0
 
 
-def _is_plain_literal(item: IrItem) -> bool:
-    """True if ``item`` is an unquantified literal (mergeable in a run)."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier.once()
-
-
 def _merge_literal_runs(items: list[IrItem]) -> list[IrItem]:
     """Fold runs of adjacent unquantified literals into single literals (rewrite 3)."""
     out: list[IrItem] = []
     for item in items:
-        if out and _is_plain_literal(out[-1]) and _is_plain_literal(item):
-            out[-1] = IrItem(IrLiteral(str(out[-1].atom) + str(item.atom)))
+        prev = out[-1].unit_literal() if out else IrNone
+        literal = item.unit_literal()
+        if isinstance(prev, IrLiteral) and isinstance(literal, IrLiteral):
+            out[-1] = IrItem(IrLiteral(str(prev) + str(literal)))
         else:
             out.append(item)
     return out

@@ -1,5 +1,10 @@
 # Log
 
+## An item's fixed text, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrItem.unit_literal()`, which eight twins of "a literal,
+exactly once" now read.
+
 ## A quantifier answers its own shape (2026-10-27)
 
 `ir-shapes.md` records `IrQuantifier.once/optional/unbounded/repeats/fixed/upper`,

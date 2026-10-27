@@ -155,10 +155,10 @@ def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     found = _anchor_chars(item, anchor_set)
     if found:
         return found
-    atom = item.atom
-    if not item.quantifier.once() or not isinstance(atom, IrLiteral):
+    literal = item.unit_literal()
+    if not isinstance(literal, IrLiteral):
         return frozenset()
-    text = str(atom)
+    text = str(literal)
     wide = len(text) > 1 and set(text) <= anchor_set
     return frozenset({text}) if wide else frozenset()
 
