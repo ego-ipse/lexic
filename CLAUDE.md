@@ -221,6 +221,7 @@ src/lexic/
         control.py                 Control — pipe, cond, each, return
     grammar/                      The grammar AST and the language-preserving passes over it
       __init__.py                the group's package marker; the façade is the import surface
+      charclass.py                  the character-set node and its interval algebra — IrCharClass, IrRange, MAX_CODEPOINT
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes

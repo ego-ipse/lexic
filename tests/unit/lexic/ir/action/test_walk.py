@@ -58,10 +58,10 @@ from lexic.ir.action.walk import (
     IrTransformer,
     IrVisitor,
 )
+from lexic.ir.grammar.charclass import IrCharClass
 from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrAst,
-    IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,

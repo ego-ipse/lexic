@@ -12,8 +12,9 @@ import pytest
 from lexic.api.pretokens import BYTE_FALLBACK
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.mapping import IrMap
+from lexic.ir.grammar.charclass import MAX_CODEPOINT, IrCharClass, IrRange
 from lexic.ir.grammar.concretize import check_universe
-from lexic.ir.grammar.nodes import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
+from lexic.ir.grammar.nodes import IrChr
 from lexic.ir.spine.meta import IrSingleton
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr

@@ -45,6 +45,7 @@ import lexic.ir.action.flow.compute as _compute
 import lexic.ir.action.flow.control as _control
 import lexic.ir.action.mapping as _mapping
 import lexic.ir.flavour as _flavour
+import lexic.ir.grammar.charclass as _charclass
 import lexic.ir.grammar.nodes as _nodes
 import lexic.ir.grammar.operators as _operators
 import lexic.ir.grammar.transform.alignment as _alignment
@@ -102,6 +103,7 @@ _IR_MODULES = (
     _bind,
     _identity,
     _nodes,
+    _charclass,
     _operators,
     _alignment,
     _access,

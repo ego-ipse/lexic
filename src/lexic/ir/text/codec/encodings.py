@@ -11,7 +11,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Self
 
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.grammar.nodes import MAX_CODEPOINT, IrCharClass, IrChr
+from lexic.ir.grammar.charclass import MAX_CODEPOINT, IrCharClass
+from lexic.ir.grammar.nodes import IrChr
 from lexic.ir.spine.meta import IrSingleton
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrStr

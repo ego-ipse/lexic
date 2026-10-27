@@ -1,5 +1,10 @@
 # Log
 
+## The character-set node has its own module (2026-10-27)
+
+`ir-shapes.md` records that `IrCharClass`, `IrRange` and `MAX_CODEPOINT` live
+in `ir/grammar/charclass.py`, out of `nodes.py`, with their interval algebra.
+
 ## A bound field's document order is read, never assumed (2026-10-27)
 
 `decisions.md`: `RuleMap.in_slot_order()` and `ChildOrder.slots` are the

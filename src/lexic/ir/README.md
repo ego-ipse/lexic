@@ -101,9 +101,12 @@ mechanism.
 ir/
   base.py        IrSelf root; the three-tier spine (IrScalar, IrTuple/IrSeq,
                  IrNamedTuple/IrCachingTuple); IrNone; IrLambda
-  nodes.py       grammar-AST nodes: IrLiteral, IrCharClass (intrinsic members()/
-                 pattern()/sample()/complement()), IrRuleRef, IrSequence,
-                 IrAlternation, IrQuantifier/IrRange, IrItem, IrRule, IrAst
+  nodes.py       grammar-AST nodes: IrLiteral, IrRuleRef, IrSequence,
+                 IrAlternation, IrBounds/IrQuantifier, IrItem, IrAlphabet,
+                 IrRule, IrAst
+  charclass.py   the character-set node and its interval algebra: IrRange,
+                 IrCharClass (intervals()/complement()/normalized()/
+                 members()/pattern()/sample()), MAX_CODEPOINT
   operators.py   IrOp infix leaf, IrNot, IrEq, IrAnd
   action.py      the action algebra + default bodies (§2)
   mapping.py     IrMap / IrTypeMap (concrete-first MRO) / IrMultiMap

@@ -25,13 +25,12 @@ from lexic.ir.action.flow.compute import (
 from lexic.ir.action.flow.control import IrEach, IrPipe, IrThis
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrDispatch, IrEmitter
+from lexic.ir.grammar.charclass import IrCharClass, IrRange
 from lexic.ir.grammar.nodes import (
     IrAlternation,
-    IrCharClass,
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrSequence,
 )

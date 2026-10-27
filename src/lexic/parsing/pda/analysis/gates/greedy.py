@@ -36,14 +36,8 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 from lexic.ir import IrNone
-from lexic.ir.grammar.nodes import (
-    IrAlternation,
-    IrCharClass,
-    IrItem,
-    IrLiteral,
-    IrRule,
-    IrRuleRef,
-)
+from lexic.ir.grammar.charclass import IrCharClass
+from lexic.ir.grammar.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.gates.kwindow import rule_references
 
 _DEPTH = 8

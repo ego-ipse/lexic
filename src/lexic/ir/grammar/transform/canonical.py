@@ -37,11 +37,11 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.build import IrAction
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrBottomUp
+from lexic.ir.grammar.charclass import IrCharClass
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
     IrAlternation,
     IrAst,
-    IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
