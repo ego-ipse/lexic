@@ -1619,3 +1619,18 @@ No case tried changes its model or its engagement without it. Over the benches (
 compiles each) and the ground-truth corpus no pair changes; among the split
 tests' grammars two lose theirs, both with a stray site (`ROUTED_GRAMMAR`'s
 `\n`/`>`, `_CLASSY`'s `[` inside `"<["`).
+
+## A start rule's own bracket divides like any other
+
+**Decision:** a region whose rule is the start rule is divided and stitched
+like any other. Its node is the whole result, so the stitch lays the merged
+items over the shell's own model instead of splicing them into an owner
+(`merge._shell_routes`: the region that opens the document with the shell's
+own class).
+
+**Why:** `root ::= "[" value ("," value)* "]"` and `root ::= arr` over the
+same bracket derive the same strings, and only the second divided — the region
+filter dropped every start-rule region because the stitch had no owner to
+splice it into. A language-preserving wrapper flipping the split is a
+privileged formulation. A recursive start rule's nested regions open later in
+the document, so they keep being spliced into the region that holds them.

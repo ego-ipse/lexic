@@ -322,14 +322,17 @@ def test_direct_group_recurrence_stitches_below_a_wrapper_start():
     assert parallel.to_text() == text
 
 
-def test_true_root_group_recurrence_has_no_replaceable_route():
-    """A region that is itself the start model declines without a wrapper."""
+def test_true_root_group_recurrence_stitches_over_the_start_model():
+    """A region that is itself the start model splits without a wrapper: its
+    merged node is the whole result."""
     compiled = compile_text(TRUE_GROUP)
     text = "(" + ",".join("a" * 20 for _ in range(1000)) + ")"
     grammar, binding = compiled.codegen_grammar, compiled.product
+    split = split_model(parse_model, grammar, Request(text, binding), 8)
 
-    assert split_model(parse_model, grammar, Request(text, binding), 8) is None
-    assert compiled.parse(text, cores=2).to_text() == text
+    assert split is not None
+    assert split == parse_model(grammar, text, binding)
+    assert split.to_text() == text
 
 
 def test_a_bare_literal_lead_splits_too():

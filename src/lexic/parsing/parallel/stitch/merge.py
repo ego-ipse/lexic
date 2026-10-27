@@ -12,7 +12,7 @@ import random
 from collections.abc import Iterator
 from itertools import count, islice
 from threading import Lock
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
@@ -473,7 +473,7 @@ def _attach[M, T: GrammarModel](
         return None
     found = [needle for needle in needles if needle is not None]
     routes = (
-        sole_routes(model, found)
+        _shell_routes(model, ready, found)
         if plan is None
         else [
             held_route(model, plan, item, needle)
@@ -483,12 +483,39 @@ def _attach[M, T: GrammarModel](
     out: T | None = model
     for route, done in zip(routes, ready, strict=True):
         cut = len(route) - len(done.up) if route is not None else -1
-        if route is None or out is None or cut < 1 or route[cut:] != done.up:
+        # Only the shell can hold a region at its own root (``_shell_routes``);
+        # a piece's region always sits below the item that holds it.
+        if route is None or out is None or cut < (0 if plan is None else 1):
+            return None
+        if route[cut:] != done.up:
             return None
         node = model_at(out, route[:cut])
         laid = _laid(request, done, node) if node is not None else None
-        out = splice(out, route[:cut], laid) if laid is not None else None
+        if laid is None:
+            return None
+        out = splice(out, route[:cut], laid) if cut else cast(T, laid)
     return out
+
+
+def _shell_routes(
+    model: GrammarModel, ready: list[Attached], needles: list[GrammarModel]
+) -> list[tuple[ModelStep, ...] | None]:
+    """Each held region's route in the shell. The start rule's own region's
+    node is the shell's model itself, so its needle's route is the region's own
+    step down to it (``up``, empty when the bracket rule holds its items).
+
+    That region opens the document and its plan's outer class is the shell's,
+    which no other region can do: a nested region of a recursive start rule
+    opens later. Its stand-in is not compared — the shell's model also holds
+    what follows the closer, which :func:`_laid` takes from the holder.
+    """
+    routes = sole_routes(model, needles)
+    return [
+        done.up
+        if done.work.region.opener == 0 and done.work.plan.outer_type is model.__class__
+        else route
+        for route, done in zip(routes, ready, strict=True)
+    ]
 
 
 def _laid[M](

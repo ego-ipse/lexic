@@ -1,5 +1,10 @@
 # Log
 
+## A start rule's own bracket divides like any other (2026-10-27)
+
+`decisions.md` records why a region whose rule is the start rule now divides,
+its merged node laid over the shell's own model.
+
 ## A pair stands only where every site of its characters delimits (2026-10-27)
 
 `decisions.md` records why `roles` drops a bracket pair whose opener or closer is

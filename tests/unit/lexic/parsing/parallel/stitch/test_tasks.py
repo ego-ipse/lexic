@@ -16,8 +16,9 @@ from lexic.parsing.parallel.stitch.tasks import region_works
 from tests.unit.lexic.parsing.parallel.stitch.support import record_stitches
 
 
-def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
-    """A region rooted at the document start has no shell route."""
+def test_true_start_rule_region_divides_into_parsed_pieces() -> None:
+    """A region rooted at the document start is the whole result: its pieces
+    are parsed, and their merge is laid over the shell's own model."""
     compiled = compile_text(
         'group ::= "(" node ("," node)* ")"\nnode ::= leaf | group\nleaf ::= [a-z]+\n'
     )
@@ -29,9 +30,11 @@ def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
         return parse_model(grammar, source, fold, config)
 
     grammar, binding = compiled.codegen_grammar, compiled.product
-    assert split_model(recording_parse, grammar, Request(text, binding), 4) is None
-    assert not calls
-    assert compiled.parse(text, cores=1).to_text() == text
+    sequential = parse_model(grammar, text, binding)
+    split = split_model(recording_parse, grammar, Request(text, binding), 4)
+    assert split == sequential
+    assert split is not None and split.to_text() == text
+    assert len(calls) > 1
 
 
 def test_quote_like_rule_not_classified_as_interior_does_not_protect_owner() -> None:
