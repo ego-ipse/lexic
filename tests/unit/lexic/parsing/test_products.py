@@ -11,7 +11,6 @@ import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
 from lexic.compile.artifact import derived_reduce_entry, sub_run
-from lexic.compile.reduce.variant import reachable_rules
 from lexic.compile.reduction import RunSpec, derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
@@ -34,6 +33,7 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
     Reducer,
+    reachable,
 )
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, ParseConfig
@@ -136,7 +136,8 @@ def test_reduce_variant_elides_noise_models_without_changing_source_product():
     assert elide
     roots = frozenset(f"{name}-sk" for name in elide)
     assert roots <= {str(rule.name) for rule in entry.variant.grammar.rules}
-    omitted = reachable_rules(entry.variant.codegen_grammar, roots)
+    grammar = entry.variant.codegen_grammar
+    omitted = reachable({str(r.name): r for r in grammar.rules}, roots)
     assert omitted
     assert omitted.isdisjoint(entry.variant.product.routines)
     assert elide <= artifact.product.routines.keys()
@@ -187,7 +188,8 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
         RunSpec(frozenset({"!"}), "element"),
     )
     variant = cast(Any, escape.parse).func.__self__
-    omitted = reachable_rules(variant.codegen_grammar, frozenset({"drop-sk"}))
+    grammar = variant.codegen_grammar
+    omitted = reachable({str(r.name): r for r in grammar.rules}, {"drop-sk"})
     assert omitted == {"drop-sk", "noise-sk"}
     assert omitted.isdisjoint(variant.product.routines)
     assert escape.fold.plan.aliases == {

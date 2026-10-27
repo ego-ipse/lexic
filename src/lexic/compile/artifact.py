@@ -15,7 +15,7 @@ from typing import NamedTuple
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
 from lexic.compile.product import register_model
 from lexic.compile.reduce.fold import ReduceFold
-from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
+from lexic.compile.reduce.variant import elide_subtrees
 from lexic.compile.reduction import (
     FoldPlan,
     RunSpec,
@@ -38,6 +38,7 @@ from lexic.ir import (
     canonicalize,
     concretize,
     inline_refs,
+    reachable,
 )
 from lexic.model import GrammarModel
 from lexic.parsing import (
@@ -558,7 +559,8 @@ def _variant_artifact(
     registry = encoding_registry(compiled.tokens.tokenizer, None)
     content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
     moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
-    omit = reachable_rules(moments.grammar.resolved, recognition_roots)
+    resolved = moments.grammar.resolved
+    omit = reachable({str(r.name): r for r in resolved.rules}, recognition_roots)
     product = register_model(
         moments.grammar.resolved, moments.binding, moments.classes, omit
     )

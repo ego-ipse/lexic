@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from typing import Any, Sequence
 
 from lexic.ir import (
-    IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -17,6 +16,7 @@ from lexic.ir import (
     IrNot,
     IrRule,
     IrRuleRef,
+    has_reference,
 )
 from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
@@ -143,14 +143,7 @@ def sub_conflict(
 def text_only(rule: IrRule) -> bool:
     """Whether no rule reference appears anywhere in ``rule``'s body, inline
     groups included — its model is then its matched text."""
-    pending = [_arm_items(arm) for arm in rule.body]
-    while pending:
-        for item in pending.pop():
-            if isinstance(item.atom, IrRuleRef):
-                return False
-            if isinstance(item.atom, IrAlternation):
-                pending.extend(_arm_items(arm) for arm in item.atom)
-    return True
+    return not has_reference(rule.body)
 
 
 def may_steal(analysis: Any, rule: IrRule) -> bool:

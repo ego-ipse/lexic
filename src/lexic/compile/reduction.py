@@ -56,6 +56,8 @@ from lexic.ir import (
     IrTuple,
     Reducer,
     inline_refs,
+    reach,
+    references,
 )
 from lexic.model import GrammarModel
 
@@ -133,41 +135,6 @@ def _dropped(reducer: Reducer, rule: str) -> bool:
     return reducer.noise.resolve(IrRuleRef(rule)) is DROP
 
 
-def _collect_refs(node: Any, out: set[str]) -> None:
-    """Accumulate every rule name referenced under ``node``."""
-    if isinstance(node, IrRuleRef):
-        out.add(str(node))
-        return
-    for child in node.children():
-        _collect_refs(child, out)
-
-
-def _reach_map(grammar: IrAst) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Per rule: its direct references, and its full reachable closure."""
-    refs: dict[str, set[str]] = {}
-    for rule in grammar.rules:
-        refs[str(rule.name)] = set()
-        _collect_refs(rule.body, refs[str(rule.name)])
-    reach: dict[str, set[str]] = {}
-    for name in refs:
-        _reachable(refs, reach, name, frozenset())
-    return refs, reach
-
-
-def _reachable(
-    refs: dict[str, set[str]], reach: dict[str, set[str]], name: str, seen: frozenset
-) -> set[str]:
-    """The transitive reference closure of one rule, memoised into ``reach``."""
-    if name in reach:
-        return reach[name]
-    out = set(refs.get(name, ()))
-    for ref in list(out):
-        if ref not in seen:
-            out |= _reachable(refs, reach, ref, seen | {name})
-    reach[name] = out
-    return out
-
-
 def _unbounded(quantifier: IrQuantifier) -> bool:
     """Whether the quantifier has no upper bound (``hi`` is ``IrNone``)."""
     return isinstance(quantifier.hi, IrNoneType)
@@ -209,15 +176,15 @@ class _Analysis(NamedTuple):
 
     rules: dict[str, IrRule]
     refs: dict[str, set[str]]
-    reach: dict[str, set[str]]
+    reach: dict[str, frozenset[str]]
     equiv: dict[str, bool]
 
 
 def _analyze(grammar: IrAst, reducer: Reducer) -> _Analysis:
     """Build the analysis: rule tables and the text-equivalence verdicts."""
     rules = {str(rule.name): rule for rule in grammar.rules}
-    refs, reach = _reach_map(grammar)
-    analysis = _Analysis(rules, refs, reach, {})
+    refs = {name: set(map(str, references(rule.body))) for name, rule in rules.items()}
+    analysis = _Analysis(rules, refs, reach(rules), {})
     for name in rules:
         _text_equiv(analysis, reducer, name)
     return analysis
@@ -489,8 +456,7 @@ def sub_grammar(
     :returns: The sub-grammar AST and its synthetic group-rule names.
     """
     rules = {str(rule.name): rule for rule in grammar.rules}
-    _refs, reach = _reach_map(grammar)
-    closure = sorted({element} | reach[element])
+    closure = sorted({element} | reach(rules)[element])
     named, synthetic = _name_groups(
         [_run_rule(run_name, element), *(rules[n] for n in closure)]
     )
@@ -558,8 +524,7 @@ def _slot_map(rule: IrRule) -> dict[int, tuple[str, bool]]:
 
 def _opaque_span(rule: IrRule, reducer: Reducer, raw: bool) -> bool:
     """Whether a span-collapsed rule's fused channel cannot be rebuilt from it."""
-    refs: set[str] = set()
-    _collect_refs(rule.body, refs)
+    refs = set(map(str, references(rule.body)))
     if raw:
         return bool(refs)
     return any(not _dropped(reducer, ref) for ref in refs)

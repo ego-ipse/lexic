@@ -1754,3 +1754,28 @@ are `IrCharClass` methods because a unit IS a class: the dispatch carries the
 node itself, and nothing beside the IR keeps a second interval vocabulary. A
 newly proved run also leaves the MT anchor set (`parallel/discovery/anchors.py`,
 which drops every anchor a run's unit holds).
+
+## The rule-reference graph is asked in one place
+
+**Decision:** `lexic.ir.grammar.graph` owns every question about the graph a
+grammar's references draw: `references` (every occurrence, pre-order — the one
+walk), `has_reference`, `refs_in_order`, `reach` (each rule's closure),
+`reachable` (from roots, roots included) and `reaching` (to an entry); a rule
+is on a cycle exactly when its `reach` holds itself, read where it is asked. Every walker and closure that answered one of
+these on its own reads it: the codegen's ref test, the PDA analysis' text-only
+and reference-count tests, the scanner's recognizer closure, the region
+scan's reachability, the reduction's closures, the generator's recursion set,
+templating's reverse closure, the variant's elision and the class closure
+digest.
+
+**Why:** eleven walkers and seven closures answered the same handful of
+questions, and the reduction's closure was cut short inside a cycle — it
+memoised a rule's closure while an ancestor sat on the walk's stack (`b` in
+`a ::= "x" b | c`, `b ::= "y" a` reached only `a`); no reduce value was found
+to move with it, because the text-equivalence walk refuses cycles itself. Kept
+apart on purpose: the PDA's left-recursion detection (a left corner through
+nullable prefixes, not cycle membership — `r ::= "a" r | "b"` is on a cycle and
+not left-recursive), the region scan's visible-site walk (it reads `references`
+for its edges and keeps its own visibility), the scanner's grey/black
+topological order, and the codegen rule map's parent-alternation closures (a
+different graph).

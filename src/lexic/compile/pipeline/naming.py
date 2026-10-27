@@ -23,12 +23,11 @@ from lexic.ir import (
     IrLiteral,
     IrNode,
     IrNone,
-    IrReturn,
     IrRuleRef,
     IrSelf,
     IrStr,
     IrTypeMap,
-    IrVisitor,
+    has_reference,
 )
 
 VALUE_FIELD = "value"
@@ -263,9 +262,8 @@ def _alphabet_field(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
 def has_ruleref(node: IrNode) -> bool:
     """True if any :class:`IrRuleRef` exists in the node subtree.
 
-    Short-circuits on first hit: the singleton :class:`IrVisitor` carries an
-    :class:`IrReturn` body for :class:`IrRuleRef`, which raises a control-flow
-    exception caught by :meth:`IrDispatch.apply`.
+    The walk is :func:`~lexic.ir.grammar.graph.has_reference`, which stops at
+    the first reference.
 
     Inside one compile (:func:`ruleref_memo`) the answer is remembered by node
     IDENTITY, beside the node, for that compile only: the passes ask about the
@@ -277,11 +275,11 @@ def has_ruleref(node: IrNode) -> bool:
     """
     memo = RULEREF_MEMO.get()
     if memo is None:
-        return HAS_RULEREF.apply(node) is not IrNone
+        return has_reference(node)
     held = memo.get(id(node))
     if held is not None and held[0] is node:
         return held[1]
-    found = HAS_RULEREF.apply(node) is not IrNone
+    found = has_reference(node)
     memo[id(node)] = (node, found)
     return found
 
@@ -319,9 +317,6 @@ def _group_hint(d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
     return IrStr(str(_HINT.eval(d, n[0][0].atom, ())))
 
 
-HAS_RULEREF: IrVisitor = IrVisitor(
-    actions=IrTypeMap(IrAction(IrRuleRef, IrReturn())),
-)
 TIER2: IrDispatch = IrDispatch(
     actions=IrTypeMap(
         IrAction(IrLiteral, IrLambda(_literal_field)),

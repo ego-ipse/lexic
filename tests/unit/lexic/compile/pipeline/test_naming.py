@@ -8,7 +8,6 @@ against real grammars; this file targets naming.py's own pure functions.
 from __future__ import annotations
 
 import keyword
-from types import SimpleNamespace
 
 import pytest
 
@@ -65,14 +64,14 @@ def test_has_ruleref_false_for_a_ruleref_free_subtree():
 
 def _counted(monkeypatch) -> list[int]:
     """Count ``has_ruleref``'s walks: the returned one-cell list holds them."""
-    real = vars(naming)["HAS_RULEREF"]
+    real = vars(naming)["has_reference"]
     walks = [0]
 
-    def apply(node):
+    def walk(node):
         walks[0] += 1
-        return real.apply(node)
+        return real(node)
 
-    monkeypatch.setattr(naming, "HAS_RULEREF", SimpleNamespace(apply=apply))
+    monkeypatch.setattr(naming, "has_reference", walk)
     return walks
 
 

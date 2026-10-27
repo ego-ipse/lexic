@@ -24,12 +24,10 @@ from lexic.ir import (
     IrNone,
     IrQuantifier,
     IrRule,
-    IrRuleRef,
-    IrSelf,
     IrSeq,
     IrSequence,
+    reachable,
 )
-from lexic.ir.identity import field_children
 from lexic.parsing.pda.compiler.leftrec.shape import Fold
 
 
@@ -67,37 +65,6 @@ def _items(seq) -> list[IrItem]:
     return [one for one in seq if isinstance(one, IrItem)]
 
 
-def _reachable(rules: dict[str, IrRule], start: str) -> set[str]:
-    """Every rule name reachable from ``start``."""
-    seen: set[str] = set()
-    stack = [start]
-    while stack:
-        name = stack.pop()
-        if name in seen or name not in rules:
-            continue
-        seen.add(name)
-        stack.extend(_referenced(rules[name]))
-    return seen
-
-
-def _referenced(node: IrSelf) -> list[str]:
-    """Every rule name mentioned anywhere under ``node``.
-
-    Children come from :func:`~lexic.ir.identity.field_children`, the spine's
-    ONE stated child definition, rather than from a hand-rolled iterability
-    probe here. That matters for more than tidiness: a scalar leaf IS its
-    payload on this spine, so a walk that iterates whatever looks iterable
-    descends an ``IrStr`` into one-character strings forever. The stated walk
-    answers "the node-valued parts it carries", which is the question.
-    """
-    if isinstance(node, IrRuleRef):
-        return [str(node)]
-    found: list[str] = []
-    for child in field_children(node):
-        found.extend(_referenced(child))
-    return found
-
-
 def fold_grammar(grammar: IrAst, folds: dict[str, Fold]) -> IrAst:
     """``grammar`` with every foldable rule rewritten, and the orphans dropped.
 
@@ -120,7 +87,7 @@ def fold_grammar(grammar: IrAst, folds: dict[str, Fold]) -> IrAst:
         )
         for rule in grammar.rules
     }
-    live = _reachable(folded, str(grammar.start))
+    live = reachable(folded, (str(grammar.start),))
     return IrAst(
         rules=IrSeq(*(rule for name, rule in folded.items() if name in live)),
         start=str(grammar.start),

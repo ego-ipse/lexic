@@ -223,6 +223,7 @@ src/lexic/
       __init__.py                the group's package marker; the façade is the import surface
       charclass.py                  the character-set node and its interval algebra — IrCharClass, IrRange, MAX_CODEPOINT
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
+      graph.py                      the rule-reference graph — references, reachability, cycles
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
       transform/

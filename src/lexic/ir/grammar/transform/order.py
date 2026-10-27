@@ -20,9 +20,9 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from hashlib import blake2b
 
-from lexic.ir.grammar.nodes import IrAst, IrRule, IrRuleRef
+from lexic.ir.grammar.graph import reachable, refs_in_order
+from lexic.ir.grammar.nodes import IrAst, IrRule
 from lexic.ir.spine.records import IrSeq
-from lexic.ir.spine.spine import IrSelf
 
 
 class RuleOrder:
@@ -111,21 +111,6 @@ class RuleOrder:
         return IrAst(IrSeq(*(by_name[name] for name in order)), ast.start)
 
 
-def refs_in_order(node: IrSelf, out: list[str]) -> None:
-    """Collect ``IrRuleRef`` names in pre-order (body) traversal order.
-
-    :param node: Subtree root to scan.
-    :param out: Accumulator receiving each ref name in first-seen order.
-    """
-    if isinstance(node, IrRuleRef):
-        name = str(node)
-        if name not in out:
-            out.append(name)
-        return
-    for child in node.children():
-        refs_in_order(child, out)
-
-
 def order_by_refs(ast: IrAst) -> IrAst:
     """Module-level alias for :meth:`RuleOrder.by_refs`.
 
@@ -155,26 +140,13 @@ def rule_closure(ast: IrAst) -> dict[str, int]:
     :returns: Rule name → a 64-bit digest of its reachable subgraph.
     """
     bodies = {str(rule.name): rule for rule in ast.rules}
-    edges: dict[str, list[str]] = {}
-    for name, rule in bodies.items():
-        refs: list[str] = []
-        refs_in_order(rule.body, refs)
-        edges[name] = refs
-    return {name: _closure_digest(name, bodies, edges) for name in bodies}
+    return {
+        name: _closure_digest(reachable(bodies, (name,)), bodies) for name in bodies
+    }
 
 
-def _closure_digest(
-    start: str, bodies: dict[str, IrRule], edges: dict[str, list[str]]
-) -> int:
-    """One rule's closure digest — sorted, so ref order cannot perturb it."""
-    seen: set[str] = set()
-    stack = [start]
-    while stack:
-        name = stack.pop()
-        if name in seen or name not in bodies:
-            continue
-        seen.add(name)
-        stack.extend(edges.get(name, ()))
+def _closure_digest(seen: frozenset[str], bodies: dict[str, IrRule]) -> int:
+    """One closure's digest — sorted, so ref order cannot perturb it."""
     packed = b"".join(
         len(chunk).to_bytes(8, "little") + chunk
         for name in sorted(seen)

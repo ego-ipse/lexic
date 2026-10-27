@@ -2,29 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 
 from lexic.compile.pipeline.passes import retargeter, skip_rules
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrRule, IrSeq, refs_in_order
+from lexic.ir import IrAst, IrRule, IrSeq, reachable
 
 _SKIP = "-sk"
-
-
-def reachable_rules(grammar: IrAst, roots: Iterable[str]) -> frozenset[str]:
-    """Return existing rules reachable from ``roots``, roots included."""
-    rules = {str(rule.name): rule for rule in grammar.rules}
-    found: set[str] = set()
-    work = list(roots)
-    while work:
-        name = work.pop()
-        if name in found or name not in rules:
-            continue
-        found.add(name)
-        refs: list[str] = []
-        refs_in_order(rules[name].body, refs)
-        work.extend(refs)
-    return frozenset(found)
 
 
 def elide_subtrees(
@@ -45,7 +29,7 @@ def elide_subtrees(
     if not roots:
         return grammar, {}
     names = {str(rule.name) for rule in grammar.rules}
-    closure = reachable_rules(grammar, roots)
+    closure = reachable({str(rule.name): rule for rule in grammar.rules}, roots)
     collisions = sorted(name for name in closure if f"{name}{_SKIP}" in names)
     if collisions:
         targets = ", ".join(repr(f"{name}{_SKIP}") for name in collisions)

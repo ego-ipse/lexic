@@ -30,14 +30,13 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.ir import (
-    IrAlternation,
     IrAst,
     IrItem,
     IrLiteral,
     IrNoneType,
     IrRule,
     IrRuleRef,
-    IrSelf,
+    references,
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.shapes import (
@@ -294,19 +293,6 @@ def _interiors_of(rule: IrRule, rule_map: dict[str, IrRule]) -> list[Interior]:
     return [region for region in found if region is not None]
 
 
-def _refs(atom: IrSelf) -> frozenset[str]:
-    """Every rule name an atom references, nested alternations included."""
-    if isinstance(atom, IrRuleRef):
-        return frozenset({str(atom)})
-    if not isinstance(atom, IrAlternation):
-        return frozenset()
-    found: set[str] = set()
-    for arm in atom:
-        for item in arm:
-            found |= _refs(item.atom)
-    return frozenset(found)
-
-
 def _visible_items(
     rule: IrRule, spans: dict[tuple[str, int], tuple[int, int]]
 ) -> tuple[IrItem, ...]:
@@ -335,7 +321,7 @@ def _reachable_visible(
             continue
         seen.add(name)
         for item in _visible_items(rule, spans):
-            pending.extend(_refs(item.atom))
+            pending.extend(map(str, references(item.atom)))
     return frozenset(seen)
 
 
@@ -538,7 +524,7 @@ def stray_spellings(
     ]
     referrers: dict[str, set[Site]] = {str(grammar.start): {("", 0, 0)}}
     for item, at in sites:
-        for name in _refs(item.atom):
+        for name in map(str, references(item.atom)):
             referrers.setdefault(name, set()).add(at)
     opaque = frozenset(rule_map)
     stray: set[str] = set()

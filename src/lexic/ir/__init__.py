@@ -91,6 +91,14 @@ if TYPE_CHECKING:
         IrSpellable,
     )
     from lexic.ir.grammar.charclass import MAX_CODEPOINT, IrCharClass, IrRange
+    from lexic.ir.grammar.graph import (
+        has_reference,
+        reach,
+        reachable,
+        reaching,
+        references,
+        refs_in_order,
+    )
     from lexic.ir.grammar.nodes import (
         IrAlphabet,
         IrAlternation,
@@ -129,7 +137,6 @@ if TYPE_CHECKING:
     from lexic.ir.grammar.transform.order import (
         RuleOrder,
         order_by_refs,
-        refs_in_order,
         rule_closure,
     )
     from lexic.ir.identity import (
@@ -452,9 +459,14 @@ __all__ = [
     "concretize_atom",
     "field_children",
     "fold_name",
+    "has_reference",
     "inline_refs",
     "is_plain_tuple",
     "order_by_refs",
+    "reach",
+    "reachable",
+    "reaching",
+    "references",
     "refs_in_order",
     "render",
     "rule_closure",
@@ -646,7 +658,12 @@ _HOMES = {
     "fold_name": "lexic.ir.grammar.transform.canonical",
     "inline_refs": "lexic.ir.grammar.transform.canonical",
     "order_by_refs": "lexic.ir.grammar.transform.order",
-    "refs_in_order": "lexic.ir.grammar.transform.order",
+    "has_reference": "lexic.ir.grammar.graph",
+    "reach": "lexic.ir.grammar.graph",
+    "reachable": "lexic.ir.grammar.graph",
+    "reaching": "lexic.ir.grammar.graph",
+    "references": "lexic.ir.grammar.graph",
+    "refs_in_order": "lexic.ir.grammar.graph",
     "render": "lexic.ir.text.layout",
     "unspellable": "lexic.ir.identity",
     "rule_closure": "lexic.ir.grammar.transform.order",

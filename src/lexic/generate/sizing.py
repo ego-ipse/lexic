@@ -47,6 +47,8 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
     IrTypeMap,
+    reach,
+    references,
 )
 
 Rules = dict[str, IrRule]
@@ -182,32 +184,6 @@ _SIZE_ATOM: IrDispatch = IrDispatch(
 )
 
 
-def _refs_terminal(_d: _Shape, _n: IrSelf, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A literal or char class names no rule."""
-    return frozenset()
-
-
-def _refs_ruleref(_d: _Shape, n: IrRuleRef, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A reference names its target."""
-    return frozenset((str(n),))
-
-
-def _refs_group(d: _Shape, n: IrAlternation, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A group names what its arms name."""
-    return d.alt_refs(n)
-
-
-_REFS_ATOM: IrDispatch = IrDispatch(
-    actions=IrTypeMap(
-        IrAction(IrLiteral, IrLambda(_refs_terminal)),
-        IrAction(IrCharClass, IrLambda(_refs_terminal)),
-        IrAction(IrRuleRef, IrLambda(_refs_ruleref)),
-        IrAction(IrAlternation, IrLambda(_refs_group)),
-    ),
-    default=IrRaise(message="generate: no reference rule for {node_type!r}"),
-)
-
-
 class _Shape(
     IrNamedTuple[Rules, ArmFilter, dict[tuple[str, int], Size], frozenset[str]]
 ):
@@ -229,32 +205,18 @@ class _Shape(
     def of(cls, rules: Rules, free: FreeWalk, depth: int) -> _Shape:
         """Which rules reach a cycle, by fixpoint; then sizes bottom-up to ``depth``,
         so no reading recurses as deep as the budget."""
-        bare = cls(rules=rules, free=free, memo={}, recursive=frozenset())
-        reach = {name: set(bare.alt_refs(rule.body)) for name, rule in rules.items()}
-        changed = True
-        while changed:
-            changed = False
-            for seen in reach.values():
-                more = set().union(*(reach.get(t, ()) for t in seen)) - seen
-                seen |= more
-                changed = changed or bool(more)
-        cyclic = {name for name, seen in reach.items() if name in seen}
-        recursive = frozenset(n for n, seen in reach.items() if seen & cyclic)
+        closures = reach(rules)
+        on_cycle = {name for name, seen in closures.items() if name in seen}
+        recursive = frozenset(n for n, seen in closures.items() if seen & on_cycle)
         shape = cls(rules=rules, free=free, memo={}, recursive=recursive)
         for level in range(depth + 1):
             for name in rules:
                 shape.rule_size(name, level)
         return shape
 
-    def alt_refs(self, body: IrAlternation) -> frozenset[str]:
-        """Every rule an alternation names, groups included."""
-        return frozenset().union(
-            *(_REFS_ATOM.eval(self, item.atom, ()) for arm in body for item in arm)
-        )
-
     def atom_recursive(self, item: IrItem) -> bool:
         """Whether an item's atom reaches a reference cycle."""
-        return bool(_REFS_ATOM.eval(self, item.atom, ()) & self.recursive)
+        return any(str(ref) in self.recursive for ref in references(item.atom))
 
     def rule_size(self, name: str, depth: int) -> Size:
         """Rule ``name`` at ``depth``, memoised; no room once the depth is spent."""
