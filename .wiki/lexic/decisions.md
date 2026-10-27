@@ -1850,3 +1850,35 @@ PEP 810's lazy imports would replace all of it, but they are not on 3.14. The
 drift pins in `test_init_ir` hold the three statements to one another: module
 by module and in both directions for the `TYPE_CHECKING` block, by set equality
 for `__all__`, and by resolution for every name.
+
+## A span's first derivation is read in one place
+
+**Decision:** the char, token and island routes read a span's first
+derivation through the fast build's own module, `forest/fasttree.py`:
+
+- `first_tree(kernel, handles, decide)` returns the first accepting handle
+  whose resolving fast build succeeds, in the order the caller gives, as a
+  `FirstTree` (handle, tree, and that build's memo).
+- `streamed_first(node, chart, handle)` is its fallback. It reads the decoded
+  chart in chart order when no handle builds, and leaves the memo empty.
+- `different_meaning` takes the `FirstTree`, and `remembered` folds it seeded
+  from its memo instead of building the same tree a second time. A streamed
+  tree folds fresh.
+- The sibling comparison reads a sibling production the fast build declines
+  off the chart too. Skipping it let chart order settle a tie the values
+  never did.
+
+**Where things live:** `readout` stays the read-only decode seam.
+`accept_handles` and `handle_node` are readouts and live there. The two
+readers BUILD derivations, so they live beside the fast build. The stream
+fallback lives in `fasttree` rather than `forest.py` because it returns a
+`FirstTree`, and `fasttree` already imports `forest`.
+
+**Why:** three readers each built "the fast tree, else the chart" their own
+way, and the token route refused outright on a miss.
+
+The char route keeps its plain re-parse between the two readers: run
+terminals shape the chart, a fact about the tables. The island's bail-mode
+build is handed on with its memo. It reaches `remembered` only through an arm
+choice, and a bail build declines on every key that packs two families, so
+that memo is never replayed.

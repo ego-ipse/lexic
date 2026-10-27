@@ -28,7 +28,7 @@ from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, once
 from lexic.parsing.earley.engine import first_built_meaning
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.forest.fasttree import first_tree, streamed_first
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     MeaningBuilder,
@@ -38,7 +38,10 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
+    accept_handles,
     accept_item,
+    accept_node,
+    to_chart,
 )
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
@@ -158,19 +161,19 @@ def token_model[M](
         raise UnsupportedConstructError(
             "parsing: input does not parse the token grammar"
         )
-    handle = accept_handle(kernel)
-    # RESOLVING mode, as the char route uses. Bail mode declined on exactly the
-    # inputs at issue and reported them as "no token derivation" — so an
-    # ambiguous span and a plain SPLIT both died claiming nothing derived.
-    tree = FastTree(kernel, {}, config.decide).build(handle)
-    if not isinstance(tree, ParseTree):
+    # The char route's reader, over THIS kernel's chart: the token
+    # segmentation shapes it, so nothing is re-read as characters.
+    first = first_tree(kernel, accept_handles(kernel), config.decide)
+    if first is None:
+        first = streamed_first(
+            accept_node(kernel), to_chart(kernel), accept_handle(kernel)
+        )
+    if first is None:
         raise UnsupportedConstructError("parsing: no token derivation")
     executor = binding.executor
     builder = MeaningBuilder(executor.build, executor.replay)
     return chosen_meaning(
-        different_meaning(kernel, handle, builder, tree, config.decide),
-        builder,
-        config,
+        different_meaning(kernel, first, builder, config.decide), builder, config
     )
 
 

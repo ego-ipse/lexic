@@ -6,8 +6,7 @@ import random
 
 from lexic.compile import compile_from_path
 from lexic.generate import generate
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.fasttree import first_tree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     MeaningBuilder,
     ambiguity_points,
@@ -48,13 +47,13 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
         if accept_item(kernel) < 0:
             continue
         handle = (accept_item(kernel) << kernel.tables.packing.bits) | len(text)
-        tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
-        if not isinstance(tree, ParseTree):
+        first = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+        if first is None:
             continue
         if ambiguity_points(kernel, handle):
             with_points += 1
         if (
-            different_meaning(kernel, handle, builder, tree, LEFTMOST_LONGEST).witness
+            different_meaning(kernel, first, builder, LEFTMOST_LONGEST).witness
             is not None
         ):
             flagged += 1

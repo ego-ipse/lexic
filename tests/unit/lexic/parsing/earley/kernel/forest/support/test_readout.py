@@ -16,7 +16,6 @@ from lexic.ir import (
     IrCharClass,
     IrChr,
     IrItem,
-    IrLiteral,
     IrNone,
     IrNoneType,
     IrQuantifier,
@@ -29,10 +28,13 @@ from lexic.parsing import derivations
 from lexic.parsing.earley.kernel.forest.chart import Chart
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, SppfNode
 from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_handles,
     accept_item,
     accept_items,
     accept_node,
     decode_item,
+    handle_node,
     root_ambiguous,
     start_completion_ends,
     to_chart,
@@ -40,6 +42,9 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_MASK
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    twin_arm_grammar,
+)
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     norm,
@@ -157,16 +162,6 @@ def test_decode_item_returns_earley_item_shape():
 # ── accept_items / root_ambiguous (L2 root arm-choice) ────────────────
 
 
-def twin_arm_grammar() -> IrAst:
-    """v ::= a | b, a/b both "x" — the start completes the whole input two ways."""
-    return norm(
-        IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
-        IrRule("a", IrLiteral("x")),
-        IrRule("b", IrLiteral("x")),
-        start="v",
-    )
-
-
 def test_accept_items_lists_every_accepting_production():
     """A twin-arm start yields two accepting items (one per production)."""
     kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
@@ -182,6 +177,20 @@ def test_accept_items_empty_on_no_parse():
     """accept_items() is empty when the input does not derive."""
     kernel = Kernel(compile_tables(twin_arm_grammar()), "z", record_links=True).run()
     assert accept_items(kernel) == []
+
+
+def test_accept_handles_pack_every_accepting_item_at_the_input_end():
+    """One handle per accepting production, in ``accept_items`` order."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    bits = kernel.tables.packing.bits
+    assert accept_handles(kernel) == [(it << bits) | 1 for it in accept_items(kernel)]
+    assert accept_handles(kernel)[0] == accept_handle(kernel)
+
+
+def test_handle_node_is_the_node_a_packed_handle_stands_for():
+    """The handle of the sole accepting item reads back as the accept node."""
+    kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
+    assert handle_node(kernel, accept_handle(kernel)) == accept_node(kernel)
 
 
 def test_root_ambiguous_true_for_twin_arms():

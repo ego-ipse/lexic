@@ -61,6 +61,18 @@ def accept_handle(kern: Kernel) -> int:
     return (accept_item(kern) << kern.tables.packing.bits) | len(kern.text)
 
 
+def accept_handles(kern: Kernel) -> list[int]:
+    """Every whole-input completion of the start symbol, as packed handles.
+
+    One for the ordinary parse; several where the start symbol derives the
+    input through more than one production, which is not an ambiguity point in
+    the link table — the siblings live in other accepting ITEMS — and so has to
+    be enumerated here rather than found by a walk.
+    """
+    bits, n = kern.tables.packing.bits, len(kern.text)
+    return [(item << bits) | n for item in accept_items(kern)]
+
+
 def accept_items(kern: Kernel) -> list[int]:
     """Every completed start item spanning the whole input (origin 0).
 
@@ -120,6 +132,12 @@ def root_ambiguous(kern: Kernel) -> bool:
     :class:`~lexic.parsing.earley.kernel.forest.forest.RootNode`.
     """
     return len(accept_items(kern)) > 1
+
+
+def handle_node(kern: Kernel, handle: int) -> SppfNode:
+    """The forest node a packed ``handle`` (``(item << B) | end``) stands for."""
+    item = handle >> kern.tables.packing.bits
+    return SppfNode(decode_item(kern.tables, item), handle & kern.tables.packing.mask)
 
 
 def accept_node(kern: Kernel) -> IrSelf:

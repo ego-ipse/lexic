@@ -24,9 +24,18 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNamedTuple, IrNone, IrNoneType
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.fasttree import (
+    FastTree,
+    FirstTree,
+    first_tree,
+    streamed_first,
+)
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.support.readout import accept_items
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handles,
+    handle_node,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
@@ -228,21 +237,25 @@ class MeaningMemo[NodeValue](NamedTuple):
 
 
 def remembered[Value, NodeValue](
-    run: MeaningRun[Value, NodeValue], first: ParseTree
+    run: MeaningRun[Value, NodeValue], first: FirstTree
 ) -> tuple[BuiltMeaning[Value], MeaningMemo[NodeValue]]:
-    """Build and fold the default derivation, keeping what each handle meant.
+    """Fold the default derivation, keeping what each handle meant.
+
+    The derivation is the one the caller already built, and its memo is that
+    build's: nothing is built twice. A derivation read off the decoded chart
+    keeps no handles, so it folds fresh and leaves the memo empty.
 
     :param run: The span's kernel, handle and interpretation.
-    :param first: The derivation already in hand, used on a fast-tree miss.
+    :param first: The derivation already in hand, with its build's memo.
     :returns: The already-built baseline and its reusable node memo.
     """
-    tree = FastTree(run.kernel, {}, run.decide)
-    built = tree.build(run.root)
-    if not isinstance(built, ParseTree):
-        return BuiltMeaning(first, run.builder.build(first)), MeaningMemo({}, {})
+    if not first.memo:
+        return BuiltMeaning(first.tree, run.builder.build(first.tree)), MeaningMemo(
+            {}, {}
+        )
     values: dict[int, NodeValue] = {}
-    value = run.builder.replay(built, values)
-    return BuiltMeaning(first, value), MeaningMemo(dict(tree.memo), values)
+    value = run.builder.replay(first.tree, values)
+    return BuiltMeaning(first.tree, value), MeaningMemo(dict(first.memo), values)
 
 
 def replayed[Value, NodeValue](
@@ -314,14 +327,9 @@ def _sibling_roots(kernel: Kernel, handle: int) -> list[int]:
     one of them never reaches. `s ::= s s | "a"` over `"aaa"` is exactly that
     shape, and reading only the links calls it unambiguous.
     """
-    bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    if (handle & mask) != len(kernel.text):
+    if (handle & kernel.tables.packing.mask) != len(kernel.text):
         return []
-    return [
-        (item << bits) | len(kernel.text)
-        for item in accept_items(kernel)
-        if ((item << bits) | len(kernel.text)) != handle
-    ]
+    return [other for other in accept_handles(kernel) if other != handle]
 
 
 def same_value(one: object, other: object) -> bool:
@@ -356,9 +364,8 @@ def same_value(one: object, other: object) -> bool:
 
 def different_meaning[Value, NodeValue](
     kernel: Kernel,
-    handle: int,
+    first: FirstTree,
     builder: MeaningBuilder[Value, NodeValue],
-    first: ParseTree,
     decide: Decider,
 ) -> MeaningPair[Value]:
     """Build the baseline once and find the first differently valued derivation.
@@ -375,16 +382,17 @@ def different_meaning[Value, NodeValue](
     therefore does not construct its chosen result again.
 
     :param kernel: The finished kernel.
-    :param handle: The packed accepting handle.
+    :param first: The derivation already in hand, its handle and its build's
+        memo — the baseline every alternative is compared against.
     :param builder: Fresh and memo-seeded product execution.
-    :param first: The derivation already in hand, to compare the rest against.
     :param decide: The split decider every derivation's carving answers to.
     :returns: The already-built baseline and optional differing witness.
     """
+    handle = first.handle
     siblings = _sibling_roots(kernel, handle)
     choices = _arm_choices(kernel, handle)
     if not choices:
-        base = BuiltMeaning(first, builder.build(first))
+        base = BuiltMeaning(first.tree, builder.build(first.tree))
         witness = _sibling_witness(kernel, siblings, base, builder, decide)
         return MeaningPair(base, witness)
     # Only here, where an alternate can exist at all, does the span's fixed
@@ -508,12 +516,18 @@ def _sibling_witness[Value, NodeValue](
     builder: MeaningBuilder[Value, NodeValue],
     decide: Decider,
 ) -> BuiltMeaning[Value] | None:
-    """The first sibling root that means something other than ``base``."""
+    """The first sibling root that means something other than ``base``.
+
+    A sibling the fast build declines is read off the decoded chart instead —
+    skipping it would let chart order settle a tie the values never did.
+    """
     for alternate in siblings:
-        other = FastTree(kernel, {}, decide).build(alternate)
-        if not isinstance(other, ParseTree):
+        other = first_tree(kernel, (alternate,), decide) or streamed_first(
+            handle_node(kernel, alternate), to_chart(kernel), alternate
+        )
+        if other is None:
             continue
-        built = BuiltMeaning(other, builder.build(other))
+        built = BuiltMeaning(other.tree, builder.build(other.tree))
         if not same_value(base.value, built.value):
             return built
     return None

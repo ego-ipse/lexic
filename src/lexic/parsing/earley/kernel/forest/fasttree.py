@@ -8,10 +8,16 @@ either would close the loop.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, NamedTuple
 
-from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
-from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
+from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq, IrTuple
+from lexic.parsing.earley.kernel.forest.chart import Chart
+from lexic.parsing.earley.kernel.forest.forest import (
+    DERIVATION_STREAM,
+    ParseTree,
+    PayloadLeaf,
+)
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.splits import (
@@ -195,3 +201,56 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
                         continue
                 out.append((child, resolved, idx, None))
         return out
+
+
+class FirstTree(NamedTuple):
+    """The first derivation of a span, and what building it left behind.
+
+    :ivar handle: The packed accepting handle the tree derives.
+    :ivar tree: The derivation.
+    :ivar memo: Handle → the subtree the fast build made for it; empty when
+        the tree came off the decoded chart instead, which keeps no handles.
+    """
+
+    handle: int
+    tree: ParseTree
+    memo: dict[int, ParseTree]
+
+
+def first_tree(
+    kern: Kernel, handles: Sequence[int], decide: Decider
+) -> FirstTree | None:
+    """The first of ``handles`` the fast build derives, under ``decide``.
+
+    RESOLVING mode: an empty choices map pins nothing, so the decider settles
+    every split — bail mode would decline on exactly the ambiguous spans and
+    leave them to chart order. Every handle is tried in chart order, because a
+    many-production root is not a packed key: each sibling production builds
+    on its own, and the siblings are what a meaning comparison reads after.
+
+    :param kern: The finished kernel whose links to walk.
+    :param handles: The accepting handles, in chart order.
+    :param decide: The split decider whose carving the build keeps.
+    :returns: The first that builds, or ``None`` when none does.
+    """
+    for handle in handles:
+        build = FastTree(kern, {}, decide)
+        tree = build.build(handle)
+        if isinstance(tree, ParseTree):
+            return FirstTree(handle, tree, build.memo)
+    return None
+
+
+def streamed_first(node: IrSelf, chart: Chart, handle: int) -> FirstTree | None:
+    """The decoded chart's first derivation of ``node`` — the fast build's
+    fallback, read in chart order where the short path declined.
+
+    :param node: The forest node to derive (an :class:`SppfNode` or a
+        :class:`RootNode` over several accepting productions).
+    :param chart: The kernel's decoded chart.
+    :param handle: The packed accepting handle ``node`` stands for.
+    :returns: The first derivation with an empty memo, or ``None`` when the
+        chart derives none.
+    """
+    got = next(iter(DERIVATION_STREAM.eval(IrNone, node, IrTuple(chart))), IrNone)
+    return FirstTree(handle, got, {}) if isinstance(got, ParseTree) else None

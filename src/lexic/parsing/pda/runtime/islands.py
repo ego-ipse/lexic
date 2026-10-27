@@ -23,13 +23,15 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrNoneType, IrTuple
-from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.ir import IrNoneType
+from lexic.parsing.earley.kernel.forest.fasttree import (
+    FastTree,
+    FirstTree,
+    first_tree,
+    streamed_first,
+)
 from lexic.parsing.earley.kernel.forest.forest import (
-    DERIVATION_STREAM,
     ParseTree,
-    SppfNode,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
@@ -38,13 +40,12 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
-    decode_item,
+    handle_node,
     start_completion_ends,
     start_completions,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
-from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.compiler.program.gating import (
@@ -96,12 +97,6 @@ def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
         raise PdaFail(
             f"island {name!r} at {pos}: the product refused the completion", pos
         ) from exc
-
-
-_DERIV_PARSER = EarleyParser()
-"""The shared façade dispatcher the island derivation-stream fallback threads
-through :data:`~lexic.parsing.earley.kernel.forest.forest.DERIVATION_STREAM`'s
-``eval`` (stateless)."""
 
 
 def _may_extend(kern: Kernel) -> bool:
@@ -368,7 +363,8 @@ def _decoded(
     """
     item, end = best
     handle = (item << kern.tables.packing.bits) | end
-    tree = FastTree(kern, None, policy.config.decide).build(handle)
+    build = FastTree(kern, None, policy.config.decide)
+    tree = build.build(handle)
     if not isinstance(tree, ParseTree):
         # The fast path declining is NOT ambiguity — it also declines when a key
         # packs more than one family or the root has many productions.
@@ -378,18 +374,19 @@ def _decoded(
     # a tree for a completion whose arms mean different things. It is not an
     # oracle — `different_meaning` asks that question separately, and the
     # model path asks it too.
-    settled, value = _settle_two_meanings(kern, handle, tree, name, policy)
+    first = FirstTree(handle, tree, build.memo)
+    settled, value = _settle_two_meanings(kern, first, name, policy)
     return settled, end, value
 
 
 def _settle_two_meanings(
-    kern: Kernel, handle: int, tree: ParseTree, name: str, policy: IslandPolicy
+    kern: Kernel, first: FirstTree, name: str, policy: IslandPolicy
 ) -> tuple[ParseTree, CompletionResult[Any] | None]:
     """The derivation to keep when this completion may mean a second thing.
 
     :param kern: The island's Earley kernel.
-    :param handle: The packed accepting item and end.
-    :param tree: The derivation already in hand.
+    :param first: The derivation already in hand, its handle and its build's
+        memo.
     :param name: The island rule name (for the failure message).
     :param policy: Carries the product completion that answers the question,
         and the caller's resolver.
@@ -401,6 +398,7 @@ def _settle_two_meanings(
         resolver was supplied.
     """
     executor = policy.executor
+    tree = first.tree
     if executor is None:
         return tree, None
     # The value-once route, and the OCCURRENCE completion within it. Value-once
@@ -412,9 +410,8 @@ def _settle_two_meanings(
     # the fold could not express and a resolver should not be asked to guess.
     pair = different_meaning(
         kern,
-        handle,
+        first,
         MeaningBuilder(executor.splice, executor.splice_replay),
-        tree,
         policy.config.decide,
     )
     if pair.witness is None:
@@ -491,29 +488,22 @@ def island_derivation(
         different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end
+    decide = policy.config.decide
     if policy.executor is None:
-        return _one_derivation(kern, handle, name, None, policy.config.decide), None
-    tree = _one_derivation(kern, handle, name, {}, policy.config.decide)
-    return _settle_two_meanings(kern, handle, tree, name, policy)
+        bail = FastTree(kern, None, decide).build(handle)
+        if isinstance(bail, ParseTree):
+            return bail, None
+        return _streamed(kern, handle, name).tree, None
+    first = first_tree(kern, (handle,), decide) or _streamed(kern, handle, name)
+    return _settle_two_meanings(kern, first, name, policy)
 
 
-def _one_derivation(
-    kern: Kernel,
-    handle: int,
-    name: str,
-    choices: dict[int, int] | None,
-    decide: Decider,
-) -> ParseTree:
-    """The derivation ``choices`` names, or the fast path's when it is ``None``."""
-    tree = FastTree(kern, choices, decide).build(handle)
-    if isinstance(tree, ParseTree):
-        return tree
-    node = SppfNode(
-        decode_item(kern.tables, handle >> kern.tables.packing.bits),
-        handle & kern.tables.packing.mask,
-    )
-    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(to_chart(kern)))
-    got = next(iter(stream), None)
-    if not isinstance(got, ParseTree):
+def _streamed(kern: Kernel, handle: int, name: str) -> FirstTree:
+    """The decoded island chart's first derivation of ``handle``.
+
+    :raises PdaFail: When the chart derives none.
+    """
+    first = streamed_first(handle_node(kern, handle), to_chart(kern), handle)
+    if first is None:
         raise PdaFail(f"island {name!r}: no derivation")
-    return got
+    return first

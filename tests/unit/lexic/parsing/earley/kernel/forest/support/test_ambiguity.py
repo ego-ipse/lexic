@@ -17,17 +17,19 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNone, IrStr
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree, FirstTree, first_tree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support import ambiguity
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     MeaningBuilder,
     MeaningPair,
+    MeaningRun,
     ParseConfig,
     ambiguity_points,
     chosen_meaning,
     different_meaning,
+    remembered,
     same_value,
 )
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
@@ -96,9 +98,9 @@ def _builder(build) -> MeaningBuilder:
 def _settled(text: str, build, name: str, grammar: str = SAME_BOUNDARY) -> MeaningPair:
     """What the span means, under one interpretation of its derivations."""
     kernel, handle = kernel_and_handle(text, grammar, name)
-    tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
-    assert isinstance(tree, ParseTree)
-    return different_meaning(kernel, handle, _builder(build), tree, LEFTMOST_LONGEST)
+    first = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert first is not None
+    return different_meaning(kernel, first, _builder(build), LEFTMOST_LONGEST)
 
 
 def test_no_witness_when_every_grouping_builds_the_same_value():
@@ -187,3 +189,41 @@ def test_the_default_config_refuses_and_keeps_the_leftmost_longest_carving():
     assert DEFAULT_CONFIG.decide is LEFTMOST_LONGEST
     assert ParseConfig(resolve=lambda one, _other: one).decide is LEFTMOST_LONGEST
     assert DEFAULT_CONFIG == ParseConfig()
+
+
+def _refuse_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make any fast build during the test an error."""
+
+    def no_build(_self: FastTree, _handle: int) -> ParseTree:
+        raise AssertionError("remembered built a derivation")
+
+    monkeypatch.setattr(FastTree, "build", no_build)
+
+
+def test_remembered_folds_the_first_build_and_builds_nothing(monkeypatch):
+    """The baseline is the derivation the caller built, its memo that build's:
+    remembering it costs no second build."""
+    kernel, handle = kernel_and_handle("n", SAME_BOUNDARY, "remembered-memo")
+    first = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert first is not None
+    run = MeaningRun(kernel, handle, _builder(repr), LEFTMOST_LONGEST)
+    _refuse_builds(monkeypatch)
+    base, memo = remembered(run, first)
+    assert base.tree is first.tree
+    assert base.value == repr(first.tree)
+    assert memo.nodes == first.memo
+    assert memo.nodes is not first.memo
+
+
+def test_remembered_folds_a_streamed_tree_fresh_with_an_empty_memo(monkeypatch):
+    """A derivation read off the chart keeps no handles, so there is nothing to
+    seed from: it folds fresh and the memo stays empty."""
+    kernel, handle = kernel_and_handle("n", SAME_BOUNDARY, "remembered-stream")
+    built = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert built is not None
+    streamed = FirstTree(handle, built.tree, {})
+    run = MeaningRun(kernel, handle, _builder(repr), LEFTMOST_LONGEST)
+    _refuse_builds(monkeypatch)
+    base, memo = remembered(run, streamed)
+    assert (base.tree, base.value) == (built.tree, repr(built.tree))
+    assert (memo.nodes, memo.values) == ({}, {})

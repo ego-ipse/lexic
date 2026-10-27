@@ -130,6 +130,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
+    accept_handles,
     accept_item,
     accept_items,
     accept_node,
@@ -296,7 +297,7 @@ __all__ = [
     "RootNode",
     "SppfNode",
     "accept_handle",
-    "accept_handle",
+    "accept_handles",
     "accept_item",
     "accept_items",
     "accept_node",

@@ -1,5 +1,12 @@
 # Log
 
+## A span's first derivation is read in one place (2026-10-27)
+
+`decisions.md` records `fasttree.first_tree` / `streamed_first` / `FirstTree`
+as the char, token and island routes' one reader, `remembered` folding the
+build it is handed, and the sibling comparison reading a declined sibling off
+the chart.
+
 ## The IR façade's lookup is the groups' own data (2026-10-27)
 
 `decisions.md` records the group markers' `SURFACE` data, the derived `_HOMES`,
