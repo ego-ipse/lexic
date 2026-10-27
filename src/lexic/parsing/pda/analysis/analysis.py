@@ -9,7 +9,7 @@ raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 
 from __future__ import annotations
 
-__all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
+__all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy"]
 
 
 from typing import NamedTuple, Sequence, cast
@@ -57,11 +57,9 @@ from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
     HARD,
-    NULLABLE,
     STOPSET_ATOM,
     Extensions,
     item_nullable,
-    nullable_names,
     rule_extensions,
     seq_nullable,
 )
@@ -152,7 +150,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         self.rules = {str(r.name): r for r in grammar.rules}
         self.start = str(grammar.start)
-        self.nullable = nullable_names(list(grammar.rules))
+        self.nullable = grammar.nullable()
         self.first = self._first_sets()
         self.hard = self._hard_sets()
         self.follows = Follows(
@@ -211,7 +209,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
-        return cast(bool, NULLABLE.resolve(atom).eval(self, atom, ()))
+        return atom.vanishes(self.nullable)
 
     def item_nullable(self, item: IrItem) -> bool:
         """Whether ``item`` can consume nothing (``lo == 0`` or nullable atom)."""

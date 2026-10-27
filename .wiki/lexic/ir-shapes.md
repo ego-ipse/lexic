@@ -302,6 +302,16 @@ Four arm facts are intrinsic too, with `IrNone` for absence: `IrItem.unit_ref()`
 
 A quantifier answers its own shape the same way: `IrQuantifier.once()` (exactly once — the default, no postfix), `optional()` (`?`), `unbounded()` (no upper bound), `repeats()` (may stand beside itself: unbounded or `hi > 1`, so a bounded `{2,3}` repeats), `fixed()` (`lo == hi`) and `upper()` (`hi` as an `int`, `None` when unbounded). No module keeps a unit-quantifier constant or a copy of these tests; a bare field read (`q.lo == 0`) is the record itself and stays.
 
+Whether a node derives the empty string is intrinsic as well. Each grammar atom answers `vanishes(nullable)`, given the names of the rules that derive ε:
+
+- an empty literal and an empty arm vanish;
+- a class, a negation and a token never do;
+- a reference vanishes when its rule is in the set;
+- a group vanishes when any of its arms does;
+- an item vanishes when `lo == 0` or its atom vanishes.
+
+An atom with no answer raises. `IrRule.nullable_among(rules)` is the least fixpoint grown from nothing, so a cycle with no empty way out is never admitted. `IrAst.nullable()` is that fixpoint over the grammar's own rules, and it is the one nullability fact every layer reads (see [[decisions]]).
+
 ## Hoisting and non-semantic relaxation (`codegen/passes.py`)
 
 These moved out of the retired `ir/derive.py` into grammar→grammar passes over the *canonical* grammar, composed as `build_codegen_grammar = relax_non_semantic(hoist_arms(hoist_groups(ast)))`:

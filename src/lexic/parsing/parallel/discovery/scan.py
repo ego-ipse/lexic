@@ -27,10 +27,12 @@ from lexic.parsing.parallel.discovery.interiors import (
 )
 from lexic.parsing.parallel.discovery.regions import pair_rules
 from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
     emit_charset,
     first_charset,
     last_charset,
     literal_char,
+    rule_table,
 )
 from lexic.parsing.parallel.roles import Roles, roles
 
@@ -189,7 +191,7 @@ def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
     """
     if len(mark) < 2 or mark[0] != mark[1]:
         return Overlap(True, False)
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     target = rules.get(owner)
     if target is None:
         return Overlap(False, False)
@@ -232,7 +234,7 @@ def delimiting(grammar: IrAst, region_scan: bool) -> Delimiting:
 
 
 def read_outside(
-    seen: Delimiting, rule: IrRule, rules: dict[str, IrRule], joined: bool
+    seen: Delimiting, rule: IrRule, rules: RuleTable, joined: bool
 ) -> list[tuple[IrItem, ...]]:
     """The stretches of ``rule``'s arms this scan reads at the rule's own depth.
 
@@ -267,7 +269,7 @@ def read_outside(
 def _depth_walk(
     items: tuple[IrItem, ...],
     own: set[tuple[str, str]],
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     joined: bool,
 ) -> list[tuple[IrItem, ...]]:
     """One arm's depth-0 stretches (see :func:`read_outside`)."""

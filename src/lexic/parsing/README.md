@@ -291,8 +291,9 @@ the island set is closed before the clone compiler runs. A stored gate spec
 the compiler cannot attach to the arms it sees (taxonomy↔compiler
 misalignment) is a **hard error**, not an island — drift is a bug. Every
 per-atom-type decision routes through an open `IrTypeMap` with a raising
-default (a genuine boundary error, not a downgrade); `nullable_names` here
-is the single source `fold.lift_optional_nullables` reads.
+default (a genuine boundary error, not a downgrade). Nullability is the
+grammar's own fact, `IrAst.nullable()`, read here and by
+`lift_optional_nullables`.
 
 ## 11. The clone compiler (`pda/clones.py`, `pda/flatten.py`)
 

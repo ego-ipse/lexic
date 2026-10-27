@@ -51,7 +51,6 @@ from lexic.ir import (
     IrSequence,
     IrTypeMap,
 )
-from lexic.parsing import nullable_names
 
 
 class _Retarget(IrNode[IrSelf, IrSelf]):
@@ -274,7 +273,7 @@ def relax_non_semantic(ast: IrAst) -> IrAst:
     :param ast: The grammar carrying ``semantic=False`` flags on noise rules.
     :returns: The relaxed grammar; unchanged when no nullable rule is flagged.
     """
-    targets = ast.non_semantic & nullable_names(ast.rules)
+    targets = ast.non_semantic & ast.nullable()
     if not targets:
         return ast
     rules = [

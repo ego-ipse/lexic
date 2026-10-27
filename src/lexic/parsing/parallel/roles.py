@@ -43,8 +43,10 @@ from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.anchors import anchor_site_counts, anchors
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
+    RuleTable,
     exact_text,
     last_charset,
+    rule_table,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -200,7 +202,7 @@ def _arm_pair(
 
 def _lead_info(
     item: IrItem,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> tuple[set[str], str] | None:
@@ -228,7 +230,7 @@ def _lead_info(
 
 def _body_leads(
     body: IrAlternation,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str] = frozenset(),
 ) -> tuple[set[str], str] | None:
@@ -281,7 +283,7 @@ def _derive_roles(grammar: IrAst) -> Roles:
     """Classify every arm's anchors: separators and terminators in one walk,
     pairs in :func:`_pairs`'s own."""
     anchor_set = anchors(grammar)
-    by_name: dict[str, IrRule] = {str(rule.name): rule for rule in grammar.rules}
+    by_name = rule_table(grammar)
     records: list[Separator] = []
     for rule in grammar.rules:
         for arm in rule.body:
@@ -367,7 +369,7 @@ def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:
 
 
 def _terminators(
-    grammar: IrAst, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    grammar: IrAst, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> list[Terminator]:
     """Every unbounded reference whose target ends with an agreed anchor mark."""
     out: list[Terminator] = []
@@ -388,7 +390,7 @@ def _terminators(
 
 
 def _edge_marks(
-    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    unit: IrRule, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> tuple[frozenset[str], ...]:
     """The terminator mark sets ``unit`` offers, narrowest first.
 
@@ -417,7 +419,7 @@ def _edge_marks(
 
 
 def _ending_alphabet(
-    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    unit: IrRule, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> frozenset[str]:
     """Every character ``unit`` can END with, when they are all anchors.
 
@@ -439,7 +441,7 @@ def _ending_alphabet(
 def _item_edge(
     item: IrItem,
     at: int,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> str | None:
@@ -474,7 +476,7 @@ def _item_edge(
 def _body_edge(
     body: IrAlternation,
     at: int,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> str | None:
@@ -494,7 +496,7 @@ def _body_edge(
 def _repeated_separators(
     container: str,
     item: IrItem,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     records: list[Separator],
 ) -> None:
@@ -519,7 +521,7 @@ def _repeated_separators(
 
 
 def agreed_tail(
-    body: IrAlternation, want: int, rule_map: dict[str, IrRule], path: frozenset[str]
+    body: IrAlternation, want: int, rule_map: RuleTable, path: frozenset[str]
 ) -> str:
     """The last ``want`` characters EVERY arm of ``body`` ends with, or ``""``.
 
@@ -534,7 +536,7 @@ def agreed_tail(
 def arm_tail(
     items: tuple[IrItem, ...],
     want: int,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> str:
     """The last ``want`` characters every derivation of one arm ends with.
@@ -559,7 +561,7 @@ def arm_tail(
 def _open_tail(
     items: tuple[IrItem, ...],
     want: int,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> str:
     """The tail of an arm whose final item has no fixed text of its own.

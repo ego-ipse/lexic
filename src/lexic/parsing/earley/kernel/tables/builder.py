@@ -211,32 +211,21 @@ class TableBuilder:
             "run normalize() before compiling"
         )
 
-    def nullable_rules(self) -> set[int]:
-        """Rule ids deriving the empty string, by least fixpoint.
+    def nullable_rules(self) -> frozenset[int]:
+        """Rule ids deriving the empty string — the grammar's own set."""
+        ids = self.rule_ids
+        return frozenset([ids[name] for name in self.grammar.nullable()])
 
-        A rule is nullable if any arm is nullable; an arm is nullable if every
-        position predicts a nullable rule (an empty arm vacuously).
-        """
-        nullable: set[int] = set()
-        changed = True
-        while changed:
-            changed = False
-            for arm_id, (_, rid, _) in enumerate(self.arms):
-                if rid not in nullable and self.arm_nullable(arm_id, nullable):
-                    nullable.add(rid)
-                    changed = True
-        return nullable
-
-    def nullable(self) -> list[tuple[int, ...]]:
-        """Per-rule completed codes of empty-deriving arms."""
-        nullable = self.nullable_rules()
+    def nullable(self, nullable: frozenset[int]) -> list[tuple[int, ...]]:
+        """Per-rule completed codes of empty-deriving arms, given the rule ids
+        that derive the empty string (:meth:`nullable_rules`)."""
         out: list[tuple[int, ...]] = [() for _ in self.rule_ids]
         for arm_id, (seq, rid, base) in enumerate(self.arms):
             if rid in nullable and self.arm_nullable(arm_id, nullable):
                 out[rid] = out[rid] + (base + len(seq),)
         return out
 
-    def arm_nullable(self, arm_id: int, nullable: set[int]) -> bool:
+    def arm_nullable(self, arm_id: int, nullable: frozenset[int]) -> bool:
         """Whether every position of ``arm_id`` predicts a nullable rule."""
         seq, _, base = self.arms[arm_id]
         for code in range(base, base + len(seq)):
@@ -245,12 +234,15 @@ class TableBuilder:
                 return False
         return True
 
-    def seed_gates(self, next_sym: Sequence[int]) -> list[tuple[Charset, ...]]:
+    def seed_gates(
+        self, next_sym: Sequence[int], nullable: frozenset[int]
+    ) -> list[tuple[Charset, ...]]:
         """Per rule, per dot-0 arm, the FIRST seed gate (``None`` = always).
 
         :param next_sym: code → symbol, the column the finished tables carry.
+        :param nullable: The ids of the rules deriving the empty string.
         """
-        return _FirstGates(self, next_sym).gates()
+        return _FirstGates(self, next_sym, nullable).gates()
 
 
 def first_ids(
@@ -328,16 +320,18 @@ class _FirstGates(IrLeaf[IrSelf, IrSelf]):
 
     builder: TableBuilder
     atoms: tuple["IrLiteral | IrCharClass | IrNot | IrAlphabet | RunTerm", ...]
-    nullable_rules: set[int]
+    nullable_rules: frozenset[int]
     first: list[frozenset[int]]
     chars: dict[int, Charset]
     term_chars: dict[int, Charset]
 
-    def __init__(self, builder: TableBuilder, next_sym: Sequence[int]) -> None:
+    def __init__(
+        self, builder: TableBuilder, next_sym: Sequence[int], nullable: frozenset[int]
+    ) -> None:
         """Run the FIRST analysis over ``builder``'s finished layout."""
         self.builder = builder
         self.atoms = builder.term_atoms()
-        self.nullable_rules = builder.nullable_rules()
+        self.nullable_rules = nullable
         self.first = first_ids(next_sym, builder.rule_dot0, self.nullable_rules)
         self.chars = {}
         self.term_chars = {}

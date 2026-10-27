@@ -37,17 +37,22 @@ keeps once for every reader.
 
 from __future__ import annotations
 
-from lexic.ir import IrAst, IrRule
+from lexic.ir import IrAst
 from lexic.parsing.caches import memo
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.discovery.anchors import anchors
-from lexic.parsing.parallel.discovery.shapes import arm_empty, first_charset
+from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
+    arm_empty,
+    first_charset,
+    rule_table,
+)
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import rule_extensions
 from lexic.parsing.pda.core.charsets import CharSet
 
 
-def opens_with(rule_map: dict[str, IrRule], unit: str) -> CharSet:
+def opens_with(rule_map: RuleTable, unit: str) -> CharSet:
     """Every character a unit may begin with — FIRST over all its arms."""
     target = rule_map.get(unit)
     if target is None:
@@ -90,11 +95,11 @@ def _derive_openings(grammar: IrAst, unit: str) -> frozenset[str]:
     settles a second success at RUNTIME rather than proving there cannot be
     one. Neither is a static guarantee.
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    rule_map = rule_table(grammar)
     target = rule_map.get(unit)
     if target is None:
         return frozenset()
-    if any(arm_empty(tuple(arm), rule_map, frozenset()) for arm in target.body):
+    if any(arm_empty(tuple(arm), rule_map) for arm in target.body):
         return frozenset()
     opening = opens_with(rule_map, unit)
     if opening.negated or not opening.chars <= anchors(grammar):

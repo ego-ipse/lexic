@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ast
 from abc import ABC
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from inspect import getsourcefile
 from pathlib import Path
 from types import FunctionType
@@ -385,6 +385,19 @@ class IrAtom(IrNode):
     Open-set: a future atom type simply adds ``IrAtom`` to its bases without
     modifying any dispatch table.
     """
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """Whether this atom can derive the empty string, given which rules can.
+
+        Every grammar atom answers for itself; one with no answer refuses
+        rather than guessing either way.
+
+        :param nullable: The names of the rules that derive the empty string.
+        :raises UnsupportedConstructError: For an atom with no answer.
+        """
+        raise UnsupportedConstructError(
+            f"ir: {type(self).__name__} does not say whether it derives nothing"
+        )
 
 
 # ── Primitive str tier ────────────────────────────────────────────────

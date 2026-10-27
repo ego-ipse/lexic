@@ -38,6 +38,7 @@ its own free walk and arm filter, and the path without ``size`` is untouched.
 from __future__ import annotations
 
 import random as _random
+from collections.abc import Mapping
 from functools import partial
 from typing import ClassVar, Sequence
 
@@ -60,7 +61,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 
-Rules = dict[str, IrRule]
+Rules = Mapping[str, IrRule]
 
 
 _LOWER_BOUND_ODDS = 0.7

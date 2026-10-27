@@ -40,11 +40,13 @@ from lexic.ir import (
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
     emits,
     item_lead,
     item_spells,
     literal_char,
     literal_text,
+    rule_table,
 )
 
 
@@ -104,7 +106,7 @@ class Interior(NamedTuple):
         return self.closes if distinct else self.closes + 1
 
 
-def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -> str:
+def _escape_char(body: str, rule_map: RuleTable, seen: frozenset[str]) -> str:
     """The character an arm of the interior body leads with to escape.
 
     An arm that is one bare reference is followed: hoisting ``char ::= unescaped
@@ -130,7 +132,7 @@ def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -
 
 
 def _opacity(
-    inner: tuple[IrItem, ...], closing: str, rule_map: dict[str, IrRule]
+    inner: tuple[IrItem, ...], closing: str, rule_map: RuleTable
 ) -> str | None:
     """What keeps the span before the closer opaque, or ``None``.
 
@@ -144,9 +146,7 @@ def _opacity(
     return (_body_escape(inner, lead, rule_map) or None) if len(closing) == 1 else None
 
 
-def _body_escape(
-    inner: tuple[IrItem, ...], lead: str, rule_map: dict[str, IrRule]
-) -> str:
+def _body_escape(inner: tuple[IrItem, ...], lead: str, rule_map: RuleTable) -> str:
     """The one escape every part of the body that can spell ``lead`` uses.
 
     A quoted string keeps one body item; a character class has three, and any
@@ -170,7 +170,7 @@ def _body_escape(
 
 
 def _closed_at(
-    items: tuple[IrItem, ...], opening: str, rule_map: dict[str, IrRule]
+    items: tuple[IrItem, ...], opening: str, rule_map: RuleTable
 ) -> tuple[int, str, str] | None:
     """The item that closes the region opened at 0, with how it stays opaque.
 
@@ -207,7 +207,7 @@ def _closed_at(
 
 
 def _trailing_literal(
-    item: IrItem, rule_map: dict[str, IrRule], seen: frozenset[str] = frozenset()
+    item: IrItem, rule_map: RuleTable, seen: frozenset[str] = frozenset()
 ) -> str | None:
     """The literal EVERY arm of the item's target rule ends with, or ``None``.
 
@@ -241,7 +241,7 @@ def _trailing_literal(
     return endings.pop() if len(endings) == 1 else None
 
 
-def _tail_content(item: IrItem, rule_map: dict[str, IrRule]) -> tuple[IrItem, ...]:
+def _tail_content(item: IrItem, rule_map: RuleTable) -> tuple[IrItem, ...]:
     """What a trailing-literal closer's own rule spells BEFORE the closer.
 
     That text stands inside the region, so it owes the same opacity every other
@@ -256,7 +256,7 @@ def _tail_content(item: IrItem, rule_map: dict[str, IrRule]) -> tuple[IrItem, ..
 
 
 def _arm_interior(
-    name: str, at: int, items: tuple[IrItem, ...], rule_map: dict[str, IrRule]
+    name: str, at: int, items: tuple[IrItem, ...], rule_map: RuleTable
 ) -> Interior | None:
     """The interior one ARM defines, when it has a delimited shape.
 
@@ -283,7 +283,7 @@ def _arm_interior(
     return Interior(name, at, opening, "", "", 0, 1)
 
 
-def _interiors_of(rule: IrRule, rule_map: dict[str, IrRule]) -> list[Interior]:
+def _interiors_of(rule: IrRule, rule_map: RuleTable) -> list[Interior]:
     """Every interior the rule's arms define, in arm order."""
     found = [
         _arm_interior(str(rule.name), at, tuple(arm), rule_map)
@@ -306,7 +306,7 @@ def _visible_items(
 
 def _reachable_visible(
     grammar: IrAst,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     spans: dict[tuple[str, int], tuple[int, int]],
     skip: str,
 ) -> frozenset[str]:
@@ -326,7 +326,7 @@ def _reachable_visible(
 
 def _sole_opener(
     grammar: IrAst,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     region: Interior,
     spans: dict[tuple[str, int], tuple[int, int]],
     surviving: tuple[Interior, ...],
@@ -405,7 +405,7 @@ def _decided_by(surviving: tuple[Interior, ...], region: Interior) -> frozenset[
 
 
 def _certified(
-    grammar: IrAst, rule_map: dict[str, IrRule], shapes: tuple[Interior, ...]
+    grammar: IrAst, rule_map: RuleTable, shapes: tuple[Interior, ...]
 ) -> tuple[Interior, ...]:
     """The regions a left-to-right pairing reads exactly, as a fixpoint.
 
@@ -463,7 +463,7 @@ def interior_shapes(grammar: IrAst) -> tuple[Interior, ...]:
     """
     entry = _SHAPES.get(id(grammar))
     if entry is None:
-        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        rule_map = rule_table(grammar)
         found = [
             region for rule in grammar.rules for region in _interiors_of(rule, rule_map)
         ]
@@ -484,7 +484,7 @@ def interiors(grammar: IrAst) -> tuple[Interior, ...]:
     """
     entry = _INTERIORS.get(id(grammar))
     if entry is None:
-        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        rule_map = rule_table(grammar)
         found = _certified(grammar, rule_map, interior_shapes(grammar))
         entry = (grammar, found)
         _INTERIORS[id(grammar)] = entry
@@ -510,7 +510,7 @@ def stray_spellings(
     punctuation rule's literal (``begin-array ::= ws "[" ws``) delimits while
     every read reference to the rule does.
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    rule_map = rule_table(grammar)
     spans = {
         (region.rule, region.arm): (region.opens, region.resumes)
         for region in interiors(grammar)
@@ -538,7 +538,7 @@ def stray_spellings(
 
 
 def _followed(
-    held: set[Site], rule_map: dict[str, IrRule], referrers: dict[str, set[Site]]
+    held: set[Site], rule_map: RuleTable, referrers: dict[str, set[Site]]
 ) -> set[Site]:
     """``held`` with each punctuation rule it names followed to its literal."""
     reach = set(held)
@@ -555,7 +555,7 @@ def _followed(
     return reach
 
 
-def _spelling_site(name: str, rule_map: dict[str, IrRule]) -> Site | None:
+def _spelling_site(name: str, rule_map: RuleTable) -> Site | None:
     """The site of the one item a punctuation rule spells its character with."""
     target = rule_map.get(name)
     arm = tuple(target.body[0]) if target is not None and len(target.body) == 1 else ()
@@ -573,7 +573,7 @@ def hides(grammar: IrAst, region: Interior, watched: frozenset[str]) -> bool:
     Spelling, not emission: a repeated item spells a two-character mark its
     atom cannot, and a region hiding one is exactly a region worth skipping.
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    rule_map = rule_table(grammar)
     items = tuple(tuple(rule_map[region.rule].body)[region.arm])
     return any(
         item_spells(item, mark, rule_map, frozenset(), frozenset())

@@ -9,11 +9,21 @@ formulation.
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from functools import partial
 
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrAlphabet, IrAlternation, IrAst, IrItem, IrLiteral, IrRule
+from lexic.ir import (
+    IrAlphabet,
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+)
+from lexic.parsing.caches import cached_entries, release
 from lexic.parsing.parallel.discovery.shapes import (
     arm_spells,
     derives_empty,
@@ -28,6 +38,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_text,
     rule_emits,
     rule_spells,
+    rule_table,
     sole_char,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -186,13 +197,49 @@ def test_a_nullable_prefix_lets_the_scan_reach_the_next_items_lead():
     assert leads_with(items, "!", rule_map, frozenset())
 
 
-def test_a_cyclic_rule_derives_empty_conservatively():
-    """A rule whose only arm is a bare self-reference never proves it is
-    non-empty either, so the unresolved cycle answers yes here too — more
-    candidate leading arms for ``leads_with`` to scan past, not fewer."""
+def test_a_cycle_with_no_empty_way_out_does_not_derive_empty():
+    """A rule whose only arm is a bare self-reference derives no string at
+    all, the empty one included: the answer is the grammar's exact fixpoint,
+    not a guess at the cycle."""
     rule_map = _rule_map("root ::= loop\nloop ::= loop")
     item = _arm_items(rule_map, "loop")[0]
-    assert derives_empty(item, rule_map, frozenset())
+    assert not derives_empty(item, rule_map)
+
+
+def test_a_mutual_cycle_with_an_exit_on_each_side_does_not_derive_empty():
+    """``r ::= "a" | s`` / ``s ::= r | "x"`` ends every derivation on a letter."""
+    rule_map = _rule_map('root ::= r\nr ::= "a" | s\ns ::= r | "x"')
+    item = _arm_items(rule_map, "root")[0]
+    assert not derives_empty(item, rule_map)
+
+
+def test_a_rule_table_is_one_read_only_map_per_grammar():
+    """Every reader gets the same table, and none of them can write to it."""
+    grammar = parse_grammar('root ::= "a" ws\nws ::= " "*', GBNF_FLAVOUR)
+    table = rule_table(grammar)
+    assert rule_table(grammar) is table
+    assert dict(table) == {str(rule.name): rule for rule in grammar.rules}
+    assert not isinstance(table, MutableMapping)
+
+
+def test_a_rule_tables_nullable_rules_are_its_grammars():
+    """``derives_empty`` over the shared table reads the grammar's own set."""
+    grammar = parse_grammar('root ::= ws "a"\nws ::= " "*', GBNF_FLAVOUR)
+    table = rule_table(grammar)
+    root, ws = (IrItem(IrRuleRef(name)) for name in ("root", "ws"))
+    assert grammar.nullable() == frozenset({"ws"})
+    assert derives_empty(ws, table) and not derives_empty(root, table)
+
+
+def test_a_rule_table_goes_when_its_grammar_does():
+    """The table and its nullable set are released with the grammar."""
+    grammar = parse_grammar('root ::= "a"', GBNF_FLAVOUR)
+    held = cached_entries()
+    table = rule_table(grammar)
+    assert cached_entries() == held + 2
+    release((id(grammar),))
+    assert cached_entries() == held
+    assert rule_table(grammar) is not table
 
 
 # ── last_charset / exact_text / sole_char ─────────────────────────────────

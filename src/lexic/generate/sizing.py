@@ -27,6 +27,7 @@ is REFUSED, with words, rather than clamped behind the caller's back.
 from __future__ import annotations
 
 import random as _random
+from collections.abc import Mapping
 from typing import Callable, ClassVar, NamedTuple, Protocol, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
@@ -50,7 +51,7 @@ from lexic.ir import (
     references,
 )
 
-Rules = dict[str, IrRule]
+Rules = Mapping[str, IrRule]
 _INF = float("inf")
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import parse_grammar
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir.grammar.charclass import IrCharClass, IrRange
 from lexic.ir.grammar.nodes import (
@@ -1024,3 +1025,140 @@ def test_unit_literal_is_absent_for_a_quantified_literal_or_another_atom(item):
     """``"ab"?`` and ``"ab"+`` spell no fixed text; a reference and a class
     spell no literal at all."""
     assert item.unit_literal() is IrNone
+
+
+# ── nullability ───────────────────────────────────────────────────────────
+
+
+def test_nullable_among_finds_an_empty_literal_arm():
+    """A rule whose sole arm is the empty literal derives the empty string."""
+    rules = [IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral("")))))]
+    assert IrRule.nullable_among(rules) == frozenset({"r"})
+
+
+def test_nullable_among_excludes_a_rule_with_only_non_empty_arms():
+    """A rule with no all-nullable arm is not in the result."""
+    rules = [IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))]
+    assert IrRule.nullable_among(rules) == frozenset()
+
+
+def test_nullable_among_an_optional_item_makes_its_arm_nullable():
+    """A ``lo == 0`` item makes its whole arm nullable even with non-empty text."""
+    rules = [
+        IrRule(
+            "r",
+            IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1)))),
+        )
+    ]
+    assert IrRule.nullable_among(rules) == frozenset({"r"})
+
+
+def test_nullable_among_propagates_through_a_ruleref_chain():
+    """``root`` is nullable because ``mid`` is, transitively — the fixpoint's
+    own reason to exist over a one-pass check."""
+    rules = [
+        IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("mid"))))),
+        IrRule("mid", IrAlternation(IrSequence(IrItem(IrLiteral(""))))),
+    ]
+    assert IrRule.nullable_among(rules) == frozenset({"root", "mid"})
+
+
+def test_nullable_among_any_arm_nullable_makes_the_whole_alternation_nullable():
+    """One nullable arm among several non-nullable ones is enough."""
+    rules = [
+        IrRule(
+            "r",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("x"))),
+                IrSequence(IrItem(IrLiteral(""))),
+            ),
+        )
+    ]
+    assert IrRule.nullable_among(rules) == frozenset({"r"})
+
+
+def test_nullable_among_leaves_out_a_cycle_with_no_empty_way_out():
+    """``r ::= "a" | s`` / ``s ::= r | "x"``: every derivation ends on ``a`` or
+    ``x``, so the least fixpoint never admits either — a walk that answered a
+    cycle with "maybe" said both did."""
+    rules = [
+        IrRule(
+            "r",
+            IrAlternation(
+                IrSequence(IrItem(IrLiteral("a"))), IrSequence(IrItem(IrRuleRef("s")))
+            ),
+        ),
+        IrRule(
+            "s",
+            IrAlternation(
+                IrSequence(IrItem(IrRuleRef("r"))), IrSequence(IrItem(IrLiteral("x")))
+            ),
+        ),
+    ]
+    assert IrRule.nullable_among(rules) == frozenset()
+
+
+def test_nullable_among_never_admits_an_undefined_name():
+    """A reference to a rule nothing defines derives nothing at all."""
+    rules = [IrRule("r", IrAlternation(IrSequence(IrItem(IrRuleRef("ghost")))))]
+    assert IrRule.nullable_among(rules) == frozenset()
+
+
+def test_ast_nullable_is_its_rules_fixpoint():
+    """``IrAst.nullable`` answers over the grammar's own rules."""
+    ast = IrAst(
+        rules=IrSeq(
+            IrRule(
+                "root",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("ws")), IrItem(IrLiteral("a")))
+                ),
+            ),
+            IrRule(
+                "ws",
+                IrAlternation(
+                    IrSequence(IrItem(IrLiteral(" "), IrQuantifier(0, IrNone)))
+                ),
+            ),
+        ),
+        start=IrStr("root"),
+    )
+    assert ast.nullable() == frozenset({"ws"})
+
+
+@pytest.mark.parametrize(
+    ("atom", "vanishes"),
+    [
+        (IrLiteral(""), True),
+        (IrLiteral("a"), False),
+        (IrCharClass(IrRange(IrChr("a"), IrChr("z"))), False),
+        (IrNot(IrCharClass(IrRange(IrChr("a"), IrChr("z")))), False),
+        (IrAlphabet("gpt2", IrLiteral("<think>")), False),
+        (IrRuleRef("n"), True),
+        (IrRuleRef("m"), False),
+        (IrAlternation(IrSequence(IrItem(IrLiteral("a"))), IrSequence()), True),
+        (
+            IrAlternation(IrSequence(IrItem(IrLiteral("a")), IrItem(IrRuleRef("n")))),
+            False,
+        ),
+    ],
+)
+def test_each_atom_says_whether_it_vanishes(atom, vanishes):
+    """Given which rules derive ε (here only ``n``), each atom answers for itself."""
+    assert atom.vanishes(frozenset({"n"})) is vanishes
+
+
+def test_an_item_that_may_occur_zero_times_vanishes_whatever_its_atom():
+    """``lo == 0`` is an empty occurrence; ``lo >= 1`` asks the atom."""
+    assert IrItem(IrLiteral("a"), IrQuantifier(0, 1)).vanishes(frozenset())
+    assert not IrItem(IrLiteral("a"), IrQuantifier(1, IrNone)).vanishes(frozenset())
+
+
+def test_an_atom_with_no_answer_refuses():
+    """The default raises rather than guessing either way."""
+
+    class _Mute(IrAtom):
+        pass
+
+    with pytest.raises(UnsupportedConstructError):
+        _Mute().vanishes(frozenset())

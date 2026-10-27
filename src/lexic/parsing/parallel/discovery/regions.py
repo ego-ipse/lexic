@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from typing import NamedTuple
 
-from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAlternation, IrAst, IrItem, IrRuleRef
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
     Site,
@@ -35,7 +35,12 @@ from lexic.parsing.parallel.discovery.interiors import (
     skip_leads,
     stray_spellings,
 )
-from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char
+from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
+    edge_char,
+    literal_char,
+    rule_table,
+)
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import standing_pairs
@@ -98,7 +103,7 @@ def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
 
 def _brackets(grammar: IrAst) -> list[_Bracket]:
     """Every arm opening on one character and closing on another, in order."""
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    rule_map = rule_table(grammar)
     out: list[_Bracket] = []
     for rule in grammar.rules:
         for at, arm in enumerate(rule.body):
@@ -133,7 +138,7 @@ def _strays(
 
 
 def _repeated_bodies(
-    items: tuple[IrItem, ...], rule_map: dict[str, IrRule]
+    items: tuple[IrItem, ...], rule_map: RuleTable
 ) -> list[IrAlternation]:
     """Every unbounded body reachable from these items, nesting included.
 
@@ -164,7 +169,7 @@ def separators(grammar: IrAst) -> frozenset[str]:
     Derived, never named: the single character every arm of a repeated body
     begins with is what stands between one item and the next.
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    rule_map = rule_table(grammar)
     spells = partial(literal_char, rule_map=rule_map)
     found: set[str] = set()
     for rule in grammar.rules:

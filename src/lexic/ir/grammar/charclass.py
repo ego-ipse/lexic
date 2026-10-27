@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import random
 from bisect import bisect_right
-from collections.abc import Iterable, Sequence
+from collections.abc import Container, Iterable, Sequence
 from typing import ClassVar
 
 from lexic.ir.grammar.nodes import IrBounds
@@ -226,6 +226,10 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
     def _span(lo: int, hi: int) -> IrRange | IrChr:
         """A single code point renders as ``IrChr``; a wider span as ``IrRange``."""
         return IrChr(lo) if lo == hi else IrRange(IrChr(lo), IrChr(hi))
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """A character class always matches one character — never nothing."""
+        return False
 
     def normalized(self) -> "IrCharClass":
         """Return the canonical set-form — deduped, sorted, ranges coalesced.

@@ -1,5 +1,10 @@
 # Log
 
+## Nullability is the grammar's one exact fact (2026-10-27)
+
+`decisions.md` records why `IrAst.nullable()` replaces the five nullability
+computations and what moved. `ir-shapes.md` adds `vanishes` and the fixpoint.
+
 ## An item's fixed text, read off the node (2026-10-27)
 
 `ir-shapes.md` adds `IrItem.unit_literal()`, which eight twins of "a literal,

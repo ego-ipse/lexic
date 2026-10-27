@@ -759,9 +759,8 @@ nullability condition is what buys it the same standing.
 **Nullability is solved on the INCOMING grammar,** never the result — relaxing
 `n ::= nunit+` to `nunit*` makes `n` nullable, which would then license
 relaxing every reference to it. The pass would bootstrap its own licence.
-`nullable_names` (the repo's only nullability fixpoint, in
-`parsing/pda/analysis/predicates.py`) is exported from `lexic.parsing` for this,
-following `lift_optional_nullables`.
+The set is `IrAst.nullable()`, the grammar's one exact nullability fact, which
+`lift_optional_nullables` reads too.
 
 **Cost, accepted:** a grammar whose noise rule is non-nullable narrows. With
 `ws ::= [ \t]+` and `root ::= "a" ws "b"`, the text `ab` was silently accepted
@@ -1779,3 +1778,44 @@ not left-recursive), the region scan's visible-site walk (it reads `references`
 for its edges and keeps its own visibility), the scanner's grey/black
 topological order, and the codegen rule map's parent-alternation closures (a
 different graph).
+
+## Nullability is the grammar's one exact fact
+
+**Decision:** whether a rule derives the empty string is `IrAst.nullable()`.
+That is the least fixpoint `IrRule.nullable_among` grows from nothing, with
+each atom answering for itself through `vanishes(nullable)`. Every reader
+reads it:
+
+- the PDA analysis (`GrammarAnalysis.nullable`);
+- the optional-nullable lift;
+- the `@non-semantic` relax;
+- the Earley tables (`TableBuilder.nullable_rules`);
+- the split-greedy gate (`greedy_loop_gate` takes the analysis);
+- the parallel layer's `derives_empty` and `arm_empty`. These read the set
+  off the grammar's one read-only `shapes.rule_table`, memoised per grammar
+  and released with it, which every split analysis now reads instead of
+  building a table of its own.
+
+**Why:** five computations answered the one question, and two of them
+answered wrongly.
+
+- The analysis' `nullable_names` and the tables' int-arm fixpoint were exact
+  and agreed on every rule.
+- The parallel layer's walk answered a cycle "yes". On `r ::= "a" | s` /
+  `s ::= r | "x"` it said both rules derive ε, though every derivation ends
+  on a letter.
+- The split-greedy gate's depth-bounded walk answered "unknown" on 99 roster
+  rules where the answer is no.
+
+The regular-language proof keeps its own reading (END with an empty window).
+It is a property of the k-window FIRST set that proof already holds, not a
+nullability fixpoint.
+
+**What moved:** over 2,565 rules of 196 grammars (every ground-truth file,
+every bench row at three seats, every grammar the split tests define), only
+the walk's answer on the witness's two rules changes. Every reader agrees on
+every rule, and the PDA's split-greedy licences, conflicts, attempts and
+demotions are identical on every grammar. The gate's switch cannot move a
+licence: wherever the old walk answered "unknown" (a cycle, a negation, a
+token, depth, an undefined name), the gate's own alphabet reader had already
+declined. A name no rule defines stays "unknown" there.

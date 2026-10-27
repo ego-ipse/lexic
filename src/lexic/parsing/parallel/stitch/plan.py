@@ -18,7 +18,6 @@ from lexic.ir import (
     IrLiteral,
     IrNone,
     IrNoneType,
-    IrRule,
     IrRuleRef,
 )
 from lexic.model import GrammarModel
@@ -26,7 +25,9 @@ from lexic.parsing.caches import adopt, memo
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
     literal_char,
+    rule_table,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
@@ -119,7 +120,7 @@ def bracket_rule(grammar: IrAst, rule_name: str, opener: str) -> str:
 
 def _bracket_rule(grammar: IrAst, rule_name: str, opener: str) -> str:
     """Resolve :func:`bracket_rule` once."""
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     outer = rules.get(rule_name)
     if outer is None or len(outer.body) == 1:
         return rule_name
@@ -143,7 +144,7 @@ def _ref_at(items: tuple[IrItem, ...], at: int) -> str | None:
 
 
 def _candidate(
-    rules: dict[str, IrRule], outer_arm: tuple[IrItem, ...], at: int
+    rules: RuleTable, outer_arm: tuple[IrItem, ...], at: int
 ) -> tuple[str, str, str, str] | None:
     """The items/tail recurrence rooted at one outer-arm position."""
     items_name = _ref_at(outer_arm, at)
@@ -172,7 +173,7 @@ def _candidate(
 
 
 def _direct_candidate(
-    rules: dict[str, IrRule], outer_arm: tuple[IrItem, ...], at: int
+    rules: RuleTable, outer_arm: tuple[IrItem, ...], at: int
 ) -> tuple[str, str, str] | None:
     """A direct ``head tail*`` recurrence at two outer-arm positions."""
     if at + 1 >= len(outer_arm):
@@ -224,7 +225,7 @@ def _boundary_slots(
 
 
 def _finite_chars(
-    item: IrItem, rules: dict[str, IrRule], seen: frozenset[str] = frozenset()
+    item: IrItem, rules: RuleTable, seen: frozenset[str] = frozenset()
 ) -> frozenset[str]:
     """Finite characters emitted by a boundary item; co-finite means unknown."""
     atom = item.atom
@@ -252,7 +253,7 @@ def _boundary_charsets(
     root: IrAst, arm: tuple[IrItem, ...], before: int, after: int
 ) -> tuple[frozenset[str], frozenset[str]]:
     """Finite source characters owned by the arms around one recurrence."""
-    rules = {str(rule.name): rule for rule in root.rules}
+    rules = rule_table(root)
     opening = _finite_chars(arm[before], rules) if before >= 0 else frozenset()
     closing = _finite_chars(arm[after], rules) if after < len(arm) else frozenset()
     return opening, closing
@@ -413,7 +414,7 @@ def derive_plan(
     key = (id(grammar), id(binding), rule_name)
     entry = _REGION_PLANS.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in grammar.rules}
+        rules = rule_table(grammar)
         outer = rules.get(rule_name)
         outer_arm = outer.sole_arm() if outer is not None else IrNone
         candidates = (

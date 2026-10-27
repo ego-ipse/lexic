@@ -25,7 +25,7 @@ Every IR node implements the structural protocol from :class:`IrSelf`:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Container, Iterable
 from typing import ClassVar, Self, cast
 
 from lexic.ir.spine.records import IrNamedTuple, IrSeq
@@ -63,6 +63,10 @@ class IrLiteral(IrStr, IrAtom):
     the same node class serves both.
     """
 
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """Only the empty literal derives the empty string."""
+        return not self
+
 
 class IrRuleRef(IrStr, IrAtom):
     """Reference to another rule. The string is the rule name.
@@ -70,6 +74,10 @@ class IrRuleRef(IrStr, IrAtom):
     Used in rule bodies to denote a non-terminal; the name matches the
     ``IrRule.name`` of the referenced rule.
     """
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """A reference vanishes exactly when the rule it names can."""
+        return str(self) in nullable
 
 
 # ── Concrete tuple-tier collections ───────────────────────────────────
@@ -110,6 +118,13 @@ class IrSequence(IrSeq["IrItem"]):
         """The rule this arm consists of, when it is one unit reference."""
         return self[0].unit_ref() if len(self) == 1 else IrNone
 
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """An arm vanishes when every item does — the empty arm vacuously."""
+        for item in self:
+            if not item.vanishes(nullable):
+                return False
+        return True
+
 
 class IrAlternation(IrSeq[IrSequence], IrAtom):
     """Ordered choice (alternation) between ``IrSequence`` arms.
@@ -124,6 +139,16 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
     spelled ``IrSequence(IrItem(...))``. Unknown types pass through unchanged.
     Idempotent on canonical input.
     """
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """A group vanishes when one of its arms does — every item of it."""
+        for arm in self:  # the arm's own test, inline: one call less per arm
+            for item in arm:
+                if not item.vanishes(nullable):
+                    break
+            else:
+                return True
+        return False
 
     def __new__(cls, *arms: IrSequence | IrItem | IrAtom) -> Self:
         """Construct an alternation, wrapping bare arms to single-item sequences.
@@ -150,10 +175,11 @@ class IrAlternation(IrSeq[IrSequence], IrAtom):
 class IrBounds(IrLeaf, IrNamedTuple[int, int | IrNoneType]):
     """Shared ``(lo, hi)`` bounds — type-aware equality plus in-bounds membership.
 
-    Abstract base for :class:`IrQuantifier` (int counts) and :class:`IrRange`
-    (code-point spans). The two are siblings, not a chain — neither is
-    substitutable for the other. ``lo``/``hi`` are scalar payload, not IR-node
-    children, so ``_child_attrs`` is empty.
+    Abstract base for :class:`IrQuantifier` (int counts) and
+    :class:`~lexic.ir.grammar.charclass.IrRange` (code-point spans). The two
+    are siblings, not a chain — neither is substitutable for the other.
+    ``lo``/``hi`` are scalar payload, not IR-node children, so ``_child_attrs``
+    is empty.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -258,6 +284,13 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
         wrapped = IrAlternation(atom) if isinstance(atom, IrSequence) else atom
         return cast(Callable[..., Self], super().__new__)(cls, wrapped, quantifier)
 
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """An item vanishes when it may occur zero times, or its atom does."""
+        # Positional reads: this runs per item in every pass of the nullability
+        # fixpoint, and named field reads cost a tiny grammar's table build.
+        atom, quantifier = self
+        return quantifier[0] == 0 or atom.vanishes(nullable)
+
     def unit_ref(self) -> IrRuleRef | IrNoneType:
         """The rule this item references exactly once.
 
@@ -284,7 +317,8 @@ class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
     IrCharClass(IrChr(1000)))`` is token id ``1000``; ``IrAlphabet("tokens",
     IrNot(...))`` a negated token. The wrapper is what distinguishes a literal
     read as token text from a literal read as characters — the inner node types
-    are the ordinary ones (:class:`IrLiteral`, :class:`IrCharClass`,
+    are the ordinary ones (:class:`IrLiteral`,
+    :class:`~lexic.ir.grammar.charclass.IrCharClass`,
     :class:`~lexic.ir.grammar.operators.IrNot`), so no token-specific leaf exists.
 
     ``encoding`` is a **name reference** (an ``IrStr`` — the :class:`IrRuleRef`
@@ -310,6 +344,10 @@ class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
         :returns: The alphabet-bound atom.
         """
         return cast(Callable[..., Self], super().__new__)(cls, IrStr(encoding), inner)
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """A token terminal always matches one token — never nothing."""
+        return False
 
 
 class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
@@ -397,6 +435,26 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
         """
         return tuple(self.body[0]) if len(self.body) == 1 else IrNone
 
+    @staticmethod
+    def nullable_among(rules: Iterable[IrRule]) -> frozenset[str]:
+        """The names of the rules that derive the empty string — the least fixpoint.
+
+        Grown from nothing: a rule joins once an arm vanishes over the rules
+        already in, so a cycle with no empty way out never does
+        (``r ::= "a" | s`` / ``s ::= r | "x"``). A name no rule defines is
+        never in.
+        """
+        body = {str(name): arms for name, arms, _ in rules}
+        found: set[str] = set()
+        grew = True
+        while grew:
+            grew = False
+            for name, arms in body.items():
+                if name not in found and arms.vanishes(found):
+                    found.add(name)
+                    grew = True
+        return frozenset(found)
+
 
 class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
     """Full grammar AST: a collection of rules plus the start-rule name.
@@ -436,3 +494,10 @@ class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):
         :returns: The frozenset of non-semantic rule names.
         """
         return frozenset(r.name for r in self.rules if not r.semantic)
+
+    def nullable(self) -> frozenset[str]:
+        """The names of the rules that derive the empty string, exactly.
+
+        The one nullability fact every analysis reads (:meth:`IrRule.nullable_among`).
+        """
+        return IrRule.nullable_among(self.rules)

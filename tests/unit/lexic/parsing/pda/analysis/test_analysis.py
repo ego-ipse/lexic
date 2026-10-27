@@ -18,6 +18,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (
     IrAlternation,
+    IrAst,
     IrAtom,
     IrCharClass,
     IrChr,
@@ -28,10 +29,12 @@ from lexic.ir import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrStr,
 )
 from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, nullable_names
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.windows import windows_of
 from lexic.parsing.pda.core.charsets import CharSet
@@ -703,41 +706,47 @@ def test_json_ws_escape_is_noise_greedy_licensed(stem: str):
 # ── nullability (ported from test_fold, plus queries) ──────────────────────
 
 
-def test_nullable_names_empty_literal():
+def _nullable(*rules: IrRule) -> frozenset[str]:
+    """The nullable set the analysis reads, over a grammar of ``rules``."""
+    ast = IrAst(rules=IrSeq(*rules), start=IrStr(str(rules[-1].name)))
+    return GrammarAnalysis(ast).nullable
+
+
+def test_analysis_nullable_empty_literal():
     """A rule whose body is an empty literal is nullable."""
     rule = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    assert "empty" in nullable_names((rule,))
+    assert "empty" in _nullable(rule)
 
 
-def test_nullable_names_lo_zero_item():
+def test_analysis_nullable_lo_zero_item():
     """A rule whose sole item has quantifier lo=0 is nullable."""
     rule = IrRule(
         "zero_lo", IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1))))
     )
-    assert "zero_lo" in nullable_names((rule,))
+    assert "zero_lo" in _nullable(rule)
 
 
-def test_nullable_names_alternation_arm():
+def test_analysis_nullable_alternation_arm():
     """A rule with one empty arm (among others) is nullable."""
     rule = IrRule(
         "alt", IrAlternation(IrSequence(), IrSequence(IrItem(IrLiteral("y"))))
     )
-    assert "alt" in nullable_names((rule,))
+    assert "alt" in _nullable(rule)
 
 
-def test_nullable_names_transitive_ref():
+def test_analysis_nullable_transitive_ref():
     """A rule that refs a nullable rule is transitively nullable (fixpoint)."""
     empty = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
     transitive = IrRule(
         "transitive", IrAlternation(IrSequence(IrItem(IrRuleRef("empty"))))
     )
-    assert "transitive" in nullable_names((empty, transitive))
+    assert "transitive" in _nullable(empty, transitive)
 
 
-def test_nullable_names_excludes_non_nullable():
+def test_analysis_nullable_excludes_non_nullable():
     """A rule requiring a non-empty literal is not nullable."""
     rule = IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("z")))))
-    assert "solid" not in nullable_names((rule,))
+    assert "solid" not in _nullable(rule)
 
 
 def test_analysis_exposes_nullable_set():

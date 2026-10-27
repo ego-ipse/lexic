@@ -95,11 +95,6 @@ calls no method on it, which is what makes it a seam; exporting it means a
 consumer that wants to SEE a parse — a chart-column view, a trace — never
 reaches past the package boundary for it.
 
-:func:`~lexic.parsing.pda.analysis.predicates.nullable_names` surfaces here for
-the same reason: it is the repo's only nullability fixpoint, and the codegen
-passes need it to tell a language-preserving rewrite from a language-widening
-one (:func:`~lexic.compile.pipeline.passes.relax_non_semantic`).
-
 :mod:`~lexic.parsing.parallel` is the parallel layer — the split-point
 analysis (anchors, roles, the self-locating scan) and the worker-count
 policy. Nothing in it is engine API: neither engine consumes it, so its
@@ -158,7 +153,6 @@ from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.pool import reset_pools
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import nullable_names
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.product import ProductExecutor
@@ -318,7 +312,6 @@ __all__ = [
     "reset_pools",
     "lift_optional_nullables",
     "normalize",
-    "nullable_names",
     "parse",
     "parse_first",
     "parse_forest",

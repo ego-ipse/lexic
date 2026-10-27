@@ -25,7 +25,6 @@ from lexic.ir import (
     IrCharClass,
     IrItem,
     IrLambda,
-    IrLeaf,
     IrLiteral,
     IrNot,
     IrRule,
@@ -48,62 +47,6 @@ if TYPE_CHECKING:  # `analysis` imports this module, so the reference is mutual
 def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
     """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
     return [i for i in seq if isinstance(i, IrItem)]
-
-
-class _Nullability(IrLeaf[IrSelf, IrSelf]):
-    """The nullability fixpoint as a standalone solver.
-
-    Homes the derives-empty computation both :func:`nullable_names` (for
-    :func:`~lexic.parsing.fold.lift_optional_nullables`) and
-    :class:`GrammarAnalysis` need — one fixpoint, no duplication. Its growing
-    ``nullable`` set is read by the shared :data:`NULLABLE` bodies whether
-    ``d`` is this solver (mid-fixpoint) or a finished :class:`GrammarAnalysis`.
-    """
-
-    __slots__ = ("rules", "nullable")
-
-    rules: Mapping[str, IrRule]
-    nullable: set[str]
-
-    def __init__(self, rules: Mapping[str, IrRule]) -> None:
-        self.rules = rules
-        self.nullable = set()
-
-    def solve(self) -> frozenset[str]:
-        """Grow ``nullable`` to the least fixpoint and return it frozen."""
-        changed = True
-        while changed:
-            changed = False
-            for name, rule in self.rules.items():
-                if name in self.nullable:
-                    continue
-                if _rule_nullable(self, rule):
-                    self.nullable.add(name)
-                    changed = True
-        return frozenset(self.nullable)
-
-
-def _null_ruleref(d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object) -> bool:
-    """A rule ref is nullable iff its target is currently known nullable."""
-    return str(n) in d.nullable
-
-
-def _null_literal(_d: object, n: IrSelf, _nc: object) -> bool:
-    """A literal is nullable iff it is the empty string."""
-    return not str(n)
-
-
-def _null_never(_d: object, _n: IrSelf, _nc: object) -> bool:
-    """A char class or negated class always consumes one char — never nullable."""
-    return False
-
-
-def _null_alternation(
-    d: GrammarAnalysis | _Nullability, n: IrSelf, _nc: object
-) -> bool:
-    """A group is nullable iff any arm's items are all nullable."""
-    assert isinstance(n, IrAlternation)
-    return any(seq_nullable(d, _items(arm)) for arm in n)
 
 
 def _first_literal(_d: object, n: IrSelf, _nc: object) -> CharSet:
@@ -562,41 +505,16 @@ def _seq_noop(_d: object, _n: IrSelf, _nc: object) -> None:
     return None
 
 
-def item_nullable(d: GrammarAnalysis | _Nullability, item: IrItem) -> bool:
-    """Whether ``item`` can consume nothing: ``lo == 0`` or a nullable atom."""
-    if int(item.quantifier.lo) == 0:
-        return True
-    return cast(bool, NULLABLE.resolve(item.atom).eval(d, item.atom, ()))
+def item_nullable(d: GrammarAnalysis, item: IrItem) -> bool:
+    """Whether ``item`` can consume nothing, over the analysis' nullable rules."""
+    return item.vanishes(d.nullable)
 
 
-def seq_nullable(d: GrammarAnalysis | _Nullability, items: Sequence[IrItem]) -> bool:
+def seq_nullable(d: GrammarAnalysis, items: Sequence[IrItem]) -> bool:
     """Whether every item in a sequence arm is nullable (empty arm → True)."""
-    return all(item_nullable(d, i) for i in items)
+    return all(item.vanishes(d.nullable) for item in items)
 
 
-def _rule_nullable(d: GrammarAnalysis | _Nullability, rule: IrRule) -> bool:
-    """Whether any arm of ``rule`` is all-nullable."""
-    return any(seq_nullable(d, _items(arm)) for arm in rule.body)
-
-
-def nullable_names(rules: Sequence[IrRule]) -> frozenset[str]:
-    """The names of every rule in ``rules`` that derives the empty string.
-
-    The single home of the nullability fixpoint —
-    :func:`~lexic.parsing.fold.lift_optional_nullables` consumes it from here
-    (an intra-package import) rather than keeping its own copy.
-    """
-    return _Nullability({str(r.name): r for r in rules}).solve()
-
-
-NULLABLE: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_null_literal)),
-    IrAction(IrCharClass, IrLambda(_null_never)),
-    IrAction(IrNot, IrLambda(_null_never)),
-    IrAction(IrAlphabet, IrLambda(_null_never)),
-    IrAction(IrRuleRef, IrLambda(_null_ruleref)),
-    IrAction(IrAlternation, IrLambda(_null_alternation)),
-)
 FIRST: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_first_literal)),
     IrAction(IrCharClass, IrLambda(_first_charclass)),

@@ -26,6 +26,7 @@ Two layers:
 from __future__ import annotations
 
 import operator
+from collections.abc import Container
 from typing import ClassVar, Sequence
 
 from lexic.ir.action.mapping import IrMap
@@ -129,6 +130,10 @@ class IrNot(MonadicOp):
     """
 
     op: ClassVar[IrOp] = IrOp("!")
+
+    def vanishes(self, nullable: Container[str]) -> bool:
+        """A negated class always matches one character — never nothing."""
+        return False
 
 
 class IrEq(DyadicOp):

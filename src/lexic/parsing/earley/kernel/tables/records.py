@@ -188,14 +188,17 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         self.code_arm = tuple(aid for aid, _ in builder.codes)
         self.arm_rule = tuple(rid for _, rid, _ in builder.arms)
         self.arm_base = tuple(base for _, _, base in builder.arms)
+        nullable = builder.nullable_rules()
         self.rule_seed_gates = tuple(
             tuple(
                 (code << bits, self.next_sym[code], gate)
                 for code, gate in zip(dot0, gates)
             )
-            for dot0, gates in zip(builder.rule_dot0, builder.seed_gates(self.next_sym))
+            for dot0, gates in zip(
+                builder.rule_dot0, builder.seed_gates(self.next_sym, nullable)
+            )
         )
-        self.nullable_completes = tuple(builder.nullable())
+        self.nullable_completes = tuple(builder.nullable(nullable))
         self.accept_codes = builder.accept_codes()
 
     @property

@@ -28,6 +28,7 @@ and is not a general inlining.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import NamedTuple
 
 from lexic.ir import IrItem, IrRule, IrRuleRef
@@ -64,7 +65,7 @@ class Fold(NamedTuple):
     steps: tuple[Recursive, ...]
 
 
-def through_hoist(items: list[IrItem], rules: dict[str, IrRule]) -> list[IrItem]:
+def through_hoist(items: list[IrItem], rules: Mapping[str, IrRule]) -> list[IrItem]:
     """An arm, with a hoisted single-reference arm rule read through.
 
     Only an arm that consists ENTIRELY of one reference to a rule with exactly
@@ -88,7 +89,7 @@ def _leads_with(items: list[IrItem], name: str) -> bool:
     return str(items[0].atom) == name and quantifier.once()
 
 
-def any_candidate(rules: dict[str, IrRule]) -> bool:
+def any_candidate(rules: Mapping[str, IrRule]) -> bool:
     """Whether ANY rule even leads an arm with a reference to itself.
 
     A cheap structural pre-test, so the fold costs nothing on a grammar it
@@ -113,7 +114,7 @@ def any_candidate(rules: dict[str, IrRule]) -> bool:
 
 
 def foldable(
-    name: str, rule: IrRule, rules: dict[str, IrRule], analysis: GrammarAnalysis
+    name: str, rule: IrRule, rules: Mapping[str, IrRule], analysis: GrammarAnalysis
 ) -> Fold | None:
     """The rule's decomposition, or ``None`` when the fold cannot take it.
 

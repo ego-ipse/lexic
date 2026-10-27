@@ -38,12 +38,14 @@ from lexic.parsing.parallel.discovery.regions import (
     listed,
 )
 from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
     derives_empty,
     emit_charset,
     exact_text,
     first_charset,
     literal_text,
     rule_emits,
+    rule_table,
 )
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import terminates_once
@@ -141,7 +143,7 @@ def optional_ref(item: IrItem) -> str | None:
 
 
 def _delimited_arm(
-    arm: IrSequence, rules: dict[str, IrRule]
+    arm: IrSequence, rules: RuleTable
 ) -> tuple[str, str, str, str] | None:
     """``(rule, opening, item, closing)`` when an arm delimits one repetition.
 
@@ -168,7 +170,7 @@ def _delimited_arm(
 
 
 def _terminated_arm(
-    items: tuple[IrItem, ...], rules: dict[str, IrRule]
+    items: tuple[IrItem, ...], rules: RuleTable
 ) -> tuple[str, str, str, str] | None:
     """``("", "", item, tail)`` when an arm is a repetition then its tail.
 
@@ -192,7 +194,7 @@ def _terminated_arm(
     return ("", "", str(repeated), "".join(one for one in spelled if one))
 
 
-def _forced(target: IrRule, at: int, rules: dict[str, IrRule]) -> bool:
+def _forced(target: IrRule, at: int, rules: RuleTable) -> bool:
     """Whether arm ``at`` of ``target`` is the only one a document can take.
 
     The arms must be told apart by their first character alone — an inline
@@ -207,7 +209,7 @@ def _forced(target: IrRule, at: int, rules: dict[str, IrRule]) -> bool:
 
 
 def _head_lead(
-    before: tuple[IrItem, ...], mark: str, rules: dict[str, IrRule]
+    before: tuple[IrItem, ...], mark: str, rules: RuleTable
 ) -> CharSet | None:
     """What a repeated head unit begins with, when the head has the shape.
 
@@ -230,7 +232,7 @@ def _head_lead(
     return None if lead.overlaps(rest) else lead
 
 
-def terminates_once_ref(name: str, mark: str, rules: dict[str, IrRule]) -> bool:
+def terminates_once_ref(name: str, mark: str, rules: RuleTable) -> bool:
     """Whether the named rule's EVERY arm ends at ``mark``, once.
 
     Every arm, not the first: a head unit the locator walks off by lines must
@@ -245,7 +247,7 @@ def terminates_once_ref(name: str, mark: str, rules: dict[str, IrRule]) -> bool:
     )
 
 
-def rule_emits_item(item: IrItem, mark: str, rules: dict[str, IrRule]) -> bool:
+def rule_emits_item(item: IrItem, mark: str, rules: RuleTable) -> bool:
     """Whether one item can emit ``mark`` anywhere in its derivations."""
     atom = item.atom
     if not isinstance(atom, IrRuleRef):
@@ -277,7 +279,7 @@ def _derive_routed(grammar: IrAst) -> RoutedPlan | None:
     always been served; a terminated interior is looked for only where no
     delimited one is found, so no grammar changes the route it takes today.
     """
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     start = rules.get(str(grammar.start))
     arms = tuple(start.body) if start is not None else ()
     items = tuple(arms[0]) if len(arms) == 1 else ()
@@ -294,7 +296,7 @@ def _derive_routed(grammar: IrAst) -> RoutedPlan | None:
 
 def _terminated_at(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     items: tuple[IrItem, ...],
     at: int,
 ) -> RoutedPlan | None:
@@ -326,7 +328,7 @@ def _terminated_at(
 
 def _descend(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     name: str,
     chain: tuple[Descent, ...],
     seen: frozenset[str],
@@ -358,7 +360,7 @@ def _descend(
     return None
 
 
-def _qualifies(grammar: IrAst, rules: dict[str, IrRule], unit: str) -> bool:
+def _qualifies(grammar: IrAst, rules: RuleTable, unit: str) -> bool:
     """Whether a repeated unit's mark is its own final edge, grammar-wide.
 
     :func:`~lexic.parsing.parallel.stitch.safety.terminates_once` and never
@@ -376,7 +378,7 @@ def _qualifies(grammar: IrAst, rules: dict[str, IrRule], unit: str) -> bool:
 
 def _proven_terminated(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     items: tuple[IrItem, ...],
     candidate: tuple[int, tuple[str, str, str, str], str],
     chain: tuple[Descent, ...],
@@ -424,7 +426,7 @@ def _proven_terminated(
     )
 
 
-def _spelled_run(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> str | None:
+def _spelled_run(items: tuple[IrItem, ...], rules: RuleTable) -> str | None:
     """What a run of arm items spells, or ``None`` when any of them cannot.
 
     A whole-extent interior is bounded by its neighbours' widths, so every
@@ -446,7 +448,7 @@ def _spelled_run(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> str | N
 
 def _routed_at(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     items: tuple[IrItem, ...],
     at: int,
 ) -> RoutedPlan | None:
@@ -466,7 +468,7 @@ def _routed_at(
 
 def _proven(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     items: tuple[IrItem, ...],
     candidate: tuple[int, tuple[str, str, str, str], str],
 ) -> RoutedPlan | None:
@@ -497,13 +499,11 @@ def _proven(
     )
 
 
-def _tail_charset(
-    after: tuple[IrItem, ...], rules: dict[str, IrRule]
-) -> CharSet | None:
+def _tail_charset(after: tuple[IrItem, ...], rules: RuleTable) -> CharSet | None:
     """What may follow the closing character, when everything after can vanish."""
     found = CharSet.EMPTY
     for item in after:
-        if not derives_empty(item, rules, frozenset()):
+        if not derives_empty(item, rules):
             return None
         found = found.union(emit_charset(item, rules, frozenset()))
     return found

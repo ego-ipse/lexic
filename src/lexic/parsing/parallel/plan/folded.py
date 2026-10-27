@@ -34,7 +34,7 @@ from lexic.parsing.parallel.discovery.regions import (
     floor_cuts,
     listed,
 )
-from lexic.parsing.parallel.discovery.shapes import exact_text
+from lexic.parsing.parallel.discovery.shapes import RuleTable, exact_text, rule_table
 from lexic.parsing.parallel.plan.routed import REF, Descent
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import owner_excludes
@@ -99,7 +99,7 @@ class _Step(NamedTuple):
     after: str
 
 
-def _through(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> _Step | None:
+def _through(items: tuple[IrItem, ...], rules: RuleTable) -> _Step | None:
     """The one item an arm descends through, and the text either side of it.
 
     Every other item must derive ONE fixed string, because a piece has to be
@@ -118,7 +118,7 @@ def _through(items: tuple[IrItem, ...], rules: dict[str, IrRule]) -> _Step | Non
 
 
 def _descend(
-    grammar: IrAst, rules: dict[str, IrRule], folds: dict[str, Fold]
+    grammar: IrAst, rules: RuleTable, folds: dict[str, Fold]
 ) -> tuple[str, tuple[Descent, ...], str, str] | None:
     """``(the folded rule, the chain to it, before, after)``, or ``None``.
 
@@ -147,7 +147,7 @@ def _descend(
     return name, tuple(chain), before, after
 
 
-def _marks(lead: str, rules: dict[str, IrRule]) -> tuple[str, ...]:
+def _marks(lead: str, rules: RuleTable) -> tuple[str, ...]:
     """Every fixed spelling the separator rule derives, longest first.
 
     An arm that does not derive one fixed string makes the whole separator
@@ -219,7 +219,7 @@ def _owners(rule: IrRule, fold: Fold) -> tuple[str, ...] | None:
 
 def _derive(grammar: IrAst) -> FoldedPlan | None:
     """Read the fold's shape analysis, certify the boundary, place the shell."""
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     if not any_candidate(rules):
         return None
     analysis = GrammarAnalysis(grammar)
@@ -238,7 +238,7 @@ def _derive(grammar: IrAst) -> FoldedPlan | None:
 
 def _certified(
     grammar: IrAst,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     taken: tuple[str, Fold],
     shell: tuple[tuple[Descent, ...], str, str],
 ) -> FoldedPlan | None:

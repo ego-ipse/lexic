@@ -19,6 +19,7 @@ from lexic.ir import (
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.scan import Scanner
+from lexic.parsing.parallel.discovery.shapes import RuleTable, rule_table
 from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
@@ -47,7 +48,7 @@ def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
 
 
 def _wrapper_chain(
-    rule_map: dict[str, IrRule], start: str, target: str
+    rule_map: RuleTable, start: str, target: str
 ) -> tuple[str, ...] | None:
     """Head-reference route from ``start`` through empty-capable tails."""
     wrappers: list[str] = []
@@ -71,9 +72,7 @@ def _wrapper_chain(
     return tuple(wrappers)
 
 
-def _plan_for(
-    grammar: IrAst, sep: Separator, rule_map: dict[str, IrRule]
-) -> SplitPlan | None:
+def _plan_for(grammar: IrAst, sep: Separator, rule_map: RuleTable) -> SplitPlan | None:
     """The plan one separator record admits, or ``None`` on a shape miss."""
     container = rule_map.get(sep.container)
     item_rule = rule_map.get(sep.item)
@@ -117,9 +116,7 @@ def _plan_for(
     )
 
 
-def _terminated_plans(
-    grammar: IrAst, rule_map: dict[str, IrRule]
-) -> tuple[SplitPlan, ...]:
+def _terminated_plans(grammar: IrAst, rule_map: RuleTable) -> tuple[SplitPlan, ...]:
     """The plans a ``start ::= unit+`` terminated repetition admits.
 
     The start rule's only arm must be one unbounded reference to a unit that
@@ -163,9 +160,7 @@ def _terminated_plans(
     )
 
 
-def _speculative_plans(
-    grammar: IrAst, rule_map: dict[str, IrRule]
-) -> tuple[SplitPlan, ...]:
+def _speculative_plans(grammar: IrAst, rule_map: RuleTable) -> tuple[SplitPlan, ...]:
     """The plan a ``start ::= unit+`` repetition admits by PROPOSAL.
 
     Read last, and only where every other route declined: this is the one plan
@@ -222,7 +217,7 @@ def split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
     """Every exact start-reachable plan, memoised per grammar identity."""
     entry = _PLANS.get(id(grammar))
     if entry is None:
-        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        rule_map = rule_table(grammar)
         terminated = _terminated_plans(grammar, rule_map)
         separated = tuple(
             plan

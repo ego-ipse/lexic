@@ -4,10 +4,11 @@ their dispatch tables.
 ``FIRST``/``HARD``/``FOLLOW_FEED``/``SEQ_ATOM`` need a live ``GrammarAnalysis``
 to drive them and are exercised through it in
 ``tests/unit/lexic/parsing/pda/analysis/test_analysis.py``; this file targets
-the two tables usable standalone: ``nullable_names`` (self-contained, its own
-fixpoint solver) and ``STOPSET_ATOM`` (a pure per-type predicate needing no
-dispatcher context). ``EXTEND`` is asked through :func:`rule_extensions` and
-checked against the language itself, enumerated.
+the table usable standalone: ``STOPSET_ATOM`` (a pure per-type predicate
+needing no dispatcher context). Nullability is the grammar's own fact
+(``IrAst.nullable``), pinned in ``tests/unit/lexic/ir/grammar/test_nodes.py``.
+``EXTEND`` is asked through :func:`rule_extensions` and checked against the
+language itself, enumerated.
 """
 
 from __future__ import annotations
@@ -20,72 +21,19 @@ import pytest
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
-    IrAlternation,
     IrCharClass,
     IrChr,
-    IrItem,
     IrLiteral,
-    IrQuantifier,
-    IrRule,
     IrRuleRef,
-    IrSequence,
 )
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import (
     STOPSET_ATOM,
-    nullable_names,
     rule_extensions,
     rule_spans,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-
-
-def test_nullable_names_finds_an_empty_literal_arm():
-    """A rule whose sole arm is the empty literal derives the empty string."""
-    rules = [IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral("")))))]
-    assert nullable_names(rules) == frozenset({"r"})
-
-
-def test_nullable_names_excludes_a_rule_with_only_non_empty_arms():
-    """A rule with no all-nullable arm is not in the result."""
-    rules = [IrRule("r", IrAlternation(IrSequence(IrItem(IrLiteral("x")))))]
-    assert nullable_names(rules) == frozenset()
-
-
-def test_nullable_names_an_optional_item_makes_its_arm_nullable():
-    """A ``lo == 0`` item makes its whole arm nullable even with non-empty text."""
-    rules = [
-        IrRule(
-            "r",
-            IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1)))),
-        )
-    ]
-    assert nullable_names(rules) == frozenset({"r"})
-
-
-def test_nullable_names_propagates_through_a_ruleref_chain():
-    """``root`` is nullable because ``mid`` is, transitively — the fixpoint's
-    own reason to exist over a one-pass check."""
-    rules = [
-        IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("mid"))))),
-        IrRule("mid", IrAlternation(IrSequence(IrItem(IrLiteral(""))))),
-    ]
-    assert nullable_names(rules) == frozenset({"root", "mid"})
-
-
-def test_nullable_names_any_arm_nullable_makes_the_whole_alternation_nullable():
-    """One nullable arm among several non-nullable ones is enough."""
-    rules = [
-        IrRule(
-            "r",
-            IrAlternation(
-                IrSequence(IrItem(IrLiteral("x"))),
-                IrSequence(IrItem(IrLiteral(""))),
-            ),
-        )
-    ]
-    assert nullable_names(rules) == frozenset({"r"})
 
 
 def test_stopset_atom_is_true_only_for_a_single_char_loop_atom():

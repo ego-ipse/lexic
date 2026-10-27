@@ -16,12 +16,13 @@ from typing import NamedTuple, cast
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.ir import Bound, IrAst, IrRule
+from lexic.ir import Bound, IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.partition import Division, Unit, units
+from lexic.parsing.parallel.discovery.shapes import RuleTable, rule_table
 from lexic.parsing.parallel.stitch.model import (
     ModelStep,
     head_rest,
@@ -249,7 +250,7 @@ class _Draw(NamedTuple):
     lock that makes both one step — so the stream is the same whatever threads
     read it, and witness choice never depends on their timing."""
 
-    rules: dict[str, IrRule]
+    rules: RuleTable
     texts: list[str]
     at: list[int]
     lock: Lock
@@ -264,7 +265,7 @@ def witnesses(plan: RegionPlan) -> Iterator[str]:
     key = (id(plan.root), plan.head_rule)
     entry = _WITNESSES.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in plan.root.rules}
+        rules = rule_table(plan.root)
         entry = _WITNESSES.setdefault(key, (plan.root, _Draw(rules, [], [0], Lock())))
     draw = entry[1]
     for index in count():
