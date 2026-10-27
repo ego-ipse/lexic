@@ -626,10 +626,7 @@ def _binding_views(
     """The binding-derived views: class → rule, fields per rule, text rules."""
     names = {b.class_name: b.rule_name for b in moments.binding}
     rule_of = {cls: names[cn] for cn, cls in moments.classes.items() if cn in names}
-    fields_of = {
-        b.rule_name: tuple(sorted(b.fields.items(), key=lambda p: p[1].item))
-        for b in moments.binding
-    }
+    fields_of = {b.rule_name: b.in_slot_order() for b in moments.binding}
     text_rules = frozenset(
         b.rule_name for b in moments.binding if str(b.kind) == "value_str"
     )

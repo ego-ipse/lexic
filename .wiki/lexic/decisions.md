@@ -1703,3 +1703,21 @@ the ground-truth corpus, the 24 units a planner asks are licensed identically
 `pawn`/`nonpawn`, json `member`/`object-item2` in three flavours) lose a
 licence to that fallback; a more precise EXTEND is TODO 16′. Chess `move` is
 the licence the swap revokes, and its pin parses both moves.
+
+## A bound field's document order is read, never assumed
+
+**Decision:** a rule's bound fields have two orders and each has one reader.
+`RuleMap.fields` (and the `__binds__` table synthesis builds from it) is the
+constructor's DECLARATION order — required first, optional after — and
+`RuleMap.in_slot_order()` on the binding view, `GrammarModel.child_order()`
+(`.names`, `.slots`) on a class, are the DOCUMENT order, by item slot.
+Whatever means "as the source spells it" reads one of the two; nothing sorts
+the table again or reads `fields` as if it were the source.
+
+**Why:** templating read `fields` as document order in two places. With an
+optional key (`pair ::= key? "=" val`) the key is declared after the value, so
+`MapShape.for_entry` swapped them and a template kept nothing; with an
+optional field before a required one (`sect ::= "{" extra? pairs "}"`) the span
+collect read the later entries first, and the first value of a repeated key
+was the second in the document. Both answered differently from a language-equal
+formulation holding the optionality in a rule of its own.

@@ -379,3 +379,49 @@ def test_an_entry_whose_value_closes_no_cycle_is_refused() -> None:
     )
     with pytest.raises(UnsupportedConstructError, match="reaches it back"):
         MapShape.for_entry(flat, "pair")
+
+
+# ── the document order of bound fields ──────────────────────────────────────
+
+_ORDER_TAIL = "key ::= [a-z]+\nval ::= num | sect\nnum ::= [0-9]+\n"
+_SECT = 'root ::= sect\nsect ::= "{" pair ("," pair)* "}"\n'
+
+
+@pytest.mark.parametrize(
+    "pair", ['pair ::= key? "=" val\n', 'pair ::= okey "=" val\nokey ::= key?\n']
+)
+def test_an_optional_key_stays_the_key(pair: str) -> None:
+    """An optional key is DECLARED after the required value, but it is the
+    first field the pair spells: read in declaration order the shape swapped
+    the two, and the template kept nothing. The language-equal control holds
+    the optionality in a rule of its own."""
+    compiled = compile_text(_SECT + pair + _ORDER_TAIL, cache_key=f"order-key-{pair}")
+    shape = MapShape.for_entry(compiled, "pair")
+    assert shape.value_field == "val"
+    got = template(compiled, shape, {"a": KEEP}).run("{a=1,b=2}")
+    assert {str(path[0]): model.to_text() for path, model in got.items()} == {"a": "1"}
+
+
+@pytest.mark.parametrize(
+    "sect",
+    [
+        'sect ::= "{" extra? pairs "}"\n',
+        'sect ::= "{" oextra pairs "}"\noextra ::= extra?\n',
+    ],
+)
+def test_a_repeated_key_keeps_its_first_value_in_the_document(sect: str) -> None:
+    """``extra`` is optional and ``pairs`` required, so ``extra`` is declared
+    last; collected in that order the second ``a`` came first and won."""
+    source = (
+        "root ::= sect\n"
+        + sect
+        + 'extra ::= "[" pair "]"\npairs ::= pair ("," pair)*\npair ::= key "=" val\n'
+        + _ORDER_TAIL
+    )
+    compiled = compile_text(source, cache_key=f"order-first-{sect}")
+    spec = {"a": KEEP, "b": KEEP}
+    got = template(compiled, MapShape.for_entry(compiled, "pair"), spec).run(
+        "{[a=1]a=2,b=3}"
+    )
+    found = {str(path[0]): model.to_text() for path, model in got.items()}
+    assert found == {"a": "1", "b": "3"}

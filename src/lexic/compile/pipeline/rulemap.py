@@ -90,6 +90,11 @@ class RuleMap:
     kind: RuleKind
     fields: dict[str, IrBind]
 
+    def in_slot_order(self) -> tuple[tuple[str, IrBind], ...]:
+        """The bound fields in DOCUMENT order — by item slot, as the arm spells
+        them — where :attr:`fields` is the constructor's declaration order."""
+        return tuple(sorted(self.fields.items(), key=lambda pair: pair[1].item))
+
 
 # ── class naming (absorbed to_pascal) ─────────────────────────────────
 

@@ -125,7 +125,7 @@ class MapShape(IrNamedTuple[str, str, str, str]):
                 f"templating: entry {entry!r} is not a rule of the grammar"
             )
         bound = {b.rule_name: b for b in compute_binding(grammar)}[entry]
-        fields = [name for name, b in bound.fields.items() if b.semantic]
+        fields = [name for name, b in bound.in_slot_order() if b.semantic]
         if len(fields) < 2:
             raise UnsupportedConstructError(
                 f"templating: entry {entry!r} binds {fields!r}, and a key/value "
@@ -296,7 +296,7 @@ class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleMap]", frozenset])
         """``name``'s binding fields whose bound ref targets a reaching rule."""
         arm = next(r.body for r in self.grammar.rules if r.name == name)[0]
         out: dict[str, IrBind] = {}
-        for field, bind in self.binding[name].fields.items():
+        for field, bind in self.binding[name].in_slot_order():
             atom = arm[bind.item].atom
             if isinstance(atom, IrRuleRef) and str(atom) in self.reaching:
                 out[field] = bind

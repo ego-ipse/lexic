@@ -1,5 +1,10 @@
 # Log
 
+## A bound field's document order is read, never assumed (2026-10-27)
+
+`decisions.md`: `RuleMap.in_slot_order()` and `ChildOrder.slots` are the
+document-order readers; templating's key/value pick and span collect read them.
+
 ## The speculation licence reads the PDA's EXTEND (2026-10-27)
 
 `decisions.md` records why the exclusive-opening clause reads `rule_extensions`,

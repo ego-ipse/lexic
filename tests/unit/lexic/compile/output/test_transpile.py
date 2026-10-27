@@ -201,3 +201,18 @@ def test_make_binds_by_slot_order_not_declaration_order() -> None:
     out = transpile(a, b, rules)
     text = out.run("ab!cd")
     assert text == "ab~cd"
+
+
+def test_a_target_constructs_in_the_slot_order_its_class_reads():
+    """A target's arguments arrive in ITEM SLOT order, which a class whose
+    optional item precedes a required one DECLARES the other way round: the
+    order the construction reads is the class's ``child_order().slots``."""
+    compiled = compile_text(
+        'root ::= ws? value\nws ::= " "\nvalue ::= [a-z]+\n', cache_key="tp-slots"
+    )
+    root = compiled.classes["Root"]
+    assert isinstance(root, type) and issubclass(root, GrammarModel)
+    assert root._fields == ("value", "ws")
+    slots = root.child_order().slots
+    assert [(slot, name) for slot, name, _bind in slots] == [(0, "ws"), (1, "value")]
+    assert all(root.bound_fields()[slot][1] is bind for slot, _n, bind in slots)

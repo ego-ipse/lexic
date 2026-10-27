@@ -106,3 +106,18 @@ def test_declaration_order_really_does_diverge_from_item_order() -> None:
     assert sorted(order, key=slot.__getitem__) == ["ws", "value"]
     assert order == ["value", "ws"]
     assert defaulted == {"ws"}
+
+
+def test_in_slot_order_reads_the_fields_as_the_arm_spells_them():
+    """``ws? value`` declares ``value`` first; the document order is ``ws``
+    then ``value``, by item slot."""
+    compiled = compile_text(
+        'root ::= ws? value\nws ::= " "\nvalue ::= [a-z]+\n',
+        cache_key="binding-slot-order",
+    )
+    bound = next(
+        b for b in compute_binding(compiled.codegen_grammar) if b.class_name == "Root"
+    )
+    assert list(bound.fields) == ["value", "ws"]
+    assert [name for name, _bind in bound.in_slot_order()] == ["ws", "value"]
+    assert [bind.item for _name, bind in bound.in_slot_order()] == [0, 1]
