@@ -203,6 +203,7 @@ if TYPE_CHECKING:
         IrNamedTuple,
         IrSeq,
         IrTuple,
+        is_plain_tuple,
     )
     from lexic.ir.spine.scalars import (
         IrChr,
@@ -454,6 +455,7 @@ __all__ = [
     "field_children",
     "fold_name",
     "inline_refs",
+    "is_plain_tuple",
     "order_by_refs",
     "refs_in_order",
     "render",
@@ -587,6 +589,7 @@ _HOMES = {
     "IrTransformer": "lexic.ir.action.walk",
     "IrTuple": "lexic.ir.spine.records",
     "Bound": "lexic.ir.spine.records",
+    "is_plain_tuple": "lexic.ir.spine.records",
     "IrTypeMap": "lexic.ir.action.mapping",
     "IrUnicode": "lexic.ir.text.codec.encodings",
     "IrUnicodeForm": "lexic.ir.text.pipeline",

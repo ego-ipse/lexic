@@ -1,5 +1,11 @@
 # Log
 
+## "Is a run" is spelled once, in ir (2026-10-27)
+
+`ir-shapes.md` and `parallel-parsing.md`: `lexic.ir.is_plain_tuple` replaces the
+stitch's `is_run` and its inline twins; `IrMapping`'s miss path keeps its four
+inline tests, priced.
+
 ## The region scan's pairs stand only where every read site delimits (2026-10-27)
 
 `decisions.md`'s pair entry covers both scans: `roles.standing_pairs` is the one

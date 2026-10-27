@@ -129,7 +129,7 @@ plan; `_cut_offsets` filters candidate marks at runtime. Both read the same
 
 ## The stitch rebuilds what the product BUILT, not something equal to it
 
-A repetition's run is a **plain `tuple`**, and `stitch/model.py`'s `is_run` tests
+A repetition's run is a **plain `tuple`**, and `lexic.ir.is_plain_tuple` tests
 that by exact class — `child.__class__ is tuple`, never `isinstance`. Every
 record and every `IrTuple` is a tuple subclass and none of them is a run, so a
 subclass test answers yes to things that are not repetitions.
@@ -146,8 +146,8 @@ so a plain run reads `tuple(…)` and an `IrTuple` reads `IrTuple(tuple(…))`.
 That is how the baseline failure was caught, and it is why "did the document
 survive" and "is this the same product" are two questions with two digests.
 
-`is_run` is public for the same reason: three call sites ask it, and a fourth
-spelling would be a fourth chance to get the subclass case wrong.
+The stitch reads that one predicate at every site for the same reason: a
+second spelling would be a second chance to get the subclass case wrong.
 
 ---
 

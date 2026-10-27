@@ -24,7 +24,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from lexic.exceptions import EngineInvariantError, LexicError
-from lexic.ir import IrAst, IrNamedTuple, IrSelf
+from lexic.ir import IrAst, IrNamedTuple, IrSelf, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
@@ -44,7 +44,7 @@ from lexic.parsing.parallel.plan.routed import (
 )
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
-from lexic.parsing.parallel.stitch.model import ModelStep, is_run, splice
+from lexic.parsing.parallel.stitch.model import ModelStep, splice
 from lexic.parsing.parallel.stitch.plan import field_slot, model_type
 
 type Ask[M] = tuple[str, ModelExecutable[M], ParseConfig]
@@ -147,7 +147,7 @@ def walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None
         if index is None:
             current = held
             continue
-        if not is_run(held) or len(held) != 1:
+        if not is_plain_tuple(held) or len(held) != 1:
             return None  # a run of two was never one run; the plan declines
         current = held[0]
     return current if isinstance(current, GrammarModel) else None
@@ -209,7 +209,7 @@ def _merged_whole(
             return None
         inner = list(node.children())
         found = inner[child] if child < len(inner) else None
-        if not is_run(found):
+        if not is_plain_tuple(found):
             return None
         merged.extend(found)
     return tuple(merged)
@@ -221,7 +221,7 @@ def _merged_run(pieces: list[GrammarModel], child: int) -> tuple[IrSelf, ...] | 
     for piece in pieces:
         run = list(piece.children())
         found = run[child] if child < len(run) else None
-        if not is_run(found):
+        if not is_plain_tuple(found):
             return None
         merged.extend(found)
     return tuple(merged)

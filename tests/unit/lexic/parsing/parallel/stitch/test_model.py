@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.ir import Bound, IrAst
+from lexic.ir import Bound, IrAst, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
     envelope_tails,
-    is_run,
     model_at,
     overlaid,
     sole_routes,
@@ -155,7 +154,7 @@ def _separated_doc(rows: int) -> str:
 
 
 def test_the_separated_stitch_builds_the_run_as_a_plain_tuple() -> None:
-    """``is_run`` is a class test, not an ``isinstance``: every record and
+    """``is_plain_tuple`` is a class test, not an ``isinstance``: every record and
     every ``IrTuple`` is a tuple subclass and none of them is a run.
 
     A stitched ``IrTuple`` compared equal, rendered the same text and walked to
@@ -170,7 +169,7 @@ def test_the_separated_stitch_builds_the_run_as_a_plain_tuple() -> None:
 
     run = tuple(parallel)[1]
     assert run.__class__ is tuple, f"the run is a {type(run).__name__}"
-    assert is_run(run)
+    assert is_plain_tuple(run)
     assert run.__class__ is tuple(sequential)[1].__class__
     assert parallel.to_text() == sequential.to_text() == text
 
@@ -206,7 +205,7 @@ def _inner(text: str) -> GrammarModel:
                     return node
                 root_list = node
             stack.extend(reversed(node.children()))
-        elif is_run(node):
+        elif is_plain_tuple(node):
             stack.extend(reversed(node))
     raise AssertionError("no nested list")
 

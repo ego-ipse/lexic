@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeIs, cast
+from typing import Any, cast
 
 from lexic.exceptions import LexicError
-from lexic.ir import Bound, IrNamedTuple, IrSelf
+from lexic.ir import Bound, IrNamedTuple, IrSelf, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.stitch.plan import RegionPlan, field_slot
@@ -33,7 +33,7 @@ def head_rest(
     if max(plan.items_head, plan.items_rest) >= len(children):
         return None
     head, rest = children[plan.items_head], children[plan.items_rest]
-    if not isinstance(head, GrammarModel) or rest.__class__ is not tuple:
+    if not isinstance(head, GrammarModel) or not is_plain_tuple(rest):
         return None
     tails = cast(tuple[object, ...], rest)
     if any(tail.__class__ is not plan.tail_type for tail in tails):
@@ -71,7 +71,7 @@ def sole_routes(
         for slot, child in enumerate(node.children()):
             if isinstance(child, GrammarModel):
                 stack.append((child, (*route, (slot, None))))
-            elif child.__class__ is tuple:
+            elif is_plain_tuple(child):
                 parts = cast(tuple[object, ...], child)
                 stack.extend(
                     (part, (*route, (slot, at)))
@@ -131,7 +131,11 @@ def model_at(root: GrammarModel, route: tuple[ModelStep, ...]) -> GrammarModel |
         children = node.children() if isinstance(node, GrammarModel) else ()
         node = children[slot] if slot < len(children) else None
         if repeated is not None:
-            node = node[repeated] if is_run(node) and repeated < len(node) else None
+            node = (
+                node[repeated]
+                if is_plain_tuple(node) and repeated < len(node)
+                else None
+            )
     return node if isinstance(node, GrammarModel) else None
 
 
@@ -158,22 +162,6 @@ def _nested(
     return value if len(route) == 1 else splice(child, route[1:], value)
 
 
-def is_run(child: Bound) -> TypeIs[tuple[IrSelf, ...]]:
-    """Whether one bound value is a repetition's RUN — exactly a plain tuple.
-
-    Not ``isinstance``: every record and every :class:`IrTuple` is a tuple
-    subclass and none of them is a run, so the test is on the class itself.
-    Public because the stitch asks it from three places, and a fourth spelling
-    of it would be a fourth chance to get the subclass case wrong.
-
-    :func:`~lexic.ir.identity.field_children` makes the same test a fourth
-    time, and cannot call this one: ``ir`` is the leaf every other layer
-    imports. That one is the exception, it says so, and ``ir-shapes.md``
-    counts them — a fifth would not be.
-    """
-    return child.__class__ is tuple
-
-
 def splice[M: GrammarModel](
     root: M, route: tuple[ModelStep, ...], value: GrammarModel
 ) -> M | None:
@@ -198,7 +186,7 @@ def splice[M: GrammarModel](
     if repeated is None:
         replacement = _nested(child, route, value)
     else:
-        if not is_run(child) or repeated >= len(child):
+        if not is_plain_tuple(child) or repeated >= len(child):
             return None
         parts = list(child)
         replacement = _nested(parts[repeated], route, value)
@@ -228,7 +216,7 @@ def stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
     sequences = []
     for chunk in chunks:
         fields = tuple(chunk)
-        if len(fields) != 1 or fields[0].__class__ is not tuple:
+        if len(fields) != 1 or not is_plain_tuple(fields[0]):
             return None
         sequences.extend(fields[0])
     return chunks[0].rebuild(cast(Any, [tuple(sequences)]))
@@ -240,9 +228,10 @@ def _stitch_separated(
     """Rebuild the container from chunk models; ``None`` = shape surprise.
 
     The repetition field is a PLAIN tuple, as the model product builds it and
-    as :func:`is_run` reads it. An ``IrTuple`` here compared and rendered the
-    same, so text and structure matched a sequential parse — and then failed
-    the run test that decides whether a field is a repetition at all.
+    as :func:`~lexic.ir.spine.records.is_plain_tuple` reads it. An ``IrTuple``
+    here compared and rendered the same, so text and structure matched a
+    sequential parse — and then failed the run test that decides whether a
+    field is a repetition at all.
     """
     heads = [tuple(chunk)[0] for chunk in chunks]
     rests = [tuple(chunk)[1] for chunk in chunks]

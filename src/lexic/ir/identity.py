@@ -38,7 +38,7 @@ from itertools import chain
 from typing import ClassVar, Self
 
 from lexic.ir.action.mapping import IrMapping
-from lexic.ir.spine.records import IrNamedTuple, IrSeq
+from lexic.ir.spine.records import IrNamedTuple, IrSeq, is_plain_tuple
 from lexic.ir.spine.spine import IrLambda, IrSelf
 
 
@@ -51,13 +51,10 @@ def field_children(node: IrSelf) -> tuple[IrSelf, ...]:
     at the first run and reported a whole csv document as four nodes. A run is
     a way THROUGH, not a node: its members are the children.
 
-    The test for one is ``part.__class__ is tuple`` and not ``isinstance``, because
-    every record and every :class:`~lexic.ir.spine.records.IrTuple` IS a tuple
-    subclass and none of them is a run — the same reasoning, and the same test,
-    as :func:`~lexic.parsing.parallel.stitch.model.is_run`. That makes this the
-    FOURTH place the repo spells "is a run"; ``ir`` is the leaf every other
-    layer imports, so it cannot borrow the one in ``stitch``. The count is
-    stated in ``ir-shapes.md`` so the fourth is visible rather than accidental.
+    The test for one is :func:`~lexic.ir.spine.records.is_plain_tuple`, never
+    ``isinstance``: every record and every
+    :class:`~lexic.ir.spine.records.IrTuple` IS a tuple subclass and none of
+    them is a run.
 
     :param node: Any node.
     :returns: A tuple node's elements in field order, with a run's members
@@ -73,7 +70,7 @@ def field_children(node: IrSelf) -> tuple[IrSelf, ...]:
     for part in parts:
         if isinstance(part, IrSelf):
             out.append(part)
-        elif isinstance(part, tuple) and part.__class__ is tuple:
+        elif is_plain_tuple(part):
             members = [one for one in part if isinstance(one, IrSelf)]
             if len(members) == len(part):
                 out.extend(members)

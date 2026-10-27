@@ -42,6 +42,8 @@ Presets
                     ``default=IrRaise()`` to refuse unmatched types.
 """
 
+from typing import NamedTuple
+
 import pytest
 
 from lexic.compile import CompiledGrammar, compile_from_path
@@ -67,7 +69,8 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.spine.records import IrCachingTuple, IrSeq, IrTuple
+from lexic.ir.spine.records import IrCachingTuple, IrNamedTuple, IrSeq, IrTuple
+from lexic.ir.spine.scalars import IrStr
 from lexic.ir.spine.spine import IrLambda, IrLeaf, IrNode, IrNone, IrSelf
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -457,6 +460,38 @@ def test_irbottomup_empty_actions_is_identity():
     """With no user actions the driver's rebuild IS the transform."""
     seq = IrSequence(IrItem(IrLiteral("a")), IrItem(IrRuleRef("r")))
     assert IrBottomUp().apply(seq) == seq
+
+
+class _ForeignPair(NamedTuple):
+    """A tuple subclass from outside the spine, held as a record's payload."""
+
+    left: object
+    right: object
+
+
+class _Holder(IrNamedTuple[IrStr, object, object]):
+    """A record whose last two fields are non-IR payloads."""
+
+    name: IrStr
+    pair: object
+    items: object
+
+
+def test_irbottomup_leaves_a_foreign_tuple_payload_opaque():
+    """Only a PLAIN tuple is transparent: a foreign tuple subclass is a payload
+    leaf, kept as the same object, never descended and rebuilt as a plain tuple
+    with its elements transformed."""
+    holder = _Holder(IrStr("a"), _ForeignPair(IrStr("x"), IrStr("y")), [IrStr("z")])
+    upper = IrBottomUp(
+        actions=IrTypeMap(
+            IrAction(IrStr, IrLambda(lambda _d, n, _nc: IrStr(str(n).upper())))
+        )
+    )
+    out = upper.apply(holder)
+    assert isinstance(out, _Holder)
+    assert out.name == IrStr("A")
+    assert out.pair is holder.pair
+    assert out.items is holder.items
 
 
 def test_irbottomup_body_sees_transformed_children():
