@@ -29,7 +29,7 @@ from functools import partial
 from operator import add
 from typing import NamedTuple
 
-from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst, IrItem, IrNoneType, IrRule, IrRuleRef, IrSequence
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.regions import (
     Cutting,
@@ -38,7 +38,6 @@ from lexic.parsing.parallel.discovery.regions import (
     listed,
 )
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
     derives_empty,
     emit_charset,
     exact_text,
@@ -143,7 +142,7 @@ def optional_ref(item: IrItem) -> str | None:
 
 
 def _delimited_arm(
-    items: tuple[IrItem, ...], rules: dict[str, IrRule]
+    arm: IrSequence, rules: dict[str, IrRule]
 ) -> tuple[str, str, str, str] | None:
     """``(rule, opening, item, closing)`` when an arm delimits one repetition.
 
@@ -151,12 +150,13 @@ def _delimited_arm(
     ``inline | block`` names its alternatives rather than spelling them, and
     the delimited shape lives in the rule the arm names.
     """
-    named = items[0].atom if len(items) == 1 else None
-    if isinstance(named, IrRuleRef) and items[0].quantifier == UNIT:
-        below = rules.get(str(named))
+    named = arm.sole_ref()
+    if not isinstance(named, IrNoneType):
+        below = rules.get(named)
         arms = tuple(below.body) if below is not None else ()
-        found = _delimited_arm(tuple(arms[0]), rules) if len(arms) == 1 else None
+        found = _delimited_arm(arms[0], rules) if len(arms) == 1 else None
         return None if found is None else (str(named), *found[1:])
+    items = tuple(arm)
     if len(items) != 3 or not unbounded(items[1]):
         return None
     opening = literal_text(items[0], rules)
@@ -456,7 +456,7 @@ def _routed_at(
     if target is None:
         return None
     for index, arm in enumerate(target.body):
-        shape = _delimited_arm(tuple(arm), rules)
+        shape = _delimited_arm(arm, rules)
         if shape is None or not _forced(target, index, rules):
             continue
         found = _proven(grammar, rules, items, (at, shape, str(target.name)))

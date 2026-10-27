@@ -29,7 +29,7 @@ from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
 from lexic.compile.pipeline.naming import has_ruleref
-from lexic.compile.pipeline.rulemap import classify_rule, unit_ref_arm
+from lexic.compile.pipeline.rulemap import classify_rule
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     Field,
@@ -203,7 +203,7 @@ def _hoist_rule_arms(rule: IrRule, taken: set[str]) -> list[IrRule]:
             arms.append(arm)  # empty arm stays — zero kids discriminate it
             continue
         arm_index += 1
-        if not isinstance(unit_ref_arm(arm), IrNoneType):
+        if not isinstance(arm.sole_ref(), IrNoneType):
             arms.append(arm)
             continue
         name = f"{rule.name}-arm{arm_index}"

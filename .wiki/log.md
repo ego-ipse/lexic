@@ -1,5 +1,10 @@
 # Log
 
+## An arm of one unit reference, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrSequence.sole_ref()` and records that a repeated
+reference is never an arm's rule — the reduce fold's arm table read one as such.
+
 ## "Is a run" is spelled once, in ir (2026-10-27)
 
 `ir-shapes.md` and `parallel-parsing.md`: `lexic.ir.is_plain_tuple` replaces the

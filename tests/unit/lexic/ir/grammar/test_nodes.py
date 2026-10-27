@@ -1209,3 +1209,26 @@ def test_sole_arm_is_absent_for_a_rule_with_several_arms():
         ),
     )
     assert rule.sole_arm() is IrNone
+
+
+def test_sole_ref_is_the_rule_an_arm_of_one_unit_reference_names():
+    """An arm that is one exactly-once reference IS that rule's arm."""
+    ref = IrSequence(IrItem(IrRuleRef("member"))).sole_ref()
+    assert isinstance(ref, IrRuleRef)
+    assert ref == "member"
+
+
+@pytest.mark.parametrize(
+    "arm",
+    [
+        IrSequence(IrItem(IrRuleRef("member"), IrQuantifier(0, IrNone))),
+        IrSequence(IrItem(IrRuleRef("member"), IrQuantifier(1, IrNone))),
+        IrSequence(IrItem(IrRuleRef("member")), IrItem(IrLiteral(","))),
+        IrSequence(IrItem(IrLiteral(","))),
+        IrSequence(),
+    ],
+)
+def test_sole_ref_is_absent_for_a_quantified_reference_or_another_shape(arm):
+    """A repeated reference holds a run, not the rule; two items, a literal and
+    an empty arm name no rule either."""
+    assert arm.sole_ref() is IrNone

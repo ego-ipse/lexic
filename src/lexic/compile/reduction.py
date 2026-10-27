@@ -573,14 +573,18 @@ def _absent(value: Any) -> bool:
 
 
 def _alt_refs(rule: IrRule) -> tuple[str, ...] | None:
-    """The rule's arm refs when EVERY non-empty arm is a single plain ref."""
-    arms = [tuple(arm) for arm in rule.body]
+    """The rule's arm refs when EVERY non-empty arm is one unit reference.
+
+    A quantified reference is not an arm's rule: ``p ::= ("<" w ">")*`` holds a
+    run of its hoisted group, which splices into ``p`` rather than folding
+    through it as an arm.
+    """
     refs = [
-        str(arm[0].atom)
-        for arm in arms
-        if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
+        str(ref)
+        for arm in rule.body
+        if not isinstance(ref := arm.sole_ref(), IrNoneType)
     ]
-    if refs and len(refs) == len([arm for arm in arms if arm]):
+    if refs and len(refs) == len([arm for arm in rule.body if arm]):
         return tuple(refs)
     return None
 

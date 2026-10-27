@@ -41,7 +41,6 @@ from lexic.ir import (
     IrItem,
     IrLambda,
     IrLiteral,
-    IrNone,
     IrNoneType,
     IrQuantifier,
     IrRule,
@@ -127,18 +126,6 @@ def classify_rule(rule: IrRule) -> RuleKind:
 # ── parent inference ──────────────────────────────────────────────────
 
 
-def unit_ref_arm(arm: IrSequence) -> IrRuleRef | IrNoneType:
-    """The ref of a single-item, unit-quantified ruleref arm, else ``IrNone``.
-
-    :param arm: An alternation arm.
-    :returns: The arm's lone ``IrRuleRef``, or :data:`IrNone`.
-    """
-    if len(arm) != 1 or arm[0].quantifier != _UNIT:
-        return IrNone
-    atom = arm[0].atom
-    return atom if isinstance(atom, IrRuleRef) else IrNone
-
-
 def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
     """Map each unit-ref alternation arm to its owning alternations, in grammar order.
 
@@ -156,7 +143,7 @@ def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
         if classify_rule(rule) != "alternation":
             continue
         for arm in non_empty_arms(rule.body):
-            ref = unit_ref_arm(arm)
+            ref = arm.sole_ref()
             if isinstance(ref, IrNoneType):
                 continue
             parents = parents_of.setdefault(str(ref), [])
@@ -339,7 +326,7 @@ def _all_unit_ref_arms(alt: IrAlternation) -> bool:
 
     The only group shape that folds cleanly to a sub-model (or list of them):
     each arm yields exactly one child model that identifies itself. An empty
-    arm, a multi-item arm, or any literal arm fails the test (``unit_ref_arm``
+    arm, a multi-item arm, or any literal arm fails the test (``sole_ref``
     returns :data:`IrNone` for each), routing the group to ``gtext``.
 
     :param alt: The inline group alternation.
@@ -347,7 +334,7 @@ def _all_unit_ref_arms(alt: IrAlternation) -> bool:
         one arm).
     """
     return len(alt) > 0 and all(
-        not isinstance(unit_ref_arm(arm), IrNoneType) for arm in alt
+        not isinstance(arm.sole_ref(), IrNoneType) for arm in alt
     )
 
 

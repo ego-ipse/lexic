@@ -147,6 +147,10 @@ class IrSequence(IrSeq["IrItem"]):
         )
         return super().__new__(cls, *cast("tuple[IrItem, ...]", coerced))
 
+    def sole_ref(self) -> IrRuleRef | IrNoneType:
+        """The rule this arm consists of, when it is one unit reference."""
+        return self[0].unit_ref() if len(self) == 1 else IrNone
+
 
 class IrAlternation(IrSeq[IrSequence], IrAtom):
     """Ordered choice (alternation) between ``IrSequence`` arms.

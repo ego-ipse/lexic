@@ -113,14 +113,6 @@ def owner_excludes(
     return entry[1]
 
 
-def _arm_target(items: tuple[IrItem, ...]) -> str:
-    """The rule an arm consists of, when it is one plain unit reference."""
-    atom = items[0].atom if len(items) == 1 else None
-    if isinstance(atom, IrRuleRef) and items[0].quantifier == UNIT:
-        return str(atom)
-    return ""
-
-
 def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bool:
     """Whether a unit that begins with ``region``'s delimiter must BE it.
 
@@ -134,11 +126,11 @@ def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bo
     if region.rule == owner:
         return True
     leading = [
-        tuple(arm)
+        arm
         for arm in unit.body
         if leads_with(tuple(arm), region.opening[0], rules, frozenset({owner}))
     ]
-    return len(leading) == 1 and _arm_target(leading[0]) == region.rule
+    return len(leading) == 1 and leading[0].sole_ref() == region.rule
 
 
 _MARK_REGIONS: dict[
