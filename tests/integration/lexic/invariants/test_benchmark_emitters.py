@@ -35,7 +35,7 @@ from lexic.parsing.parallel import available_workers, reset_pools
 from lexic.parsing.parallel.pool import IDLE_POOLS
 from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, one_engine
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
-from tools.benchmark.emitters.charsets import CharSet, of_points
+from tools.benchmark.emitters.charsets import CharSet, normalized
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts
@@ -256,13 +256,13 @@ def test_lexic_is_not_asked_an_easier_question(bench: Bench) -> None:
 def _licensed_runs(bench: Bench) -> set[CharSet]:
     """Every run terminal lexic's own derivation licenses for one case.
 
-    A `CharSet` on both sides of the equality: `of_points` folds the derived
-    code points into the same interval tuple an emitted run carries in
+    A `CharSet` on both sides of the equality: `normalized` folds the derived
+    unit's intervals into the same interval tuple an emitted run carries in
     `chars`, so the comparison is like with like and not a spelling against a
     structure.
     """
     return {
-        of_points(chars)
+        normalized(chars.intervals())
         for chars, _empty, _unit in run_candidates(
             compile_tables(normalize(bench.ast))
         ).values()

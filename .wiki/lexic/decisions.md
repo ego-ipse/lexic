@@ -1721,3 +1721,36 @@ optional field before a required one (`sect ::= "{" extra? pairs "}"`) the span
 collect read the later entries first, and the first value of a repeated key
 was the second in the document. Both answered differently from a language-equal
 formulation holding the optionality in a rule of its own.
+
+## Earley's FIRST is one set of term ids; a run's unit is an exact class
+
+**Decision:** `tables/builder.first_ids` computes, per rule, the term ids it can
+begin with: one exact fixpoint, stored nowhere. The seed gates read it as
+characters (the union of each terminal's listed first chars, poisoned when one
+is unlistable), the same gates their old char-set fixpoint built. The run
+proofs (`earley/lexruns.py`) build FOLLOW over the same ids, and a run's unit is
+an exact `IrCharClass` of any width and either polarity (`atoms.atom_unit`: a
+negated class is its complement). The character question is asked once per
+FOLLOW terminal and unit, through `atoms.may_begin_within`, on the class's own
+interval cover (`IrCharClass.holds` / `meets` / `within`): a token always may.
+A `RunTerm` lists whichever side of its unit is small (`IrCharClass.listed`,
+the same choice `CharSet.from_charclass` makes) and scans by membership or, for
+`[^"]*`, by exclusion (`Excluding`, a frozenset answering by what it does not
+list), so the scan loop and every positive listed run run main's code. A unit
+too large on both sides — japanese.gbnf's 21,244-member `jp-char` — tests
+membership by its ranges (`Spans`, one bisect) rather than holding a listed set
+per replica. A negated or ranged run's seed is ungated, as its per-char form
+was. A grammar with no
+candidate run does no FOLLOW work at all.
+
+**Why:** both analyses ran their own FIRST over character sets, and any
+terminal they could not list — a negated class, one wider than 4,096 code
+points, a token — poisoned every set it reached, so a narrow run (vyx's
+`indent ::= " "*`) stayed per-char because of an unrelated wide class, and a
+string body `[^"]*` or vyx's `key ::= [A-Za-z\x80-\U0010FFFF]+` could never be a
+run at all. Term ids are exact, intervals are exact at any width, and
+characters are listed only where the scanner needs them. The interval questions
+are `IrCharClass` methods because a unit IS a class: the dispatch carries the
+node itself, and nothing beside the IR keeps a second interval vocabulary. A
+newly proved run also leaves the MT anchor set (`parallel/discovery/anchors.py`,
+which drops every anchor a run's unit holds).

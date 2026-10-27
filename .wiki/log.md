@@ -1,5 +1,11 @@
 # Log
 
+## Earley FIRST over term ids; a run's unit is an exact class (2026-10-27)
+
+`decisions.md` records `first_ids` as Earley's one FIRST, the seed gates read
+from it, run units as exact `IrCharClass`es of any width and polarity, and
+negated runs scanning by exclusion.
+
 ## The character-set node has its own module (2026-10-27)
 
 `ir-shapes.md` records that `IrCharClass`, `IrRange` and `MAX_CODEPOINT` live

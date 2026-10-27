@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from lexic.ir.grammar.charclass import MAX_CODEPOINT, IrCharClass, IrRange
 from lexic.ir.spine.scalars import IrChr
+from lexic.ir.spine.spine import IrNone
 
 # ── IrCharClass intrinsic behaviour (relocated from utils/test_charclass) ──
 
@@ -279,3 +282,66 @@ def test_charclass_members_and_intervals_agree_on_width():
     cls = IrCharClass.from_intervals([(0, 2), (5, 5)])
     width = sum(hi - lo + 1 for lo, hi in cls.intervals())
     assert width == len(cls.members())
+
+
+# ── IrCharClass interval questions: holds / meets / within / listed ─────
+
+
+def _class(*spans: tuple[int, int]) -> IrCharClass:
+    return IrCharClass.from_intervals(spans)
+
+
+@pytest.mark.parametrize(
+    ("point", "held"),
+    [(96, False), (97, True), (110, True), (122, True), (123, False), (200, True)],
+)
+def test_holds_reads_both_bounds_of_every_interval(point: int, held: bool):
+    """``[a-z\\xc8]``: both ends of a range are members, its neighbours not."""
+    assert _class((97, 122), (200, 200)).holds(point) is held
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "met"),
+    [
+        (((97, 122),), ((122, 130),), True),
+        (((97, 122),), ((123, 130),), False),
+        (((0, 10), (50, 60)), ((20, 40), (60, 70)), True),
+        (((0, 10), (50, 60)), ((11, 49), (61, 70)), False),
+        ((), ((0, 0x10FFFF),), False),
+    ],
+)
+def test_meets_finds_a_shared_point_or_none(left, right, met: bool):
+    """Touching at one code point meets; abutting gaps do not; empty meets nothing."""
+    assert _class(*left).meets(_class(*right)) is met
+    assert _class(*right).meets(_class(*left)) is met
+
+
+@pytest.mark.parametrize(
+    ("inner", "outer", "inside"),
+    [
+        (((97, 99),), ((97, 122),), True),
+        (((96, 99),), ((97, 122),), False),
+        (((97, 99), (120, 123)), ((97, 122),), False),
+        (((10, 20), (30, 40)), ((0, 25), (28, 50)), True),
+        (((10, 30),), ((0, 25), (26, 50)), True),
+        ((), ((5, 5),), True),
+    ],
+)
+def test_within_needs_every_point_inside(inner, outer, inside: bool):
+    """A class lies within another only when no point of it falls outside."""
+    assert _class(*inner).within(_class(*outer)) is inside
+
+
+def test_listed_names_the_members_of_a_small_class():
+    """Three members fit any cap of three or more, listed positive."""
+    assert _class((97, 99)).listed(3) == (frozenset("abc"), False)
+
+
+def test_listed_names_the_exclusions_of_a_co_finite_class():
+    """``[^"]`` has over a million members and one non-member."""
+    assert IrCharClass(IrChr('"')).complement().listed(4096) == (frozenset('"'), True)
+
+
+def test_listed_is_absent_when_neither_side_fits():
+    """U+0000..U+7FFFF and its complement both exceed a 4,096 cap."""
+    assert _class((0, 0x7FFFF)).listed(4096) is IrNone

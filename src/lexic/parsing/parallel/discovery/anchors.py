@@ -35,6 +35,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.caches import adopt, memo
+from lexic.parsing.earley.kernel.tables.atoms import Spans
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
@@ -147,15 +148,12 @@ def _sites_by_char(
     return out, counts
 
 
-def _run_chars(grammar: IrAst) -> set[str]:
-    """The union of the grammar's derived maximal-munch run charsets."""
+def _run_units(grammar: IrAst) -> list[IrCharClass]:
+    """The units of the grammar's derived maximal-munch runs, either polarity."""
     normalized = normalize(grammar)
     adopt(id(grammar), normalized)  # transient shape, but the table memo keys on it
     tables = compile_tables(normalized)
-    out: set[str] = set()
-    for charset, _has_empty, _unit_rid in run_candidates(tables).values():
-        out |= charset
-    return out
+    return [unit for unit, _has_empty, _unit_rid in run_candidates(tables).values()]
 
 
 _Entry = tuple[IrAst, frozenset[str], dict[str, tuple[str, ...]], dict[str, int]]
@@ -170,8 +168,9 @@ def _analysis(grammar: IrAst) -> _Entry:
     if entry is None:
         by_char, counts = _sites_by_char(_site_rows(grammar))
         if by_char:
-            for ch in _run_chars(grammar):
-                by_char.pop(ch, None)
+            units = [Spans.of(unit) for unit in _run_units(grammar)]
+            for ch in [c for c in by_char if any(c in unit for unit in units)]:
+                del by_char[ch]
                 counts.pop(ch, None)
         entry = (grammar, frozenset(by_char), by_char, counts)
         _ANCHORS[id(grammar)] = entry

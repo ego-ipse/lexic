@@ -23,12 +23,11 @@ excludes end-of-input, since EOF is not a character to exclude *from*.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import ClassVar, Final
 
-from lexic.ir import IrCharClass
+from lexic.ir import IrCharClass, IrNoneType
 
 __all__ = ["CharSet", "MAX_RANGE_EXPANSION"]
 
@@ -37,16 +36,6 @@ MAX_RANGE_EXPANSION: Final[int] = 300_000
 on either side (the class itself, or its complement); when BOTH sides
 exceed this, it falls back to the conservative :attr:`CharSet.ANY` rather
 than materialising up to the full Unicode code-point space."""
-
-
-def _span_size(intervals: Iterable[tuple[int, int]]) -> int:
-    """Total code points covered by a ``(lo, hi)`` inclusive interval cover."""
-    return sum(hi - lo + 1 for lo, hi in intervals)
-
-
-def _expand(intervals: Iterable[tuple[int, int]]) -> frozenset[str]:
-    """Materialise every code point in a ``(lo, hi)`` interval cover to glyphs."""
-    return frozenset(chr(point) for lo, hi in intervals for point in range(lo, hi + 1))
 
 
 _EOF_ONLY: Final[frozenset[str]] = frozenset({""})
@@ -248,10 +237,7 @@ def expanded(cc: IrCharClass) -> CharSet:
     inherently small (the distinct character classes of the grammars a process
     has seen).
     """
-    positive = cc.intervals()
-    if _span_size(positive) <= MAX_RANGE_EXPANSION:
-        return CharSet(_expand(positive), False)
-    gaps = cc.complement().intervals()
-    if _span_size(gaps) <= MAX_RANGE_EXPANSION:
-        return CharSet(_expand(gaps), True)
-    return CharSet.ANY
+    listed = cc.listed(MAX_RANGE_EXPANSION)
+    if isinstance(listed, IrNoneType):
+        return CharSet.ANY
+    return CharSet(*listed)

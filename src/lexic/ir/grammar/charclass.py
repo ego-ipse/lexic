@@ -11,13 +11,14 @@ because a negated class spans most of Unicode.
 from __future__ import annotations
 
 import random
-from collections.abc import Iterable
+from bisect import bisect_right
+from collections.abc import Iterable, Sequence
 from typing import ClassVar
 
 from lexic.ir.grammar.nodes import IrBounds
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import IrChr
-from lexic.ir.spine.spine import IrAtom
+from lexic.ir.spine.spine import IrAtom, IrNone, IrNoneType
 
 __all__ = ["IrCharClass", "IrRange", "MAX_CODEPOINT"]
 
@@ -285,3 +286,46 @@ class IrCharClass(IrSeq[IrRange | IrChr], IrAtom):
         if cursor <= MAX_CODEPOINT:
             spans.append(self._span(cursor, MAX_CODEPOINT))
         return IrCharClass(*spans)
+
+    def holds(self, point: int) -> bool:
+        """Whether code point ``point`` is a member."""
+        return self.cover_holds(self.intervals(), point)
+
+    @staticmethod
+    def cover_holds(cover: Sequence[tuple[int, int]], point: int) -> bool:
+        """Whether ``point`` lies in a sorted, coalesced cover — one bisect."""
+        at = bisect_right(cover, (point, MAX_CODEPOINT + 1)) - 1
+        return at >= 0 and cover[at][1] >= point
+
+    def meets(self, other: IrCharClass) -> bool:
+        """Whether the two classes share a code point — one merge walk."""
+        a, b = self.intervals(), other.intervals()
+        i = j = 0
+        while i < len(a) and j < len(b):
+            if a[i][1] < b[j][0]:
+                i += 1
+            elif b[j][1] < a[i][0]:
+                j += 1
+            else:
+                return True
+        return False
+
+    def within(self, other: IrCharClass) -> bool:
+        """Whether every member is also ``other``'s — one merge walk."""
+        b, j = other.intervals(), 0
+        for lo, hi in self.intervals():
+            while j < len(b) and b[j][1] < lo:
+                j += 1
+            if j == len(b) or b[j][0] > lo or b[j][1] < hi:
+                return False
+        return True
+
+    def listed(self, cap: int) -> tuple[frozenset[str], bool] | IrNoneType:
+        """``(members, False)`` when at most ``cap`` points are members, else
+        ``(non-members, True)`` when at most ``cap`` are not, else ``IrNone``."""
+        for side, negated in ((self, False), (self.complement(), True)):
+            spans = side.intervals()
+            if sum(hi - lo + 1 for lo, hi in spans) <= cap:
+                points = (chr(p) for lo, hi in spans for p in range(lo, hi + 1))
+                return frozenset(points), negated
+        return IrNone

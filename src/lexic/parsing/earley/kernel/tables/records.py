@@ -193,7 +193,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
                 (code << bits, self.next_sym[code], gate)
                 for code, gate in zip(dot0, gates)
             )
-            for dot0, gates in zip(builder.rule_dot0, builder.seed_gates())
+            for dot0, gates in zip(builder.rule_dot0, builder.seed_gates(self.next_sym))
         )
         self.nullable_completes = tuple(builder.nullable())
         self.accept_codes = builder.accept_codes()

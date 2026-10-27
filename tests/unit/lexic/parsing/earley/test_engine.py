@@ -706,8 +706,8 @@ def collapsed_digits_plus_tables(g: IrAst):
     plain = compile_tables(g)
     candidates = run_candidates(plain)
     runs = {
-        name: (RunTerm(charset, 1, RUN_STR), has_empty)
-        for name, (charset, has_empty, _unit_rid) in candidates.items()
+        name: (RunTerm.over(unit, RUN_STR), has_empty)
+        for name, (unit, has_empty, _unit_rid) in candidates.items()
     }
     return build_tables(g, runs)
 

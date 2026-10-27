@@ -363,8 +363,9 @@ def _named[T: tuple[Any, ...]](copy: PrivateCopy, part: T) -> T:
 
 
 def _frozenset(copy: PrivateCopy, part: frozenset[Any]) -> frozenset[Any]:
-    """A frozenset of copies."""
-    return copy.keep(part, frozenset([copy.of(one) for one in part]))
+    """A frozenset of copies, of the same type — a subclass keeps its own
+    reading of the members (a negated run's ``Excluding``)."""
+    return copy.keep(part, type(part)([copy.of(one) for one in part]))
 
 
 def _dict(copy: PrivateCopy, part: dict[Any, Any]) -> dict[Any, Any]:
@@ -468,7 +469,8 @@ def _copier(cls: type) -> Copier:
     known = _COPIERS.get(cls)
     if known is not None:
         return known
-    found = _classify(cls)
+    # a frozenset subclass is a value of its own type (a negated run's Excluding)
+    found = _frozenset if issubclass(cls, frozenset) else _classify(cls)
     _COPIERS[cls] = found
     return found
 
