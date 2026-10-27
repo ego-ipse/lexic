@@ -1819,3 +1819,34 @@ demotions are identical on every grammar. The gate's switch cannot move a
 licence: wherever the old walk answered "unknown" (a cycle, a negation, a
 token, depth, an undefined name), the gate's own alphabet reader had already
 declined. A name no rule defines stays "unknown" there.
+
+## The IR façade's lookup is the groups' own data
+
+**Decision:** each IR group marker (`spine`, `action`, `grammar`, `text`)
+holds a public `SURFACE`, mapping every name the group puts on `lexic.ir` to the
+module that defines it. The façade keeps one of the same shape, `_SURFACE`, for
+its own direct modules (`flavour`, `identity`, `reduction`). Its `_HOMES` lookup
+is the union of those five and is never written by hand. The markers hold data
+only: Python runs a package marker before any of its submodules, so
+`import lexic` already loads all four, and a marker that imported anything
+would charge every consumer for it.
+
+A surface is keyed by name, not by module. Keyed by module, its runs of names
+repeat `__all__`'s line for line, and pylint's duplicate-code check reads that
+as copied code.
+
+**Why the other two statements stay per name in the façade:** the
+`TYPE_CHECKING` imports and the literal `__all__` are read by tools that see
+only a literal in the module itself.
+
+- ruff 0.15 reads no other module's `__all__`. With
+  `__all__ += group.__all__`, every `TYPE_CHECKING` import is F401.
+- A star re-export would satisfy the type checker. A star re-export is F403,
+  in a `.py` and in a `.pyi` stub alike.
+- A group `__all__` that names what the group does not bind is pylint E0603,
+  and pyright reports `reportUnsupportedDunderAll`.
+
+PEP 810's lazy imports would replace all of it, but they are not on 3.14. The
+drift pins in `test_init_ir` hold the three statements to one another: module
+by module and in both directions for the `TYPE_CHECKING` block, by set equality
+for `__all__`, and by resolution for every name.

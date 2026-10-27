@@ -14,13 +14,16 @@ CLAUDE.md's *"no TYPE_CHECKING dodges"* is a LAYERING rule — it forbids a
 runtime module reaching into the engine behind the type checker's back. This is
 a package façade, which has no layer and no arrow to dodge.
 
-REVISIT ON 3.15 — if PEP 810 (explicit lazy imports) lands, this file collapses
-back to plain ``lazy from … import …`` lines and ``_HOMES``, ``__getattr__`` and
-the drift pin all go away. Wait for a RELEASE, not a beta.
+REVISIT ON 3.15 — PEP 810 (explicit lazy imports) is not on 3.14. If it lands,
+this file collapses back to plain ``lazy from … import …`` lines, and the group
+surfaces, ``_HOMES``, ``__getattr__`` and the drift pins all go away. Wait for a
+RELEASE, not a beta.
 """
 
 from importlib import import_module
 from typing import TYPE_CHECKING
+
+from lexic.ir import action, grammar, spine, text
 
 # `concretize` cannot be lazy: it names BOTH this export and the submodule
 # `lexic.ir.grammar.concretize`, so the moment anything imports the module the attribute
@@ -473,155 +476,25 @@ __all__ = [
     "unspellable",
 ]
 
-_HOMES = {
-    "AcceptingState": "lexic.ir.reduction",
-    "Borg": "lexic.ir.spine.meta",
-    "DEFERRED_FAILURE": "lexic.ir.reduction",
-    "DyadicOp": "lexic.ir.grammar.operators",
-    "DROP": "lexic.ir.reduction",
-    "Drop": "lexic.ir.reduction",
-    "DuplicatePolicy": "lexic.ir.reduction",
-    "EXACT_MEANING": "lexic.ir.reduction",
-    "EntryRoute": "lexic.ir.reduction",
-    "EscapeCodec": "lexic.ir.text.codec.escapes",
-    "ExtensionRoute": "lexic.ir.reduction",
-    "FIRST_DUPLICATE": "lexic.ir.reduction",
-    "FailureOrder": "lexic.ir.reduction",
-    "IMMEDIATE_FAILURE": "lexic.ir.reduction",
-    "Field": "lexic.ir.spine.records",
-    "IR_DEFAULT": "lexic.ir.action.mapping",
-    "IrAction": "lexic.ir.action.build",
-    "IrAddress": "lexic.ir.text.spans",
-    "IrAlignment": "lexic.ir.grammar.transform.alignment",
-    "IrAlphabet": "lexic.ir.grammar.nodes",
-    "IrAlternation": "lexic.ir.grammar.nodes",
-    "IrAnd": "lexic.ir.grammar.operators",
-    "IrApply": "lexic.ir.action.build",
-    "IrArg": "lexic.ir.action.access",
-    "IrArgs": "lexic.ir.action.access",
-    "IrAst": "lexic.ir.grammar.nodes",
-    "IrAt": "lexic.ir.action.access",
-    "IrAtom": "lexic.ir.spine.spine",
-    "BIND_MODES": "lexic.ir.spine.bind",
-    "IrBind": "lexic.ir.spine.bind",
-    "IrBottomUp": "lexic.ir.action.walk",
-    "IrBounds": "lexic.ir.grammar.nodes",
-    "IrBuild": "lexic.ir.action.build",
-    "IrCachingTuple": "lexic.ir.spine.records",
-    "IrCat": "lexic.ir.text.layout",
-    "IrCensus": "lexic.ir.identity",
-    "IrCharClass": "lexic.ir.grammar.charclass",
-    "IrChild": "lexic.ir.action.access",
-    "IrChildren": "lexic.ir.action.access",
-    "IrChr": "lexic.ir.spine.scalars",
-    "IrCompare": "lexic.ir.action.flow.compute",
-    "IrConcat": "lexic.ir.action.flow.compute",
-    "IrCond": "lexic.ir.action.flow.control",
-    "IrDispatch": "lexic.ir.action.walk",
-    "IrDoc": "lexic.ir.text.layout",
-    "IrDocConcat": "lexic.ir.text.layout",
-    "IrDocJoin": "lexic.ir.text.layout",
-    "IrEach": "lexic.ir.action.flow.control",
-    "IrEmission": "lexic.ir.text.spans",
-    "IrEmit": "lexic.ir.action.build",
-    "IrEmitter": "lexic.ir.action.walk",
-    "IrEncoding": "lexic.ir.text.codec.encodings",
-    "IrEq": "lexic.ir.grammar.operators",
+_SURFACE: dict[str, str] = {
     "IrEscape": "lexic.ir.flavour",
     "IrEscapePoint": "lexic.ir.flavour",
-    "IrExtent": "lexic.ir.text.spans",
-    "IrExtents": "lexic.ir.text.spans",
-    "IrField": "lexic.ir.action.access",
     "IrFlavour": "lexic.ir.flavour",
-    "IrGlyph": "lexic.ir.action.flow.compute",
-    "IrGroup": "lexic.ir.text.layout",
-    "IrIdentity": "lexic.ir.identity",
-    "IrIndex": "lexic.ir.action.access",
-    "IrInt": "lexic.ir.spine.scalars",
-    "IrIsA": "lexic.ir.action.flow.compute",
-    "IrItem": "lexic.ir.grammar.nodes",
-    "IrJoin": "lexic.ir.action.flow.compute",
-    "IrLambda": "lexic.ir.spine.spine",
-    "IrLeaf": "lexic.ir.spine.spine",
-    "IrLen": "lexic.ir.action.access",
-    "IrLine": "lexic.ir.text.layout",
-    "IrLiteral": "lexic.ir.grammar.nodes",
-    "IrLongestMatch": "lexic.ir.text.tokenizer",
-    "IrMap": "lexic.ir.action.mapping",
-    "IrMapping": "lexic.ir.action.mapping",
-    "IrMerge": "lexic.ir.action.flow.compute",
-    "IrMeta": "lexic.ir.spine.meta",
-    "IrMultiMap": "lexic.ir.action.mapping",
-    "IrNamedTuple": "lexic.ir.spine.records",
-    "IrNest": "lexic.ir.text.layout",
-    "IrNode": "lexic.ir.spine.spine",
-    "IrNone": "lexic.ir.spine.spine",
-    "IrNoneType": "lexic.ir.spine.spine",
-    "IrNormalizer": "lexic.ir.text.pipeline",
-    "IrNot": "lexic.ir.grammar.operators",
-    "IrOp": "lexic.ir.grammar.operators",
-    "IrOpNode": "lexic.ir.grammar.operators",
-    "IrOrd": "lexic.ir.action.flow.compute",
-    "IrOrigin": "lexic.ir.text.spans",
-    "IrOrigins": "lexic.ir.text.spans",
-    "IrPass": "lexic.ir.action.flow.control",
-    "IrPipe": "lexic.ir.action.flow.control",
-    "WMeta": "lexic.ir.text.pipeline",
-    "identity_meta": "lexic.ir.text.pipeline",
-    "IrPretoken": "lexic.ir.text.pipeline",
-    "IrQuantifier": "lexic.ir.grammar.nodes",
-    "IrRadix": "lexic.ir.action.flow.compute",
-    "IrRaise": "lexic.ir.action.build",
-    "IrRange": "lexic.ir.grammar.charclass",
-    "IrRankedMerge": "lexic.ir.text.tokenizer",
-    "IrRebuild": "lexic.ir.action.build",
-    "IrRename": "lexic.ir.grammar.transform.alignment",
-    "IrRenaming": "lexic.ir.grammar.transform.alignment",
-    "IrRenamings": "lexic.ir.grammar.transform.alignment",
-    "IrReplace": "lexic.ir.text.pipeline",
-    "IrReturn": "lexic.ir.action.flow.control",
-    "IrRule": "lexic.ir.grammar.nodes",
-    "IrRuleRef": "lexic.ir.grammar.nodes",
-    "IrScalar": "lexic.ir.spine.scalars",
-    "IrSegmenter": "lexic.ir.text.tokenizer",
-    "IrSelf": "lexic.ir.spine.spine",
-    "IrSeq": "lexic.ir.spine.records",
-    "IrSequence": "lexic.ir.grammar.nodes",
-    "IrSingleton": "lexic.ir.spine.meta",
-    "IrSpan": "lexic.ir.text.spans",
     "IrSpellable": "lexic.ir.flavour",
-    "IrStep": "lexic.ir.text.spans",
-    "IrStr": "lexic.ir.spine.scalars",
-    "IrText": "lexic.ir.text.layout",
-    "IrThis": "lexic.ir.action.flow.control",
-    "IrTokenPipeline": "lexic.ir.text.pipeline",
-    "IrTokenizer": "lexic.ir.text.tokenizer",
-    "IrTransformer": "lexic.ir.action.walk",
-    "IrTuple": "lexic.ir.spine.records",
-    "Bound": "lexic.ir.spine.records",
-    "is_plain_tuple": "lexic.ir.spine.records",
-    "IrTypeMap": "lexic.ir.action.mapping",
-    "IrUnicode": "lexic.ir.text.codec.encodings",
-    "IrUnicodeForm": "lexic.ir.text.pipeline",
-    "IrUnknown": "lexic.ir.text.pipeline",
-    "IrUnradix": "lexic.ir.action.flow.compute",
-    "IrUtf": "lexic.ir.text.codec.encodings",
-    "IrVisitor": "lexic.ir.action.walk",
-    "IrWalk": "lexic.ir.action.build",
+    "IrCensus": "lexic.ir.identity",
+    "IrIdentity": "lexic.ir.identity",
+    "census": "lexic.ir.identity",
+    "field_children": "lexic.ir.identity",
+    "unspellable": "lexic.ir.identity",
+    "DEFERRED_FAILURE": "lexic.ir.reduction",
+    "DROP": "lexic.ir.reduction",
+    "EXACT_MEANING": "lexic.ir.reduction",
+    "FIRST_DUPLICATE": "lexic.ir.reduction",
+    "IMMEDIATE_FAILURE": "lexic.ir.reduction",
     "KEEP_RAW": "lexic.ir.reduction",
     "KEEP_REDUCED": "lexic.ir.reduction",
-    "KnownRoute": "lexic.ir.reduction",
     "LAST_DUPLICATE": "lexic.ir.reduction",
-    "CANDIDATE_CAP": "lexic.ir.grammar.transform.alignment",
-    "MAX_CODEPOINT": "lexic.ir.grammar.charclass",
-    "MeaningLaw": "lexic.ir.reduction",
-    "Merges": "lexic.ir.text.codec.encodings",
-    "MonadicOp": "lexic.ir.grammar.operators",
-    "PoisonedState": "lexic.ir.reduction",
     "REFUSE_DUPLICATE": "lexic.ir.reduction",
-    "RecoveryState": "lexic.ir.reduction",
-    "RuleOrder": "lexic.ir.grammar.transform.order",
-    "Reducer": "lexic.ir.reduction",
     "SHARED_MEANING": "lexic.ir.reduction",
     "SORT_ABSENCE": "lexic.ir.reduction",
     "SORT_COMPLETION": "lexic.ir.reduction",
@@ -633,6 +506,20 @@ _HOMES = {
     "SORT_SEQUENCE": "lexic.ir.reduction",
     "SORT_TEXT": "lexic.ir.reduction",
     "SORT_TRUTH": "lexic.ir.reduction",
+    "YIELD": "lexic.ir.reduction",
+    "AcceptingState": "lexic.ir.reduction",
+    "Drop": "lexic.ir.reduction",
+    "DuplicatePolicy": "lexic.ir.reduction",
+    "EntryRoute": "lexic.ir.reduction",
+    "ExtensionRoute": "lexic.ir.reduction",
+    "FailureOrder": "lexic.ir.reduction",
+    "KeepRaw": "lexic.ir.reduction",
+    "KeepReduced": "lexic.ir.reduction",
+    "KnownRoute": "lexic.ir.reduction",
+    "MeaningLaw": "lexic.ir.reduction",
+    "PoisonedState": "lexic.ir.reduction",
+    "RecoveryState": "lexic.ir.reduction",
+    "Reducer": "lexic.ir.reduction",
     "SchemaCheck": "lexic.ir.reduction",
     "SchemaChecks": "lexic.ir.reduction",
     "SchemaRoute": "lexic.ir.reduction",
@@ -640,43 +527,25 @@ _HOMES = {
     "SchemaState": "lexic.ir.reduction",
     "SemanticSignature": "lexic.ir.reduction",
     "SemanticSort": "lexic.ir.reduction",
-    "Sheet": "lexic.ir.text.layout",
-    "Singleton": "lexic.ir.spine.meta",
     "TargetSchema": "lexic.ir.reduction",
-    "UnicodeForm": "lexic.ir.text.pipeline",
-    "VariadicOp": "lexic.ir.grammar.operators",
-    "Vocab": "lexic.ir.text.codec.encodings",
-    "YIELD": "lexic.ir.reduction",
     "Yield": "lexic.ir.reduction",
-    "KeepRaw": "lexic.ir.reduction",
-    "KeepReduced": "lexic.ir.reduction",
-    "align_names": "lexic.ir.grammar.transform.alignment",
-    "as_doc": "lexic.ir.text.layout",
-    "census": "lexic.ir.identity",
-    "canonicalize": "lexic.ir.grammar.transform.canonical",
-    "field_children": "lexic.ir.identity",
-    "fold_name": "lexic.ir.grammar.transform.canonical",
-    "inline_refs": "lexic.ir.grammar.transform.canonical",
-    "order_by_refs": "lexic.ir.grammar.transform.order",
-    "has_reference": "lexic.ir.grammar.graph",
-    "reach": "lexic.ir.grammar.graph",
-    "reachable": "lexic.ir.grammar.graph",
-    "reaching": "lexic.ir.grammar.graph",
-    "references": "lexic.ir.grammar.graph",
-    "refs_in_order": "lexic.ir.grammar.graph",
-    "render": "lexic.ir.text.layout",
-    "unspellable": "lexic.ir.identity",
-    "rule_closure": "lexic.ir.grammar.transform.order",
 }
-"""Every LAZY export and the module that defines it — where ``__getattr__`` looks.
-``concretize``/``concretize_atom`` are absent because they are bound eagerly
-above, for the name-collision reason stated there.
+"""The surface of the package's own direct modules, in the groups' shape — the
+façade is the marker of that level."""
 
-The surface is stated three times, once per consumer: the ``TYPE_CHECKING``
-block for the type checker, ``__all__`` for the export machinery (and for ruff,
-which cannot see a computed one), and this for the runtime lookup. The drift pin
-in ``test_init_ir`` holds all three to each other, so a name joins the surface
-only by joining all of them."""
+_HOMES = _SURFACE | spine.SURFACE | action.SURFACE | grammar.SURFACE | text.SURFACE
+"""Every LAZY export and the module that defines it — where ``__getattr__`` looks.
+Derived, never stated: each group marker says where its own names live, as
+plain data the marker costs nothing to hold. ``concretize``/``concretize_atom``
+are absent because they are bound eagerly above, for the name-collision reason
+stated there.
+
+The surface is stated twice here, once per tool that reads only a literal: the
+``TYPE_CHECKING`` block for the type checker, ``__all__`` for ruff and the export
+machinery. Neither can be derived on 3.14 — ruff reads no other module's
+``__all__``, and the star re-export the type checker would accept is F403. The
+drift pins in ``test_init_ir`` hold both to the surfaces, so a name joins the
+façade only by joining all three."""
 
 
 def __getattr__(name: str) -> type[IrSelf] | IrSelf:

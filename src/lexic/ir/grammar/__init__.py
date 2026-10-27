@@ -1,1 +1,47 @@
 """The grammar group — see README.md."""
+
+SURFACE: dict[str, str] = {
+    "MAX_CODEPOINT": "lexic.ir.grammar.charclass",
+    "IrCharClass": "lexic.ir.grammar.charclass",
+    "IrRange": "lexic.ir.grammar.charclass",
+    "has_reference": "lexic.ir.grammar.graph",
+    "reach": "lexic.ir.grammar.graph",
+    "reachable": "lexic.ir.grammar.graph",
+    "reaching": "lexic.ir.grammar.graph",
+    "references": "lexic.ir.grammar.graph",
+    "refs_in_order": "lexic.ir.grammar.graph",
+    "IrAlphabet": "lexic.ir.grammar.nodes",
+    "IrAlternation": "lexic.ir.grammar.nodes",
+    "IrAst": "lexic.ir.grammar.nodes",
+    "IrBounds": "lexic.ir.grammar.nodes",
+    "IrItem": "lexic.ir.grammar.nodes",
+    "IrLiteral": "lexic.ir.grammar.nodes",
+    "IrQuantifier": "lexic.ir.grammar.nodes",
+    "IrRule": "lexic.ir.grammar.nodes",
+    "IrRuleRef": "lexic.ir.grammar.nodes",
+    "IrSequence": "lexic.ir.grammar.nodes",
+    "DyadicOp": "lexic.ir.grammar.operators",
+    "IrAnd": "lexic.ir.grammar.operators",
+    "IrEq": "lexic.ir.grammar.operators",
+    "IrNot": "lexic.ir.grammar.operators",
+    "IrOp": "lexic.ir.grammar.operators",
+    "IrOpNode": "lexic.ir.grammar.operators",
+    "MonadicOp": "lexic.ir.grammar.operators",
+    "VariadicOp": "lexic.ir.grammar.operators",
+    "CANDIDATE_CAP": "lexic.ir.grammar.transform.alignment",
+    "IrAlignment": "lexic.ir.grammar.transform.alignment",
+    "IrRename": "lexic.ir.grammar.transform.alignment",
+    "IrRenaming": "lexic.ir.grammar.transform.alignment",
+    "IrRenamings": "lexic.ir.grammar.transform.alignment",
+    "align_names": "lexic.ir.grammar.transform.alignment",
+    "canonicalize": "lexic.ir.grammar.transform.canonical",
+    "fold_name": "lexic.ir.grammar.transform.canonical",
+    "inline_refs": "lexic.ir.grammar.transform.canonical",
+    "RuleOrder": "lexic.ir.grammar.transform.order",
+    "order_by_refs": "lexic.ir.grammar.transform.order",
+    "rule_closure": "lexic.ir.grammar.transform.order",
+}
+"""Every name this group puts on the ``lexic.ir`` façade, and the module that
+defines it. The façade's lazy lookup reads it, so a name resolves only once
+listed here. Data only, as the marker is: every import of a submodule runs it
+first."""

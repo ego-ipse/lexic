@@ -1,5 +1,10 @@
 # Log
 
+## The IR façade's lookup is the groups' own data (2026-10-27)
+
+`decisions.md` records the group markers' `SURFACE` data, the derived `_HOMES`,
+and why the `TYPE_CHECKING` block and `__all__` stay literal in the façade.
+
 ## Nullability is the grammar's one exact fact (2026-10-27)
 
 `decisions.md` records why `IrAst.nullable()` replaces the five nullability
