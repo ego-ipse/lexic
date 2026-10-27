@@ -9,6 +9,8 @@ standard pipeline.
 
 from __future__ import annotations
 
+import pytest
+
 import lexic.parsing
 from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
@@ -225,3 +227,27 @@ def test_a_multi_character_separator_derives_as_one_mark():
     source = 'root ::= block (sep block)*\nsep ::= "\\n\\n"\nblock ::= [a-z]+\n'
     got = roles(compile_text(source).codegen_grammar)
     assert [record.mark for record in got.records] == ["\n\n"]
+
+
+ARROWS = (
+    'root ::= "<" list ">"\n'
+    'list ::= entry ("," entry)*\n'
+    'entry ::= key "=>" value\n'
+    "key ::= [a-z]+\n"
+    "value ::= [0-9]+\n"
+)
+"""A bracketing arm whose closer is also spelled inside ``"=>"`` — a site that
+delimits nothing, so a depth count over ``>`` closes the bracket early."""
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="WB: a pair is derived from its arm alone; the closer's other sites "
+    "are never consulted",
+)
+def test_a_closer_also_spelled_outside_a_pair_arm_derives_no_pair():
+    """Depth is counted one character at a time over the WHOLE text, so a pair
+    is only sound when every site spelling its characters is a delimiter of a
+    pair arm. ``>`` is also the tail of ``"=>"``, which brackets nothing."""
+    got = roles(parse_grammar(ARROWS, GBNF_FLAVOUR))
+    assert ("<", ">") not in got.pairs

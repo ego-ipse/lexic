@@ -22,7 +22,7 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.plan.cuts import Level, cut_offsets
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from tests.split_helpers import engages
+from tests.split_helpers import assert_parallel_matches_sequential, engages
 
 _CORES = (2, 3, 8)
 """Worker counts every faithfulness case is driven at — two is the smallest
@@ -577,3 +577,35 @@ def test_the_reviews_document_never_engages_at_any_worker_count() -> None:
     for cores in (2, 3, 8):
         assert not engages(compiled, _REVIEW_DOC, cores)
         assert compiled.parse(_REVIEW_DOC, cores=cores) == sequential
+
+
+# ── a pair delimiter also spelled at a site that brackets nothing ─────────
+
+_ARROWS = (
+    'root ::= "<" list ">"\n'
+    'list ::= entry ("," entry)*\n'
+    'entry ::= key "=>" value\n'
+    "key ::= [a-z]+\n"
+    "value ::= [0-9]+\n"
+)
+"""One bracket around a separated list whose every entry spells the closer
+inside ``"=>"`` — a depth count over ``>`` reads the bracket as closed after
+the first key, so every comma after it sits at the wrong depth."""
+
+
+def _arrows(entries: int) -> str:
+    """``<key=>n,key=>n,...>`` with letter-only keys."""
+    keys = ("k" + "abcdefgh"[: n % 7 + 1] for n in range(entries))
+    return "<" + ",".join(f"{key}=>{n}" for n, key in enumerate(keys)) + ">"
+
+
+@pytest.mark.parametrize("cores", _CORES)
+def test_a_closer_spelled_inside_an_entry_keeps_the_sequential_model(
+    cores: int,
+) -> None:
+    """The MODEL, not only the bytes: a stitch that cuts at a comma the scan
+    misplaced can reassemble the same text from differently-owned pieces."""
+    compiled = compile_text(_ARROWS, cache_key="adv-faith-arrows")
+    text = _arrows(2400)
+    assert len(text) > 8 * MIN_CHUNK
+    assert_parallel_matches_sequential(compiled, text, cores)
