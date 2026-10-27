@@ -216,3 +216,16 @@ def test_a_target_constructs_in_the_slot_order_its_class_reads():
     slots = root.child_order().slots
     assert [(slot, name) for slot, name, _bind in slots] == [(0, "ws"), (1, "value")]
     assert all(root.bound_fields()[slot][1] is bind for slot, _n, bind in slots)
+
+
+def test_an_artefact_holding_a_non_model_class_refuses_by_name():
+    """Every synthesized class is a model, so one that is not is a broken
+    artefact: indexing it refuses and names it, rather than dropping it to
+    resurface later as a rule the target does not define."""
+    compiled = compile_text(SOURCE, cache_key="tp-non-model")
+    compiled.classes["Stray"] = type("Stray", (), {})
+    try:
+        with pytest.raises(UnsupportedConstructError, match="Stray"):
+            transpile(compiled, compiled, IrMap())
+    finally:
+        del compiled.classes["Stray"]

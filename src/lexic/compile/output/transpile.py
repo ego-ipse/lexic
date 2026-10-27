@@ -504,12 +504,17 @@ def _by_rule(compiled: CompiledGrammar) -> dict[str, type[GrammarModel]]:
 
     :param compiled: The artifact whose classes to index.
     :returns: Folded rule name → class; every class carries its rule.
+    :raises UnsupportedConstructError: On a class that is not a model — every
+        synthesized class is one, so this is a broken artefact, never a skip.
     """
-    return {
-        fold_name(str(cls.__grammar__.name)): cls
-        for cls in compiled.classes.values()
-        if issubclass(cls, GrammarModel)  # every synthesized class is one
-    }
+    out: dict[str, type[GrammarModel]] = {}
+    for cls in compiled.classes.values():
+        if not issubclass(cls, GrammarModel):
+            raise UnsupportedConstructError(
+                f"transpile: {cls.__name__} is not a model class"
+            )
+        out[fold_name(str(cls.__grammar__.name))] = cls
+    return out
 
 
 def _list_shape(
@@ -642,8 +647,9 @@ def transpile(
         untouched; a semantic one reaching the product without a row fails
         the completeness gate.
     :returns: The transpiler — bake once, :meth:`Transpiler.run` many.
-    :raises UnsupportedConstructError: On a row naming no source rule, or a
-        ``Make`` naming no target rule.
+    :raises UnsupportedConstructError: On a row naming no source rule, a
+        ``Make`` naming no target rule, or an artefact holding a class that is
+        not a model.
     """
     sources = _by_rule(source)
     targets = _by_rule(target)
