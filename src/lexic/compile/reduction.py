@@ -545,15 +545,10 @@ class _YieldNode(NamedTuple):
         return self.fold.yield_text(self.model)
 
 
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The rule's items when its body is exactly one arm, else ``None``."""
-    arms = [tuple(arm) for arm in rule.body]
-    return arms[0] if len(arms) == 1 else None
-
-
 def _slot_map(rule: IrRule) -> dict[int, tuple[str, bool]]:
     """A single-arm rule's item slot → (referenced rule, required)."""
-    items = _single_arm(rule) or ()
+    arm = rule.sole_arm()
+    items = () if isinstance(arm, IrNoneType) else arm
     return {
         k: (str(item.atom), int(item.quantifier.lo) >= 1)
         for k, item in enumerate(items)
@@ -666,7 +661,7 @@ def _fold_tables(
         arm_items={
             str(r.name): items
             for r in codegen.rules
-            if (items := _single_arm(r)) is not None
+            if not isinstance(items := r.sole_arm(), IrNoneType)
         },
         empty_arms=frozenset(
             str(r.name) for r in codegen.rules if any(not tuple(a) for a in r.body)

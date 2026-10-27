@@ -44,19 +44,6 @@ def unbounded(item: IrItem) -> bool:
     return isinstance(item.quantifier.hi, IrNoneType)
 
 
-def unit_ref(item: IrItem) -> str | None:
-    """The rule an item references exactly once, or ``None``."""
-    atom = item.atom
-    return (
-        str(atom) if isinstance(atom, IrRuleRef) and item.quantifier == UNIT else None
-    )
-
-
-def single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The items of a rule's sole arm, when it has exactly one."""
-    return tuple(rule.body[0]) if len(rule.body) == 1 else None
-
-
 def repeats(item: IrItem) -> bool:
     """Whether the item may occur more than once, so it stands beside itself."""
     hi = item.quantifier.hi

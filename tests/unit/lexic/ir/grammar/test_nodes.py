@@ -1168,3 +1168,44 @@ def test_alphabet_repr_is_codegen():
     """The repr reproduces the constructor call."""
     a = IrAlphabet("gpt2", IrLiteral("<think>"))
     assert repr(a) == "IrAlphabet(IrStr('gpt2'), IrLiteral('<think>'))"
+
+
+# ── derived arm facts ─────────────────────────────────────────────────────
+
+
+def test_unit_ref_is_the_rule_a_unit_reference_names():
+    """A plain reference names its rule — the same string a rule map keys on."""
+    ref = IrItem(IrRuleRef("member")).unit_ref()
+    assert isinstance(ref, IrRuleRef)
+    assert ref == "member"
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        IrItem(IrRuleRef("member"), IrQuantifier(0, IrNone)),
+        IrItem(IrRuleRef("member"), IrQuantifier(0, 1)),
+        IrItem(IrLiteral(",")),
+        IrItem(IrCharClass(IrRange(IrChr("a"), IrChr("z")))),
+    ],
+)
+def test_unit_ref_is_absent_for_a_quantified_reference_or_another_atom(item):
+    """Only an exactly-once reference counts; absence is ``IrNone``."""
+    assert item.unit_ref() is IrNone
+
+
+def test_sole_arm_is_the_items_of_a_one_arm_rule():
+    """A single-arm rule's arm, as its items in order."""
+    rule = IrRule("pair", IrSequence(IrItem(IrLiteral("(")), IrItem(IrRuleRef("x"))))
+    assert rule.sole_arm() == (IrItem(IrLiteral("(")), IrItem(IrRuleRef("x")))
+
+
+def test_sole_arm_is_absent_for_a_rule_with_several_arms():
+    """Two arms have no sole arm."""
+    rule = IrRule(
+        "value",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("arr"))), IrSequence(IrItem(IrRuleRef("num")))
+        ),
+    )
+    assert rule.sole_arm() is IrNone

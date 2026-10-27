@@ -11,16 +11,23 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrAst, IrCharClass, IrItem, IrLiteral, IrRule, IrRuleRef
+from lexic.ir import (
+    IrAst,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrNone,
+    IrNoneType,
+    IrRule,
+    IrRuleRef,
+)
 from lexic.model import GrammarModel
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
-    single_arm,
     unbounded,
-    unit_ref,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
@@ -121,9 +128,10 @@ def _bracket_rule(grammar: IrAst, rule_name: str, opener: str) -> str:
         target
         for arm in outer.body
         if len(arm) == 1
-        and (target := unit_ref(arm[0])) is not None
+        and not isinstance(target := arm[0].unit_ref(), IrNoneType)
         and (held := rules.get(target)) is not None
-        and (inner := single_arm(held))
+        and not isinstance(inner := held.sole_arm(), IrNoneType)
+        and inner
         and literal_char(inner[0], rules) == opener
     ]
     return found[0] if len(found) == 1 else rule_name
@@ -141,19 +149,21 @@ def _candidate(
     """The items/tail recurrence rooted at one outer-arm position."""
     items_name = _ref_at(outer_arm, at)
     items_rule = rules.get(items_name or "")
-    items_arm = single_arm(items_rule) if items_rule is not None else None
-    if items_name is None or items_arm is None or len(items_arm) != 2:
+    items_arm = items_rule.sole_arm() if items_rule is not None else IrNone
+    if items_name is None or isinstance(items_arm, IrNoneType) or len(items_arm) != 2:
         return None
     head, tail_name = _ref_at(items_arm, 0), _ref_at(items_arm, 1)
     tail_rule = rules.get(tail_name or "")
-    tail_arm = single_arm(tail_rule) if tail_rule is not None else None
+    tail_arm = tail_rule.sole_arm() if tail_rule is not None else IrNone
     separator = (
         literal_char(tail_arm[0], rules)
-        if tail_arm is not None and len(tail_arm) == 2
+        if not isinstance(tail_arm, IrNoneType) and len(tail_arm) == 2
         else None
     )
     valid_tail = (
-        tail_arm is not None and len(tail_arm) == 2 and _ref_at(tail_arm, 1) == head
+        not isinstance(tail_arm, IrNoneType)
+        and len(tail_arm) == 2
+        and _ref_at(tail_arm, 1) == head
     )
     if head is None or tail_name is None or not unbounded(items_arm[1]):
         return None
@@ -170,15 +180,17 @@ def _direct_candidate(
         return None
     head, tail_name = _ref_at(outer_arm, at), _ref_at(outer_arm, at + 1)
     tail_rule = rules.get(tail_name or "")
-    tail_arm = single_arm(tail_rule) if tail_rule is not None else None
+    tail_arm = tail_rule.sole_arm() if tail_rule is not None else IrNone
     separator = (
         literal_char(tail_arm[0], rules)
-        if tail_arm is not None and len(tail_arm) == 2
+        if not isinstance(tail_arm, IrNoneType) and len(tail_arm) == 2
         else None
     )
     repeats = unbounded(outer_arm[at + 1])
     returns_head = (
-        tail_arm is not None and len(tail_arm) == 2 and _ref_at(tail_arm, 1) == head
+        not isinstance(tail_arm, IrNoneType)
+        and len(tail_arm) == 2
+        and _ref_at(tail_arm, 1) == head
     )
     if head and tail_name and separator and repeats and returns_head:
         return tail_name, head, separator
@@ -404,14 +416,14 @@ def derive_plan(
     if entry is None:
         rules = {str(rule.name): rule for rule in grammar.rules}
         outer = rules.get(rule_name)
-        outer_arm = single_arm(outer) if outer is not None else None
+        outer_arm = outer.sole_arm() if outer is not None else IrNone
         candidates = (
             [
                 (at, *candidate)
                 for at in range(len(outer_arm))
                 if (candidate := _candidate(rules, outer_arm, at)) is not None
             ]
-            if outer_arm is not None
+            if not isinstance(outer_arm, IrNoneType)
             else []
         )
         direct = (
@@ -420,11 +432,11 @@ def derive_plan(
                 for at in range(len(outer_arm))
                 if (candidate := _direct_candidate(rules, outer_arm, at)) is not None
             ]
-            if outer_arm is not None
+            if not isinstance(outer_arm, IrNoneType)
             else []
         )
         root = IrAst(grammar.rules, rule_name)
-        if outer_arm is not None and len(candidates) == 1:
+        if not isinstance(outer_arm, IrNoneType) and len(candidates) == 1:
             plan = _configured_plan(
                 _PlanInput(
                     root,
@@ -434,7 +446,7 @@ def derive_plan(
                     candidates[0],
                 )
             )
-        elif outer_arm is not None and len(direct) == 1:
+        elif not isinstance(outer_arm, IrNoneType) and len(direct) == 1:
             plan = _direct_plan(
                 _DirectInput(root, binding, rule_name, outer_arm, direct[0])
             )

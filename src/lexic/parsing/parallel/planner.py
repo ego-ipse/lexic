@@ -12,12 +12,14 @@ from __future__ import annotations
 from lexic.ir import (
     IrAst,
     IrLiteral,
+    IrNone,
+    IrNoneType,
     IrRule,
     IrRuleRef,
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.scan import Scanner
-from lexic.parsing.parallel.discovery.shapes import single_arm, unbounded, unit_ref
+from lexic.parsing.parallel.discovery.shapes import unbounded
 from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
@@ -36,12 +38,12 @@ from lexic.parsing.parallel.stitch.safety import (
 
 def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
     """Whether the repeated rule is ``lead unit`` for this separator."""
-    items = single_arm(rule)
-    if items is None or len(items) != 2 or unit_ref(items[1]) != unit:
+    items = rule.sole_arm()
+    if isinstance(items, IrNoneType) or len(items) != 2 or items[1].unit_ref() != unit:
         return False
     lead_atom = items[0].atom
     if sep.lead:
-        return unit_ref(items[0]) == sep.lead
+        return items[0].unit_ref() == sep.lead
     return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.mark
 
 
@@ -54,16 +56,18 @@ def _wrapper_chain(
     current = start
     while current != target:
         rule = rule_map.get(current)
-        items = single_arm(rule) if rule is not None else None
-        child = unit_ref(items[0]) if items else None
-        empty_tails = items is not None and all(
+        items = rule.sole_arm() if rule is not None else IrNone
+        if isinstance(items, IrNoneType) or not items:
+            return None
+        child = items[0].unit_ref()
+        empty_tails = all(
             unbounded(item) and item.quantifier.lo == 0 for item in items[1:]
         )
-        if child is None or not empty_tails or current in seen:
+        if isinstance(child, IrNoneType) or not empty_tails or current in seen:
             return None
         seen.add(current)
         wrappers.append(current)
-        current = child
+        current = str(child)
     return tuple(wrappers)
 
 
@@ -78,17 +82,24 @@ def _plan_for(
     wrappers = _wrapper_chain(rule_map, str(grammar.start), sep.container)
     if wrappers is None:
         return None
-    items = single_arm(container)
-    if items is None or len(items) != 2:
+    items = container.sole_arm()
+    if isinstance(items, IrNoneType) or len(items) != 2:
         return None
-    unit = unit_ref(items[0])
+    unit = items[0].unit_ref()
     repeated = items[1].atom
     repeats = isinstance(repeated, IrRuleRef) and str(repeated) == sep.item
-    if unit is None or not repeats or not _item_shape(item_rule, sep, unit):
+    if (
+        isinstance(unit, IrNoneType)
+        or not repeats
+        or not _item_shape(item_rule, sep, str(unit))
+    ):
         return None
     if sep.lead:
         lead_grammar, literal = IrAst(grammar.rules, sep.lead), ""
-        skip = lead_skip(single_arm(rule_map[sep.lead]), rule_map, sep.mark)
+        lead_arm = rule_map[sep.lead].sole_arm()
+        skip = lead_skip(
+            None if isinstance(lead_arm, IrNoneType) else lead_arm, rule_map, sep.mark
+        )
     else:
         lead_grammar, literal = None, sep.mark
         skip = frozenset()
@@ -122,8 +133,8 @@ def _terminated_plans(
     start = rule_map.get(str(grammar.start))
     if start is None:
         return ()
-    items = single_arm(start)
-    if items is None or len(items) != 1 or not unbounded(items[0]):
+    items = start.sole_arm()
+    if isinstance(items, IrNoneType) or len(items) != 1 or not unbounded(items[0]):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):
@@ -163,8 +174,8 @@ def _speculative_plans(
     the unit's opening alphabet goes in where a terminator's would.
     """
     start = rule_map.get(str(grammar.start))
-    items = single_arm(start) if start is not None else None
-    if items is None or len(items) != 1 or not unbounded(items[0]):
+    items = start.sole_arm() if start is not None else IrNone
+    if isinstance(items, IrNoneType) or len(items) != 1 or not unbounded(items[0]):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):

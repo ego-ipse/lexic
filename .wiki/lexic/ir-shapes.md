@@ -298,6 +298,8 @@ There is no `RuleSpec.kind` field anymore. `compile/pipeline/rulemap.py`'s `clas
 
 The arm-merge (`_merge_arms`) is **interval-native**: it collects each mergeable arm's `(lo,hi)` cover via `IrCharClass.intervals()` and rebuilds the fused class via `IrCharClass.from_intervals(spans)` — never through `members()`. This matters because rewrite 4's `[^…]` complement spans ~1.1M code points; the old points-based merge materialised one `IrChr` per point (≈900 ms on `json.gbnf`), the interval path is ~3.8 ms. `IrCharClass` member/complement math is intrinsic to the node: `intervals()` (sorted disjoint cover), `from_intervals(spans)` (coalesce + build, already `normalized()`-form), `members()` (per-point enumeration — kept for small-class consumers/tests, **not** for Unicode-scale use), plus `normalized()`/`complement()`/`sample()`. All interval sort+merge lives once in `IrCharClass._coalesce`.
 
+Two arm facts are intrinsic too, with `IrNone` for absence: `IrItem.unit_ref()` is the `IrRuleRef` an item references exactly once, and `IrRule.sole_arm()` is the items of a one-arm rule. Every analysis that asks either reads the node, so no layer keeps a copy of its own.
+
 ## Hoisting and non-semantic relaxation (`codegen/passes.py`)
 
 These moved out of the retired `ir/derive.py` into grammar→grammar passes over the *canonical* grammar, composed as `build_codegen_grammar = relax_non_semantic(hoist_arms(hoist_groups(ast)))`:

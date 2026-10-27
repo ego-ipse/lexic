@@ -31,7 +31,7 @@ from typing import ClassVar, Self, cast
 
 from lexic.ir.spine.records import IrNamedTuple, IrSeq
 from lexic.ir.spine.scalars import IrChr, IrStr
-from lexic.ir.spine.spine import IrAtom, IrLeaf, IrNoneType
+from lexic.ir.spine.spine import IrAtom, IrLeaf, IrNone, IrNoneType
 
 __all__ = [
     # Concrete grammar-AST nodes (defined here)
@@ -498,6 +498,16 @@ class IrItem(IrNamedTuple[IrAtom, IrQuantifier], init=False):
         wrapped = IrAlternation(atom) if isinstance(atom, IrSequence) else atom
         return cast(Callable[..., Self], super().__new__)(cls, wrapped, quantifier)
 
+    def unit_ref(self) -> IrRuleRef | IrNoneType:
+        """The rule this item references exactly once.
+
+        :returns: The reference, or ``IrNone`` for any other atom or quantifier.
+        """
+        atom = self.atom
+        if isinstance(atom, IrRuleRef) and self.quantifier == IrQuantifier():
+            return atom
+        return IrNone
+
 
 class IrAlphabet(IrNamedTuple[IrStr, IrAtom], IrAtom, init=False):
     """An atom read under a named encoding — the alphabet binding.
@@ -612,6 +622,13 @@ class IrRule(IrNamedTuple[IrStr, IrAlternation, bool], init=False):
     def __hash__(self) -> int:
         """Hash by ``(name, body)`` — consistent with :meth:`__eq__`."""
         return hash((self.name, self.body))
+
+    def sole_arm(self) -> tuple[IrItem, ...] | IrNoneType:
+        """The items of this rule's only arm.
+
+        :returns: The items, or ``IrNone`` when the rule has several arms.
+        """
+        return tuple(self.body[0]) if len(self.body) == 1 else IrNone
 
 
 class IrAst(IrNamedTuple[IrSeq[IrRule], IrStr]):

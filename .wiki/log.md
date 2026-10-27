@@ -1,5 +1,10 @@
 # Log
 
+## Arm facts read off the node (2026-10-27)
+
+`ir-shapes.md` records `IrItem.unit_ref()` and `IrRule.sole_arm()`: the
+parallel planners and the reduction read them there instead of keeping copies.
+
 ## A region's plan is the plan of the arm its bracket opens (2026-10-27)
 
 `decisions.md` records why a bracket arm that shares its rule now divides: the

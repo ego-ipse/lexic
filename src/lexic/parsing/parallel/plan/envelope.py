@@ -28,14 +28,13 @@ from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst, IrItem, IrNoneType, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import Skip, as_skip, skip_delimited
 from lexic.parsing.parallel.discovery.shapes import (
     derives_empty,
     emit_charset,
     unbounded,
-    unit_ref,
 )
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
@@ -94,7 +93,7 @@ def envelope_of(
         return None
     return Envelope(
         str(container.name),
-        str(unit_ref(items[core])),
+        str(items[core].unit_ref()),
         item,
         core,
         tuple(at for at in outside if at < core),
@@ -107,7 +106,11 @@ def _core_at(items: tuple[IrItem, ...], item: str) -> int | None:
     for at in range(len(items) - 1):
         repeated = items[at + 1].atom
         names = isinstance(repeated, IrRuleRef) and str(repeated) == item
-        if unit_ref(items[at]) is not None and names and unbounded(items[at + 1]):
+        if (
+            not isinstance(items[at].unit_ref(), IrNoneType)
+            and names
+            and unbounded(items[at + 1])
+        ):
             return at
     return None
 
@@ -262,11 +265,11 @@ def repetition_of(rules: dict[str, IrRule], container: str) -> Envelope | None:
         repeated = items[at + 1].atom
         if not unbounded(items[at + 1]) or not isinstance(repeated, IrRuleRef):
             continue
-        unit = unit_ref(items[at])
+        unit = items[at].unit_ref()
         lead = _lead_items(rules, str(repeated))
         tail_arm = tuple(tuple(rules[str(repeated)].body)[0])
-        repeats = bool(lead) and unit_ref(tail_arm[-1]) == unit
-        if unit is not None and repeats and rule is not None:
+        repeats = bool(lead) and tail_arm[-1].unit_ref() == unit
+        if not isinstance(unit, IrNoneType) and repeats and rule is not None:
             return envelope_of(rule, rules, str(repeated))
     return None
 
