@@ -1605,11 +1605,21 @@ of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
 
 ## A pair stands only where every site of its characters delimits
 
-**Decision:** `roles` derives an opener/closer pair only when the delimiter
-items of the arms that spell it account for every site emitting either
-character (`anchors.anchor_site_counts`, counted by the same site walk that
-certifies anchors). A fallen pair's delimiters are stray sites too, so the check
-repeats until no pair falls.
+**Decision:** both scans derive an opener/closer pair only when every site
+spelling either character is a delimiter of a standing pair's arm, and a fallen
+pair's delimiters are stray sites too, so the check repeats until no pair falls
+(`roles.standing_pairs`, one fixpoint for both). The window scan's `roles`
+counts sites with `anchors.anchor_site_counts`, the same site walk that
+certifies anchors. The region scan's `regions.pair_rules` asks
+`interiors.stray_spellings`: it reads every site reachable from the start
+outside the certified interiors it skips, so `[` inside a string's `[^"]`
+is not stray, and a punctuation rule's literal (`begin-array ::= ws "[" ws`)
+delimits while every read reference to the rule does. An opener two pairs
+claim delimits neither.
+
+A consequence: no character is both a closer and a separator, since a
+separator's site never delimits an arm. The walk's branch for a closer that is
+also a mark is unreachable from any grammar.
 
 **Why:** the scan counts depth one character at a time over the whole text, so
 a closer also spelled elsewhere — `>` as the tail of `"=>"`, or as a comparison
@@ -1618,7 +1628,9 @@ alone, so such grammars carried a depth count that was wrong on their own text.
 No case tried changes its model or its engagement without it. Over the benches (three
 compiles each) and the ground-truth corpus no pair changes; among the split
 tests' grammars two lose theirs, both with a stray site (`ROUTED_GRAMMAR`'s
-`\n`/`>`, `_CLASSY`'s `[` inside `"<["`).
+`\n`/`>`, `_CLASSY`'s `[` inside `"<["`). The region scan counted its pairs
+the same way: `pair ::= "(" [a-z),]* ")" | …` read the `)` of `(a),b)` as the
+pair's end and cut on the comma after it, returning a different model.
 
 ## A start rule's own bracket divides like any other
 

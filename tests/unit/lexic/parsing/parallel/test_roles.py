@@ -14,7 +14,7 @@ from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles import Terminator, agreed_tail
+from lexic.parsing.parallel.roles import Terminator, agreed_tail, standing_pairs
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 
@@ -280,3 +280,19 @@ def test_a_fallen_pairs_delimiters_stop_vouching_for_another_pair():
         "name ::= [a-z]+\n"
     )
     assert roles(parse_grammar(grammar, GBNF_FLAVOUR)).pairs == ()
+
+
+def test_standing_pairs_asks_again_once_a_pair_falls():
+    """``(``/``)`` falls on its own stray; only then does ``]`` read as stray,
+    so the bracket pair falls on the second asking, not the first."""
+
+    def strays(standing: list[tuple[str, str]]) -> frozenset[str]:
+        return frozenset(")" if ("(", ")") in standing else "]")
+
+    assert standing_pairs([("(", ")"), ("[", "]")], strays) == []
+
+
+def test_standing_pairs_keeps_every_pair_no_stray_spells_in_order():
+    """Nothing stray: every pair stands, in the order given."""
+    pairs = [("[", "]"), ("(", ")")]
+    assert standing_pairs(pairs, lambda _standing: frozenset("x")) == pairs

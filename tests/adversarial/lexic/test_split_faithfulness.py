@@ -674,3 +674,23 @@ def test_a_separator_between_an_owners_brackets_keeps_the_sequential_model(
     compiled = compile_text(_REOPENING_PAIRS, cache_key="adv-faith-reopening")
     text = "[" + ",".join(f"({n})" for n in range(brackets)) + "]"
     assert_parallel_matches_sequential(compiled, text, cores)
+
+
+_CLOSER_IN_SPAN = (
+    'root ::= list\nlist ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" [a-z),]* ")" | [a-z]+ ")"\n'
+)
+"""A pair whose span may spell its own closer and the list's comma: ``(a),b)``
+is one pair, and a scan counting depth on every ``)`` closes it at the first."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("every", (2, 4))
+def test_a_closer_spelled_inside_its_own_span_keeps_the_sequential_model(
+    every: int, cores: int
+) -> None:
+    """A cut on the comma inside ``(a),b)`` splits one pair in two."""
+    compiled = compile_text(_CLOSER_IN_SPAN, cache_key="adv-faith-closer-in-span")
+    keys = ("k" + "abcdefg"[: i % 7 + 1] for i in range(700))
+    pairs = ("(a),b)" if i % every == 0 else f"({key})" for i, key in enumerate(keys))
+    assert_parallel_matches_sequential(compiled, "[" + ",".join(pairs) + "]", cores)

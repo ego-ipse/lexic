@@ -12,7 +12,8 @@ from typing import NamedTuple, cast
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text
+from lexic.compile import compile_from_path, compile_text, parse_grammar
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
 from lexic.parsing.parallel.discovery.interiors import Skip
@@ -83,6 +84,55 @@ def test_every_json_formulation_derives_the_same_pairs(name: str):
 def test_json_derives_the_comma_separator():
     """Derived, never named: the char every arm of a repeated body leads with."""
     assert separators(JSON_GRAMMAR) == frozenset(",")
+
+
+_NUM_LIST = 'arr ::= open num ("," num)* close\nnum ::= [0-9]+\n'
+_PUNCTUATION = 'open ::= ws "[" ws\nclose ::= ws "]"\nws ::= [ ]*\n'
+
+
+def _pairs_of(source: str) -> dict[str, tuple[str, str]]:
+    """The pairs the region scan counts for one gbnf source."""
+    return pair_rules(parse_grammar(source, GBNF_FLAVOUR))
+
+
+def test_a_closer_spelled_inside_its_own_span_derives_no_pair():
+    """The scan counts depth on every ``)`` it reads, and ``(a),b)`` spells one
+    inside the pair's span: only the list's bracket stands."""
+    source = (
+        'root ::= list\nlist ::= "[" pair ("," pair)* "]"\n'
+        'pair ::= "(" [a-z),]* ")" | [a-z]+ ")"\n'
+    )
+    assert _pairs_of(source) == {"[": ("]", "list")}
+
+
+def test_a_punctuation_rule_named_only_by_its_bracket_derives_the_pair():
+    """``open ::= ws "[" ws`` spells the bracket wherever it is named."""
+    assert _pairs_of("root ::= arr\n" + _NUM_LIST + _PUNCTUATION) == {"[": ("]", "arr")}
+
+
+def test_a_punctuation_rule_also_named_off_a_bracket_derives_no_pair():
+    """``tag`` names ``open`` with no closer after it: that ``[`` is stray."""
+    source = "root ::= arr | tag\ntag ::= open num\n" + _NUM_LIST + _PUNCTUATION
+    assert _pairs_of(source) == {}
+
+
+def test_an_opener_spelled_only_inside_a_skipped_interior_derives_the_pair():
+    """``[^"]`` emits ``[``, but only inside the string the scan skips whole."""
+    source = (
+        'root ::= arr\narr ::= "[" val ("," val)* "]"\n'
+        'val ::= str | [0-9]+\nstr ::= "\\"" [^"]* "\\""\n'
+    )
+    assert _pairs_of(source) == {"[": ("]", "arr")}
+
+
+def test_an_opener_two_pairs_claim_derives_neither():
+    """The scan opens one frame per ``(`` and closes it on ONE closer, so a
+    ``(`` closed by ``]`` elsewhere would end every ``(`` … ``)`` early."""
+    source = (
+        'root ::= item ("," item)*\nitem ::= par | rng | [0-9]+\n'
+        'par ::= "(" item ")"\nrng ::= "(" item "]"\n'
+    )
+    assert _pairs_of(source) == {}
 
 
 # ── find ──────────────────────────────────────────────────────────────────

@@ -25,16 +25,20 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
+    Site,
     Skip,
     hides,
     interiors,
     skip_delimited,
     skip_leads,
+    stray_spellings,
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.roles import standing_pairs
 
 
 class Region(NamedTuple):
@@ -57,29 +61,75 @@ class Region(NamedTuple):
         return self.closer - self.opener
 
 
+class _Bracket(NamedTuple):
+    """One bracketing arm: its pair, and the item indices that spell it."""
+
+    opener: str
+    closer: str
+    rule: str
+    arm: int
+    closes: int
+
+
+_PAIRS: dict[int, tuple[IrAst, dict[str, tuple[str, str]]]] = memo({})
+"""Pair memo — id(grammar) → (grammar, pairs), pinned like the anchor memo."""
+
+
 def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
-    """opener → ``(closer, rule)`` for every derived bracketing rule.
+    """opener → ``(closer, rule)`` for every bracketing rule the scan reads exactly.
 
     A piece of a region parses under the rule whose arm spells that pair, so
-    the split needs the RULE, not just the characters.
+    the split needs the RULE, not just the characters. A pair stands only
+    while every site the scan reads spelling either character is a delimiter
+    of a standing arm (:func:`~lexic.parsing.parallel.roles.standing_pairs`).
     """
+    entry = _PAIRS.get(id(grammar))
+    if entry is None:
+        arms = _brackets(grammar)
+        pairs = list(dict.fromkeys((arm.opener, arm.closer) for arm in arms))
+        out: dict[str, tuple[str, str]] = {}
+        for opener, closer in standing_pairs(pairs, partial(_strays, grammar, arms)):
+            rule = next(arm.rule for arm in arms if arm[:2] == (opener, closer))
+            out.setdefault(opener, (closer, rule))
+        entry = (grammar, out)
+        _PAIRS[id(grammar)] = entry
+    return entry[1]
+
+
+def _brackets(grammar: IrAst) -> list[_Bracket]:
+    """Every arm opening on one character and closing on another, in order."""
     rule_map = {str(rule.name): rule for rule in grammar.rules}
-    out: dict[str, tuple[str, str]] = {}
+    out: list[_Bracket] = []
     for rule in grammar.rules:
-        for arm in rule.body:
-            items = tuple(arm)
-            if len(items) < 3:
+        for at, arm in enumerate(rule.body):
+            spelled = [literal_char(item, rule_map) for item in arm]
+            closes = max((k for k, char in enumerate(spelled) if char), default=0)
+            if len(spelled) < 3 or not closes:
                 continue
-            opener = literal_char(items[0], rule_map)
-            closers = [
-                char
-                for item in items[1:]
-                if (char := literal_char(item, rule_map)) is not None
-            ]
-            if opener is None or not closers or closers[-1] == opener:
-                continue
-            out.setdefault(opener, (closers[-1], str(rule.name)))
+            opener, closer = spelled[0], spelled[closes]
+            if opener and closer and closer != opener:
+                out.append(_Bracket(opener, closer, str(rule.name), at, closes))
     return out
+
+
+def _strays(
+    grammar: IrAst, arms: list[_Bracket], standing: list[tuple[str, str]]
+) -> frozenset[str]:
+    """The standing pairs' characters a scan-read site spells off their arms.
+
+    An arm whose opener another pair already claims delimits nothing: the scan
+    would close it on the other pair's closer.
+    """
+    first: dict[str, str] = {}
+    for opener, closer in standing:
+        first.setdefault(opener, closer)
+    held: dict[str, set[Site]] = {char: set() for pair in standing for char in pair}
+    for arm in arms:
+        if first.get(arm.opener) == arm.closer:
+            held[arm.opener].add((arm.rule, arm.arm, 0))
+            held[arm.closer].add((arm.rule, arm.arm, arm.closes))
+    watched = frozenset(held) | (separators(grammar) - set(first))
+    return stray_spellings(grammar, watched, held)
 
 
 def _repeated_bodies(

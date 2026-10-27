@@ -26,6 +26,8 @@ a grammar whose boundary is already one character keeps the plan it had.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import (
@@ -303,10 +305,7 @@ def _pairs(grammar: IrAst, anchor_set: frozenset[str]) -> tuple[tuple[str, str],
 
     Each such arm contributes one opener and one closer site; a pair stands when
     the arms of STANDING pairs account for every site of both characters
-    (:func:`~lexic.parsing.parallel.discovery.anchors.anchor_site_counts`). A
-    fallen pair's delimiters are stray sites like any other — the scan counts
-    every opener and closer on one counter — so the check repeats until no pair
-    falls.
+    (:func:`~lexic.parsing.parallel.discovery.anchors.anchor_site_counts`).
     """
     arms = [
         pair
@@ -315,19 +314,46 @@ def _pairs(grammar: IrAst, anchor_set: frozenset[str]) -> tuple[tuple[str, str],
         if (pair := _arm_pair(tuple(arm), anchor_set)) is not None
     ]
     sites = anchor_site_counts(grammar)
-    standing = list(dict.fromkeys(arms))
+    strays = partial(_miscounted, arms, sites)
+    return tuple(standing_pairs(list(dict.fromkeys(arms)), strays))
+
+
+def _miscounted(
+    arms: list[tuple[str, str]],
+    sites: dict[str, int],
+    standing: list[tuple[str, str]],
+) -> frozenset[str]:
+    """The standing pairs' characters spelled at more sites than their arms."""
+    delimiting: dict[str, int] = {}
+    for char in (char for pair in arms if pair in standing for char in pair):
+        delimiting[char] = delimiting.get(char, 0) + 1
+    chars = {char for pair in standing for char in pair}
+    return frozenset(char for char in chars if delimiting[char] != sites.get(char, 0))
+
+
+def standing_pairs(
+    pairs: list[tuple[str, str]],
+    strays: Callable[[list[tuple[str, str]]], frozenset[str]],
+) -> list[tuple[str, str]]:
+    """The pairs a scan counting depth on every opener and closer reads exactly.
+
+    A scan counts depth on every occurrence it reads, so a pair stands only
+    while each site spelling either of its characters is a delimiter of a
+    standing pair's arm; ``strays`` names the characters that fail, given the
+    pairs standing. A fallen pair's delimiters are stray sites like any other,
+    so the check repeats until no pair falls.
+
+    :param pairs: Candidate ``(opener, closer)`` pairs, in definition order.
+    :param strays: The characters some read site spells off a standing arm's
+        own delimiters, for the pairs standing.
+    :returns: The pairs that stand, in their given order.
+    """
     while True:
-        delimiting: dict[str, int] = {}
-        for char in (char for pair in arms if pair in standing for char in pair):
-            delimiting[char] = delimiting.get(char, 0) + 1
-        kept = [
-            pair
-            for pair in standing
-            if all(delimiting[char] == sites.get(char, 0) for char in pair)
-        ]
-        if kept == standing:
-            return tuple(kept)
-        standing = kept
+        stray = strays(pairs)
+        kept = [pair for pair in pairs if not stray & set(pair)]
+        if len(kept) == len(pairs):
+            return kept
+        pairs = kept
 
 
 def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:

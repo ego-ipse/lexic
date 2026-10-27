@@ -25,7 +25,12 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery import regions
-from lexic.parsing.parallel.discovery.regions import find, par_find, scan_vocabulary
+from lexic.parsing.parallel.discovery.regions import (
+    Vocab,
+    find,
+    par_find,
+    scan_vocabulary,
+)
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -54,19 +59,21 @@ strings and take the serial walk, so they cannot exercise this path at all.
 """
 
 
-OVERLAP = (
-    'root ::= "[" items "]"\n'
-    'items ::= item ("|" item)*\n'
-    'item ::= "(" inner "|"\n'
-    "inner ::= [a-z0-9]+\n"
+OVERLAP = Vocab(
+    pairs={"[": ("]", "root"), "(": ("|", "item")},
+    closers={"]": "[", "|": "("},
+    marks=frozenset("|"),
+    skips={},
 )
-"""A grammar whose SEPARATOR is also a CLOSER: ``|`` ends an item and divides
-the list.
+"""A vocabulary whose SEPARATOR is also a CLOSER: ``|`` ends an item and
+divides the list, as ``item ::= "(" inner "|"`` inside ``"[" item ("|" item)*
+"]"`` would read if a closer could also separate.
 
-The first fixture cannot catch a sweep that visits a two-role character twice,
-because its roles are disjoint and so is every eligible bench grammar's. This
-one holds the property on purpose, and `test_the_overlap_fixture_really_overlaps`
-fails if it ever stops holding it.
+No grammar derives one: a separator's site never delimits a pair arm, so
+:func:`~lexic.parsing.parallel.discovery.regions.pair_rules` drops the pair.
+The walk still reads such a vocabulary, so this one is built by hand and handed
+to it through ``scan_vocabulary``; the bracket fixture's roles are disjoint,
+and so is every grammar's.
 """
 
 
@@ -196,17 +203,18 @@ def test_the_overlap_fixture_really_overlaps() -> None:
     Without a character in both roles the windowed sweep and the serial sweep
     cannot disagree, and every case below would pass on a broken sweep.
     """
-    vocab = scan_vocabulary(compile_text(OVERLAP).codegen_grammar)
-    both = set(vocab.closers) & set(vocab.marks)
-    assert both, f"no character is both closer and separator: {vocab}"
-    assert windowed(compile_text(OVERLAP).codegen_grammar)
+    assert set(OVERLAP.closers) & OVERLAP.marks, "no character is both roles"
+    assert not OVERLAP.skips, "the overlap fixture would take the serial walk"
 
 
 @pytest.mark.parametrize("windows", WINDOWS)
 @pytest.mark.parametrize("min_span", MIN_SPANS)
-def test_a_two_role_character_windows_identically(min_span: int, windows: int) -> None:
+def test_a_two_role_character_windows_identically(
+    min_span: int, windows: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A separator that is also a closer, every window count, both floors."""
-    fixture = compile_text(OVERLAP).codegen_grammar
+    monkeypatch.setattr(regions, "scan_vocabulary", lambda _grammar: OVERLAP)
+    fixture = compile_text(BRACKETS).codegen_grammar
     serial, parallel = both_finds(fixture, overlap_document(80), min_span, windows)
     assert parallel == serial
     assert serial, "the overlap fixture found no regions"
@@ -214,9 +222,12 @@ def test_a_two_role_character_windows_identically(min_span: int, windows: int) -
 
 @pytest.mark.parametrize("windows", WINDOWS)
 @pytest.mark.parametrize("seed", range(8))
-def test_ragged_two_role_documents_window_identically(seed: int, windows: int) -> None:
-    """The fuzz, under the overlap grammar — imbalance plus a doubled role."""
-    fixture = compile_text(OVERLAP).codegen_grammar
+def test_ragged_two_role_documents_window_identically(
+    seed: int, windows: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fuzz, under the overlap vocabulary — imbalance plus a doubled role."""
+    monkeypatch.setattr(regions, "scan_vocabulary", lambda _grammar: OVERLAP)
+    fixture = compile_text(BRACKETS).codegen_grammar
     rng = random.Random(seed)
     alphabet = ["[", "]", "(", "|", "a", "wq", " ", "\n"]
     text = "".join(rng.choice(alphabet) for _ in range(rng.randint(200, 600)))

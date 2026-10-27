@@ -1,5 +1,10 @@
 # Log
 
+## The region scan's pairs stand only where every read site delimits (2026-10-27)
+
+`decisions.md`'s pair entry covers both scans: `roles.standing_pairs` is the one
+fixpoint, and `interiors.stray_spellings` answers it for the region scan.
+
 ## Arm facts read off the node (2026-10-27)
 
 `ir-shapes.md` records `IrItem.unit_ref()` and `IrRule.sole_arm()`: the

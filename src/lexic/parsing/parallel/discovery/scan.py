@@ -242,12 +242,14 @@ def read_outside(
     closers on one counter, as the scan counts them, and every item standing at
     depth 0 is read: an arm may close and reopen (``"(" a ")" "," "(" b ")"``).
     A literal is walked character by character, so a merged ``"),("`` shows its
-    comma; a literal spelling a delimiter under any other quantifier (``")"?``)
-    leaves the depth unknown wherever it stands, and a reference at depth 0
-    that may emit one leaves it unknown too — then the whole arm is read. A
-    reference inside a span keeps its brackets to a nested region, as the scan
-    reads them. With ``joined`` the delimiters bordering a read stretch belong
-    to it, so a mark wider than one character spelled across one counts.
+    comma. No quantified literal spells a delimiter — a pair stands only while
+    every read site spelling it delimits
+    (:func:`~lexic.parsing.parallel.roles.standing_pairs`) — but an item at
+    depth 0 that may emit one leaves the depth unknown, and then the whole arm
+    is read. A reference inside a span keeps its brackets to a nested region,
+    as the scan reads them. With ``joined`` the delimiters bordering a read
+    stretch belong to it, so a mark wider than one character spelled across one
+    counts.
     """
     name = str(rule.name)
     own = {(opener, closer) for opener, closer, owner in seen.pairs if owner == name}
@@ -277,15 +279,14 @@ def _depth_walk(
         if isinstance(atom, IrLiteral) and item.quantifier == UNIT:
             walk.spell(item, str(atom), joined)
             continue
-        if isinstance(atom, IrLiteral) and delimiters & set(str(atom)):
-            return [items]  # a repeated or optional delimiter: depth unknowable
         char = literal_char(item, rules)
         if char in delimiters:
             walk.spell(item, str(char), True)
             continue
-        emitted = emit_charset(item, rules, frozenset())
-        if walk.depth == 0 and any(emitted.has(c) for c in delimiters):
-            return [items]
+        if walk.depth == 0:
+            emitted = emit_charset(item, rules, frozenset())
+            if any(emitted.has(c) for c in delimiters):
+                return [items]
         walk.plain(item)
     return walk.done()
 

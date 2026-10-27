@@ -34,6 +34,7 @@ from lexic.ir import (
     IrAst,
     IrItem,
     IrLiteral,
+    IrNoneType,
     IrRule,
     IrRuleRef,
     IrSelf,
@@ -508,6 +509,73 @@ def interiors(grammar: IrAst) -> tuple[Interior, ...]:
 def interior_rules(grammar: IrAst) -> frozenset[str]:
     """Rules whose spans the structural scanner actually treats as opaque."""
     return frozenset(region.rule for region in interiors(grammar))
+
+
+type Site = tuple[str, int, int]
+"""An item's ``(rule, arm, index)`` — one place a grammar spells something."""
+
+
+def stray_spellings(
+    grammar: IrAst, watched: frozenset[str], delimiters: dict[str, set[Site]]
+) -> frozenset[str]:
+    """The characters of ``delimiters`` some site a scan reads spells off them.
+
+    A scan watching ``watched`` skips each certified region whose lead it does
+    not watch and reads every other site reachable from the start. A
+    punctuation rule's literal (``begin-array ::= ws "[" ws``) delimits while
+    every read reference to the rule does.
+    """
+    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    spans = {
+        (region.rule, region.arm): (region.opens, region.resumes)
+        for region in interiors(grammar)
+        if region.opening[0] not in watched
+    }
+    sites = [
+        found
+        for name in _reachable_visible(grammar, rule_map, spans, "")
+        for found in _visible_sites(rule_map[name], spans)
+    ]
+    referrers: dict[str, set[Site]] = {str(grammar.start): {("", 0, 0)}}
+    for item, at in sites:
+        for name in _refs(item.atom):
+            referrers.setdefault(name, set()).add(at)
+    opaque = frozenset(rule_map)
+    stray: set[str] = set()
+    for char, held in delimiters.items():
+        reach = _followed(held, rule_map, referrers)
+        if any(
+            at not in reach and emits(item, char, rule_map, opaque, frozenset())
+            for item, at in sites
+        ):
+            stray.add(char)
+    return frozenset(stray)
+
+
+def _followed(
+    held: set[Site], rule_map: dict[str, IrRule], referrers: dict[str, set[Site]]
+) -> set[Site]:
+    """``held`` with each punctuation rule it names followed to its literal."""
+    reach = set(held)
+    pending = list(held)
+    while pending:
+        rule, arm, at = pending.pop()
+        ref = tuple(rule_map[rule].body[arm])[at].unit_ref()
+        if isinstance(ref, IrNoneType) or not referrers.get(ref, set()) <= reach:
+            continue
+        inner = _spelling_site(ref, rule_map)
+        if inner and inner not in reach:
+            reach.add(inner)
+            pending.append(inner)
+    return reach
+
+
+def _spelling_site(name: str, rule_map: dict[str, IrRule]) -> Site | None:
+    """The site of the one item a punctuation rule spells its character with."""
+    target = rule_map.get(name)
+    arm = tuple(target.body[0]) if target is not None and len(target.body) == 1 else ()
+    spelled = [at for at, item in enumerate(arm) if literal_char(item, rule_map)]
+    return (name, 0, spelled[0]) if len(spelled) == 1 else None
 
 
 def hides(grammar: IrAst, region: Interior, watched: frozenset[str]) -> bool:
