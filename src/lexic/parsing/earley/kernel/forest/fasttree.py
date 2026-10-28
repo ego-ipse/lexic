@@ -136,7 +136,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             # only past a round's end is the stack read for a repeated handle.
             for _ in range(budget):
                 if not stack:
-                    return self.memo.get(handle, IrNone)
+                    # The holder, not the memo: a zero-width handle takes its
+                    # rule's shared empty tree without a memo entry, and a
+                    # zero-width ROOT is still built.
+                    return holder[0]
                 if not step():
                     return IrNone
             if opened is None and self.choices is not None and self._repeats():

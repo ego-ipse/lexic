@@ -430,10 +430,21 @@ def _flipped_witness[Value, NodeValue](
     :param flips: ``(point, family)`` pairs, each one alternative to try.
     """
     parents = parent_edges(run.kernel, run.root) if flips else {}
+    missed = False
     for point, family in flips:
         built = replayed(run, point, family, memo, parents)
-        if built is not None and not same_value(base.value, built.value):
+        if built is None:
+            missed = True
+        elif not same_value(base.value, built.value):
             return built
+    if missed:
+        # An alternative no build could read is not evidence of one meaning:
+        # with no complete tree to compare, the span refuses rather than let
+        # the base stand unchallenged.
+        raise UnsupportedConstructError(
+            "parsing: an alternative no build could read — the span's meanings "
+            "cannot be compared"
+        )
     return None
 
 

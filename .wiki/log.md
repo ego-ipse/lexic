@@ -1,5 +1,10 @@
 # Log
 
+## The fast build builds a zero-width root (2026-10-28)
+
+`decisions.md` records `FastTree.build` returning its holder, and the
+chart-order reading a span keeps when the chart, not the build, read it.
+
 ## The fast build stops at a cycle and builds only complete derivations (2026-10-28)
 
 `decisions.md` records the untracked try and its tracked rebuild, the avoid

@@ -50,6 +50,7 @@ from lexic.ir import (
 )
 from lexic.parsing import (
     EarleyParser,
+    ParseConfig,
     ParseTree,
     derivations,
     is_ambiguous,
@@ -807,3 +808,48 @@ def test_the_char_route_refuses_the_two_meanings_however_it_reads_them(
         decline_fast_builds(patch, declined)
         with pytest.raises(UnsupportedConstructError, match="ambiguous"):
             earley_model(product.instance_grammar, "a", grammar.product, product.tables)
+
+
+KEEP_FIRST_CONFIG = ParseConfig(resolve=lambda first, _other: first)
+"""A resolver that keeps the derivation in hand."""
+
+_INNER_ARMS = 'root ::= e\ne ::= p | q\np ::= "n"\nq ::= "n"\n'
+"""An arm choice inside the root, not at it: flips, not sibling productions."""
+
+
+def _inner_arms(
+    monkeypatch: pytest.MonkeyPatch, config: ParseConfig, declined: int = 2
+) -> object:
+    """The inner arm choice's model with the first reader's fast builds forced
+    to miss — the run-collapsed read and the plain re-read — so the derivation
+    in hand is the chart's and no decided derivation exists; the comparison's
+    own builds read as usual, as they do past a cycle."""
+    grammar = compile_text(_INNER_ARMS, cache_key="char-inner-arms")
+    product = model_product(grammar.codegen_grammar, grammar.product)
+    with monkeypatch.context() as patch:
+        decline_fast_builds(patch, declined)
+        return earley_model(
+            product.instance_grammar, "n", grammar.product, product.tables, config
+        )
+
+
+def test_an_arm_choice_the_fast_build_cannot_read_still_refuses(monkeypatch):
+    """No decided derivation to flip: the arms are still compared one per arm,
+    and two meanings with no resolver are refused."""
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        _inner_arms(monkeypatch, ParseConfig())
+
+
+def test_an_arm_choice_the_fast_build_cannot_read_takes_the_resolver(monkeypatch):
+    """The same span settles under a resolver — the opt-out reaches it."""
+    keep = ParseConfig(resolve=lambda first, _other: first)
+    assert type(_inner_arms(monkeypatch, keep)).__name__ == "Root"
+
+
+@pytest.mark.parametrize("config", [ParseConfig(), KEEP_FIRST_CONFIG])
+def test_an_arm_choice_no_build_can_read_refuses_explicitly(monkeypatch, config):
+    """Every fast build misses — the first reader's and the comparison's own:
+    no complete second tree exists, so the span refuses as one that cannot be
+    compared, resolver or not, rather than let its first reading stand."""
+    with pytest.raises(UnsupportedConstructError, match="cannot be compared"):
+        _inner_arms(monkeypatch, config, declined=99)

@@ -10,7 +10,8 @@ resolves to a NAMED derivation when a choice is pinned.
 
 from __future__ import annotations
 
-from lexic.ir import IrNone, IrRuleRef
+from lexic.compile import compile_text
+from lexic.ir import IrNone, IrRuleRef, IrSeq
 from lexic.parsing.earley.kernel.forest.fasttree import (
     FastTree,
     first_tree,
@@ -27,6 +28,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
+from lexic.parsing.products import model_product
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
     twin_arm_grammar,
@@ -118,3 +120,15 @@ def test_streamed_first_reads_the_chart_and_keeps_no_handles():
     got = streamed_first(accept_node(kernel), to_chart(kernel), handle)
     assert got is not None
     assert (got.handle, got.memo, _arm(got.tree)) == (handle, {}, IrRuleRef("a"))
+
+
+def test_a_zero_width_root_builds_its_shared_empty_tree():
+    """An empty input under ``root ::= root "a" | ""`` derives one empty tree:
+    the build hands back that tree rather than reporting a miss, so the parse
+    never falls to the chart for want of a memo entry."""
+    grammar = compile_text('root ::= root "a" | ""\n', cache_key="fasttree-zero-width")
+    product = model_product(grammar.codegen_grammar, grammar.product)
+    kernel = Kernel(product.tables, "", True).run()
+    first = first_tree(kernel, accept_handles(kernel), LEFTMOST_LONGEST)
+    assert first is not None
+    assert first.tree == ParseTree(IrRuleRef("root"), IrSeq())

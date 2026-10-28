@@ -1957,3 +1957,21 @@ version of this guard folded the stream's cut into `Root(F(None))`.
 **Cost:** the untracked try is the old loop in rounds. Per-parse calls are
 unchanged, and time inside the build is within run-to-run noise on the Earley
 and island seats.
+
+## The fast build builds a zero-width root
+
+**Decision:** `FastTree.build` hands back the tree it built, its holder,
+rather than reading the root out of its memo.
+
+**Why:** a zero-width handle takes its rule's shared empty tree without a
+memo entry, so a zero-width root (an empty island or empty input) was built
+and then reported as a miss. The parse then read the chart in its own order
+instead of the decider's carving. A search of the bench roster and the unit,
+integration and adversarial suites found 54 natural fast-build misses, and
+every one was this zero-width root. After the fix, nothing reads the chart
+unless a fast build is forced to miss.
+
+**What a chart-read span meets:** with no decided derivation to flip, the
+meaning check compares one family per arm at each arm choice
+(`_canonical_flips`, chart-ordered under the decider's carving). A supplied
+resolver settles the result, and without one the span is refused.
