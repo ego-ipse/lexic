@@ -336,12 +336,17 @@ class Verdicts[Carry](Sides[Carry]):
           remainder says nothing about the right's, and the boundary is
           undecidable (:meth:`_advance` raises :class:`ProbeFork`).
         - **the STOP side dies** — :data:`TAKE`, since the caller tests
-          ``stop is None`` first regardless; a dead TAKE side does not settle
-          it, turning on the stop side reaching end-of-input, unestablished.
+          ``stop is None`` first regardless.
+        - **the TAKE side dies** — :data:`STOP_FORCED`, outside a side: taking
+          derives nothing, so stopping is the only parse there can be, and
+          whether it completes is the stop side's own question, asked by the
+          live drive next. Inside a side the take side's seed may itself be a
+          guess's, so its death settles nothing there.
 
-        A death the stop side's own drive reached through a greedy guess, and a
-        mid-parse convergence either side's did, decide nothing and fork, as at
-        end of input (:meth:`_fork_verdict`).
+        A death a side's own drive reached through a greedy guess, and a
+        mid-parse convergence either side's did, decide nothing: a guessed
+        stop death forks, as at end of input (:meth:`_fork_verdict`), and a
+        guessed take death leaves the long way to decide.
 
         No convergence in the budget returns ``None``: the caller runs today's
         comparison. A :class:`ProbeFork` PROPAGATES — undecidable is not death.
@@ -363,7 +368,9 @@ class Verdicts[Carry](Sides[Carry]):
             if left is None:
                 return FORKED if left_unc else TAKE
             if right is None:
-                return None
+                # Outside a side every seed is clean, so a take side that died
+                # without a guess derives nothing: stopping is forced.
+                return None if right_unc or self._caches.probing else STOP_FORCED
             target = max(left[1], right[1])
             if left[1] == right[1]:
                 if len(left[4]) == len(right[4]) and control_signature(

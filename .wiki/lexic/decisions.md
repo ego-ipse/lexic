@@ -902,7 +902,14 @@ decidable, and each is the answer the end-of-input comparison would have given:
 |---|---|---|
 | values agree | TAKE | one value; a benign split. The common case, now O(1) |
 | values differ | run the COMMON remainder once | completing makes it a real fork; dying means neither side completes, which was already TAKE |
-| a side died first | forced | unchanged |
+| the STOP side died first, no guess | TAKE | stopping derives nothing |
+| the TAKE side died first, no guess, outside a side | STOP_FORCED | taking derives nothing; whether stopping completes is the live drive's next question |
+| either died through a guess, or the take side inside a side | not settled here | a guessed stop death forks; the rest takes the long way |
+
+Settling the dead TAKE side here spares the long way, which would drive the
+stop side to end of input only to reach the same STOP. Inside a side it stays
+unsettled, because a take side's seed — the iteration's own sub-run — may have
+been guessed there, and its death would then be the guess's.
 
 Everything else — no convergence inside the budget, a `ProbeFork` from deeper —
 falls through to the untouched comparison. **That escape is what makes the

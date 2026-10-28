@@ -393,6 +393,36 @@ def test_a_stop_side_death_is_judged_by_its_own_drive(
 
 
 @pytest.mark.parametrize(
+    ("take_guessed", "probing", "verdict"),
+    [(False, 0, STOP_FORCED), (True, 0, None), (False, 1, None)],
+    ids=["clean", "take-guessed", "inside-a-side"],
+)
+def test_a_take_side_death_forces_the_stop_outside_a_side(
+    monkeypatch, take_guessed: bool, probing: int, verdict: int | None
+) -> None:
+    """The lockstep's TAKE side dies on its first advance while the stop side
+    lives. Outside a side that is the verdict: taking derives nothing, so the
+    stop is forced, and the long way never runs. A guess on the take side's
+    drive, or a side whose seed may be a guess's, leaves it to the long way.
+
+    The probing depth is the caches' public field, set on the class: the
+    sides are faked, so nothing writes it while the verdict reads it."""
+    kern = live_kernel()
+    monkeypatch.setattr(admission.KernelCaches, "probing", probing)
+    made = iter([completed_side(0, []), completed_side(1, [])])
+    monkeypatch.setattr(Sides, "_side", lambda *_a: next(made))
+    monkeypatch.setattr(
+        Sides,
+        "_advance",
+        lambda _self, side, _limit, shared=False: (
+            (side, False) if side[1] == 0 else (None, take_guessed)
+        ),
+    )
+    lockstep = vars(Verdicts)["_lockstep_verdict"]
+    assert lockstep(kern, flat_arm(1), 0, 0, (1, [])) == verdict
+
+
+@pytest.mark.parametrize(
     ("stack", "verdict"), [("mid-parse", FORKED), ("completed", FORKED)]
 )
 def test_a_guess_unsettles_every_convergence(

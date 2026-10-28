@@ -2811,6 +2811,12 @@ item a worker already started is never run twice.
 run kind of the folded source, its NON_INITIAL condition, the re-worn base and
 the left-edge join.
 
+## A dead take side forces the stop in the lockstep (2026-10-28)
+
+`decisions.md`'s lockstep table now matches the code in both directions: a stop
+side dead without a guess is TAKE, and a take side dead without a guess,
+outside a side, is STOP_FORCED.
+
 ## A sequence's EXTEND is bounded at its leftmost shifting item (2026-10-28)
 
 `decisions.md`: the sequence rule of EXTEND, its leftmost-divergence argument,
