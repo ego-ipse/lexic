@@ -29,7 +29,6 @@ from lexic.ir import (
     IrItem,
     IrQuantifier,
     IrRule,
-    IrSelf,
     references,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
@@ -43,12 +42,6 @@ from lexic.parsing.pda.analysis.gates.windows import (
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
 
 __all__ = [
     "FOLLOW_LOOP_K",

@@ -94,7 +94,6 @@ from lexic.parsing.pda.compiler.specs import (
     LoopGate,
     PeekGate,
     StopGate,
-    arm_items,
     firsts_overlap,
     resolve_struct_arm,
 )
@@ -503,7 +502,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         for idx, arm in (
             enumerate(node) if order is None else ((i, node[i]) for i in order)
         ):
-            items = arm_items(arm)
+            items = arm
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
             if all(self.analysis.item_nullable(i) for i in items):

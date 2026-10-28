@@ -16,7 +16,7 @@ doubling climb.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Iterator
 
 from lexic.ir import IrAlternation, IrItem, IrRule, IrRuleRef
@@ -41,7 +41,7 @@ from lexic.parsing.pda.compiler.eligibility import (
     extent_pattern,
     greedy_extent,
 )
-from lexic.parsing.pda.compiler.specs import LongestTake, arm_items
+from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
@@ -54,11 +54,11 @@ measured to settle a shorter end a space or newline ends (abnf-meta's rule
 continuation, ` /`) that one character cannot."""
 
 
-Groups = tuple[tuple[list[IrItem], int], ...]
+Groups = tuple[tuple[Sequence[IrItem], int], ...]
 """The inline groups a reference sits in, outermost first: each enclosing arm's
 items and the group item's index in it."""
 
-Site = tuple[str, list[IrItem], int, Groups]
+Site = tuple[str, Sequence[IrItem], int, Groups]
 """A reference to an island: its rule, its arm's items, its index, its groups."""
 
 
@@ -215,7 +215,7 @@ class IslandContinuations:
             if rule in self.islands:
                 continue
             for arm in body.body:
-                for items, at, groups in _references(name, arm_items(arm), ()):
+                for items, at, groups in _references(name, arm, ()):
                     place = self._places().get(id(items[at]), _ANYWHERE)
                     if where is None or _meets(where, place):
                         yield rule, items, at, groups
@@ -285,7 +285,7 @@ class IslandContinuations:
         holds all of ``extend``: a greedy match then stops only at a character
         nothing could lengthen it by. An empty arm ends in no run."""
         for arm in self.analysis.rules[name].body:
-            items = arm_items(arm)
+            items = arm
             if not items:
                 return False
             last = items[-1]
@@ -348,12 +348,12 @@ def _in_groups(rules: dict[str, IrRule]) -> set[str]:
         list(item.atom)
         for rule in rules.values()
         for arm in rule.body
-        for item in arm_items(arm)
+        for item in arm
         if isinstance(item.atom, IrAlternation)
     ]
     while pending:
         for arm in pending.pop():
-            for item in arm_items(arm):
+            for item in arm:
                 if isinstance(item.atom, IrRuleRef):
                     found.add(str(item.atom))
                 elif isinstance(item.atom, IrAlternation):
@@ -377,7 +377,7 @@ def site_positions(rules: dict[str, IrRule], start: str) -> dict[int, Span]:
     refs = [
         (rule, items, at)
         for rule, body in rules.items()
-        for items in (arm_items(arm) for arm in body.body)
+        for items in body.body
         for at, item in enumerate(items)
         if isinstance(item.atom, IrRuleRef)
     ]
@@ -398,7 +398,9 @@ def site_positions(rules: dict[str, IrRule], start: str) -> dict[int, Span]:
     return sites
 
 
-def _place(here: Span, items: list[IrItem], at: int, spans: dict[str, Span]) -> Span:
+def _place(
+    here: Span, items: Sequence[IrItem], at: int, spans: dict[str, Span]
+) -> Span:
     """Where item ``at`` can begin, given where its arm begins: after what the
     earlier items can span, and, if it repeats, through its later
     occurrences too."""
@@ -436,8 +438,8 @@ def _after_repeats(occurrence: set[Pref], rest: set[Pref]) -> set[Pref]:
 
 
 def _references(
-    name: str, items: list[IrItem], groups: Groups
-) -> Iterator[tuple[list[IrItem], int, Groups]]:
+    name: str, items: Sequence[IrItem], groups: Groups
+) -> Iterator[tuple[Sequence[IrItem], int, Groups]]:
     """Every reference to rule ``name`` in an arm, inline groups entered."""
     for at, item in enumerate(items):
         atom = item.atom
@@ -446,7 +448,7 @@ def _references(
         elif isinstance(atom, IrAlternation):
             inner = (*groups, (items, at))
             for arm in atom:
-                yield from _references(name, arm_items(arm), inner)
+                yield from _references(name, arm, inner)
 
 
 def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[Pref]:

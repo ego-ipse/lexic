@@ -44,11 +44,6 @@ if TYPE_CHECKING:  # `analysis` imports this module, so the reference is mutual
     from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
 def _first_literal(_d: object, n: IrSelf, _nc: object) -> CharSet:
     """FIRST of a literal: its leading character (empty literal → empty set)."""
     text = str(n)
@@ -89,7 +84,7 @@ def _first_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     assert isinstance(n, IrAlternation)
     out = CharSet.EMPTY
     for arm in n:
-        out = out.union(d.seq_first(_items(arm)))
+        out = out.union(d.seq_first(arm))
     return out
 
 
@@ -137,7 +132,7 @@ def _alpha_alternation(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
     assert isinstance(n, IrAlternation)
     out = CharSet.EMPTY
     for arm in n:
-        for item in _items(arm):
+        for item in arm:
             out = out.union(atom_alphabet(item.atom, nc))
     return out
 
@@ -179,7 +174,7 @@ def rule_alphabets(rules: Mapping[str, IrRule]) -> dict[str, CharSet]:
         for name, rule in rules.items():
             acc = CharSet.EMPTY
             for arm in rule.body:
-                for item in _items(arm):
+                for item in arm:
                     acc = acc.union(atom_alphabet(item.atom, nc))
             if acc != found[name]:
                 found[name] = acc
@@ -226,7 +221,7 @@ def _ext_ruleref(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
 def _ext_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[object]) -> CharSet:
     """A group extends as the alternation of its arms."""
     assert isinstance(n, IrAlternation)
-    return arms_extension(d, [_items(arm) for arm in n], cast(Extensions, nc))
+    return arms_extension(d, list(n), cast(Extensions, nc))
 
 
 def _seq_alphabet(items: Sequence[IrItem], maps: Extensions) -> CharSet:
@@ -322,7 +317,7 @@ def rule_extensions(d: GrammarAnalysis) -> Extensions:
     while changed:
         changed = False
         for name, rule in d.rules.items():
-            got = arms_extension(d, [_items(arm) for arm in rule.body], maps)
+            got = arms_extension(d, list(rule.body), maps)
             if got != maps.found[name]:
                 maps.found[name] = got
                 changed = True
@@ -361,7 +356,7 @@ def _span_ruleref(_d: object, n: IrSelf, nc: Sequence[object]) -> Span:
 def _span_alternation(_d: object, n: IrSelf, nc: Sequence[object]) -> Span:
     """A group spans the widest hull of its arms."""
     assert isinstance(n, IrAlternation)
-    spans = [seq_span(_items(arm), cast("dict[str, Span]", nc[0])) for arm in n]
+    spans = [seq_span(arm, cast("dict[str, Span]", nc[0])) for arm in n]
     return (
         (min(lo for lo, _ in spans), max(hi for _, hi in spans))
         if spans
@@ -402,7 +397,7 @@ def rule_spans(rules: Mapping[str, IrRule]) -> dict[str, Span]:
     while changed:
         changed, late = False, rounds > len(rules)
         for name, rule in rules.items():
-            arms = [seq_span(_items(arm), spans) for arm in rule.body]
+            arms = [seq_span(arm, spans) for arm in rule.body]
             was_lo, was_hi = spans[name]
             # Monotone: the fewest only falls and the most only rises, so a
             # widened most is never recomputed back down from arms not yet
@@ -434,7 +429,7 @@ def _hard_alternation(d: GrammarAnalysis, n: IrSelf, _nc: object) -> CharSet:
     assert isinstance(n, IrAlternation)
     out = CharSet.EMPTY
     for arm in n:
-        out = out.union(d.seq_hard(_items(arm)))
+        out = out.union(d.seq_hard(arm))
     return out
 
 
@@ -471,7 +466,7 @@ def _feed_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> bo
     ctx = cast(FeedCtx, nc[0])
     changed = False
     for arm in n:
-        if d.feed_seq(_items(arm), ctx.eff, ctx.rule, ctx.pass_):
+        if d.feed_seq(arm, ctx.eff, ctx.rule, ctx.pass_):
             changed = True
     return changed
 
@@ -492,7 +487,7 @@ def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> Non
     """Recurse conflict analysis into an inline group's arms."""
     assert isinstance(n, IrAlternation)
     ctx = cast(ConflictCtx, nc[0])
-    sub_arms = [_items(arm) for arm in n]
+    sub_arms = list(n)
     label = f"{ctx.rule}[{ctx.index}]grp"
     scope = Scope(ctx.rule, ctx.cont, body=False)
     d.arm_conflicts(sub_arms, Site(label, id(n), ctx.cont.soft), ctx.notes)

@@ -43,11 +43,6 @@ __all__ = [
 ]
 
 
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
 END, MORE, UNK = "END", "MORE", "UNK"
 """A prefix state: END — the tuple is a complete derivation (may be extended by
 FOLLOW); MORE — a longer derivation exists past the window; UNK — the window is
@@ -173,7 +168,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.busy.add(key)
         out: set[Pref] = set()
         for arm in self.rules[name].body:
-            out |= self.arm_prefixes(_items(arm), r)
+            out |= self.arm_prefixes(arm, r)
         self.busy.discard(key)
         self.memo[key] = out
         return out
@@ -196,7 +191,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.busy.add(key)
         out: set[Pref] = set()
         for arm in group:
-            out |= self.arm_prefixes(_items(arm), r)
+            out |= self.arm_prefixes(arm, r)
         self.busy.discard(key)
         self.memo[key] = out
         return out
@@ -446,7 +441,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 tail = self.follow[name]
                 for arm in rule.body:
-                    if self._feed_arm(_items(arm), tail):
+                    if self._feed_arm(arm, tail):
                         changed = True
 
     def _feed_arm(self, items: Sequence[IrItem], tail: set[Pref]) -> bool:
@@ -469,7 +464,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
             elif isinstance(atom, IrAlternation):
                 rest = self._rest_windows(items, i, tail)
                 for sub in atom:
-                    yield from self._arm_sites(_items(sub), rest)
+                    yield from self._arm_sites(sub, rest)
 
     def site_windows(self, name: str) -> list[set[Pref]]:
         """What follows rule ``name`` at each of its reference sites, one window
@@ -484,7 +479,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         found = [eof] if name == self.start else []
         for rule, body in self.rules.items():
             for arm in body.body:
-                sites = self._arm_sites(_items(arm), self.follow[rule])
+                sites = self._arm_sites(arm, self.follow[rule])
                 found.extend(rest for ref, rest in sites if ref == name)
         return found
 

@@ -26,7 +26,6 @@ from __future__ import annotations
 from typing import NamedTuple, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrItem, IrSelf
 from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, Pattern, ScanGate
@@ -376,11 +375,6 @@ class CloneSpec(NamedTuple):
 
 
 # ── arm helpers ────────────────────────────────────────────────────────────
-
-
-def arm_items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order."""
-    return [i for i in seq if isinstance(i, IrItem)]
 
 
 def firsts_overlap(arms: Sequence[ArmSpec]) -> bool:

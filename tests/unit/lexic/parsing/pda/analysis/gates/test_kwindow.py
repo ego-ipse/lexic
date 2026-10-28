@@ -62,7 +62,6 @@ from lexic.parsing.products import parse_model
 from tests.gate_grammars import ARM_FINAL_LOOP
 from tests.gate_grammars import NULL_ARM as NULL_ARM_GRAMMAR
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     lifted_analysis as _ground_truth_analysis,
 )
@@ -147,7 +146,7 @@ def test_group_prefixes_memoises_a_node_reached_via_multiple_paths(
     solver = KWindowFirst({}, 3)
     expected: set = set()
     for arm in inner:
-        expected |= solver.arm_prefixes(_rule_items(arm), 3)
+        expected |= solver.arm_prefixes(arm, 3)
 
     calls: list[int] = []
     original = KWindowFirst.arm_prefixes
@@ -370,7 +369,7 @@ def test_soft_follow_contract_hard_follow_would_be_unsound():
     )
     ast = IrAst(rules=IrSeq(root, q, b), start="root")
     analysis = GrammarAnalysis(ast)
-    arms = [_rule_items(arm) for arm in analysis.rules["q"].body]
+    arms = list(analysis.rules["q"].body)
 
     assert analysis.follow["q"].has("q")
     assert not analysis.hard_follow["q"].has("q")
@@ -396,7 +395,7 @@ def self_analysis(name: str) -> GrammarAnalysis:
 
 def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
     """``arm_gate``'s separating ``k`` for rule ``name``'s arms, or ``None``."""
-    arms = [_rule_items(arm) for arm in analysis.rules[name].body]
+    arms = list(analysis.rules[name].body)
     got = arm_gate(arms, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
@@ -404,7 +403,7 @@ def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
 def loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
     """``loop_gate``'s separating ``k`` for item ``idx`` of rule ``name``'s
     (single-arm) body, or ``None``."""
-    items = _rule_items(analysis.rules[name].body[0])
+    items = analysis.rules[name].body[0]
     got = loop_gate(items, idx, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
@@ -457,7 +456,7 @@ def test_follow_windows_cc_tail_separates_take_from_escape():
     fw = FollowWindows(an.rules, an.start, 2)
     follow = fw.follow["cc-tail"]
     take = extend_follow(
-        fw.solver.arm_prefixes(_rule_items(an.rules["cc-tail"].body[0]), 2), follow, 2
+        fw.solver.arm_prefixes(an.rules["cc-tail"].body[0], 2), follow, 2
     )
     escape = extend_follow(fw.solver.arm_prefixes([], 2), follow, 2)
     assert separable([take, escape])
@@ -475,7 +474,7 @@ def test_the_follow_window_depths_settle_cc_tail():
     body-arm order (the ``- cc-hi`` take arm, then the ε escape arm), where at
     one FOLLOW character (:func:`follow_depths`) it cannot."""
     an = self_analysis("gbnf")
-    arms = [_rule_items(a) for a in an.rules["cc-tail"].body]
+    arms = list(an.rules["cc-tail"].body)
     assert arm_gate(arms, follow_depths(an.rules, an.follow["cc-tail"])) is None
     gate = an.taxonomy.arm_gates.get("cc-tail")
     assert gate is not None
@@ -792,7 +791,7 @@ def _exit_settles(source: str, rule: str, key: str) -> bool:
     """:func:`stop_exit_settles` for the loop that opens ``rule``'s one arm,
     exiting where its FIRST meets the rule's hard FOLLOW."""
     analysis = _compiled_analysis(source, key)
-    items = _rule_items(analysis.rules[rule].body[0])
+    items = analysis.rules[rule].body[0]
     first = analysis.atom_first(items[0].atom)
     hard = analysis.hard_cont_at(items, 0, analysis.hard_follow[rule])
     exits = first.subtract(first.subtract(hard))
@@ -846,7 +845,7 @@ def test_a_take_and_a_stop_that_both_end_the_input_do_not_settle() -> None:
     windows = FollowWindows(rules, "s", FOLLOW_LOOP_K)
     a = CharSet.from_chars("a")
     windows.follow["s"] = {((), END), ((a,), END)}
-    items = _rule_items(rules["r"].body[0])
+    items = rules["r"].body[0]
     assert not stop_exit_settles(windows, items, 0, "r", a)
 
 
@@ -882,7 +881,7 @@ def test_demotes_gbnf_self_cc_tail_via_follow_windows():
     assert analysis.demoted["cc-tail"] == [
         "cc-tail: arms FOLLOW-window separable (demoted)"
     ]
-    arms = [_rule_items(arm) for arm in analysis.rules["cc-tail"].body]
+    arms = list(analysis.rules["cc-tail"].body)
     one_deep = follow_depths(analysis.rules, analysis.follow["cc-tail"])
     assert arm_gate(arms, one_deep) is None
     stored = analysis.taxonomy.arm_gates["cc-tail"]

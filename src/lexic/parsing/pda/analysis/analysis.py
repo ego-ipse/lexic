@@ -71,11 +71,6 @@ _EOF: CharSet = CharSet.from_chars("")
 sentinel in a positive :class:`CharSet`."""
 
 
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
 class Follows(NamedTuple):
     """An analysis' FOLLOW views: the soft, hard and structural CharSet
     fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
@@ -242,7 +237,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 acc = CharSet.EMPTY
                 for arm in rule.body:
-                    acc = acc.union(self.seq_first(_items(arm)))
+                    acc = acc.union(self.seq_first(arm))
                 if acc != self.first[name]:
                     self.first[name] = acc
                     changed = True
@@ -309,7 +304,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 acc = CharSet.EMPTY
                 for arm in rule.body:
-                    acc = acc.union(self.seq_hard(_items(arm)))
+                    acc = acc.union(self.seq_hard(arm))
                 if acc != self.hard[name]:
                     self.hard[name] = acc
                     changed = True
@@ -361,7 +356,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             changed = False
             for name, rule in self.rules.items():
                 for arm in rule.body:
-                    if self.feed_seq(_items(arm), tgt[name], name, pass_):
+                    if self.feed_seq(arm, tgt[name], name, pass_):
                         changed = True
         return tgt
 
@@ -437,7 +432,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 ),
                 body=True,
             )
-            arms = [_items(arm) for arm in rule.body]
+            arms = list(rule.body)
             self.arm_conflicts(arms, Site(name, name, self.follow[name]), notes)
             body_hard = len(notes.hard)
             for arm in arms:

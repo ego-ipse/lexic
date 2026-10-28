@@ -47,7 +47,7 @@ def rewritten(rule: IrRule, fold: Fold) -> IrRule:
     :param fold: Its decomposition.
     :returns: The rewritten rule.
     """
-    base = _group(tuple(tuple(_items(rule.body[at])) for at in fold.base))
+    base = _group(tuple(tuple(rule.body[at]) for at in fold.base))
     steps = _group(tuple(step.rest for step in fold.steps))
     return IrRule(
         str(rule.name),
@@ -58,11 +58,6 @@ def rewritten(rule: IrRule, fold: Fold) -> IrRule:
             )
         ),
     )
-
-
-def _items(seq) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order."""
-    return [one for one in seq if isinstance(one, IrItem)]
 
 
 def fold_grammar(grammar: IrAst, folds: dict[str, Fold]) -> IrAst:

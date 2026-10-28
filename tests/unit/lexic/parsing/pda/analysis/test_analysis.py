@@ -56,11 +56,6 @@ def lifted_analysis(stem: str) -> GrammarAnalysis:
     return GrammarAnalysis(lifted)
 
 
-def arm_items(arm: IrSequence) -> list[IrItem]:
-    """The :class:`IrItem` members of one sequence arm, in order."""
-    return [i for i in arm if isinstance(i, IrItem)]
-
-
 # ── the island / demotion parity gate (pinned to the PoC's M1 output) ──────
 #
 # Deviation from the PoC: json ``ws`` is islanded, not stop-set-demoted. The
@@ -263,7 +258,7 @@ def test_demotes_chess_nonpawn_loop():
     assert "nonpawn" not in analysis.islands
     assert analysis.demoted["nonpawn"] == ["nonpawn[1]: loop k-window (demoted)"]
 
-    items = arm_items(analysis.rules["nonpawn"].body[0])
+    items = analysis.rules["nonpawn"].body[0]
     assert id(items[1]) in analysis.taxonomy.loop_gates
     gate = kwindow.loop_gate(
         items, 1, kwindow.follow_depths(analysis.rules, analysis.follow["nonpawn"])
@@ -280,7 +275,7 @@ def test_demotes_gbnf_self_cc_esc_arm():
     assert "cc-esc" not in analysis.islands
     assert analysis.demoted["cc-esc"] == ["cc-esc: arms k-window separable (demoted)"]
 
-    arms = [arm_items(arm) for arm in analysis.rules["cc-esc"].body]
+    arms = list(analysis.rules["cc-esc"].body)
     stored = analysis.taxonomy.arm_gates["cc-esc"]
     assert len(stored) == len(arms)
     gate = kwindow.arm_gate(
@@ -302,7 +297,7 @@ def test_json_p3_demotions_store_their_peek_specs(stem: str):
     assert len(sets) == len(analysis.rules["value"].body)
     for name in ("array-item2", "object-item2"):
         assert analysis.demoted[name] == [f"{name}[1]: loop noise-skip (demoted)"]
-        items = arm_items(analysis.rules[name].body[0])
+        items = analysis.rules[name].body[0]
         stored = analysis.taxonomy.pn_loop_gates[id(items[1])]
         assert stored == (w, CharSet.from_chars(","))
 

@@ -29,7 +29,6 @@ from lexic.parsing.pda.compiler.continuation import (
     IslandContinuations,
     site_positions,
 )
-from lexic.parsing.pda.compiler.specs import arm_items
 from lexic.parsing.pda.core.charsets import CharSet
 
 _LEFT_RECURSIVE = 'root ::= item "e"\nitem ::= item "d" | "a"\n'
@@ -217,7 +216,7 @@ def sites_of_x(
     compiled = compile_text(source, cache_key=f"sites-{hash(source)}-{delegated}")
     grammar = lift_optional_nullables(compiled.codegen_grammar)
     analysis = GrammarAnalysis(IrAst(grammar.rules, grammar.start), delegated=delegated)
-    items = arm_items(analysis.rules["doc"].body[0])
+    items = analysis.rules["doc"].body[0]
     refs = [item for item in items if str(item.atom) == "x"]
     return IslandContinuations(analysis, analysis.islands), refs
 
@@ -278,7 +277,7 @@ def test_a_cycle_of_references_places_every_site_anywhere_past_its_start() -> No
         for name, rule in analysis.rules.items()
         if name != "doc"
         for arm in rule.body
-        for item in arm_items(arm)
+        for item in arm
         if id(item) in places
     ]
     assert len(refs) >= 6, "the cycle's references, arms included, were not found"

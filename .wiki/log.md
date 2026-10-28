@@ -1,5 +1,10 @@
 # Log
 
+## The engine reads an arm as its items (2026-10-28)
+
+`ir-shapes.md` records that no engine reader filters an `IrSequence`, and that
+`lift_optional_nullables` refuses an arm holding a non-item by name.
+
 ## The fold takes several recursive arms (2026-10-28)
 
 `decisions.md` records how a several-armed fold knows which arm each iteration

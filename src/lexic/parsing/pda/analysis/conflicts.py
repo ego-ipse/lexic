@@ -155,7 +155,7 @@ def may_steal(analysis: Any, rule: IrRule) -> bool:
     return (
         not analysis.taxonomy.delegated
         and text_only(rule)
-        and any(len(_arm_items(arm)) > 1 for arm in rule.body)
+        and any(len(arm) > 1 for arm in rule.body)
         and not greedy_exact(analysis, rule)
     )
 
@@ -174,7 +174,7 @@ def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     matcher's multi-item path, and a one-item arm takes the one-item path,
     which is left as it is.
     """
-    arms = [_arm_items(arm) for arm in rule.body]
+    arms = list(rule.body)
     if any(len(arm) < 2 for arm in arms):
         return False
     firsts = [{((analysis.seq_first(arm),), END)} for arm in arms]
@@ -200,11 +200,6 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
         if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
             return False
     return True
-
-
-def _arm_items(arm: Sequence[object]) -> list[IrItem]:
-    """The :class:`IrItem` members of an arm, in order."""
-    return [item for item in arm if isinstance(item, IrItem)]
 
 
 def same_ref_extent_split(

@@ -23,7 +23,6 @@ from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec import shape as shape_module
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
-from lexic.parsing.pda.compiler.specs import arm_items
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -177,7 +176,7 @@ def _direct_left_recursive(rules: dict[str, IrRule]) -> list[str]:
         name
         for name, rule in rules.items()
         for arm in rule.body
-        if (items := arm_items(arm))
+        if (items := arm)
         and isinstance(items[0].atom, IrRuleRef)
         and str(items[0].atom) == name
     ]

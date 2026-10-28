@@ -348,7 +348,7 @@ def _descend(
     arms = tuple(target.body) if target is not None else ()
     if len(arms) != 1 or name in seen:
         return None
-    inner = tuple(one for one in tuple(arms[0]) if isinstance(one, IrItem))
+    inner = tuple(arms[0])
     shape = _terminated_arm(inner, rules)
     if shape is not None and _qualifies(grammar, rules, shape[2]):
         return chain, shape, name  # `chain` is how this rule was reached

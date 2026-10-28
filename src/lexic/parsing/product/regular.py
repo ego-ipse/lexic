@@ -59,7 +59,6 @@ from lexic.ir import (
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -150,9 +149,7 @@ def closure_holds(
         return False
     if not _rule_is_deterministic(first, rule, tail):
         return False
-    return all(
-        references_hold(first, rules, arm_items(arm), tail, proved) for arm in rule.body
-    )
+    return all(references_hold(first, rules, arm, tail, proved) for arm in rule.body)
 
 
 def references_hold(
@@ -178,15 +175,10 @@ def references_hold(
             if not closure_holds(first, rules, str(atom), here, proved):
                 return False
         elif isinstance(atom, IrAlternation) and not all(
-            references_hold(first, rules, arm_items(arm), here, proved) for arm in atom
+            references_hold(first, rules, arm, here, proved) for arm in atom
         ):
             return False
     return True
-
-
-def arm_items(arm: Sequence[IrSelf]) -> list[IrItem]:
-    """The arm's items, in order."""
-    return [item for item in arm if isinstance(item, IrItem)]
 
 
 def _poisoned(prefixes: set[Pref]) -> bool:
@@ -213,7 +205,7 @@ def _leads(prefixes: set[Pref]) -> set[Pref]:
 
 def _rule_is_deterministic(first: KWindowFirst, rule: IrRule, tail: set[Pref]) -> bool:
     """Whether one rule's arms separate and none of its boundaries steals."""
-    arms = [arm_items(arm) for arm in rule.body]
+    arms = list(rule.body)
     if not _first_disjoint(first, arms, tail):
         return False
     return all(_arm_boundaries_hold(first, arm, tail) for arm in arms)
@@ -230,7 +222,7 @@ def _group_is_deterministic(
     enclosing arm's own remainder, so the munch obligation is asked of the
     text that actually follows it.
     """
-    arms = [arm_items(arm) for arm in group]
+    arms = list(group)
     if not _first_disjoint(first, arms, tail):
         if not _ordered_literals(arms, tail):
             return False

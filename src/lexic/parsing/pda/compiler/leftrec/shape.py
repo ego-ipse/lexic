@@ -34,13 +34,12 @@ and is not a general inlining.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
 from lexic.ir import IrItem, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import arms_extension, rule_extensions
-from lexic.parsing.pda.compiler.specs import arm_items
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -71,7 +70,9 @@ class Fold(NamedTuple):
     steps: tuple[Recursive, ...]
 
 
-def through_hoist(items: list[IrItem], rules: Mapping[str, IrRule]) -> list[IrItem]:
+def through_hoist(
+    items: Sequence[IrItem], rules: Mapping[str, IrRule]
+) -> Sequence[IrItem]:
     """An arm, with a hoisted single-reference arm rule read through.
 
     Only an arm that consists ENTIRELY of one reference to a rule with exactly
@@ -84,10 +85,10 @@ def through_hoist(items: list[IrItem], rules: Mapping[str, IrRule]) -> list[IrIt
     target = rules.get(str(items[0].atom))
     if target is None or len(target.body) != 1:
         return items
-    return arm_items(target.body[0])
+    return target.body[0]
 
 
-def _leads_with(items: list[IrItem], name: str) -> bool:
+def _leads_with(items: Sequence[IrItem], name: str) -> bool:
     """Whether the arm begins with exactly one reference to ``name``."""
     if not items or not isinstance(items[0].atom, IrRuleRef):
         return False
@@ -109,7 +110,7 @@ def any_candidate(rules: Mapping[str, IrRule]) -> bool:
     """
     for name, rule in rules.items():
         for arm in rule.body:
-            items = through_hoist(arm_items(arm), rules)
+            items = through_hoist(arm, rules)
             if (
                 items
                 and isinstance(items[0].atom, IrRuleRef)
@@ -136,7 +137,7 @@ def foldable(
     base: list[int] = []
     steps: list[Recursive] = []
     for at, arm in enumerate(rule.body):
-        raw = arm_items(arm)
+        raw = arm
         items = through_hoist(raw, rules)
         hoisted = "" if items is raw else str(raw[0].atom)
         if not _leads_with(items, name):
@@ -178,7 +179,7 @@ def settled(rule: IrRule, fold: Fold, analysis: GrammarAnalysis) -> bool:
     it is left unfolded and islands, where Earley refuses what is ambiguous.
     """
     arms = tuple(rule.body)
-    bases = [arm_items(arms[at]) for at in fold.base]
+    bases = [arms[at] for at in fold.base]
     steps = [list(step.rest) for step in fold.steps]
     starts = CharSet.EMPTY
     for rest in steps:
