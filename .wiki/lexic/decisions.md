@@ -1970,6 +1970,15 @@ only where those steps close a loop (`A ⇒+ A`).
 - Nothing is put in a refused key's place. The build never reads the
   derivation stream.
 
+**The two readers draw "cycle-free" over different sets.** The build forbids a
+completed handle inside itself over its span; the derivation stream forbids
+any key inside itself, prefix keys included. So the value route can answer a
+tree `derivations()` does not list: for `a ::= y z` / `y ::= a | ""` /
+`z ::= "" | "x"` over "x", the prefix key `(a ::= y • z, 0, 0)` sits inside
+itself in `A(Y(A(Y(), Z(''))), Z('x'))`, the resolver's answer, and the stream
+lists only `a(y(), z('x'))`. Both are complete derivations, and the stream's
+cut keeps `is_ambiguous` at 1.
+
 **Why the grammar decides:** detecting a re-entry while building costs every
 step something. A per-step check, a round counter on the hot loop and a
 stack-growth test each measured 0.1–4% of the build in-process. Asking the
