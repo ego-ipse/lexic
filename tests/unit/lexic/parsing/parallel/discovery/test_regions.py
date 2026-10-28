@@ -31,13 +31,12 @@ from lexic.parsing.parallel.discovery.regions import (
     par_find,
     scan_vocabulary,
     separators,
-    sweep_offsets,
-    walk_regions,
     walk_roles,
     window_bounds,
 )
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import CLOSER_SEPARATOR_UNREAD, closer_separator_document
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")
 
@@ -123,6 +122,25 @@ def test_an_opener_spelled_only_inside_a_skipped_interior_derives_the_pair():
         'val ::= str | [0-9]+\nstr ::= "\\"" [^"]* "\\""\n'
     )
     assert _pairs_of(source) == {"[": ("]", "arr")}
+
+
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_is_never_a_mark(shape: str):
+    """The pair stands and its closer keeps one role: ``,`` is no mark."""
+    vocab = scan_vocabulary(compile_text(CLOSER_SEPARATOR_UNREAD[shape]).grammar)
+    assert vocab.pairs == {"<": (",", "root")}
+    assert vocab.closers == {",": "<"}
+    assert vocab.marks == frozenset(".")
+
+
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_finds_the_run(shape: str):
+    """The run opens at ``<``, takes every ``.`` as its mark and closes on the
+    final ``,``; a ``,`` inside a string is skipped, never a mark."""
+    doc = closer_separator_document(shape, 40)
+    dots = tuple(at for at, char in enumerate(doc) if char == ".")
+    grammar = compile_text(CLOSER_SEPARATOR_UNREAD[shape]).grammar
+    assert find(grammar, doc) == [Region(0, len(doc) - 1, "root", dots)]
 
 
 def test_an_opener_two_pairs_claim_derives_neither():
@@ -249,21 +267,20 @@ def _vocab(
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert walk_roles(_vocab()) == Roles("", "", (), (), 0, 0, "")
+    assert walk_roles(_vocab()) == Roles("", "", (), (), 0, 0)
 
 
 def test_watched_deduplicates_a_two_role_character() -> None:
-    """A separator that is also a closer stands twice in the classification
-    spelling and ONCE in the sweep alphabet.
+    """A closer that also opens another pair stands twice in the
+    classification spelling and ONCE in the sweep alphabet.
 
     The spelling needs both, so `find` can resolve the character by precedence;
     a sweep that iterated it would report every one of that character's offsets
     twice.
     """
     vocab = _vocab(
-        pairs={"[": ("]", "list")},
-        closers={"]": "[", "|": "("},
-        marks=frozenset({"|"}),
+        pairs={"<": ("|", "angle"), "|": (">", "bar")},
+        closers={"|": "<", ">": "|"},
     )
     roles = walk_roles(vocab)
     assert roles.spelling.count("|") == 2
@@ -284,35 +301,6 @@ def test_names_is_padded_across_the_skip_section() -> None:
     assert roles.names[roles.n_skip] == "paren"  # the opener right after it
 
 
-TWO_ROLE_VOCAB = _vocab(
-    pairs={"(": ("|", "paren"), "[": ("]", "brak")},
-    closers={"|": "(", "]": "["},
-    marks=frozenset({"|", ","}),
-)
-"""``|`` closes ``(`` AND is a separator — the two-role case the section
-order has to resolve."""
-
-
-def test_a_closer_that_is_also_a_mark_closes_when_it_matches_the_open_frame() -> None:
-    """Closers are spelled before marks, so ``find`` always lands on the
-    closer entry first; when it matches the frame on top, CLOSE wins — the
-    old elif chain's first test for this character."""
-    roles = walk_roles(TWO_ROLE_VOCAB)
-    text = "(a,b|"
-    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
-    assert walk_regions(text, offsets, roles, 0) == [Region(0, 4, "paren", (2,))]
-
-
-def test_an_unmatched_closer_that_is_also_a_mark_falls_through_to_mark() -> None:
-    """The same ``|``, but the open frame wants ``]`` — the closer test
-    fails, and the fallthrough treats it as a separator instead, exactly as
-    the old ``elif char in vocab.marks and stack`` branch did."""
-    roles = walk_roles(TWO_ROLE_VOCAB)
-    text = "[a|]"
-    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
-    assert walk_regions(text, offsets, roles, 0) == [Region(0, 3, "brak", (2,))]
-
-
 # ── merge_windows ─────────────────────────────────────────────────────────
 
 
@@ -320,31 +308,19 @@ def test_an_opener_spanning_three_windows_closes_with_its_middle_mark() -> None:
     """``R_OPEN`` in window 1, ``R_MARK`` in window 2, ``R_CLOSE`` in window
     3 — the replay threads all three through the one real stack."""
     frame = (5, "(", [], "paren")
-    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, "(", False)]]
+    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, "(")]]
     assert merge_windows(chunks, 0) == [Region(5, 15, "paren", (10,))]
 
 
-def test_a_mismatched_closer_that_is_also_a_mark_falls_through() -> None:
-    """A closer that does not match the frame on top is not dropped outright
-    — if it is ALSO a separator, the fallthrough keeps it as a mark."""
-    chunks = [
-        [
-            (R_OPEN, 1, (1, "[", [], "brak")),
-            (R_CLOSE, 5, "(", True),  # wrong opener, but a separator
-            (R_CLOSE, 9, "[", False),
-        ]
-    ]
-    assert merge_windows(chunks, 0) == [Region(1, 9, "brak", (5,))]
-
-
-def test_a_mismatched_closer_with_no_mark_role_is_dropped() -> None:
-    """Same mismatch, but not a separator — nothing is recorded for it."""
+def test_a_mismatched_closer_is_dropped() -> None:
+    """A closer the frame on top does not want records nothing: no closer is
+    also a separator (:func:`scan_vocabulary`), so it has no other role."""
     chunks = [
         [
             (R_OPEN, 1, (1, "[", [], "brak")),
             (R_MARK, 3),
-            (R_CLOSE, 5, "(", False),  # wrong opener, not a separator: dropped
-            (R_CLOSE, 9, "[", False),
+            (R_CLOSE, 5, "("),  # wrong opener: dropped
+            (R_CLOSE, 9, "["),
         ]
     ]
     assert merge_windows(chunks, 0) == [Region(1, 9, "brak", (3,))]

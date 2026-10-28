@@ -22,7 +22,12 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.plan.cuts import Level, cut_offsets
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from tests.split_helpers import assert_parallel_matches_sequential, engages
+from tests.split_helpers import (
+    CLOSER_SEPARATOR_UNREAD,
+    assert_parallel_matches_sequential,
+    closer_separator_document,
+    engages,
+)
 
 _CORES = (2, 3, 8)
 """Worker counts every faithfulness case is driven at — two is the smallest
@@ -694,3 +699,21 @@ def test_a_closer_spelled_inside_its_own_span_keeps_the_sequential_model(
     keys = ("k" + "abcdefg"[: i % 7 + 1] for i in range(700))
     pairs = ("(a),b)" if i % every == 0 else f"({key})" for i, key in enumerate(keys))
     assert_parallel_matches_sequential(compiled, "[" + ",".join(pairs) + "]", cores)
+
+
+# ── a closer that spells a separator only where the scan never reads ──────
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_keeps_the_sequential_model(
+    shape: str, cores: int
+) -> None:
+    """The split divides the run at its ``.`` marks, and its ``,`` closer —
+    never a mark — keeps the model sequential parsing builds."""
+    compiled = compile_text(
+        CLOSER_SEPARATOR_UNREAD[shape], cache_key=f"adv-faith-closer-sep-{shape}"
+    )
+    doc = closer_separator_document(shape, 12000)
+    assert engages(compiled, doc, cores)
+    assert_parallel_matches_sequential(compiled, doc, cores)

@@ -230,9 +230,8 @@ class Roles(NamedTuple):
 
     **Closers and marks share a section**, and no boundary separates them,
     because one test already does: a closer's value is its opener and a mark's
-    is ``""``. An unmatched closer therefore falls through to the mark branch
-    exactly as the elif chain let it, and the mark spelling is consulted only
-    there — the one question a single find cannot answer.
+    is ``""``. No character is both (:func:`scan_vocabulary`), so an unmatched
+    closer is simply dropped.
 
     :ivar spelling: Every watched character: skips, openers, then closers and
         marks together. A character carrying two roles appears ONCE PER ROLE,
@@ -254,8 +253,6 @@ class Roles(NamedTuple):
         position and never subtracts.
     :ivar n_skip: Where the opener section begins.
     :ivar n_open: Where the closers and marks begin.
-    :ivar mark_at: The mark characters, read only to decide whether an
-        unmatched closer is also a separator.
     """
 
     spelling: str
@@ -264,7 +261,6 @@ class Roles(NamedTuple):
     names: tuple[str, ...]
     n_skip: int
     n_open: int
-    mark_at: str
 
 
 type Frame = tuple[int, str, list[int], str]
@@ -300,7 +296,6 @@ def walk_roles(vocab: Vocab) -> Roles:
         ),
         n_skip=n_skip,
         n_open=n_skip + len(vocab.pairs),
-        mark_at=marks,
     )
 
 
@@ -314,14 +309,20 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
     handed to the skip unconditionally the way the sweep does.
     """
     pairs = pair_rules(grammar)
-    marks = separators(grammar) - set(pairs)
-    watched = frozenset(pairs) | {closer for closer, _rule in pairs.values()} | marks
+    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
+    # No pair character is a mark. A standing pair's closer can still spell a
+    # separator, but only at a site the scan never reads (an unreachable rule,
+    # or inside an interior the walk skips): a READ separator site spelling it
+    # is no delimiter of the pair's arm, so :func:`pair_rules` would have let
+    # the pair fall. The mark role is therefore never met, and dropping it
+    # leaves every closer with one role.
+    marks = separators(grammar) - set(pairs) - set(closers)
+    watched = frozenset(pairs) | frozenset(closers) | marks
     skips = tuple(
         region
         for region in interiors(grammar)
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
-    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
     return Vocab(pairs, closers, marks, skip_leads(skips))
 
 
@@ -402,8 +403,8 @@ def walk_regions(
                 found.append(_region(stack.pop(), at))
             else:
                 stack.pop()
-        elif stack and (not names[pos] or char in roles.mark_at):
-            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+        elif stack and not names[pos]:
+            stack[-1][2].append(at)  # a mark; a closer nothing wanted is dropped
     return found
 
 
@@ -437,11 +438,10 @@ one. Everything it can settle alone is settled; everything else becomes an
 ordered event the merge replays against the one real stack.
 
 ``R_DONE`` is a region opened and closed inside the window — already final.
-``R_CLOSE`` is a closer that underflowed, carrying the opener it wants and
-whether it is also a separator, which is the one thing the merge would
-otherwise have to look up. ``R_MARK`` is a separator at the underflow level.
-``R_OPEN`` is an opener still standing at the window's end, whose mark list
-later windows keep appending to.
+``R_CLOSE`` is a closer that underflowed, carrying the opener it wants, which
+is the one thing the merge would otherwise have to look up. ``R_MARK`` is a
+separator at the underflow level. ``R_OPEN`` is an opener still standing at
+the window's end, whose mark list later windows keep appending to.
 """
 
 
@@ -548,14 +548,10 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
                 events.append((R_DONE, at, _region(stack.pop(), at)))
             else:
                 stack.pop()
-        elif stack and (not names[pos] or char in roles.mark_at):
-            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+        elif stack and not names[pos]:
+            stack[-1][2].append(at)  # a mark; a closer nothing wanted is dropped
         elif not stack:
-            events.append(
-                (R_MARK, at)
-                if not names[pos]
-                else (R_CLOSE, at, names[pos], char in roles.mark_at)
-            )
+            events.append((R_MARK, at) if not names[pos] else (R_CLOSE, at, names[pos]))
     # Already in document order, and the residual openers belong at the end:
     # the loop appends as it sweeps, which is ascending, and every frame still
     # on the stack opened before the window's last event and closes after it.
@@ -585,8 +581,6 @@ def merge_windows(chunks: list[list[tuple]], min_span: int) -> list[Region]:
             elif kind == R_CLOSE:
                 if stack and stack[-1][1] == event[2]:
                     _close(stack, found, event[1], min_span)
-                elif stack and event[3]:
-                    stack[-1][2].append(event[1])
             elif stack:  # R_MARK
                 stack[-1][2].append(event[1])
     return found

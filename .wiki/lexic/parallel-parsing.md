@@ -203,8 +203,15 @@ out skips, openers, then closers and marks together, and **that order IS the
 branch precedence**: `find` returns the earliest match, so a character carrying
 two roles resolves exactly as it did when each table was tested in turn. Closers
 and marks share a section because one test already separates them — a closer's
-value is its opener, a mark's is `""` — which is also what lets an unmatched
-closer fall through to the mark branch.
+value is its opener, a mark's is `""` — and an unmatched closer is dropped.
+
+**No closer is a mark.** `scan_vocabulary` removes every pair character from
+the marks. A standing pair's closer can still spell a separator, but only at a
+site the scan never reads — a rule nothing reaches, or the inside of an
+interior the walk skips — because a read separator site is no delimiter of
+the pair's arm, and `pair_rules` would have let the pair fall. So the mark role
+is never met, the walks and the window merge carry no closer-as-mark branch,
+and a window's underflowed closer carries only the opener it wants.
 
 This is not a style preference. Shared-dict membership in that loop does not
 scale across threads on this build: 0.53x on sixteen threads, against 7.64x for

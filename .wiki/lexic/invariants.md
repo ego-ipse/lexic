@@ -70,9 +70,11 @@ Two properties the differential must keep or it proves nothing. A grammar whose
 vocabulary carries an opaque interior is REFUSED the windows, so comparing one
 only shows that the refusal returns the serial answer — the windowed path is
 exercised through grammars asserted to be skip-free. And a character carrying
-two roles, a separator that is also a closer, is what distinguishes the sweep
-alphabet from the classification spelling; a fixture holding that property is
-required, and asserted to hold it.
+two roles, a closer that also opens another pair, is what distinguishes the
+sweep alphabet from the classification spelling; a fixture holding that
+property is required, and asserted to hold it. It is a real grammar: no closer
+is ever a mark, so a hand-built vocabulary would test a shape no grammar
+derives.
 
 ## The parser's per-character loop is pinned by its bytecode
 

@@ -26,10 +26,10 @@ import pytest
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery import regions
 from lexic.parsing.parallel.discovery.regions import (
-    Vocab,
     find,
     par_find,
     scan_vocabulary,
+    walk_roles,
 )
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
@@ -57,29 +57,6 @@ BRACKETS = (
 Authored here rather than borrowed: the ground-truth json grammars quote their
 strings and take the serial walk, so they cannot exercise this path at all.
 """
-
-
-OVERLAP = Vocab(
-    pairs={"[": ("]", "root"), "(": ("|", "item")},
-    closers={"]": "[", "|": "("},
-    marks=frozenset("|"),
-    skips={},
-)
-"""A vocabulary whose SEPARATOR is also a CLOSER: ``|`` ends an item and
-divides the list, as ``item ::= "(" inner "|"`` inside ``"[" item ("|" item)*
-"]"`` would read if a closer could also separate.
-
-No grammar derives one: a separator's site never delimits a pair arm, so
-:func:`~lexic.parsing.parallel.discovery.regions.pair_rules` drops the pair.
-The walk still reads such a vocabulary, so this one is built by hand and handed
-to it through ``scan_vocabulary``; the bracket fixture's roles are disjoint,
-and so is every grammar's.
-"""
-
-
-def overlap_document(items: int) -> str:
-    """A document of the overlap grammar — every ``|`` wears both roles."""
-    return "[" + "|".join(f"(w{i}|" for i in range(items)) + "]"
 
 
 def bracket_document(records: int) -> str:
@@ -194,42 +171,57 @@ def test_one_window_and_many_agree() -> None:
     assert par_find(fixture, text, 0, 1) == par_find(fixture, text, 0, 9)
 
 
-# ── a character that is BOTH a closer and a separator ─────────────────────
+# ── a character that closes one pair and opens another ────────────────────
+
+TWO_ROLES = (
+    'root ::= "[" part ("," part)* "]"\n'
+    "part ::= angle | bar | word\n"
+    'angle ::= "<" word ("." word)* "|"\n'
+    'bar ::= "|" word (";" word)* ">"\n'
+    "word ::= [a-z0-9]+\n"
+)
+"""``|`` closes ``angle`` and opens ``bar``: one character in two sections of
+the spelling, which is what tells the sweep alphabet from the classification
+spelling. No closer is ever a mark (``scan_vocabulary``), so this is the one
+two-role shape a grammar derives."""
 
 
-def test_the_overlap_fixture_really_overlaps() -> None:
-    """The fixture holds the property the sweep bug needs to show itself.
+def two_role_document(items: int) -> str:
+    """A ``TWO_ROLES`` list of words and ``bar`` runs, so regions close."""
+    return (
+        "["
+        + ",".join(f"|w{i};x{i};y{i}>" if i % 2 else f"w{i}" for i in range(items))
+        + "]"
+    )
 
-    Without a character in both roles the windowed sweep and the serial sweep
-    cannot disagree, and every case below would pass on a broken sweep.
-    """
-    assert set(OVERLAP.closers) & OVERLAP.marks, "no character is both roles"
-    assert not OVERLAP.skips, "the overlap fixture would take the serial walk"
+
+def test_the_two_role_fixture_really_holds_two_roles() -> None:
+    """Without a character in two roles the windowed sweep and the serial sweep
+    cannot disagree, and every case below would pass on a broken sweep."""
+    fixture = compile_text(TWO_ROLES).codegen_grammar
+    roles = walk_roles(scan_vocabulary(fixture))
+    assert roles.spelling.count("|") == 2
+    assert roles.watched.count("|") == 1
+    assert windowed(fixture), "the two-role fixture would take the serial walk"
 
 
 @pytest.mark.parametrize("windows", WINDOWS)
 @pytest.mark.parametrize("min_span", MIN_SPANS)
-def test_a_two_role_character_windows_identically(
-    min_span: int, windows: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A separator that is also a closer, every window count, both floors."""
-    monkeypatch.setattr(regions, "scan_vocabulary", lambda _grammar: OVERLAP)
-    fixture = compile_text(BRACKETS).codegen_grammar
-    serial, parallel = both_finds(fixture, overlap_document(80), min_span, windows)
+def test_a_two_role_character_windows_identically(min_span: int, windows: int) -> None:
+    """A closer that also opens, every window count, both floors."""
+    fixture = compile_text(TWO_ROLES).codegen_grammar
+    serial, parallel = both_finds(fixture, two_role_document(80), min_span, windows)
     assert parallel == serial
-    assert serial, "the overlap fixture found no regions"
+    assert serial, "the two-role fixture found no regions"
 
 
 @pytest.mark.parametrize("windows", WINDOWS)
 @pytest.mark.parametrize("seed", range(8))
-def test_ragged_two_role_documents_window_identically(
-    seed: int, windows: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The fuzz, under the overlap vocabulary — imbalance plus a doubled role."""
-    monkeypatch.setattr(regions, "scan_vocabulary", lambda _grammar: OVERLAP)
-    fixture = compile_text(BRACKETS).codegen_grammar
+def test_ragged_two_role_documents_window_identically(seed: int, windows: int) -> None:
+    """The fuzz over the two-role grammar — imbalance plus a doubled role."""
+    fixture = compile_text(TWO_ROLES).codegen_grammar
     rng = random.Random(seed)
-    alphabet = ["[", "]", "(", "|", "a", "wq", " ", "\n"]
+    alphabet = ["[", "]", "<", "|", ">", ",", ".", ";", "a", "wq", " "]
     text = "".join(rng.choice(alphabet) for _ in range(rng.randint(200, 600)))
     serial, parallel = both_finds(fixture, text, 0, windows)
     assert parallel == serial, f"seed {seed}, {windows} windows"

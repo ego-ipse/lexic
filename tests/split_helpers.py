@@ -98,6 +98,35 @@ def lead_rule_document(pairs: int) -> str:
     return ", ".join(f"key{'x' * (index % 7)}:{index}" for index in range(pairs))
 
 
+CLOSER_SEPARATOR_UNREAD = {
+    "unreachable": (
+        'root ::= "<" item ("." item)* ","\nunused ::= item ("," item)*\n'
+        "item ::= [a-z]+\n"
+    ),
+    "inside-a-skipped-string": (
+        'root ::= "<" part ("." part)* ","\npart ::= item | quoted\n'
+        'quoted ::= "\\"" item ("," item)* "\\""\nitem ::= [a-z]+\n'
+    ),
+}
+"""A pair closing on ``,`` whose grammar ALSO spells ``,`` as a separator,
+only where the scan never reads it: in a rule nothing reaches, or inside the
+string the walk skips whole. One copy: the region scan's vocabulary pins and
+the split's faithfulness pins read the same two shapes."""
+
+
+def closer_separator_document(shape: str, parts: int) -> str:
+    """A ``CLOSER_SEPARATOR_UNREAD[shape]`` document of ``parts`` dotted parts;
+    every third is a string holding a ``,`` where the shape has strings."""
+    quoted = shape != "unreachable"
+    return (
+        "<"
+        + ".".join(
+            '"a,b"' if quoted and index % 3 == 0 else "ab" for index in range(parts)
+        )
+        + ","
+    )
+
+
 SETTLE = 5.0
 """Seconds a thread's exit signal is given before a case fails."""
 

@@ -1,5 +1,11 @@
 # Log
 
+## No closer is a mark (2026-10-28)
+
+`parallel-parsing.md` records why `scan_vocabulary` drops pair characters from
+the marks and why the walks carry no closer-as-mark branch; `invariants.md`
+names the two-role shape the windowed differential's fixture holds instead.
+
 ## The tables say whether a fast build must watch for cycles (2026-10-28)
 
 `decisions.md` records `DecodeTables.cyclic` deciding where FastTree tracks
