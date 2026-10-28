@@ -27,7 +27,8 @@ same grammars, same corpora, same competitors — price that.
 
 Kept apart from the timing roster's languages because they are not languages
 anyone would write: each is the smallest grammar that exercises one route.
-Their rows live beside the rest in `grammars.py`.
+The two fold rows' grammars, island-earley and dense-earley, live here for the
+same reason. Their rows live beside the rest in `grammars.py`.
 """
 
 from __future__ import annotations
@@ -172,3 +173,65 @@ rule, ``_complete_delegated`` 1, ``earley_model`` 0, and the model round-trips.
 Not a benchmark row: whether delegation belongs in the performance matrix is a
 separate decision, and a roster row trips every count pin and per-name table
 keyed on the roster."""
+
+
+ISLAND_EARLEY = """root ::= expr nl
+expr ::= expr addop term | term
+term ::= call | name
+call ::= name lparen text rparen
+name ::= [a-z] [a-z0-9_]*
+text ::= [a-z0-9.,_/]*
+addop ::= " + " | " - "
+lparen ::= "("
+rparen ::= ")"
+nl ::= "\\n"
+"""
+"""A LEFT-RECURSIVE spine over a long deterministic interior — a FOLD row.
+
+``expr``'s recursive arm captures, so the left-recursion fold takes it: the
+rule is rewritten to ``(γ)(β)*``, the predictive path runs it, and the
+iterations are folded back into the model the original arms build. This is one
+of the roster's two ``BUILD_FOLD`` rows, and what it prices is that fold over a
+long deterministic interior — each term a call whose arguments are ordinary
+character runs, with the left-nested rebuild's depth set by the chain's length.
+
+It does NOT reach the gated engine. Engine reach is held by `relay-fallback`,
+`relay-exact` and `relay-climb`, each of which asserts its own counter."""
+
+
+DENSE_EARLEY = """root ::= line+
+line ::= expr nl
+expr ::= expr op term | term
+term ::= [a-z]
+op ::= "+"
+nl ::= "\\n"
+"""
+"""The DENSE Earley control: left-recursive, and one character per unit.
+
+`island-earley` reaches the same engine over a long deterministic interior, so
+its terminals collapse into runs and a terminal step crosses many characters at
+once — on a 10 KiB input barely 4% of its chart columns ever hold an item. A
+per-column change therefore reports a saving there whether or not it taxes the
+columns that ARE occupied, and no row on the roster contradicts it.
+
+This row is that contradiction. Every unit is a single character, so essentially
+every column is occupied; the grammar is unambiguous and the chain is bounded
+per line, so the cost is linear and the row is a control rather than a
+pathology.
+
+Its recursion is left and its recursive arm captures, so the fold takes it and
+the predictive path runs the row: this is the roster's other ``BUILD_FOLD``
+row. The dense CHART is still measured here by the `lexic-earley` seat, which
+calls the gated engine directly; what the row does not do is choose that engine
+itself. Which engine a shape REACHES is pinned by the three engine-reach rows,
+not by this one.
+
+**A control that does not finish reads nothing.** Both arms of an A/B run this
+row up to the pair ceiling in fresh processes, and a size that makes the base
+arm time out does not produce a cautious verdict — it produces no verdict, on
+the one row the others cannot speak for. So the samples are sized against the
+roster's other left-recursive row rather than against the largest chart they
+could build: a dense column costs far more than a run-collapsed one, and these
+two documents put this row's worker processes at or below what
+`island-earley`'s already cost. The full sample stays above four workers' worth
+of the split floor, so the mt seats still carve it."""

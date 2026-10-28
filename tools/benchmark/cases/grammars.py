@@ -56,12 +56,20 @@ from tools.benchmark.cases.corpora import (
 )
 from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
 from tools.benchmark.cases.engine_reach import (
+    DENSE_EARLEY,
     INTERIOR_CLIMB,
     INTERIOR_EXACT,
+    ISLAND_EARLEY,
     RELAY_CLIMB,
     RELAY_EXACT,
     RELAY_FALLBACK,
     START_FALLBACK,
+)
+from tools.benchmark.cases.split_shapes import (
+    ANNOUNCED,
+    MIXEDENDS,
+    SPLIT_NULLABLE,
+    WRAPPED_UNIT,
 )
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -292,168 +300,6 @@ nl ::= "\\n"
 decide it, so the row prices the attempt/rollback tier directly."""
 
 
-_ANNOUNCED = """root ::= section+
-section ::= header line*
-header ::= hash text nl
-line ::= text nl
-text ::= [a-z ]+
-hash ::= "#"
-nl ::= "\\n"
-"""
-"""Sections that end where the NEXT one begins — a header line, then body
-lines until another header.
-
-The sibling of :data:`_MIXEDENDS`, and the harder half of the same gap. There
-the boundary character occurs nowhere but at a unit's end, so a scan can read
-the boundaries straight off the text. Here it cannot: a section ends at a
-newline and is full of newlines, so no occurrence of the boundary character is
-a boundary by itself. What makes the segmentation unique is the OPENING —
-``FIRST(section)`` is ``#`` and nothing a section can continue with is ``#`` —
-and that is a property of the grammar, not of any position in the document.
-
-So a cut here cannot be read; it can only be proposed and then verified. That
-is what makes this the shape a certified speculative fallback exists for, where
-:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both take the
-speculative route today, so both engage and report a parallel number."""
-
-
-_SPLIT_NULLABLE = """root ::= para+
-para ::= line+ blank
-line ::= [a-z ]* nl
-blank ::= nl
-nl ::= "\\n"
-"""
-"""Paragraphs of lines, where a line's body may be EMPTY and the paragraph ends
-with the same character a line does.
-
-Every carving of a blank run is the same production over the same span: a blank
-line is the paragraph's tail, or one more empty line inside it and the tail
-after. That is a SPLIT, not an arm choice, so it has a defined answer — the
-leftmost chain — and no ``k`` separates it, because after a newline the next
-character being a body character is consistent with both readings.
-
-The row prices the shape where the decision is settled by the split rule rather
-than by lookahead. Nothing else here reaches it: every other repetition row is
-decided by a first character, an attempt, or a scan."""
-
-
-_WRAPPED_UNIT = """root ::= open body close
-body ::= para+
-open ::= "<<<" nl
-close ::= ">>>" nl
-para ::= line+ blank
-line ::= [a-z ]* nl
-blank ::= nl
-nl ::= "\\n"
-"""
-"""The same split-ambiguous unit, wrapped: a fixed prefix, a fixed closer, and
-the repetition factored into a rule of its own.
-
-The wrapper is consumed once, outside every boundary the split decision moves,
-so the shape is the same language question with three things around it that a
-proof about the repetition must be stated carefully enough to ignore. Kept
-beside :data:`_SPLIT_NULLABLE` so a revision that decides the bare shape and not
-the wrapped one shows up as two different numbers rather than one."""
-
-
-_ISLAND_EARLEY = """root ::= expr nl
-expr ::= expr addop term | term
-term ::= call | name
-call ::= name lparen text rparen
-name ::= [a-z] [a-z0-9_]*
-text ::= [a-z0-9.,_/]*
-addop ::= " + " | " - "
-lparen ::= "("
-rparen ::= ")"
-nl ::= "\\n"
-"""
-"""A LEFT-RECURSIVE spine over a long deterministic interior — a FOLD row.
-
-``expr``'s recursive arm captures, so the left-recursion fold takes it: the
-rule is rewritten to ``(γ)(β)*``, the predictive path runs it, and the
-iterations are folded back into the model the original arms build. This is one
-of the roster's two ``BUILD_FOLD`` rows, and what it prices is that fold over a
-long deterministic interior — each term a call whose arguments are ordinary
-character runs, with the left-nested rebuild's depth set by the chain's length.
-
-It does NOT reach the gated engine. Engine reach is held by `relay-fallback`,
-`relay-exact` and `relay-climb`, each of which asserts its own counter."""
-
-
-_DENSE_EARLEY = """root ::= line+
-line ::= expr nl
-expr ::= expr op term | term
-term ::= [a-z]
-op ::= "+"
-nl ::= "\\n"
-"""
-"""The DENSE Earley control: left-recursive, and one character per unit.
-
-`island-earley` reaches the same engine over a long deterministic interior, so
-its terminals collapse into runs and a terminal step crosses many characters at
-once — on a 10 KiB input barely 4% of its chart columns ever hold an item. A
-per-column change therefore reports a saving there whether or not it taxes the
-columns that ARE occupied, and no row on the roster contradicts it.
-
-This row is that contradiction. Every unit is a single character, so essentially
-every column is occupied; the grammar is unambiguous and the chain is bounded
-per line, so the cost is linear and the row is a control rather than a
-pathology.
-
-Its recursion is left and its recursive arm captures, so the fold takes it and
-the predictive path runs the row: this is the roster's other ``BUILD_FOLD``
-row. The dense CHART is still measured here by the `lexic-earley` seat, which
-calls the gated engine directly; what the row does not do is choose that engine
-itself. Which engine a shape REACHES is pinned by the three engine-reach rows,
-not by this one.
-
-**A control that does not finish reads nothing.** Both arms of an A/B run this
-row up to the pair ceiling in fresh processes, and a size that makes the base
-arm time out does not produce a cautious verdict — it produces no verdict, on
-the one row the others cannot speak for. So the samples are sized against the
-roster's other left-recursive row rather than against the largest chart they
-could build: a dense column costs far more than a run-collapsed one, and these
-two documents put this row's worker processes at or below what
-`island-earley`'s already cost. The full sample stays above four workers' worth
-of the split floor, so the mt seats still carve it."""
-
-
-_MIXEDENDS = """root ::= record+
-record ::= event | span | note
-event ::= "%" key eq value ";"
-span ::= "<" key colon digits ">"
-note ::= word (sp word)* nl
-key ::= [a-z] [a-z0-9_]*
-value ::= [a-zA-Z0-9./-]+
-digits ::= [0-9]+
-word ::= [a-z0-9]+
-eq ::= "="
-colon ::= ":"
-sp ::= " "
-nl ::= "\\n"
-"""
-"""A record stream whose three record kinds end three DIFFERENT ways — ``;``,
-``>`` and a newline.
-
-Every other repetition row here can be cut statically: its units share a
-terminator, or a separator stands between them. This one cannot. No character
-ends every arm, so no terminator derives; the only repeated body with a leading
-anchor (``note``'s spaces) is not reachable from the start rule as a container;
-and the start rule is a plain repetition, not an envelope. What licenses a cut
-here is the certified speculative route rather than a static terminator or
-separator proof, so the split engages and the row reports a parallel number.
-
-Nothing about the language is hard: the arms open ``%``, ``<`` and a letter, so
-each record is decided by its first character and delimited by its own closer,
-which makes the segmentation of ``record+`` unique and leaves no island in the
-predictive tables. The boundaries are real and abundant — a cut after any
-record's closer is exact — and no static analysis names them today.
-
-That gap is the whole point of the row: it prices a repetition the split cannot
-cut, and until a mechanism reaches it the row reports the sequential number
-with its mt row declining in the open."""
-
-
 def _vyx_packet(body: str) -> str:
     """A block-body vyx packet wrapping ``body`` with an exact L-budget."""
     return f"!I o:wf L{len(body.encode())}<\n{body}>"
@@ -629,7 +475,7 @@ _DEFINED_BENCHES = (
     # certified speculative route exists to reach.
     _bench(
         "mixedends",
-        _MIXEDENDS,
+        MIXEDENDS,
         Samples(mixedends_corpus(60), mixedends_corpus(560)),
         ("%k=v;", "<a:1>", "x\n", "a b c\n", "%a_b=c/d.e;<z:9>w one\n"),
         ("", "%k=v", "<a:1", "no newline", "%k=v;extra;", "<A:1>"),
@@ -639,7 +485,7 @@ _DEFINED_BENCHES = (
     # can only be proposed and then verified. Declines today, in the open.
     _bench(
         "announced",
-        _ANNOUNCED,
+        ANNOUNCED,
         Samples(announced_corpus(30), announced_corpus(300)),
         ("#h\n", "#h\nbody\n", "#a\nb\n#c\n", "#h with spaces\n"),
         ("", "no hash\n", "#h", "#h\nx", "#H\n"),
@@ -649,7 +495,7 @@ _DEFINED_BENCHES = (
     # window — the one shape no lookahead tier reaches.
     _bench(
         "split-nullable",
-        _SPLIT_NULLABLE,
+        SPLIT_NULLABLE,
         Samples(split_nullable_corpus(60), split_nullable_corpus(480)),
         ("\n\n", "a\n\n", "a\nb\n\n", "\n\n\n", "a\n\n\nb\n\n"),
         ("", "\n", "a\n", "a", "A\n\n"),
@@ -658,7 +504,7 @@ _DEFINED_BENCHES = (
     # repetition in a rule of its own.
     _bench(
         "wrapped-unit",
-        _WRAPPED_UNIT,
+        WRAPPED_UNIT,
         Samples(wrapped_unit_corpus(60), wrapped_unit_corpus(480)),
         ("<<<\n\n\n>>>\n", "<<<\na\n\n>>>\n", "<<<\na\nb\n\n\n\n>>>\n"),
         ("", "<<<\n>>>\n", "\n\n", "<<<\na\n\n", "a\n\n>>>\n"),
@@ -679,14 +525,14 @@ _DEFINED_BENCHES = (
     # per-column change cannot report a sparse chart's saving unopposed.
     _bench(
         "dense-earley",
-        _DENSE_EARLEY,
+        DENSE_EARLEY,
         Samples(dense_earley_corpus(2000), dense_earley_corpus(4800)),
         ("a\n", "a+b\n", "a+b+c\n", "z\nz\n", "a+b\nc+d\n"),
         ("", "a", "a+\n", "+a\n", "a++b\n", "A\n", "a b\n"),
     ),
     _bench(
         "island-earley",
-        _ISLAND_EARLEY,
+        ISLAND_EARLEY,
         Samples(island_corpus(32), island_corpus(300)),
         ("a\n", "a + b\n", "af1(x.y,1)\n", "a + bf1(p/q) - c\n", "a_1 - b\n"),
         ("", "a", "a +\n", "a ++ b\n", "1a\n", "af1(x\n", "A\n"),
