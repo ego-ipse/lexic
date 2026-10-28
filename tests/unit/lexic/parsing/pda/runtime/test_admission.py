@@ -9,11 +9,12 @@ from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.admission import (
     NESTING_DEPTH,
-    PARSE_NESTING,
     KernelCaches,
     RunScope,
     admits,
     composes,
+    control_signature,
+    forks_deep,
     frames_copy,
 )
 from lexic.parsing.pda.runtime.build import Frame
@@ -45,12 +46,12 @@ def test_admits_eof_never_passes_a_negated_set():
 
 
 def test_kernel_caches_seed_empty_with_probe_depth_zero():
-    """A fresh scratch: empty memos, probe depth zero, certainty clean."""
+    """A fresh scratch: empty memos, probe depth zero, no side being driven."""
     caches = KernelCaches()
     assert not caches.deleg
     assert not caches.intern
     assert caches.probing == 0
-    assert caches.uncertain is False
+    assert caches.side is None
 
 
 # ── frames_copy — the aliasing-true structural copy ───────────────────
@@ -209,10 +210,10 @@ def test_a_fork_nested_past_the_depth_is_refused() -> None:
     """Forks nest :data:`NESTING_DEPTH` levels inside the first, and the copy
     CHECKS that rather than assuming it.
 
-    `adopt_inherited` walks the fork chain, and a side forks again only while
-    a forked verdict is asked again, at most that many sides deep. A copy one
-    deeper is therefore never asked for, and if it ever were, the guard says
-    so loudly rather than leaving a short model.
+    `adopt_inherited` walks the fork chain, and a live set's reading splits
+    only while it is that many forks deep (the set's own bound, raised before
+    the copy). A copy one deeper is therefore never asked for, and if it ever
+    were, the guard says so loudly rather than leaving a short model.
 
     A raise rather than an assert, because `-O` strips asserts and a short
     model is exactly what must not pass quietly. `RuntimeError` rather than
@@ -225,6 +226,17 @@ def test_a_fork_nested_past_the_depth_is_refused() -> None:
         assert chain[-1].inherited is chain[-2], "the copy records its origin"
     with pytest.raises(EngineInvariantError, match=f"nest {NESTING_DEPTH} levels"):
         frames_copy([chain[-1]])
+
+
+def test_how_many_forks_deep_a_stack_is_reads_its_root_frame() -> None:
+    """The depth counts the root frame's origins: a fresh stack is none deep,
+    each copy of a copy one deeper, and frames above the root say nothing."""
+    chain = [_frame([], [0], [[IrStr("a")]])]
+    assert forks_deep(chain) == 0 and forks_deep([]) == 0
+    for depth in range(1, 4):
+        chain = frames_copy(chain)
+        assert forks_deep(chain) == depth
+    assert forks_deep([*chain, _frame([], [0], [[IrStr("b")]])]) == 3
 
 
 def test_a_fork_one_deep_takes_back_the_whole_chain() -> None:
@@ -287,47 +299,29 @@ def test_composes_checks_the_next_character_against_follow():
     assert composes(follow, "ayb", 1) is False
 
 
-# ── RunScope — a retry's nested verdicts, the parse's allowance, wholeness ──
-
-
-def test_a_retry_draws_from_the_parse_and_gives_back_what_it_did_not_ask():
-    """Two of a retry's sixty-four are asked; the other sixty-two go back."""
-    nesting = RunScope()
-    assert nesting.open(64) and nesting.retry == 64
-    assert nesting.take() and nesting.take()
-    nesting.close()
-    assert (nesting.retry, nesting.left) == (0, PARSE_NESTING - 2)
-
-
-def test_a_spent_allowance_opens_no_retry_and_outside_one_nothing_is_taken():
-    """Past the parse's allowance a retry is not opened at all; outside a
-    retry no nested verdict is ever granted."""
-    nesting = RunScope()
-    assert not nesting.take()
-    nesting.left = 1
-    assert nesting.open(64) and nesting.retry == 1
-    assert nesting.take() and not nesting.take()
-    nesting.close()
-    assert not nesting.open(64)
-
-
-def test_a_delegate_kernel_draws_on_the_parse_s_own_allowance():
-    """A kernel run inside a parse keeps a retry of its own but spends the
-    same allowance, so delegate sub-runs cannot multiply the parse's bound."""
-    parse = KernelCaches()
-    delegate = KernelCaches(parse.scope)
-    assert delegate.scope is not parse.scope
-    assert delegate.scope.root is parse.scope.root
-    delegate.scope.open(64)
-    assert parse.scope.left == PARSE_NESTING - 64
+# ── wholeness ───────────────────────────────────────────────────────
 
 
 def test_only_the_parse_s_own_run_over_its_whole_text_is_whole():
     """A delegate's root may end anywhere in its window, and a truncated
     text's end is not the document's: neither may refute a stop side against
     the text."""
-    parse = KernelCaches()
-    assert parse.scope.whole()
-    assert not KernelCaches(parse.scope).scope.whole()
-    parse.scope.cut = True
-    assert not parse.scope.whole()
+    parse = RunScope()
+    assert parse.whole()
+    assert not RunScope(delegate=True).whole()
+    assert KernelCaches(delegate=True).scope.delegate
+    parse.cut = True
+    assert not parse.whole()
+
+
+def test_a_planned_answer_is_given_only_to_the_boundary_it_was_planned_for():
+    """Answers are given in order, each to the boundary its key names; the
+    first boundary that is not the next planned one drops the plan."""
+    stack: list[Frame[IrSelf]] = []
+    scope = RunScope()
+    assert scope.answered(stack, 3, 2) == -1
+    key = (*control_signature(stack, 3), 2)
+    scope.answers = [((*control_signature(stack, 5), 2), 0), (key, 1)]
+    assert scope.answered(stack, 3, 2) == 1
+    assert scope.answered(stack, 4, 2) == -1
+    assert not scope.answers

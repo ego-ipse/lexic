@@ -113,28 +113,28 @@ These live in `resources/ground_truth/`. All integration and property tests run 
 
 `arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
-## Forks nest three deep at most, and only when a forked verdict is asked again
+## A reading splits at most NESTING_DEPTH times, and nothing in a set guesses
 
 A fork's frames carry `inherited`, and `adopt_inherited` prepends the values of
 the whole chain (`Frame.inherited_prefix`, oldest first), so a fork of a fork
 builds with every origin's values and writes to none of them.
 
-A boundary inside a side resolves greedily by class, a guess, except while a
-forked verdict is asked again (`_retried`): then the boundary gets a verdict of
-its own (`_nested_verdict`), as does an island's extent inside a side, up to
-`NESTING_DEPTH` sides deep and within `_NESTING_BUDGET` nested verdicts per
-retry. Past either it stays a guess, and a nested verdict that is itself
-undecidable does too. The retries of one parse, its delegate sub-runs'
-included, draw on one allowance (`PARSE_NESTING`, held by `RunScope`), so a
-document costs at most that many drives to the end; past it a fork goes to the
-gated engine as it would without a retry. `frames_copy` raises past `NESTING_DEPTH` forks, so the
-bound is checked rather than carried. A nested side settles the sub-runs its
-outer side still has to (`_inherited_floors`); an entry its own drive started
+A both-viable boundary inside a live set's reading never resolves greedily: the
+reading splits (`liveset.Split`), its children built where it stood, and an
+island's extent or an attempt's ends inside a reading split it the same way.
+So a reading that dies is dead on every path, and two that meet share their
+future. A set holds at most `SET_MAX` readings over `SET_STEPS` steps, and a
+reading splits at most `NESTING_DEPTH` times (`forks_deep`, read before the
+split); past any of them the set raises a `ProbeFork` that names the bound, and
+the gated engine answers. `frames_copy` raises past `NESTING_DEPTH` forks, so
+the bound is checked rather than carried. A split's child settles the sub-runs
+its reading still has to (`_inherited_floors`); an entry its own drive started
 at the bottom owns its root.
 
-A retried drive spends the budget, so it cannot be reproduced by driving again:
-a side built while `nesting` is set keeps its ledger, and the rank reads the
-sides at hand.
+A meeting ranks the readings at the split where they parted, on ledgers kept
+from that split through every split since (`Level.done` freezes each frame as
+it completes); a split whose frames both rolled back is passed over for the
+next one both took.
 
 ## What these invariants mean in practice
 

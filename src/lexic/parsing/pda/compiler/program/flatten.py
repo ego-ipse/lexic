@@ -500,10 +500,25 @@ def mark_sub_roots(roots: list[FlatClone]) -> None:
         clone = work.pop()
         if not clone.sub_root:
             clone.sub_root = True
-            work.extend(_landing_targets(clone))
+            work.extend(landing_targets(clone))
 
 
-def _landing_targets(clone: FlatClone) -> list[FlatClone]:
+def lands_on(clone: FlatClone, target: FlatClone) -> bool:
+    """Whether entering ``clone`` can push a frame of ``target``: ``clone``
+    itself, or a clone its landings reach (:func:`landing_targets`)."""
+    seen: set[int] = set()
+    work = [clone]
+    while work:
+        found = work.pop()
+        if found is target:
+            return True
+        if id(found) not in seen:
+            seen.add(id(found))
+            work.extend(landing_targets(found))
+    return False
+
+
+def landing_targets(clone: FlatClone) -> list[FlatClone]:
     """The clones entering ``clone`` can land on next: a dispatch clone's
     targets, or an attempt clone's entry sub-clones."""
     if clone.mode == BUILD_DISPATCH:

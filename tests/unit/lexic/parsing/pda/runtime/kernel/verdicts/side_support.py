@@ -1,17 +1,14 @@
-"""Shared fixtures for the boundary-verdict and boundary-side tests: a live
-kernel, a hand-built completed side, and the tally of a parse's convergences."""
+"""Shared fixtures for the boundary-verdict, boundary-side and live-set tests:
+a live kernel, a hand-built completed side, and the tally of a parse's
+meetings."""
 
 from __future__ import annotations
 
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
-from lexic.parsing.pda.runtime.kernel.verdicts import sides, verdicts
-from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import (
-    FORKED,
-    STOP_FORCED,
-    TAKE,
-)
+from lexic.parsing.pda.runtime.kernel.verdicts import liveset, sides, verdicts
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_and_pda
@@ -20,7 +17,7 @@ from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import compiled_an
 def live_kernel(text: str = "{}") -> PdaKernel:
     """A kernel standing where a boundary would be decided.
 
-    The lockstep's sides are driven through ``_advance``, which needs a real
+    A live set's readings are driven through ``_advance``, which needs a real
     cursor: a stack to swap in and out and a ``_caches`` to count probing on.
     """
     compiled, pda = compiled_and_pda(GROUND_TRUTH / "json.gbnf")
@@ -37,74 +34,67 @@ def completed_side(end: int, root: list[object]) -> Side:
     return [], end, None, root, [], [], [TOP], ()
 
 
-def converged_tally(compiled, text: str, monkeypatch) -> dict[str, int]:
-    """Parse ``text`` and classify every answer ``_converged`` gave.
+def meeting_tally(compiled, text: str, monkeypatch) -> dict[str, int]:
+    """Parse ``text`` and classify every meeting of two readings a live set
+    merged.
 
-    Read observationally rather than re-derived: the values-agree answer
-    returns without driving, and both differing answers drive the common
-    remainder first, so an ``_advance`` seen DURING a ``_converged`` call
-    separates agreement from difference and the verdict separates the rest.
-    Duplicating the branch conditions here would let the test agree with a
-    wrong ``_converged`` about what it did.
-
-    ``depth`` is kept rather than a flag because the reading would be wrong if
-    the calls ever nested; they do not, since the drive runs under a probe and
-    probes never fork, and a nested call would show up as a depth above one.
-
-    Each class names BOTH what the method did and what it answered. What that
-    separates, exactly: the drove bit tells agreement from difference, and the
-    verdict tells the two differing answers apart — so a differing branch
-    returning its SIBLING's verdict reads as that sibling rather than landing
-    in ``other``. The tests below still catch the swap, because each asserts
-    its own class at one and the other two at zero.
+    Read observationally rather than re-derived: a meeting whose values agree
+    returns without asking the rank, one whose values differ asks it, and a
+    tie raises — so the rank calls seen DURING a ``_met`` call separate
+    agreement from difference, and the strand it returns says which way it
+    kept: the take is the one whose path is the greater where the two parted.
+    A meeting that needed a rank on readings keeping no ledgers restarts its
+    set (``unrecorded``), and is met again.
+    A drive seen during a meeting would mean a meeting drove on, which none
+    may: two readings that meet share their future, so nothing is left to run.
     """
-    converged = vars(verdicts.Verdicts)["_converged"]  # what each class DEFINES
+    met = vars(liveset.LiveSet)["_met"]  # what each class DEFINES
+    rank = vars(verdicts.Verdicts)["_rank"]
     advance = vars(sides.Sides)["_advance"]
     tally = {
-        "converged": 0,
+        "meetings": 0,
         "agree": 0,
-        "dead": 0,
-        "fork": 0,
         "ranked": 0,
-        "other": 0,
-        "nested": 0,
+        "tie": 0,
+        "unrecorded": 0,
+        "took": 0,
+        "drove": 0,
     }
-    inside = {"depth": 0, "drove": 0}
-    classes = {
-        (False, TAKE): "agree",
-        (True, TAKE): "dead",
-        (True, FORKED): "fork",
-        (True, STOP_FORCED): "ranked",
-    }
+    inside = {"depth": 0, "ranks": 0}
 
-    def counting_converged(self, *args, **kwargs):
-        """`_converged`, classifying which of its three answers it gave."""
-        tally["converged"] += 1
+    def counting_met(self, one, other):
+        """`_met`, classifying which of its three answers it gave."""
+        tally["meetings"] += 1
         inside["depth"] += 1
-        tally["nested"] += inside["depth"] > 1
-        inside["drove"] = 0
+        inside["ranks"] = 0
         try:
-            answer = converged(self, *args, **kwargs)
+            kept = met(self, one, other)
+        except ProbeFork:
+            tally["tie"] += 1
+            raise
+        except liveset.Unrecorded:
+            tally["unrecorded"] += 1
+            raise
         finally:
             inside["depth"] -= 1
-        tally[classes.get((bool(inside["drove"]), answer), "other")] += 1
-        return answer
+        tally["ranked" if inside["ranks"] else "agree"] += 1
+        tally["took"] += kept.path == max(one.path, other.path)
+        return kept
+
+    def counting_rank(self, *args):
+        """`_rank`, flagging a rank asked inside a meeting."""
+        inside["ranks"] += bool(inside["depth"])
+        return rank(self, *args)
 
     def counting_advance(self, *args, **kwargs):
-        """`_advance`, flagging a drive that happened inside `_converged`."""
-        inside["drove"] += bool(inside["depth"])
+        """`_advance`, flagging a drive inside a meeting."""
+        tally["drove"] += bool(inside["depth"])
         return advance(self, *args, **kwargs)
 
-    monkeypatch.setattr(verdicts.Verdicts, "_converged", counting_converged)
+    monkeypatch.setattr(liveset.LiveSet, "_met", counting_met)
+    monkeypatch.setattr(verdicts.Verdicts, "_rank", counting_rank)
     monkeypatch.setattr(sides.Sides, "_advance", counting_advance)
     compiled.parse(text, cores=1)
-    assert (
-        sum(tally[name] for name in set(classes.values()) | {"other"})
-        == tally["converged"]
-    ), (
-        "a `_converged` call was entered and never classified, so something "
-        f"escaped it — which a ProbeFork now does, by design: {tally}"
-    )
     return tally
 
 
@@ -117,3 +107,18 @@ NOISE_RUNS = (
 )
 """Two noise runs of one unit, ``n`` then ``m``, and the ``item`` around them:
 where ``n`` stops and ``m`` starts is a choice the values record."""
+
+ENTRY_AT_THE_START = (
+    "# @non-semantic n m\n"
+    "root ::= a | b\n"
+    'a ::= item n? m? item ";"\n'
+    'b ::= item n? m? item "."\n' + NOISE_RUNS
+)
+"""The start rule is an attempt clone: the run itself starts its entries, and
+a boundary in ``n``'s run sits inside them."""
+
+SECTIONS = (
+    'doc ::= sec+\nsec ::= stmt+ end\nstmt ::= "!" | ";"? [a;]\n'
+    'end ::= [a;] | [a]* "a"\n'
+)
+"""Every section closes with ``end``, and ``!`` is only ever a statement."""

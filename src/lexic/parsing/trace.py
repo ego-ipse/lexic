@@ -38,6 +38,7 @@ complete without instrumenting it.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import ClassVar, Self
 
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
@@ -45,7 +46,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     ParseConfig,
 )
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import Side
@@ -280,35 +281,28 @@ class WatchedKernel[M](PdaKernel[M]):
             self._note(ROLLBACK, str(sub.name), "did not derive", IrSpan(pos, pos))
         return got
 
-    def _advance(
-        self, side: Side, limit: int, shared: bool = False
-    ) -> tuple[Side | None, bool]:
+    def _advance(self, side: Side, limit: int) -> Side | None:
         """A boundary side driven on its own stack copy: the text it reads is
         a candidate's, not the document's account, so no scan is kept."""
         self._aside += 1
         try:
-            return super()._advance(side, limit, shared)
+            return super()._advance(side, limit)
         finally:
             self._aside -= 1
 
-    def _probe(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[M]] | None,
-    ) -> tuple[Side | None, bool]:
-        """One side of a boundary, run to end-of-input on a copied stack."""
+    def _decide(
+        self, roots: Sequence[Callable[[bool], Side]], ahead_first: bool
+    ) -> int:
+        """A boundary settled by a live set over its ways, each read on a
+        copied stack: its text is a candidate's, so no scan is kept."""
         self._flush()
-        side = "stop side" if taken is None else "take side"
-        rule = self._here()
-        self._note(PROBE, rule, side, IrSpan(pos, pos))
+        pos, rule = self.pos, self._here()
+        self._note(PROBE, rule, f"live set over {len(roots)} ways", IrSpan(pos, pos))
         scanned = self._scanned
-        done, uncertain = super()._probe(arm, i, pos, taken)
-        self._scanned = scanned
-        if done is None:
-            self._note(ROLLBACK, rule, f"{side} did not derive", IrSpan(pos, pos))
-        return done, uncertain
+        try:
+            return super()._decide(roots, ahead_first)
+        finally:
+            self._scanned = scanned
 
 
 def _gate_of(clone: FlatClone) -> str:

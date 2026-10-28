@@ -25,6 +25,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
+    lands_on,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
@@ -55,6 +56,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     TERMINAL_OPS,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_clone
 
 
 def test_op_codes_are_pairwise_distinct():
@@ -179,3 +181,37 @@ def test_pdaprogram_init_binds_start_verbatim():
     assert program.start is sentinel
     assert program.delegates is None  # default; the artifact attaches the source
     assert program.grants is LEFTMOST_LONGEST.grants  # the default decider's
+
+
+def _plain() -> FlatClone:
+    """A clone that pushes only itself."""
+    return flat_clone(attempt=None)
+
+
+def _dispatch(*targets: FlatClone) -> FlatClone:
+    """A dispatch clone selecting ``targets``, the last also its default."""
+    return flat_clone(
+        BUILD_DISPATCH,
+        attempt=None,
+        wide_selectors=None,
+        default=targets[-1],
+        selectors=tuple((frozenset("x"), False, target) for target in targets[:-1]),
+    )
+
+
+def test_a_clone_lands_where_its_dispatch_and_attempt_hops_reach():
+    """Entering a clone can push a frame of the clone itself, of any target a
+    dispatch chases to — through further dispatches, its default included —
+    and of any attempt entry's sub-clone; never of a clone none of those
+    reach, and a cycle of hops ends."""
+    plain, deep, other = _plain(), _plain(), _plain()
+    inner = _dispatch(other, deep)
+    outer = _dispatch(inner)
+    attempt = flat_clone(attempt=((), ((None, False, None, None, plain),)))
+    looped = _dispatch(other)
+    looped.selectors = ((frozenset("y"), False, looped),)
+    assert lands_on(plain, plain) and not lands_on(plain, deep)
+    assert lands_on(outer, deep) and lands_on(outer, other)
+    assert not lands_on(outer, plain)
+    assert lands_on(attempt, plain) and not lands_on(attempt, deep)
+    assert not lands_on(looped, deep)

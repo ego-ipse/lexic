@@ -1,18 +1,27 @@
 # `parsing/pda/runtime/kernel/verdicts` — boundary decisions
 
 A both-viable boundary in the kernel's attempt group (`kernel/decisions.py`) is
-settled here: `verdicts.py` holds `Verdicts`, the host class that group
-inherits, and `sides.py` holds `Sides`, the host class `Verdicts` inherits in
-turn. Both are method groups of the one kernel cursor, split by responsibility.
+settled here, by three host classes the kernel inherits in turn: `Verdicts`
+(`verdicts.py`), `LiveSet` (`liveset.py`) and `Sides` (`sides.py`). All are
+method groups of the one kernel cursor, split by responsibility.
 
 ## `verdicts.py`
 
-`Verdicts` decides a both-viable boundary — take, stop or fork — on two sides
-advanced in lockstep until they converge or run to end of input. Equal values
-take; differing values are ranked as the gated engine ranks them, by the
-decider's slots at the first step whose carving differs. An island whose
-reference may follow several of its completions is settled the same way, one
-side per completion.
+`Verdicts` answers a both-viable boundary — take, stop or fork — by the way its
+live set keeps, and inside a set's reading raises the split instead. Two
+readings that meet with different values are ranked here as the gated engine
+ranks them, by the decider's slots at the first step whose carving differs. An
+island whose reference may follow several of its completions, and an
+attempt's arms that end apart, are settled the same way, one way per end.
+
+## `liveset.py`
+
+`LiveSet` carries a boundary's ways forward as a flat set of readings: a
+reading that dies is pruned, one that meets a boundary splits, and two that
+meet merge — equal values keep the take, different ones are ranked at the
+split where they parted, a tie forks. Readings step in sync, the one ahead
+first at a loop boundary, and the set is bounded; past a bound it forks by
+name.
 
 ## `sides.py`
 

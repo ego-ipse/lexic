@@ -2822,3 +2822,9 @@ outside a side, is STOP_FORCED.
 `decisions.md`: the sequence rule of EXTEND, its leftmost-divergence argument,
 the FIRST_2 window test and its surplus, and the licence entry's six remaining
 json witnesses.
+
+## A both-viable boundary is settled by a live set (2026-10-28)
+
+`decisions.md` adds the live-set entry and marks the lockstep, the guess rule
+and the rank's re-drive superseded; `invariants.md`'s nesting section now
+states the set's bounds and that nothing in a set guesses.

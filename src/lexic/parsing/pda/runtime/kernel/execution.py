@@ -454,7 +454,7 @@ class KernelExecutionMixin[Carry]:
             window_text,
             self.policy.executor,
             config=self.policy.config,
-            scope=self._caches.scope,
+            delegate=True,
         )
         return finish_delegate(sub, clone, window_text, pos)
 

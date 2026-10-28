@@ -1,13 +1,13 @@
 """The boundary verdict — whether a both-viable attempted boundary takes,
-stops or forks, and the sides it is asked on.
+stops or forks, and how the decider ranks two ways it can go.
 
 Shed from :mod:`~lexic.parsing.pda.runtime.kernel.decisions` by the file-size
 rule as a host class its :class:`~lexic.parsing.pda.runtime.kernel.decisions.Attempting`
 inherits, for the same reason that one is a host class: every member reads and
-writes the cursor's own state. A side is a structural stack copy with the
-boundary decided, driven in lockstep with the other until they converge or run
-to end of input; the attempt sub-runs it is inside are recovered from the stack
-(:meth:`Verdicts._side_floors`) and settled as their live callers would.
+writes the cursor's own state. A boundary in the live drive is settled by a
+live set over its ways (:mod:`.liveset`); a boundary inside one of the set's
+readings splits it instead. Each way is a side (:mod:`.sides`), and where two
+meet with different values the rank here is what the set asks.
 """
 
 from __future__ import annotations
@@ -16,27 +16,27 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest, carving
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    lands_on,
 )
-from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
-    NESTING_DEPTH,
     Side,
-    control_signature,
-    pending_values,
-    value_shape,
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
+from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
+    FORKED,
+    STOP_FORCED,
+    TAKE,
+    LiveSet,
+)
 from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     PENDING,
     UNSEEN,
-    Sides,
     descending,
     iterating,
     once,
@@ -55,41 +55,16 @@ from lexic.parsing.product.tree import CompletionResult
 
 __all__ = [
     "FORKED",
-    "Makers",
     "STOP_FORCED",
     "TAKE",
     "Verdicts",
 ]
 
-_LOCKSTEP_ROUNDS = 32
-"""How many convergence rounds a boundary gets before the slow path takes it.
-A budget, not a correctness knob: running out costs today's two full probes."""
 
-_LOCKSTEP_STEP = 8
-"""Characters to advance both sides by when they stand at the same position but
-different control states — small, because convergence is usually one element
-away and every character driven past it is wasted."""
-
-type Makers = tuple[Callable[..., Side], tuple[object, ...], tuple[object, ...]]
-"""How a verdict's two sides are built afresh: a builder, and its arguments for
-the stop side and for the take side; the builder takes last whether the side
-keeps a ledger (:meth:`Sides._forked`). Plain values, so a verdict that never
-ranks pays nothing to carry them (:meth:`Verdicts._made`)."""
-
-TAKE, STOP_FORCED, FORKED = 0, 1, 2
-"""A both-viable boundary's resolutions (:meth:`Verdicts._fork_verdict`)."""
-
-
-_NESTING_BUDGET = 64
-"""How many nested verdicts one retry may ask. Past it every boundary left is a
-guess, so the retry forks: a document that would cost more goes whole to the
-gated engine, as it did before the retry."""
-
-
-class Verdicts[Carry](Sides[Carry]):
+class Verdicts[Carry](LiveSet[Carry]):
     """The boundary-verdict methods, hosted for ``Attempting`` to inherit; the
-    kernel surface they read is declared on :class:`Sides`, beside the lane
-    they write."""
+    kernel surface they read is declared on :class:`~.sides.Sides`, beside the
+    lane they write."""
 
     __slots__ = ()
 
@@ -120,92 +95,22 @@ class Verdicts[Carry](Sides[Carry]):
             if ((char == "" or char in chars) if negated else char not in chars)
             else self._beyond_class(arm, i, pos)
         )
-        if self._caches.probing:
+        if self._caches.probing:  # inside a reading: it splits, never guesses
             if cls == REST_DEAD or (
                 self._caches.scope.whole()
                 and stop_side_dead(self.stack, arm, i, self.text, pos)
             ):
-                return True  # stopping is dead: taking is forced, not sampled
-            settled = self._nested_verdict(arm, i, pos, got)
-            if settled is not None:
-                return settled
-            # Unsettled inside a probe, a boundary resolves GREEDILY by class.
-            # The terminator class (a MANDATORY item anywhere up the live
-            # chain wants the char) prefers stop; the chain class takes.
-            # Either way the probe's outcome becomes a SAMPLED path
-            # (uncertain).
-            if cls == REST_ADMITS_HARD:
-                self._caches.uncertain = True
-                return False
-            if cls == REST_ADMITS:
-                self._caches.uncertain = True
-        elif cls in (REST_ADMITS, REST_ADMITS_HARD):
-            try:
-                verdict = self._fork_verdict(arm, i, pos, got)
-            except IslandEnds:  # an island inside a side: a verdict of its own
-                verdict = FORKED
-            if verdict == FORKED:
-                verdict = self._retried(self._fork_verdict, arm, i, pos, got)
-            if verdict == STOP_FORCED:
-                return False
-            if verdict == FORKED:
-                raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable",
-                    pos,
-                )
+                return True  # stopping is dead: taking is forced
+            raise self._split(
+                [
+                    self._side(arm, i, pos, None, self._recording()),
+                    self._side(arm, i, pos, got, self._recording()),
+                ],
+                pos,
+            )
+        if cls in (REST_ADMITS, REST_ADMITS_HARD):
+            return self._fork_verdict(arm, i, pos, got) == TAKE
         return True
-
-    def _retried[*Args](self, ask: Callable[[*Args], int], *args: *Args) -> int:
-        """A forked verdict asked again, the boundaries inside its sides settled
-        by verdicts of their own (:meth:`_nests`).
-
-        Asked only after a fork: a side's guess is what usually forks it, and
-        a nested verdict costs a fork per boundary inside a side, so a verdict
-        that settles without them never pays for them. The fork it replaces
-        would hand the whole document to the gated engine, and does once the
-        parse's allowance (:data:`~...admission.PARSE_NESTING`) is spent.
-        """
-        scope = self._caches.scope
-        if not scope.open(_NESTING_BUDGET):
-            return FORKED
-        try:
-            return ask(*args)
-        finally:
-            scope.close()
-
-    def _nests(self) -> bool:
-        """Whether a verdict may be asked inside a side here, spending one of
-        the retry's budget if so: only while a forked verdict is asked again
-        (:meth:`_retried`), at most :data:`~...admission.NESTING_DEPTH` sides deep, and
-        within :data:`_NESTING_BUDGET` nested verdicts. Past either, the
-        boundary stays a guess, or an island's extent stays unsettled. Nested
-        sides carry the sub-runs the side still has to settle
-        (:meth:`_inherited_floors`)."""
-        caches = self._caches
-        return caches.probing <= NESTING_DEPTH and caches.scope.take()
-
-    def _nested_verdict(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        got: tuple[int, list[Carry]],
-    ) -> bool | None:
-        """Whether a boundary inside a side takes, settled by a verdict of its
-        own where :meth:`_nests` allows one.
-
-        :returns: ``True`` to take, ``False`` to stop, ``None`` when it stays
-            a guess.
-        """
-        if not self._nests():
-            return None
-        try:
-            verdict = self._fork_verdict(arm, i, pos, got)
-        except ProbeFork:
-            return None  # undecidable inside the side: it stays a guess
-        if verdict == TAKE:
-            return True
-        return False if verdict == STOP_FORCED else None
 
     def _beyond_class(self, arm: FlatArm, i: int, pos: int) -> int:
         """The boundary's viability CLASS over the whole live chain.
@@ -240,204 +145,26 @@ class Verdicts[Carry](Sides[Carry]):
         pos: int,
         taken: tuple[int, list[Carry]],
     ) -> int:
-        """A both-viable boundary's resolution — take, stop, or fork.
-
-        Ambiguity is a question about values, asked as the forest gate asks
-        it — on completions, one flip at the decision point (a fold is
-        compositional; later boundaries get their own audits). Both sides run
-        to end-of-input: stop dead → taking is FORCED, soundly (the
-        alternative derives nothing); take dead while stop completes → STOP
-        is forced (Earley's split answer is maximal SUBJECT TO SUCCESS — the
-        gbnf-meta terminator theft resolves here); both complete → equal
-        values are a benign split (committed as the take), different values
-        are ranked by the decider (:meth:`_ranked`). A death or a completion
-        either drive reached through a greedy guess (``uncertain``) is the
-        guess's as much as the boundary's, so it decides nothing and forks.
+        """A both-viable loop boundary's resolution — :data:`TAKE` or
+        :data:`STOP_FORCED` — settled by the live set over its two ways, the
+        stop first (:meth:`~.liveset.LiveSet._decide`).
 
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
-        :returns: :data:`TAKE` / :data:`STOP_FORCED` / :data:`FORKED`.
+        :raises ProbeFork: When the set cannot decide — an island inside a
+            reading that no verdict there could settle included, as a plain
+            fork, so no handler outside reads it as its own island's ends.
         """
-        settled = self._lockstep_verdict(arm, i, pos, taken)
-        if settled is not None:
-            return settled
-        stop, stop_unc = self._probe(arm, i, pos, None)
-        if stop is None:
-            return FORKED if stop_unc else TAKE
-        take = self._probe(arm, i, pos, taken)
-        return self._compared(stop, stop_unc, take, self._makers(arm, i, pos, taken))
-
-    def _makers(
-        self, arm: FlatArm, i: int, pos: int, taken: tuple[int, list[Carry]]
-    ) -> Makers:
-        """The loop boundary's two sides, stop then take (:data:`Makers`)."""
-        return self._side, (arm, i, pos, None), (arm, i, pos, taken)
-
-    @staticmethod
-    def _made(makers: Makers, take: bool, record: bool) -> Side:
-        """One of a verdict's two sides, built afresh: the take side's when
-        ``take``, keeping a ledger when ``record``."""
-        build, stop, taken = makers
-        return build(*(taken if take else stop), record)
-
-    def _compared(
-        self,
-        stop: Side,
-        stop_unc: bool,
-        take: tuple[Side | None, bool],
-        makers: Makers,
-    ) -> int:
-        """Two sides run to the end of input, the stop side complete: a dead
-        take forces the stop, one value is a benign split, and two values are
-        ranked (:meth:`_ranked`) — unless a drive guessed on the way, when it
-        proves nothing and forks.
-
-        :param stop: The completed stop side.
-        :param stop_unc: Whether its drive guessed.
-        :param take: The take side, ``None`` if it died, and its guess.
-        :param makers: The two sides afresh, for the rank.
-        """
-        done, take_unc = take
-        if done is None:
-            return FORKED if take_unc else STOP_FORCED
-        if stop_unc or take_unc:
-            return FORKED
-        if same_value(done[3], stop[3]):
-            return TAKE
-        return self._ranked(makers, -1, (stop, done))
-
-    def _lockstep_verdict(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]],
-    ) -> int | None:
-        """The boundary settled by CONVERGENCE, or ``None`` to run it the long way.
-
-        Running both sides to end-of-input costs O(remaining) per boundary, and
-        boundary count grows with the input — the parse is quadratic, and 92% of
-        a pipe-heavy vyx packet's wall clock sits in those probes. But the two
-        sides differ ONLY in the boundary decision, so they reconverge quickly:
-        once they stand at the same position with the same control state and
-        the same sub-runs still to settle, the stack (which IS the
-        continuation) guarantees them the same future, and the whole question
-        reduces to the values each built on the way there.
-
-        Three outcomes are decidable here, all of them the SAME answers the
-        end-of-input comparison gives:
-
-        - **converged, values agree** — the parses build one value; a benign
-          split, committed as the take. This is the common case, and it costs
-          O(1) instead of O(remaining).
-        - **converged, values differ** — the remainder is COMMON, so it is run
-          ONCE (not twice) to see whether it completes at all: completing makes
-          the difference real (a fork); dying means neither side completes, and
-          a dead stop side is :data:`TAKE` exactly as before. A REFUSAL there
-          is the exception: a completion that refuses reads the values it
-          gathered, which differ between the sides, so running the left side's
-          remainder says nothing about the right's, and the boundary is
-          undecidable (:meth:`_advance` raises :class:`ProbeFork`).
-        - **the STOP side dies** — :data:`TAKE`, since the caller tests
-          ``stop is None`` first regardless.
-        - **the TAKE side dies** — :data:`STOP_FORCED`, outside a side: taking
-          derives nothing, so stopping is the only parse there can be, and
-          whether it completes is the stop side's own question, asked by the
-          live drive next. Inside a side the take side's seed may itself be a
-          guess's, so its death settles nothing there.
-
-        A death a side's own drive reached through a greedy guess, and a
-        mid-parse convergence either side's did, decide nothing: a guessed
-        stop death forks, as at end of input (:meth:`_fork_verdict`), and a
-        guessed take death leaves the long way to decide.
-
-        No convergence in the budget returns ``None``: the caller runs today's
-        comparison. A :class:`ProbeFork` PROPAGATES — undecidable is not death.
-
-        :returns: The verdict, or ``None`` when the long way must decide.
-        """
-        stop, take = self._side(arm, i, pos, None), self._side(arm, i, pos, taken)
-        return self._lockstep(stop, take, self._makers(arm, i, pos, taken))
-
-    def _lockstep(
-        self, left: Side | None, right: Side | None, makers: Makers
-    ) -> int | None:
-        """Advance the stop side and the take side in step until they converge
-        (:meth:`_converged`) or one dies, inside the round budget; ``None`` when
-        the long way must decide. ``makers`` builds them afresh, for the rank."""
-        shape = value_shape(self.stack)
-        left_unc = right_unc = False
-        for _round in range(_LOCKSTEP_ROUNDS):
-            if left is None:
-                return FORKED if left_unc else TAKE
-            if right is None:
-                # Outside a side every seed is clean, so a take side that died
-                # without a guess derives nothing: stopping is forced.
-                return None if right_unc or self._caches.probing else STOP_FORCED
-            target = max(left[1], right[1])
-            if left[1] == right[1]:
-                if len(left[4]) == len(right[4]) and control_signature(
-                    left[0], left[1]
-                ) == control_signature(right[0], right[1]):
-                    guessed = left_unc or right_unc
-                    return self._converged(left, right, shape, guessed, makers)
-                target += _LOCKSTEP_STEP
-            left, sampled = self._advance(left, target)
-            left_unc = left_unc or sampled
-            right, sampled = self._advance(right, target)
-            right_unc = right_unc or sampled
-        return None
-
-    def _converged(
-        self,
-        left: Side,
-        right: Side,
-        shape: tuple[Any, ...],
-        guessed: bool,
-        makers: Makers,
-    ) -> int | None:
-        """The verdict once both sides share a position and a control state.
-
-        Only the values built SINCE the boundary are compared — ``shape`` is
-        the watermark taken there, and both sides inherited everything below it
-        from one stack. Sides that converged by COMPLETING hold empty stacks,
-        so what they built is in their root outputs, and those are compared.
-        Sides whose values differ are ranked (:meth:`_ranked`) — read before
-        the common remainder runs, while both ledgers stand at the convergence
-        — once that remainder is seen to complete. A guess on the way
-        unsettles a rank as it does a mid-parse agreement, and completed sides
-        reached through one fork, agreeing or not: the guess may have dropped
-        the carving the decider keeps.
-
-        :param guessed: Whether either side's drive guessed on the way here.
-        :param makers: The two sides afresh, for the rank.
-        """
-        if not left[0]:
-            if guessed:
-                return FORKED
-            if same_value(left[3], right[3]):
-                return TAKE
-            return self._ranked(makers, -1, (left, right))
-        if same_value(pending_values(left[0], shape), pending_values(right[0], shape)):
-            return FORKED if guessed else TAKE
-        ranked = FORKED if guessed else self._ranked(makers, left[1], (left, right))
-        done, sampled = self._advance(left, -1, shared=True)
-        if done is None:  # the common remainder completes on neither side
-            return FORKED if guessed or sampled else TAKE
-        return FORKED if sampled else ranked
-
-    def _ranked(self, makers: Makers, at: int, sides: tuple[Side, Side]) -> int:
-        """Two sides whose values differ, ranked as the gated engine ranks them
-        (:meth:`_rank`): ``sides`` themselves where they kept ledgers, else
-        both built again keeping ledgers and driven to ``at`` (``-1``: to the
-        end) — exactly where they stood, since outside a retry a drive is a
-        function of where it starts and where it stops."""
-        if sides[0][5] is not None:
-            return self._rank(*sides)
-        stop, _guessed = self._advance(self._made(makers, False, True), at)
-        take, _guessed = self._advance(self._made(makers, True, True), at)
-        if stop is None or take is None:
-            return FORKED
-        return self._rank(stop, take)
+        roots = [
+            partial(self._side, arm, i, pos, None),
+            partial(self._side, arm, i, pos, taken),
+        ]
+        try:
+            kept = self._decide(roots, True)
+        except IslandEnds as two:
+            raise ProbeFork(
+                f"attempt loop at {pos}: taking and stopping are both viable", pos
+            ) from two
+        return STOP_FORCED if kept == 0 else TAKE
 
     def _rank(self, stop: Side, take: Side) -> int:
         """Two sides keeping ledgers, ranked as the gated engine ranks them:
@@ -515,14 +242,16 @@ class Verdicts[Carry](Sides[Carry]):
     def _pushed_by(self, depth: int, items: list[int]) -> list[int]:
         """Of ``items`` — a frame just past an exactly-once item with a loop next
         lists both — the one that pushed the frame above it: the item whose
-        payload IS that frame's clone, every other a plain clone, which pushes
-        only itself (:func:`_plain`). Otherwise ``items`` unchanged."""
+        payload IS that frame's clone, where no other item's payload can land
+        on that clone (:func:`~...flatten.lands_on`). Otherwise ``items``
+        unchanged."""
         if len(set(items)) < 2 or depth + 1 >= len(self.stack):
             return items
         child, payloads = self.stack[depth + 1].clone, self.stack[depth].arm.payloads
         named = [k for k in set(items) if payloads[k] is child]
         others = [payloads[k] for k in set(items) if k not in named]
-        return named if len(named) == 1 and all(map(_plain, others)) else items
+        lands = any(isinstance(p, FlatClone) and lands_on(p, child) for p in others)
+        return named if len(named) == 1 and not lands else items
 
     def _own_step(self, mine: Frame[Carry], theirs: Frame[Carry], k: int) -> int | None:
         """The rank by item ``k``'s own recorded end on the two copies of one
@@ -595,15 +324,25 @@ class Verdicts[Carry](Sides[Carry]):
         and the frame already as the descent left it, so each completion is a
         side: the live stack forked with that completion's value in the item
         and the cursor past it (:meth:`_extent_side`), ranked as
-        :meth:`_kept_end` ranks them. Inside a side only where :meth:`_nests`
-        allows a verdict there, and never at a reference the top frame does not
-        stand in (``k < 0``): the island is then left to whoever owns ``sink``.
+        :meth:`_kept_end` ranks them. Inside a reading of a live set the
+        reading splits, one child per completion; never at a reference the top
+        frame does not stand in (``k < 0``): the island is then left to whoever
+        owns ``sink``.
 
         :raises IslandEnds: When a verdict forks, or no verdict can be asked.
+        :raises Split: Inside a reading.
         """
-        if k < 0 or (self._caches.probing and not self._nests()):
+        if k < 0:
             two.sink = sink
             raise two
+        if self._caches.probing:  # inside a set: the reading splits
+            raise self._split(
+                [
+                    self._extent_side(k, end, values, self._recording())
+                    for end, values in self._picks(two)
+                ],
+                self.pos,
+            )
         end, values = self._kept_end(two, partial(self._extent_side, k))
         sink.extend(values)
         self.pos += end
@@ -615,13 +354,21 @@ class Verdicts[Carry](Sides[Carry]):
         island with more than one followable completion: each completion is a
         candidate iteration, taken on a side of its own
         (:meth:`_iteration_side`), and the one the verdict keeps is the
-        iteration's outcome. Inside a side only where :meth:`_nests` allows.
+        iteration's outcome. Inside a reading of a live set the reading
+        splits, one child per completion.
 
         :returns: The kept iteration's ``(end, values)``.
         :raises IslandEnds: When a verdict forks, or no verdict can be asked.
+        :raises Split: Inside a reading.
         """
-        if self._caches.probing and not self._nests():
-            raise two
+        if self._caches.probing:  # inside a set: the reading splits
+            raise self._split(
+                [
+                    self._iteration_side((arm, i, pos), end, values, self._recording())
+                    for end, values in self._picks(two)
+                ],
+                pos,
+            )
         end, values = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))
         return pos + end, values
 
@@ -634,14 +381,18 @@ class Verdicts[Carry](Sides[Carry]):
 
         :raises IslandEnds: When a pair's verdict forks.
         """
-        picks = []
-        for tree, end, built in two.ends:
-            value = self._island_value(two.name, tree, built)
-            picks.append((end, [value.value] if isinstance(value, Completed) else []))
-        kept = self._kept_pick(picks, side_of)
+        kept = self._kept_pick(self._picks(two), side_of)
         if kept is None:
             raise two
         return kept
+
+    def _picks(self, two: IslandEnds) -> list[tuple[int, list[Carry]]]:
+        """Each completion of ``two`` as ``(end, values)``, shortest first."""
+        picks: list[tuple[int, list[Carry]]] = []
+        for tree, end, built in two.ends:
+            value = self._island_value(two.name, tree, built)
+            picks.append((end, [value.value] if isinstance(value, Completed) else []))
+        return picks
 
     def _kept_pick(
         self, picks: list[tuple[int, list[Carry]]], side_of: Callable[..., Side]
@@ -649,51 +400,14 @@ class Verdicts[Carry](Sides[Carry]):
         """Of several ways one item can end — ``(end, values)``, shortest
         first — the one the verdict keeps, ``None`` when it cannot say.
 
-        Picks meet in pairs, the one kept so far as the stop side against the
-        next longer, each pair driven and ranked as an attempted loop's sides
-        are; the rank is one order over completed parses, so the last one kept
-        is the decider's.
+        Every pick is one way of the live set, the decider's order shortest
+        first (:meth:`~.liveset.LiveSet._decide`); a set that cannot decide says
+        ``None``, and the caller hands the item to whoever answers it.
         """
-        kept = picks[0]
-        for pick in picks[1:]:
-            try:
-                verdict = self._pair(side_of, kept, pick)
-            except IslandEnds:
-                if self._caches.probing:
-                    raise
-                verdict = FORKED  # an island inside a side: a verdict of its own
-            if verdict == FORKED and not self._caches.probing:
-                verdict = self._retried(self._pair, side_of, kept, pick)
-            if verdict == FORKED:
-                return None
-            if verdict == TAKE:
-                kept = pick
-        return kept
-
-    def _pair(
-        self,
-        side_of: Callable[..., Side],
-        stop: tuple[int, list[Carry]],
-        take: tuple[int, list[Carry]],
-    ) -> int:
-        """The verdict between two ways an item ends, the shorter standing as
-        the stop side: in step first, else each run to the end of input and
-        compared."""
-        makers: Makers = side_of, stop, take
-        verdict = self._lockstep(side_of(*stop, False), side_of(*take, False), makers)
-        if verdict is not None:
-            return verdict
-        done, unc = self._advance(self._made(makers, False, False), -1)
-        if done is None:
-            return FORKED if unc else TAKE
-        taken = self._advance(self._made(makers, True, False), -1)
-        return self._compared(done, unc, taken, makers)
-
-
-def _plain(payload: object) -> bool:
-    """Whether a payload pushes only itself: no dispatch, no attempt entries."""
-    return (
-        isinstance(payload, FlatClone)
-        and payload.mode != BUILD_DISPATCH
-        and payload.attempt is None
-    )
+        try:
+            kept = self._decide(
+                [partial(side_of, end, values) for end, values in picks], False
+            )
+        except ProbeFork:
+            return None
+        return picks[kept]

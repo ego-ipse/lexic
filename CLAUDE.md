@@ -387,6 +387,7 @@ src/lexic/
           decisions.py             The attempt/probe method group — the kernel's decision half
           verdicts/                Boundary decisions — the verdict, the sides it is asked on, and what settles them
             __init__.py            the group's package marker
+            liveset.py             The live set — the readings a boundary carries forward, pruned, merged and ranked
             sides.py               Boundary sides — the stack copies a verdict is asked on, and the sub-runs they settle
             verdicts.py            The boundary verdict — take, stop or fork, ranked by the decider
           execution.py             Leaf execution, island delegation, and completion

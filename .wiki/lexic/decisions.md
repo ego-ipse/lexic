@@ -199,13 +199,11 @@ is settled by convergence"* below.
   live stack (`_drive(floor)`); nested viability walks and probes see the true
   continuation. A severed fresh stack mis-resolves any fork whose alternative
   lives in an enclosing frame.
-- **Probes nest only on a retry.** Inside a probe, both-viable boundaries
-  resolve greedily by viability class and mark the outcome `uncertain`, which
-  forks the verdict that reads it. Only a forked verdict asked again
-  (`_retried`) settles them by verdicts of their own, `NESTING_DEPTH` sides
-  deep and 64 verdicts at most: nesting everywhere is exponential (measured — a
-  24-deep probe chain), and a verdict that settles without it never pays for it.
-  Before either, a boundary whose stop side the TEXT refutes is no guess at all:
+- **A boundary inside a reading splits it.** Nothing inside a live set's
+  reading guesses: a both-viable boundary there replaces the reading by one
+  child per way, and the set prunes, merges and ranks them (*"A both-viable
+  boundary is settled by a live set of its readings"*). Before that, a boundary
+  whose stop side the TEXT refutes needs no split at all:
   `matchers.stop_side_dead` reads the stop side's continuation against the
   text — literals and once-only classes matched, optional ones both ways, the
   walk undecided at anything wider — and a dead stop side makes taking forced.
@@ -877,7 +875,70 @@ island. Narrowing the pass removed the trigger, not the mechanism.
 
 ---
 
+## A both-viable boundary is settled by a live set of its readings
+
+**Decision:** a both-viable boundary in the live drive (a loop's take or stop,
+an attempt's arms that end apart, an island's followable ends) is settled by
+carrying every way it can go forward at once, as a flat set of readings
+(`verdicts/liveset.py`). A boundary met INSIDE a reading does not decide and is
+not guessed: the reading splits (`Split`), one child per way, built where it
+stood. Three rules settle the set:
+
+- **a reading that dies is pruned** — certainly, since nothing in a set
+  guesses;
+- **readings that meet merge** — at one position, in one control state, inside
+  the same sub-runs, they share their future. Equal values keep the take.
+  Different values are ranked at the split where they parted, on ledgers kept
+  through every split since (`Level`): the composite of the frames frozen as
+  they completed and the reading's own. A split whose frames both readings
+  rolled back (equal completions below, unreadable on both from one depth up)
+  decided nothing, and the next split they part at is ranked, if it is the same
+  split on both (one position, one control state). A tie forks by name;
+- **the boundary is decided** once every survivor descends from one way.
+
+Readings step in sync: those furthest behind go to where the next one stands,
+so readings that can meet do, the smallest way's first, and a step ends once
+one way is left. At a loop boundary the reading ahead leads one step first
+(`LEAD_STEP`), so a take that dies a character later costs the stop nothing.
+The set is bounded — `SET_MAX` readings, `SET_STEPS` steps, `NESTING_DEPTH`
+splits deep — and past any bound it raises a `ProbeFork` that names it.
+
+**What a set pays is what it needs**, measured on vyx (the bench row that asks
+boundaries, three sets a parse), where the first build cost the decision path
++117 µs a parse over the lockstep and now costs 10–25 µs less:
+
+- **ledgers on demand** — a set runs keeping none; the first meeting that
+  needs a rank restarts it keeping them (`Unrecorded`), and later sets of the
+  parse keep them from the start (`RunScope.ranks`);
+- **the plan** — a decided set's survivors are the live parse's own
+  continuation, so the splits they all came through the same way are the next
+  boundaries the live drive meets, already answered (`planned`, keyed by the
+  split's control signature and number of ways; a mismatch drops the plan);
+- **the lead step once** — leading on every step split the take at each
+  boundary before the stop's death decided the set;
+- **the smallest way first**, and the step ends once one way is left.
+
+**Why:** the lockstep it replaces settled a nested boundary greedily and
+marked the outcome `uncertain`, so any convergence reached through a guess
+forked, and a forked verdict was asked again with verdicts nested inside its
+sides. Two shapes defeated that: an envelope whose every line carries two
+marks (W1), and pairs that reopen (W2), where the nested verdicts multiplied
+and the predictive engine handed the document to Earley. A set keeps each way
+a guess would have dropped, so every death and meeting is certain. Measured on
+the PDA against whole-document Earley, models equal: W1 at 2,600 entries
+0.64 s vs 0.78 s; W2 at 3,200 pairs 0.34 s vs 13.7 s, linear.
+
+**Why the rank needed the pushing item named.** A frame just past an
+exactly-once item with a loop next may stand in either; the frame above it is
+named by identity (`_pushed_by`) where no other candidate's payload can land on
+that clone (`flatten.lands_on`: dispatch targets and attempt entries, chased).
+W2's second and later pairs rank only with it.
+
 ## A both-viable boundary is settled by convergence, not by running to end-of-input
+
+> **Superseded** by the live set (entry above): the lockstep, its long way and
+> its retry are gone; the control-signature notes below still describe how two
+> readings meet.
 
 **Decision:** when taking and stopping are both viable at a licensed loop
 boundary (`GATE_ATTEMPT`), the two sides are driven in LOCKSTEP and the verdict
@@ -1271,12 +1332,10 @@ which no side settles.
 boundary, so a program with no item gated `GATE_ATTEMPT` flags no clone
 `sub_root`: its sub-runs write no start and its audits push no record.
 
-**A guess decides nothing.** A side's own drive resolves nested boundaries
-greedily, and a death or a mid-parse agreement it reached through such a guess
-(`uncertain`) forks instead of settling. The stop side's death is judged by its
-own drive alone. Sides that converge by completing are exempt: both hold empty
-stacks, so they agree, and comparing two completed carvings is the ranked
-verdict's question, not convergence's.
+**Nothing in a reading guesses.** A boundary inside a side's drive splits the
+reading rather than resolving greedily (*"A both-viable boundary is settled by a
+live set of its readings"*), so every death and meeting in a set is certain.
+Completed readings meet on their roots, which the rank compares.
 
 **Values compare by class and fields** (`same_value`), at a convergence and at
 end of input alike. Sides converged mid-parse on one control state cannot build
@@ -1390,6 +1449,10 @@ decider those sides fork and the gated engine answers. An island's two ends are
 ranked under every decider: the gates that read a run as leftmost-longest
 carves it are that decider's licence alone (the entry above), so no side is
 killed by a reading the decider does not share.
+
+> **Superseded in part** by the live set: every reading keeps its ledger from
+> the split that made it, and a rank reads the readings at hand — the
+> re-drive and the retry described below are gone.
 
 **Ledgers are paid only by a rank.** A side keeps no ledger while it drives; a
 verdict that ranks builds both sides again keeping ledgers and drives them to
