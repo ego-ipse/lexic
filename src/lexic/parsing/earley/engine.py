@@ -35,6 +35,7 @@ from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
     DERIVATION_STREAM,
     DERIVATIONS,
+    ForestCtx,
     ParseTree,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -300,10 +301,10 @@ class ParseForest(IrLeaf[IrSelf, IrSelf]):
 
 
 class Enumerate(IrLeaf[IrSelf, IrSelf]):
-    """ALL derivation trees of ``text`` as an :class:`~lexic.ir.base.IrSeq`."""
+    """The cycle-free derivation trees of ``text`` as an :class:`~lexic.ir.base.IrSeq`."""
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
-        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: every tree."""
+        """:param n: grammar; :param nc: ``(IrStr(text),)``; :returns: the trees."""
         kernel = _run_kernel(n, nc, True)
         if accept_item(kernel) < 0:
             return IrSeq()
@@ -315,7 +316,10 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
     """Whether ``text`` has more than one derivation — a truth value.
 
     Short-circuits after the second derivation from the lazy stream; the
-    (potentially exponential) full enumeration is never forced.
+    (potentially exponential) full enumeration is never forced. A stream that
+    ends with one tree is still ambiguous if it cut a cycle
+    (:attr:`~lexic.parsing.earley.kernel.forest.forest.ForestCtx.cut`): the
+    pumped derivation through it is a second one.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrInt:
@@ -324,13 +328,14 @@ class IsAmbiguous(IrLeaf[IrSelf, IrSelf]):
         if accept_item(kernel) < 0:
             return _NO_MATCH
         node = accept_node(kernel)
-        stream = DERIVATION_STREAM.eval(d, node, IrTuple(to_chart(kernel)))
+        ctx = ForestCtx(to_chart(kernel))
+        stream = DERIVATION_STREAM.eval(d, node, IrTuple(ctx))
         seen = 0
         for _tree in stream:
             seen += 1
             if seen > 1:  # a second derivation ⇒ ambiguous; stop driving
                 return _MATCH
-        return _NO_MATCH
+        return _MATCH if ctx.cut else _NO_MATCH
 
 
 class EarleyParser(IrDispatch):

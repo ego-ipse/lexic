@@ -1,5 +1,12 @@
 # Log
 
+## The derivation stream ends a cycle's branch (2026-10-28)
+
+`decisions.md` records that the stream's open set holds only ancestors, that a
+cycle's branch ends instead of emitting a truncated node, that the cut is
+recorded so `is_ambiguous` and the strict parse still count the pumped
+derivation, and the structural completeness check that pins it.
+
 ## A shared closer closes each of its pairs (2026-10-28)
 
 `parallel-parsing.md` records that a frame waits for its own pair's closer,

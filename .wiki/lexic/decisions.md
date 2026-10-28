@@ -1947,7 +1947,7 @@ only where those steps close a loop (`A ⇒+ A`).
   decider's own among the families that can complete.
 - (i)'s two occurrences each come from a whole chain.
 - Nothing is put in a refused key's place. The build never reads the
-  derivation stream, whose cycle cut emits a truncated node (TODO 20″).
+  derivation stream.
 
 **Why the grammar decides:** detecting a re-entry while building costs every
 step something. A per-step check, a round counter on the hot loop and a
@@ -1959,6 +1959,63 @@ None of the bench rows is cyclic.
 derivation exists through a different choice higher up, for example
 `e ::= f | g` / `f ::= e` / `g ::= e | ""` over an empty span, where `e`
 takes `f`. That span refuses explicitly. Main hung on it.
+
+## The derivation stream ends a cycle's branch, and tracks only ancestors
+
+**Decision:** `ForestCtx.open` holds exactly the handles whose prefixes are
+being produced, which are the ancestors of whatever is being expanded. A
+`PrefixSource` opens its handle while it waits on a predecessor or a child. It
+closes the handle while it is suspended after emitting a prefix, and reopens it
+on resume. A request on an open handle is a node inside itself over its own
+span, and that branch ends: the stream yields nothing for it.
+
+**Why:** two defects came from one set.
+
+- **Truncated trees at a cycle.** The cut emitted the empty prefix to stay
+  finite. Over a non-empty span that is a truncated node, not a derivation:
+  `a(b(a()))` for `a ::= b | "x"` / `b ::= a | "y"` over "x", and
+  `root(s(s()))` for `s ::= s | "a"`.
+- **Cuts on grammars with no cycle.** A suspended prefix kept its handle open,
+  so the cut also fired where nothing cycles, dropping an empty child.
+  `a ::= p b | "a"` / `p ::= ""` / `b ::= a "b"` over "abb" streamed
+  `a(p(), b(a(b(a('a'), 'b')), 'b'))`: the inner `a` lost its `p()`, because
+  its prefix after `p` is the same handle as the outer one's, which was left
+  waiting while `b` was built. That prefix is a sibling of the inner `a`, not
+  its ancestor.
+
+**Why it is right:**
+
+- A derivation in which some handle recurs on its own ancestor path contains
+  a shorter derivation of the same span: replace the outer occurrence by the
+  inner one. So ending such a branch loses no derivation that is not an
+  unrolled cycle.
+- An accepting handle has a finite derivation, and its smallest one repeats
+  no handle on any path, so the stream for a parse is never empty. Inside it, a
+  handle whose only derivations pass back through an ancestor yields nothing
+  there, and that ancestor's other families carry the parse.
+
+So the stream is finite and every tree it emits is complete. Each emitted
+tree's children are one of its rule's arms, empty children included.
+
+**The cut is recorded, not dropped.** The stream holds the cycle-free
+derivations, and a cyclic text has infinitely many more: pump the cycle. A
+branch that ends at an open handle proves one. Every node on its path is in
+the chart, so each has a finite derivation, and putting one of the handle's
+in the inner occurrence's place completes the branch. That tree repeats the
+handle on a path, so no cycle-free tree equals it. So the cursor records the
+cut (`ForestCtx.cut`), and the readers that count read it: `is_ambiguous`
+answers 1, and the strict `parse` (`BuildTree`) refuses as ambiguous, when the
+stream ends with one tree and a cut. `a ::= b` / `b ::= a | ""` over "" and
+`a ::= b | "x"` / `b ::= a | "y"` over "y" each stream one tree and stay
+ambiguous, as they were when the cut emitted a truncated node.
+
+**The check:** spelling the input is too weak to test this, because a dropped
+empty child spells the same text. The pins check structure (`assert_complete`):
+each node's children match one of its rule's arms, in order.
+
+**Measured:** no bench row reads the stream. Over the parsing, parity, token
+and adversarial suites, 83 reader returns are unchanged but one,
+`test_nullable_cycle_terminates`, whose truncated `a(b(a()))` is gone.
 
 ## The fast build builds a zero-width root
 

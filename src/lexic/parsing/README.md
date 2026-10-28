@@ -45,8 +45,8 @@ its submodules (enforced by the layering test).
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
 | `parse_first(grammar, text, tables=None, decide=LEFTMOST_LONGEST)` | `ParseTree` | The *first* derivation — deterministic under ambiguity, keeping `decide`'s carving as `parse_model` does. Raises only on no-parse. |
 | `parse_forest(grammar, text)` | `SppfNode` \| `IrNone` | The shared packed parse forest root, or `IrNone` on no-parse. |
-| `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
-| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
+| `derivations(grammar, text)` | `IrSeq[ParseTree]` | Every cycle-free derivation (all of them on an acyclic grammar). |
+| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2; a cut cycle counts.) |
 
 Also exported from the root: `ModelExecutable` and `ProductExecutor` (the
 binding and the completion it runs), `Resolver`, `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,

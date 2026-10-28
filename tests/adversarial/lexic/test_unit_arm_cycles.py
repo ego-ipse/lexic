@@ -16,9 +16,13 @@ import pytest
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.model import GrammarModel
-from lexic.parsing import ParseConfig
+from lexic.parsing import ParseConfig, derivations
 from lexic.parsing.products import earley_model, model_product
 from tests.adversarial.lexic.adversarial_helpers import watchdog
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    assert_complete,
+    shape,
+)
 
 
 def test_self_unit_arm_compiles_and_round_trips() -> None:
@@ -149,3 +153,32 @@ def test_a_key_with_no_way_out_refuses_explicitly(config: ParseConfig) -> None:
     one that cannot be compared — resolver or not — rather than fold a cut."""
     with pytest.raises(UnsupportedConstructError, match="cannot be compared"):
         _earley("no-way-out", config)
+
+
+STREAMED = {
+    "self-unit": ["root(s('a'))", "root(s(s('a')))"],
+    "mutual-unit": ["root(s('a'))", "root(s(t(s('a'))))"],
+    "mutual-pair": ["a(b('y'))"],
+    "nullable-unit": [
+        "root('<', e(f(e())), mid(p('n')), '>')",
+        "root('<', e(), mid(p('n')), '>')",
+        "root('<', e(f(e())), mid(q('n')), '>')",
+        "root('<', e(), mid(q('n')), '>')",
+    ],
+    "no-way-out": ["root('<', e(f(e(g()))), '>')", "root('<', e(g()), '>')"],
+}
+"""What the derivation stream enumerates on each cycle: every derivation in
+which no handle sits inside itself over its own span, so finitely many."""
+
+
+@pytest.mark.parametrize("label", CYCLES)
+def test_the_stream_enumerates_only_complete_derivations_of_a_cycle(label: str) -> None:
+    """Each witness streams a finite list of complete trees — nothing cut short
+    where the stream met a handle inside itself."""
+    source, text = CYCLES[label]
+    grammar = compile_text(source, cache_key=f"adv-cyc-stream-{label}").grammar
+    with watchdog(10):
+        trees = derivations(grammar, text)
+    assert [shape(tree) for tree in trees] == STREAMED[label]
+    for tree in trees:
+        assert_complete(tree, grammar)
