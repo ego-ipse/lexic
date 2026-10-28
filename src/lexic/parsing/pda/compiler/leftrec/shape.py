@@ -2,7 +2,13 @@
 
 `A ::= A β1 | A β2 | γ1 | γ2` — DIRECT left recursion, with every recursive arm
 continuing past the reference and every base arm not starting with it — is the
-classical rewrite's precondition and the only shape read here. Anything else is
+classical rewrite's precondition and the only shape read here. With two or more
+recursive arms, one character chooses between them wherever the boundaries are
+settled (:func:`settled`): two βs whose FIRST sets meet put each other's alphabet,
+first characters included, into the pieces' EXTEND, which then meets the βs'
+FIRST and fails the proof. So the step group's arms are selected by the next
+character in the order the grammar wrote them, and that order is what each
+iteration's record of its arm names. Anything else is
 left alone and still islands: indirect recursion through another rule, a `β`
 that can vanish (the loop would spin), a bare `A` arm (a cycle), a quantified
 leading reference.

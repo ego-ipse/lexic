@@ -61,6 +61,9 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     "start-fallback": None,
     "interior-exact": None,
     "interior-climb": None,
+    "relay-fallback": None,
+    "relay-exact": None,
+    "relay-climb": None,
 }
 
 # row -> whether a parse at four workers divides the document at all
@@ -98,6 +101,9 @@ SPLITS: dict[str, bool] = {
     "start-fallback": False,
     "interior-exact": False,
     "interior-climb": False,
+    "relay-fallback": False,
+    "relay-exact": False,
+    "relay-climb": False,
 }
 
 _SITES = (orchestrate, interior, tasks, replicas)

@@ -341,6 +341,42 @@ followable end and still delegates.
 **Cost:** vyx loses `nl-escape` and `nl-force` as delegates in each of its 25
 islands. No other bench or ground-truth grammar loses one.
 
+## 2026-10-28 — The left-recursion fold takes several recursive arms
+
+**Decision:** `A ::= A β1 | A β2 | … | γ` folds over every recursive arm, each
+iteration built through the arm it took, by that arm's own routine. The boundary
+proof (`leftrec.shape.settled`) already makes one character choose between the
+arms: two βs whose FIRST sets meet put their alphabets into the pieces' EXTEND
+(`predicates.arms_extension`), which then meets the βs' FIRST.
+
+**How the arm is known:** the rewritten rule is `(γ)(β1 | β2 …)*`, and each
+iteration of the step group runs one of its arms. The step group is baked
+`BUILD_FOLD` with `n_items` −1 (`bake.product._bake_fold_arms`), so it keeps its
+own captures and completes as a `flatten.FoldIteration`: that arm's build and its
+per-item values, through `partial(fold_iteration, {arm: FoldStep})`. The folded
+clone (`n_items` 0) folds those records left-nested (`execution._folded_arms`).
+A flat sink could not say which arm an iteration took — two arms can capture the
+same number of values of the same kinds — so the record carries it.
+
+**Why one character matters:** with disjoint FIRSTs the step group's arms lower
+to plain selectors in authored order, which is how a FlatArm maps back to its
+recursive arm. Overlapping βs would be windowed or tried by attempt, and
+reordered; such a rule is refused by the boundary proof and islands, and the bake
+raises `EngineInvariantError` if the proof and the compiler ever disagree.
+
+**What does not change:** a fold over ONE recursive arm keeps the flat sink, the
+width cut and the count path — no record per iteration on the rows that fold one
+arm (dense-earley, arithmetic). No mode, opcode or FlatClone slot is added: the
+step group reuses `BUILD_FOLD`, whose completion branch already exists.
+
+**The bench:** `start-fallback`, `interior-exact` and `interior-climb` keep their
+grammars, corpora and every competitor seat, and now fold; they price this. The
+engine routes they witnessed move to `relay-fallback`, `relay-exact` and
+`relay-climb` — the same languages, left-recursive through a relay rule the fold
+does not read through. ANTLR rewrites direct left recursion only, so the relay
+rows carry no ANTLR seat; PEG and pyparsing fail them as they fail the direct
+rows.
+
 ## 2026-10-28 — An island climbs on one chart
 
 **Decision:** an island whose width no continuation proves climbs by growing one

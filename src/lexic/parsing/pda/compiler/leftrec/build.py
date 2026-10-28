@@ -13,12 +13,16 @@ iteration's own captures. The model is therefore identical by construction
 rather than by comparison — it is the arm's own build, called with the arm's
 own values.
 
-Three shapes are refused rather than approximated, and each would be a wrong
+**Several recursive arms** each build through their own routine. Their
+iterations cannot land flat in one sink — two arms can capture the same number
+of values of the same kinds, so which arm an iteration matched would not be
+recoverable — so the step group reports one record per iteration naming the arm
+it took (:class:`~lexic.parsing.pda.compiler.program.flatten.FoldArms`), and the
+fold builds each through that arm.
+
+Two shapes are refused rather than approximated, and each would be a wrong
 model rather than a slow one:
 
-* **more than one recursive arm** — the iterations land flat in one sink, so
-  which arm an iteration matched is not recoverable and the wrong routine
-  would build it;
 * **a routine that reads an item's EXTENT or TEXT** — those come off the
   frame's per-item end positions, and an iteration inside a loop has no
   per-item ends of its own to give;
@@ -39,8 +43,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lexic.parsing.pda.compiler.leftrec.shape import Fold
-from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild, shape_build
+from lexic.parsing.pda.compiler.leftrec.shape import Fold, Recursive
+from lexic.parsing.pda.compiler.program.bake.lowering import (
+    FoldBuild,
+    FoldStep,
+    no_shape_build,
+    shape_build,
+)
 from lexic.parsing.pda.compiler.program.bake.product import build_plan
 from lexic.parsing.product import CaptureMode, RuleRoutine
 
@@ -55,12 +64,25 @@ def fold_build(
 
     :param fold: The rule's decomposition.
     :param routines: The bound product's routines, by rule name.
-    :returns: The fold's build state, or ``None`` when any precondition fails
-        — the caller then leaves the rule alone and it islands as before.
+    :returns: The fold's build state, or ``None`` when any arm fails a
+        precondition — the caller then leaves the rule alone and it islands as
+        before.
     """
-    if len(fold.steps) != 1:
+    built = [_step_build(step, routines) for step in fold.steps]
+    arms = tuple(step for step in built if step is not None)
+    if len(arms) != len(built):
         return None
-    routine = routines.get(fold.steps[0].rule)
+    if len(arms) == 1:
+        one = arms[0]
+        return FoldBuild(one.build, one.slots - 1, one.slots)
+    return FoldBuild(no_shape_build, 0, 0, arms)
+
+
+def _step_build(
+    step: Recursive, routines: Mapping[str, RuleRoutine[Any]]
+) -> FoldStep | None:
+    """One recursive arm's iteration build, or ``None`` when it cannot fold."""
+    routine = routines.get(step.rule)
     if routine is None or routine.construction is None:
         return None
     construction = routine.construction
@@ -78,6 +100,4 @@ def fold_build(
     # through the same entries the arm's own clone would have built through,
     # so the two cannot disagree about what the arm constructs.
     plan = build_plan(routine, construction, licence.order)
-    return FoldBuild(
-        shape_build(licence.record, plan), len(captures) - 1, len(captures)
-    )
+    return FoldStep(shape_build(licence.record, plan), len(captures))

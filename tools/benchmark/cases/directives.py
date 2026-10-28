@@ -43,12 +43,15 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # rows measure the same grammar, which is what makes them comparable here.
     "dense-earley": ((), ()),
     "island-earley": (("name", "text"), ()),
-    # The engine-reach rows carry no directives: each exists to pin WHICH
-    # engine its shape reaches, and a directive that changed a rule's shape
-    # could change that answer.
+    # The engine-reach rows, direct and relayed, carry no directives: each
+    # exists to pin WHICH engine its shape reaches, and a directive that
+    # changed a rule's shape could change that answer.
     "start-fallback": ((), ()),
     "interior-exact": ((), ()),
     "interior-climb": ((), ()),
+    "relay-fallback": ((), ()),
+    "relay-exact": ((), ()),
+    "relay-climb": ((), ()),
     "gbnf-meta": (
         (
             "cc-esc-other",

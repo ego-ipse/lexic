@@ -24,12 +24,16 @@ specs it reads.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, Never, Protocol
+from typing import Any, NamedTuple, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
-from lexic.parsing.pda.compiler.program.bake.lowering import ShapeBuild, no_shape_build
+from lexic.parsing.pda.compiler.program.bake.lowering import (
+    FoldStep,
+    ShapeBuild,
+    no_shape_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -376,6 +380,40 @@ A bound on compile-time work and artifact size, not on correctness: a wider
 class keeps the per-occurrence build. Character classes carrying a model per
 character are alphabets (digits, letters, a token's glyphs), and those fit.
 """
+
+
+class FoldIteration[Carry](NamedTuple):
+    """One iteration of a fold over several recursive arms: the arm it took,
+    and the values it captured, item by item.
+
+    :ivar step: The arm's iteration build.
+    :ivar sinks: The iteration's per-item values, as the step group's frame
+        collected them, or ``None`` where it captured nothing.
+    """
+
+    step: FoldStep[Carry]
+    sinks: list[list[Carry] | None] | None
+
+
+def fold_iteration[Carry](
+    steps: Mapping[FlatArm, FoldStep[Carry]],
+    arm: FlatArm,
+    sinks: list[list[Carry] | None] | None,
+) -> FoldIteration[Carry]:
+    """The iteration a completed fold step-group frame stands for.
+
+    A fold over several recursive arms parses ``(γ)(β1 | β2 …)*``; the step
+    group is that alternation, and the frame running it holds the arm the next
+    character chose. Bound to its ``steps`` (each group arm → its recursive
+    arm's build) as the step group's construction, it reports that arm's build
+    and the frame's own captures into the folding frame's step sink, so the fold
+    builds each iteration through the arm that matched it.
+
+    :param steps: Each step-group arm → its recursive arm's build.
+    :param arm: The arm the completed frame ran.
+    :param sinks: The frame's per-item values.
+    """
+    return FoldIteration(steps[arm], sinks)
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────

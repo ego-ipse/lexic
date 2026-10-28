@@ -91,6 +91,24 @@ def test_a_vanishing_beta_is_refused() -> None:
     assert "x" not in shapes('root ::= x "e"\nx ::= x opt | "b"\nopt ::= "d"?\n')
 
 
+def test_several_recursive_arms_one_character_chooses_between_fold() -> None:
+    """``x ::= x "a" | x "b" | "z"``: the next character says which arm each
+    iteration takes, so the steps are kept in the order the grammar wrote them
+    — the order an iteration's record of its arm is read in."""
+    fold = shapes('root ::= x "!"\nx ::= x "a" | x "b" | "z"\n')["x"]
+
+    assert [str(step.rest[0].atom) for step in fold.steps] == ["a", "b"]
+
+
+def test_recursive_arms_one_character_cannot_choose_between_are_refused() -> None:
+    """``x "ab"`` and ``x "ac"`` both start with ``a``, so the step group would
+    need more than the next character to pick an arm, and its arms could come
+    out of the compiler in an order no record names. The boundary proof refuses
+    it: two βs whose FIRST sets meet put their alphabets into the pieces'
+    EXTEND, which meets the βs' FIRST. The rule islands."""
+    assert "x" not in shapes('root ::= x "!"\nx ::= x "ab" | x "ac" | "z"\n')
+
+
 def test_a_rule_with_no_base_arm_is_refused() -> None:
     """Every arm recursing means the rule derives no finite string.
 

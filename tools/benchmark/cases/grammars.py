@@ -58,6 +58,9 @@ from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
 from tools.benchmark.cases.engine_reach import (
     INTERIOR_CLIMB,
     INTERIOR_EXACT,
+    RELAY_CLIMB,
+    RELAY_EXACT,
+    RELAY_FALLBACK,
     START_FALLBACK,
 )
 
@@ -373,8 +376,8 @@ of the roster's two ``BUILD_FOLD`` rows, and what it prices is that fold over a
 long deterministic interior — each term a call whose arguments are ordinary
 character runs, with the left-nested rebuild's depth set by the chain's length.
 
-It does NOT reach the gated engine. Engine reach is held by `start-fallback`,
-`interior-exact` and `interior-climb`, each of which asserts its own counter."""
+It does NOT reach the gated engine. Engine reach is held by `relay-fallback`,
+`relay-exact` and `relay-climb`, each of which asserts its own counter."""
 
 
 _DENSE_EARLEY = """root ::= line+
@@ -465,6 +468,25 @@ def _self_grammar_source(flavour) -> str:
     no semantic actions, nothing a competitor was not offered.
     """
     return str(flavour.apply(flavour.grammar))
+
+
+_FALLBACK_INPUTS = (
+    Samples(start_fallback_corpus(2400), start_fallback_corpus(9600)),
+    ("a", "aa", "aaa", "ab", "abba"),
+    ("", "b", "ba", "a\n"),
+)
+_EXACT_INPUTS = (
+    Samples(interior_exact_corpus(2400), interior_exact_corpus(9600)),
+    ("a\n", "aa\n", "aaa\n", "ab\n", "abba\n"),
+    ("", "a", "\n", "ba\n", "a\n\n"),
+)
+_CLIMB_INPUTS = (
+    Samples(interior_climb_corpus(2400), interior_climb_corpus(9600)),
+    ("zzz\n", "zazz\n", "zaazz\n", "zbzz\n", "zabzz\n"),
+    ("", "z\n", "zz\n", "zazz", "azz\n"),
+)
+"""The engine-reach languages' samples and probes, shared by each language's
+direct row and its relay row, so the two read against each other on one text."""
 
 
 _DEFINED_BENCHES = (
@@ -641,31 +663,18 @@ _DEFINED_BENCHES = (
         ("<<<\n\n\n>>>\n", "<<<\na\n\n>>>\n", "<<<\na\nb\n\n\n\n>>>\n"),
         ("", "<<<\n>>>\n", "\n\n", "<<<\na\n\n", "a\n\n>>>\n"),
     ),
-    # The three ENGINE-REACH witnesses: the product's whole-parse fallback, an
-    # exact-width island, and a climbing one. Each asserts its own counter in
+    # Three languages written directly, which the multi-arm fold runs
+    # predictively, and the same three written through a relay rule, which
+    # reach the gated engine: the whole-parse fallback, an exact-width island
+    # and a climbing one. The relay rows assert their counters in
     # `tests/integration/lexic/parity/test_engine_reach.py`, so a row that
     # stops reaching the engine it is named for FAILS instead of going quiet.
-    _bench(
-        "start-fallback",
-        START_FALLBACK,
-        Samples(start_fallback_corpus(2400), start_fallback_corpus(9600)),
-        ("a", "aa", "aaa", "ab", "abba"),
-        ("", "b", "ba", "a\n"),
-    ),
-    _bench(
-        "interior-exact",
-        INTERIOR_EXACT,
-        Samples(interior_exact_corpus(2400), interior_exact_corpus(9600)),
-        ("a\n", "aa\n", "aaa\n", "ab\n", "abba\n"),
-        ("", "a", "\n", "ba\n", "a\n\n"),
-    ),
-    _bench(
-        "interior-climb",
-        INTERIOR_CLIMB,
-        Samples(interior_climb_corpus(2400), interior_climb_corpus(9600)),
-        ("zzz\n", "zazz\n", "zaazz\n", "zbzz\n", "zabzz\n"),
-        ("", "z\n", "zz\n", "zazz", "azz\n"),
-    ),
+    _bench("start-fallback", START_FALLBACK, *_FALLBACK_INPUTS),
+    _bench("interior-exact", INTERIOR_EXACT, *_EXACT_INPUTS),
+    _bench("interior-climb", INTERIOR_CLIMB, *_CLIMB_INPUTS),
+    _bench("relay-fallback", RELAY_FALLBACK, *_FALLBACK_INPUTS),
+    _bench("relay-exact", RELAY_EXACT, *_EXACT_INPUTS),
+    _bench("relay-climb", RELAY_CLIMB, *_CLIMB_INPUTS),
     # The DENSE counterpart: same engine, every column occupied, so a
     # per-column change cannot report a sparse chart's saving unopposed.
     _bench(

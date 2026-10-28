@@ -513,20 +513,26 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
 
     :param text: The document (the composed build's first argument).
     :param frame: The completing frame — ``sinks[0]`` the base, ``sinks[1]``
-        every iteration's captures, flat and in order.
+        every iteration's captures, flat and in order, or, over several
+        recursive arms, one ``FoldIteration`` per iteration; or a step-group
+        frame (``n_items`` −1), which reports its own iteration.
     :param clone: The folding clone, carrying the per-iteration build.
     :returns: The folded model.
     """
+    slots = clone.n_items
+    if slots < 0:  # a several-armed fold's step group: one iteration, reported
+        return clone.ctor(frame.arm, frame.sinks)
     at = frame.span_start()
     sinks = frame.sinks
     if sinks is None or not sinks[0]:
         raise PdaFail(f"fold {clone.name!r}: no base value to fold from", at)
     model = sinks[0][0]
     steps = sinks[1] if len(sinks) > 1 and sinks[1] is not None else ()
+    if slots == 0:  # several recursive arms: each iteration names its own
+        return _folded_arms(text, model, steps)
     # A folding clone's `build` IS its per-iteration build and its `n_items`
     # the synthetic array's width; the mode is what says to read them that way.
     # See `bake_product_build` for why they are not fields of their own.
-    slots = clone.n_items
     width = slots - 1
     if width == 0:
         return _folded_count(text, model, frame.count, clone)
@@ -546,6 +552,23 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
         for offset in range(width):
             scratch[offset + 1] = [steps[start + offset]]
         model = clone.build(text, (), scratch)
+    return model
+
+
+def _folded_arms[Carry](text: str, model: Carry, steps: list[Any] | tuple) -> Carry:
+    """A fold over several recursive arms: each iteration is a
+    :class:`~lexic.parsing.pda.compiler.program.flatten.FoldIteration`, built
+    through the arm it took — slot 0 the value so far, the rest that arm's own
+    items' values, in the arm rule's item order (its βs follow its recursive
+    slot)."""
+    for iteration in steps:
+        step = iteration.step
+        scratch: list[Any] = [None] * step.slots
+        scratch[0] = [model]
+        for at, values in enumerate(iteration.sinks or (), 1):
+            if at < step.slots:
+                scratch[at] = values
+        model = step.build(text, (), scratch)
     return model
 
 

@@ -120,11 +120,12 @@ def _bench_parse(name: str, sample: str) -> Callable[[], object]:
 
 
 DELEGATED_CLIMB = (
-    'root ::= item tail\nitem ::= item "a" | item "b" | word\n'
+    'root ::= item tail\nitem ::= more "a" | more "b" | word\nmore ::= item\n'
     'word ::= "z" [c-y]+\ntail ::= "zz\\n"\n'
 )
-"""interior-climb's island with a delegated base: ``word`` is conflict-free and
-loops, so the sub-parse completes it through a delegate."""
+"""relay-climb's island with a delegated base: ``word`` is conflict-free and
+loops, so the sub-parse completes it through a delegate. Left-recursive through
+the relay ``more``, so the fold leaves ``item`` an island."""
 
 DELEGATED_TEXT = "z" + "c" * 300 + "a" * 300 + "zz\n"
 """A word longer than the first window, so its delegate lands past the stop."""
@@ -136,8 +137,8 @@ def _delegated_parse() -> object:
 
 
 CLIMBS = {
-    "interior-climb corpus": _bench_parse("interior-climb", "corpus"),
-    "interior-climb full": _bench_parse("interior-climb", "full"),
+    "relay-climb corpus": _bench_parse("relay-climb", "corpus"),
+    "relay-climb full": _bench_parse("relay-climb", "full"),
     "a delegate past the first edge": _delegated_parse,
     "x over two windows": lambda: island_parse(
         _x_tables(), "a" * (2 * ISLAND_WINDOW), 0, "x", IslandPolicy()

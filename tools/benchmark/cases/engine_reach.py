@@ -1,11 +1,11 @@
-"""The engine-reach grammars — three shapes, three routes to the gated engine.
+"""The engine-reach grammars — three routes to the gated engine, and the
+multi-arm fold that took over the shapes which used to reach it.
 
-Each of these is left-recursive in a way the left-recursion fold REFUSES — TWO
-recursive arms, whose iterations land flat in one sink so which arm each one
-matched is not recoverable (a count says how many, not which) — so
-the predictive path cannot run the rule and something else must. Which
-something else is the point, and it differs by where the refused rule sits and
-by what follows it:
+**The relay rows reach the engine.** Each is left-recursive INDIRECTLY, through a
+relay rule ``more ::= item`` the recursive arms do not consist of entirely. The
+left-recursion fold takes DIRECT left recursion only, so the predictive path
+cannot run the rule and something else must. Which something else is the
+point, and it differs by where the refused rule sits and by what follows it:
 
 * a refused START rule has no enclosing clone to splice into, so the product
   parses the whole document on the gated engine;
@@ -14,24 +14,70 @@ by what follows it:
 * and a climbing island either answers or refuses, which is a different event
   again.
 
+That indirection is the property every relay row leans on: a fold that learned
+to read through a relay rule would take them all, and the counters pinned in
+`tests/integration/lexic/parity/test_engine_reach.py` would fail. It is also
+why the relay rows carry no ANTLR seat: ANTLR rewrites direct left recursion
+only, and refuses the indirect kind.
+
+**The direct rows are the same three languages, written directly.** They reached
+the engine while the fold refused two recursive arms. It now takes several, one
+character choosing between them, so they run predictively, and their timings —
+same grammars, same corpora, same competitors — price that.
+
 Kept apart from the timing roster's languages because they are not languages
 anyone would write: each is the smallest grammar that exercises one route.
-Their rows live beside the rest in `grammars.py`, and
-`tests/integration/lexic/parity/test_engine_reach.py` asserts the counter each
-one exists to hold.
+Their rows live beside the rest in `grammars.py`.
 """
 
 from __future__ import annotations
 
 START_FALLBACK = """root ::= root "a" | root "b" | "a"
 """
+"""The START rule folded over two recursive arms: the whole document on the
+predictive path.
+
+``a`` and ``b`` each begin one β, so the next character says which arm an
+iteration takes and the fold builds each through its own arm. This row reached
+the whole-parse fallback while the fold refused two arms; its route witness is
+now `RELAY_FALLBACK`, and this row prices the fold against the same corpus and
+competitors."""
+
+
+INTERIOR_EXACT = """root ::= item nl
+item ::= item "a" | item "b" | "a"
+nl ::= "\\n"
+"""
+"""An INTERIOR rule folded over two recursive arms, followed by a newline.
+
+It was the exact-width island while the fold refused two arms; its route witness
+is now `RELAY_EXACT`. The sample matches `interior-climb` unit for unit, so the
+two direct rows read against each other with nothing else differing."""
+
+
+INTERIOR_CLIMB = """root ::= item tail
+item ::= item "a" | item "b" | "z"
+tail ::= "zz\\n"
+"""
+"""An INTERIOR rule folded over two recursive arms, whose own alphabet holds
+its continuation's first character.
+
+It was the climbing island while the fold refused two arms. Folded, the
+predictive descent settles each iteration by the next character and stops at
+the ``zz`` the arms cannot start, so no window is climbed at all. Its route
+witness is now `RELAY_CLIMB`, which carries the same sample, so the pair prices
+the fold against the climb it replaced."""
+
+
+RELAY_FALLBACK = """root ::= more "a" | more "b" | "a"
+more ::= root
+"""
 """The WHOLE-PARSE fallback witness: the product's own route to Earley.
 
-Two recursive arms, so the left-recursion fold refuses the rule — it can count
-iterations but not tell which arm each took — and the predictive path raises.
-The refused rule is the START rule, so there is no enclosing clone to splice
-into and no island is built: the product catches the failure and parses the
-document whole on Earley.
+Left-recursive through the relay ``more``, so the fold refuses the rule and the
+predictive path raises. The refused rule is the START rule, so there is no
+enclosing clone to splice into and no island is built: the product catches the
+failure and parses the document whole on Earley.
 
 Pinned: ``island_parse`` 0, ``earley_model`` 1. Reaching the gated engine by
 the PRODUCT's own decision is a different event from an island splice, and this
@@ -43,36 +89,38 @@ routes are priced over the same amount of text and the family's costs can be
 read against each other."""
 
 
-INTERIOR_EXACT = """root ::= item nl
-item ::= item "a" | item "b" | "a"
+RELAY_EXACT = """root ::= item nl
+item ::= more "a" | more "b" | "a"
+more ::= item
 nl ::= "\\n"
 """
-"""The EXACT-width island: the same refused recursion, one sub-parse.
+"""The EXACT-width island: the relayed recursion, one sub-parse.
 
 The island's alphabet is ``a`` and ``b``, its continuation a newline, so
 `IslandContinuations.bounds` proves the island cannot derive a character of its
-own continuation and hands the sub-parse an exact width. One
-``island_run``, no doubling, and the whole-parse fallback never runs.
+own continuation and hands the sub-parse an exact width. One window, no growth,
+and the whole-parse fallback never runs.
 
-Pinned: ``island_parse`` 1, one window (``island_run`` 1, no growth), an exact ``policy.window``,
-``earley_model`` 0.
+Pinned: ``island_parse`` 1, one window (``island_run`` 1, no growth), an exact
+``policy.window``, ``earley_model`` 0.
 
 One sub-parse at a proved width costs the same however long the island is, so
 the witness asks for no particular size either. The sample matches
-`interior-climb` unit for unit, because the two exist to be read against each
+`relay-climb` unit for unit, because the two exist to be read against each
 other and a difference in length would be a second variable."""
 
 
-INTERIOR_CLIMB = """root ::= item tail
-item ::= item "a" | item "b" | "z"
+RELAY_CLIMB = """root ::= item tail
+item ::= more "a" | more "b" | "z"
+more ::= item
 tail ::= "zz\\n"
 """
 """The CLIMBING island: `island_parse`'s doubling loop, covered.
 
-Identical to `interior-exact` but for one thing: the island's alphabet contains
+Identical to `relay-exact` but for one thing: the island's alphabet contains
 ``z``, which is its continuation's first character, so no exact width is
 provable and the window must climb — 256, 512, 1024 … until the chart stops
-extending at the edge. The island still ANSWERS rather than falling back,
+reaching past the window. The island still ANSWERS rather than falling back,
 because every proper prefix is followed by an ``a`` that the tail refuses, so
 exactly one end composes.
 
@@ -89,13 +137,10 @@ document still climbs — the window only stops doubling once it covers what is
 left — but it climbs fewer times, and a row one doubling away from covering its
 document stops witnessing the moment the initial window widens. This sample
 climbs five times as shipped and four if that window doubles, so the loop is
-still exercised after a change to the constant rather than only before it.
+still exercised after a change to the constant rather than only before it, and
+the timing matrix prices a climb that grows one chart (`resume.WindowKernel`).
 
-A climb grows one chart (`resume.WindowKernel`), so each width scans only the
-characters it adds: the row costs about what `interior-exact` does, plus a
-growth step per width. What the pair still prices is the climb's own overhead.
-
-**This row and `interior-exact` differ in exactly one property: whether the
+**This row and `relay-exact` differ in exactly one property: whether the
 island's alphabet contains its continuation's first character.** That is what
 decides exact against climbing, both carry the same number of units, so the
 pair PRICES the climb. A widening of the continuation analysis shows up as this
@@ -103,19 +148,20 @@ row turning into that one, which is the shape to look for."""
 
 
 INTERIOR_DELEGATE = """root ::= item nl
-item ::= item "a" | item "b" | word
+item ::= more "a" | more "b" | word
+more ::= item
 word ::= [c-z]+
 nl ::= "\\n"
 """
 """The DELEGATING island: a sub-parse that hands an interior rule to a clone.
 
-Two recursive arms, so the fold still refuses and ``item`` is an island. What
-changes is the BASE arm: it names ``word``, a conflict-free rule whose ``+``
-loop clears the delegation floor, so the island's sub-parse carries a delegates
-table and completes ``word`` through the delegated path — the payload injected
-and filed as a :class:`PayloadLeaf` family — instead of walking it on the
-chart. The witnesses above build their islands over a lone ``"a"``, below that
-floor, so no roster kernel ever holds a delegate.
+Left-recursive through the relay ``more``, so the fold refuses and ``item`` is
+an island. What changes is the BASE arm: it names ``word``, a conflict-free rule
+whose ``+`` loop clears the delegation floor, so the island's sub-parse carries
+a delegates table and completes ``word`` through the delegated path — the
+payload injected and filed as a :class:`PayloadLeaf` family — instead of walking
+it on the chart. The relay rows build their islands over a lone ``"a"``, below
+that floor, so no roster kernel ever holds a delegate.
 
 ``word``'s alphabet stops short of ``a``, ``b`` and the newline, so nothing that
 follows a word can be read as more of it and no ambiguity is manufactured.

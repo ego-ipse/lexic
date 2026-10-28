@@ -61,6 +61,9 @@ _ALL = frozenset(
     }
 )
 
+_ANTLR = frozenset({"antlr", "antlr-lex", "antlr-py", "antlr-py-lex"})
+"""The ANTLR seats, which rewrite DIRECT left recursion only."""
+
 EXPECTED: dict[str, frozenset[str]] = {
     "arithmetic": _ALL,
     "csv": _ALL,
@@ -161,6 +164,20 @@ EXPECTED: dict[str, frozenset[str]] = {
     - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
     "interior-climb": _ALL
     - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    # The same three languages written through a relay rule, so the left
+    # recursion is INDIRECT: ANTLR rewrites direct left recursion only and
+    # refuses these, beside the PEG and pyparsing seats above. That is an
+    # expressiveness difference between the tools, not a suppression — the
+    # direct rows carry every one of their seats.
+    "relay-fallback": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
+    "relay-exact": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
+    "relay-climb": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width

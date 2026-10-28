@@ -1,5 +1,10 @@
 # Log
 
+## The fold takes several recursive arms (2026-10-28)
+
+`decisions.md` records how a several-armed fold knows which arm each iteration
+took, why one character must choose, and the bench's direct and relay rows.
+
 ## One route reader, three readings (2026-10-28)
 
 `parallel-parsing.md` records that `read_route` serves every route under the
