@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     all_clones,
+    check_entry_shape,
     clone_arms,
     no_fast_construction,
     vstr_model,
@@ -606,3 +607,4 @@ def optimize_program(
         _specialize_leaf_refs(clone)
     for clone in clones:
         mark_entry(clone)
+        check_entry_shape(clone)

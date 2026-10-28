@@ -448,8 +448,15 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
 
 
 def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
-    """Every clone reachable from ``roots``, groups and attempt entries'
-    sub-clones included (worklist walk).
+    """Every clone reachable from ``roots`` (worklist walk): through every
+    clone-valued arm payload, whatever its op code, and through every landing
+    target (:func:`landing_targets`: a dispatch clone's targets, an attempt
+    clone's entry sub-clones).
+
+    Whatever the op code: call specialisation rewrites an exactly-once group's
+    ``OP_GRP`` to ``OP_REF1`` and later codes, and a walk that followed
+    ``OP_GRP`` alone stopped seeing such a group once the program was
+    optimised — a sub-run root inside one would have stayed unmarked.
 
     :param roots: The clones to start from.
     :returns: Every reachable clone, each once.
@@ -463,12 +470,9 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
+        work.extend(landing_targets(clone))
         for arm in clone_arms(clone):
-            for kind, payload in zip(arm.kinds, arm.payloads):
-                if kind == OP_GRP:
-                    work.append(payload)
+            work.extend(p for p in arm.payloads if isinstance(p, FlatClone))
     return out
 
 
@@ -501,6 +505,33 @@ def mark_sub_roots(roots: list[FlatClone]) -> None:
         if not clone.sub_root:
             clone.sub_root = True
             work.extend(landing_targets(clone))
+
+
+def check_entry_shape(clone: FlatClone) -> None:
+    """Refuse a clone whose entry is more than one shape.
+
+    A dispatch clone is chased, and the chase reads its own selection, so it
+    may carry a wide one (the gbnf self-grammar's ``cc-neg`` does): every other
+    shape is its target's. Any other clone is at most one of an attempt, a
+    gated selection (wide, or a struct gate) and a leaf.
+
+    :raises EngineInvariantError: Naming the clone and its shapes.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        return
+    shapes = [
+        name
+        for name, has in (
+            ("attempt", clone.attempt is not None),
+            ("gated", clone.wide_selectors is not None or clone.struct_arm is not None),
+            ("leaf", bool(clone.leaf)),
+        )
+        if has
+    ]
+    if len(shapes) > 1:
+        raise EngineInvariantError(
+            f"clone {clone.name!r} enters as {shapes}: at most one is one entry"
+        )
 
 
 def lands_on(clone: FlatClone, target: FlatClone) -> bool:

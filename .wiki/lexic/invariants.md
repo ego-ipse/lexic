@@ -136,6 +136,23 @@ from that split through every split since (`Level.done` freezes each frame as
 it completes); a split whose frames both rolled back is passed over for the
 next one both took.
 
+## One clone walk, and it is complete
+
+`all_clones` is the one walk over a compiled program's clones: it follows every
+clone-valued arm payload, whatever its op code, and every landing target
+(dispatch targets, attempt entries). It used to follow `OP_GRP` only, and call
+specialisation rewrites an exactly-once group to `OP_REF1`, so after
+optimisation such a group went unwalked. No root was missed (every such group
+held stop-gated loops), but `mark_sub_roots` reads this walk, so a group
+carrying an attempt-gated item would have kept `sub_root` unset. A test pins
+the walk equal to a reflective walk over every clone-valued slot, on every
+bench row.
+
+A clone also enters as at most one shape, checked by `check_entry_shape` after
+`mark_entry`: an attempt, a gated selection (wide or a struct gate), or a leaf.
+A dispatch clone is exempt, because the chase reads its own selection; the gbnf
+self-grammar's `cc-neg` is a dispatch clone with a wide selection.
+
 ## What these invariants mean in practice
 
 - You cannot add a new atom type without updating every open dispatch table it touches (`codegen/binding.py`, `codegen/model_emitter.py`, each flavour's emit `actions`, its `Reducer`).

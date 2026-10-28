@@ -2828,3 +2828,10 @@ json witnesses.
 `decisions.md` adds the live-set entry and marks the lockstep, the guess rule
 and the rank's re-drive superseded; `invariants.md`'s nesting section now
 states the set's bounds and that nothing in a set guesses.
+
+## One complete clone walk; one entry shape per clone (2026-10-28)
+
+`invariants.md`: `all_clones` follows every clone-valued payload and landing
+target, so `mark_sub_roots` sees groups behind `OP_REF1`; `check_entry_shape`
+holds attempt, gated selection and leaf mutually exclusive, a dispatch clone
+exempt.

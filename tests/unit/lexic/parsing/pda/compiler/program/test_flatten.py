@@ -19,13 +19,19 @@ reached through ``module._name`` attribute access, matching
 
 from __future__ import annotations
 
+import pytest
+
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import BIND_MODES
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
+    all_clones,
+    check_entry_shape,
     lands_on,
+    mark_sub_roots,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
@@ -34,6 +40,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
+    GATE_ATTEMPT,
     GATE_KWIN,
     GATE_STOP,
     HI_UNBOUNDED,
@@ -56,7 +63,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     TERMINAL_OPS,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
-from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_clone
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tools.benchmark.cases.grammars import BENCHES
 
 
 def test_op_codes_are_pairwise_distinct():
@@ -215,3 +223,150 @@ def test_a_clone_lands_where_its_dispatch_and_attempt_hops_reach():
     assert not lands_on(outer, plain)
     assert lands_on(attempt, plain) and not lands_on(attempt, deep)
     assert not lands_on(looped, deep)
+
+
+# ── one complete walk: a root behind an exactly-once group is marked ────────
+
+
+def _rule(name: str, *items: tuple[int, int, object], **lanes: object) -> FlatClone:
+    """A one-arm clone whose arm holds ``items`` as ``(kind, gate, payload)``."""
+    arm = flat_arm(
+        len(items),
+        kinds=tuple(kind for kind, _gate, _payload in items),
+        gate_kinds=tuple(gate for _kind, gate, _payload in items),
+        payloads=tuple(payload for _kind, _gate, payload in items),
+    )
+    fields: dict[str, object] = {
+        "name": name,
+        "attempt": None,
+        "wide_selectors": None,
+        "struct_arm": None,
+        "default": None,
+        "leaf": False,
+        "selectors": ((frozenset("x"), False, arm),),
+    }
+    fields.update(lanes)
+    mode = fields.pop("mode", 0)
+    clone = flat_clone(mode if isinstance(mode, int) else 0)
+    for lane, value in fields.items():
+        setattr(clone, lane, value)
+    return clone
+
+
+@pytest.mark.parametrize("depth", [1, 2], ids=["one-group-deep", "two-groups-deep"])
+def test_a_root_behind_an_exactly_once_group_is_marked(depth: int) -> None:
+    """Call specialisation rewrites an exactly-once group to ``OP_REF1``; the
+    walk follows it, so an attempt-gated loop inside one — however deep —
+    still marks its payload a sub-run root."""
+    target = _rule("t")
+    holder = _rule("", (OP_REF, GATE_ATTEMPT, target))
+    for _ in range(depth - 1):
+        holder = _rule("", (OP_REF1, 0, holder))
+    mark_sub_roots([_rule("s", (OP_REF1, 0, holder))])
+    assert target.sub_root
+
+
+def test_an_attempt_clones_entries_behind_a_group_are_marked_where_it_forks() -> None:
+    """An attempt clone behind an exactly-once group, beside an attempt-gated
+    loop elsewhere: its entries are roots, and the walk reaches them."""
+    entry = _rule("e")
+    group = _rule(
+        "",
+        (OP_REF, GATE_STOP, _rule("t")),
+        attempt=(None, ((None, False, None, None, entry),)),
+    )
+    mark_sub_roots(
+        [_rule("s", (OP_REF1, 0, group), (OP_REF, GATE_ATTEMPT, _rule("u")))]
+    )
+    assert entry.sub_root
+
+
+def _reachable(start: object) -> dict[int, FlatClone]:
+    """Every clone reachable through ANY slot of any clone or arm — the walk a
+    complete ``all_clones`` must equal, read off the objects themselves."""
+    found: dict[int, FlatClone] = {}
+    seen: set[int] = set()
+    work = [start]
+    while work:
+        item = work.pop()
+        if isinstance(item, (tuple, list, frozenset)):
+            work.extend(item)
+            continue
+        if not isinstance(item, (FlatClone, FlatArm)) or id(item) in seen:
+            arms = getattr(item, "arms", None)
+            if arms is not None and id(item) not in seen:
+                seen.add(id(item))
+                work.extend(arms)
+            continue
+        seen.add(id(item))
+        if isinstance(item, FlatClone):
+            found[id(item)] = item
+        for cls in type(item).__mro__:
+            for slot in vars(cls).get("__slots__", ()):
+                if hasattr(item, slot):
+                    work.append(getattr(item, slot))
+    return found
+
+
+@pytest.mark.parametrize("name", [bench.name for bench in BENCHES])
+def test_all_clones_reaches_every_clone_the_program_holds(name: str) -> None:
+    """The one walk is complete: from the start clone it visits exactly the
+    clones any slot of the program reaches — groups behind ``OP_REF1``,
+    dispatch targets and attempt entries included."""
+    tables = next(
+        bench for bench in BENCHES if bench.name == name
+    ).compiled.pda_tables()
+    start = tables.program.start
+    if not isinstance(start, FlatClone):
+        pytest.skip("an islanded start holds no clone")
+    walked = {id(clone) for clone in all_clones([start])}
+    assert walked == set(_reachable(start))
+
+
+# ── one entry shape per clone ───────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("lanes", "refused"),
+    [
+        ({"leaf": True}, False),
+        ({"attempt": (None, ())}, False),
+        ({"struct_arm": object()}, False),
+        ({"attempt": (None, ()), "leaf": True}, True),
+        ({"wide_selectors": object(), "leaf": True}, True),
+        ({"mode": BUILD_DISPATCH, "wide_selectors": object()}, False),
+    ],
+    ids=[
+        "leaf",
+        "attempt",
+        "gated",
+        "attempt-and-leaf",
+        "gated-and-leaf",
+        "dispatch-and-wide",
+    ],
+)
+def test_a_clone_enters_as_at_most_one_shape(
+    lanes: dict[str, object], refused: bool
+) -> None:
+    """Attempt, gated selection and leaf exclude each other; a dispatch clone
+    is exempt, its own selection read by the chase."""
+    clone = _rule("c", **lanes)
+    if refused:
+        with pytest.raises(EngineInvariantError, match="at most one"):
+            check_entry_shape(clone)
+    else:
+        check_entry_shape(clone)
+
+
+def test_the_gbnf_self_grammars_cc_neg_is_a_dispatch_clone_with_a_wide_selection() -> (
+    None
+):
+    """The witness for the dispatch exemption: compiled, ``cc-neg`` is chased
+    and carries a wide selection of its own, and passes the check."""
+    tables = next(b for b in BENCHES if b.name == "gbnf-meta").compiled.pda_tables()
+    cc_neg = [c for c in all_clones([tables.program.start]) if c.name == "cc-neg"]
+    assert cc_neg and all(
+        c.mode == BUILD_DISPATCH and c.wide_selectors is not None for c in cc_neg
+    )
+    for clone in cc_neg:
+        check_entry_shape(clone)
