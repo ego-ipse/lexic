@@ -540,14 +540,23 @@ def test_split_model_settles_too_few_workers_before_entering_poollease(
     Monkeypatching ``PoolLease.__enter__`` to raise makes "never entered"
     loud: if a future change moved the ``workers < 2`` guard to after the
     lease, this fails outright instead of merely deadlocking under load.
+
+    The patch covers ``split_model`` and nothing else. Compiling grammar TEXT
+    runs the self-grammar's own fold, which takes a lease of its own wherever
+    the policy grants a few workers and the grammar offers twice as many
+    units — so the compile runs first, cold and on a four-worker policy, the
+    case that tripped the patch when it ran inside it (a 4-core runner, this
+    test first in its worker). The patch raises on ANY thread: a split_model
+    that handed the lease to a worker thread would still be taking one.
     """
+    monkeypatch.setattr(policy_module, "available_workers", lambda: 4)
+    compiled = compile_text(LEAD_RULE, cache_key="obligation-b-cold-four-workers")
+    grammar, binding = compiled.codegen_grammar, compiled.product
 
     def _entered_the_lease(self):
         raise AssertionError("PoolLease entered despite workers < 2")
 
     monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
-    compiled = compile_text(LEAD_RULE)
-    grammar, binding = compiled.codegen_grammar, compiled.product
     assert split_model(parse_model, grammar, Request(sample_doc(), binding), 1) is None
 
 

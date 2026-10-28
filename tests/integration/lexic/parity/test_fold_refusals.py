@@ -174,8 +174,11 @@ def test_the_poisoned_run_anchor_refuses_correctly_from_inside_a_parallel_worker
     encountered')``, raised via ``_splice_run``'s sub-parse from inside
     that one worker.
     """
-    entered = count_pool_entries(monkeypatch)
+    # Compiled before the count starts: compiling grammar text folds the
+    # self-grammar, which may take a lease of its own on a machine with few
+    # cores and would satisfy the count with no partition of the fold under test.
     grammar = compile_text(_POISON_RUN_GRAMMAR, cache_key="fold-refusal-poison-run")
+    entered = count_pool_entries(monkeypatch)
     text = "abdc\n" * 15 + "ab!c\n" + "abdc\n" * 15
     with pytest.raises(UnsupportedConstructError, match="poisoned bang encountered"):
         grammar.reduce(text, _poison_run_reducer(), cores=4)
