@@ -1,5 +1,11 @@
 # Log
 
+## A shared closer closes each of its pairs (2026-10-28)
+
+`parallel-parsing.md` records that a frame waits for its own pair's closer,
+so two pairs sharing one closer each close their own frame, and why `closes`
+holds the shared one-character objects.
+
 ## No character plays two pair roles (2026-10-28)
 
 `parallel-parsing.md` records why `standing_pairs` drops a pair whose

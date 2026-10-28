@@ -24,10 +24,13 @@ from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from tests.split_helpers import (
     CLOSER_SEPARATOR_UNREAD,
+    SHARED_CLOSER,
     TWO_ROLE_PAIRS,
     assert_parallel_matches_sequential,
     closer_separator_document,
     engages,
+    shared_closer_document,
+    shared_closer_source,
     two_role_document,
     two_role_source,
 )
@@ -812,4 +815,30 @@ def test_two_role_shapes_keep_the_sequential_model(case: int, cores: int) -> Non
     compiled = compile_text(
         two_role_source(shape), cache_key=f"adv-faith-two-role-{shape}"
     )
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+# ── two pairs sharing one closer ──────────────────────────────────────────
+
+
+_SHARED_CLOSER_RUNS = {
+    "long-a": (("(", 4000), ("[", 2)),
+    "long-b": (("[", 4000), ("(", 2)),
+    "long-a-and-b": (("(", 4000), ("[", 4000), ("(", 2)),
+}
+"""Runs of ``(opener, words)``: the long run alone, under either opener, and
+both long. Before both pairs kept their closer, the long ``(`` run was lost."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("runs", _SHARED_CLOSER_RUNS)
+@pytest.mark.parametrize("shape", SHARED_CLOSER)
+def test_a_run_closed_by_a_shared_closer_splits(shape: str, runs: str, cores: int):
+    """A long ``(`` run splits as a long ``[`` run does, though both close on
+    ``)``, and the split builds the sequential model."""
+    compiled = compile_text(
+        shared_closer_source(shape), cache_key=f"adv-faith-shared-closer-{shape}"
+    )
+    text = shared_closer_document(shape, _SHARED_CLOSER_RUNS[runs])
+    assert engages(compiled, text, cores)
     assert_parallel_matches_sequential(compiled, text, cores)

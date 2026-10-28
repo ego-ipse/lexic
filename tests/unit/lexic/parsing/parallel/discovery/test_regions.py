@@ -38,7 +38,9 @@ from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import (
     CLOSER_SEPARATOR_UNREAD,
+    SHARED_CLOSER,
     closer_separator_document,
+    shared_closer_source,
     two_role_source,
 )
 
@@ -166,6 +168,42 @@ def test_an_opener_two_pairs_claim_derives_neither():
     assert _pairs_of(source) == {}
 
 
+@pytest.mark.parametrize("shape", SHARED_CLOSER)
+def test_two_pairs_sharing_a_closer_both_stand(shape: str):
+    """``(`` and ``[`` both close on ``)``: the closer keeps BOTH openers."""
+    vocab = scan_vocabulary(compile_text(shared_closer_source(shape)).grammar)
+    assert {o: vocab.pairs[o] for o in "(["} == {"(": (")", "a"), "[": (")", "b")}
+    assert vocab.closers[")"] == "(["
+
+
+_SHARED_CLOSER_REGIONS = [
+    Region(0, 4, "a", (2,)),
+    Region(6, 10, "b", (8,)),
+    Region(12, 16, "a", (14,)),
+]
+"""``(x;y),[p;q),(r;s)``'s three runs, read off the text by hand."""
+
+
+def test_a_shared_closer_closes_each_pairs_own_frame():
+    """Each ``)`` closes the frame on top, whichever of its openers opened it,
+    so neither ``a`` region is lost to the ``b`` pair."""
+    grammar = compile_text(shared_closer_source("top")).grammar
+    assert find(grammar, "(x;y),[p;q),(r;s)") == _SHARED_CLOSER_REGIONS
+
+
+def test_a_shared_closer_leaves_the_enclosing_frame_to_its_own_closer():
+    """An ``a`` frame left open would swallow the ``}``: the root run closes."""
+    grammar = compile_text(shared_closer_source("wrapped")).grammar
+    shifted = [
+        Region(r.opener + 1, r.closer + 1, r.rule, (r.marks[0] + 1,))
+        for r in _SHARED_CLOSER_REGIONS
+    ]
+    assert find(grammar, "{(x;y),[p;q),(r;s)}") == [
+        *shifted,
+        Region(0, 18, "root", (6, 12)),
+    ]
+
+
 # ── find ──────────────────────────────────────────────────────────────────
 
 
@@ -280,7 +318,7 @@ def _vocab(
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert walk_roles(_vocab()) == Roles("", (), (), 0, 0)
+    assert walk_roles(_vocab()) == Roles("", (), (), (), 0, 0)
 
 
 def test_names_is_padded_across_the_skip_section() -> None:
@@ -294,6 +332,20 @@ def test_names_is_padded_across_the_skip_section() -> None:
     assert roles.names[: roles.n_skip] == ("",)
     assert roles.skips == (skip,)
     assert roles.names[roles.n_skip] == "paren"  # the opener right after it
+    assert roles.closes[: roles.n_skip] == ("",)
+    assert roles.closes[roles.n_skip] == ")"
+
+
+def test_every_frame_of_a_shared_closer_waits_for_it() -> None:
+    """``(`` and ``[`` both close on ``)``: each opener's frame waits for
+    ``)``, and nothing past the openers waits for anything."""
+    vocab = scan_vocabulary(compile_text(shared_closer_source("top")).grammar)
+    roles = walk_roles(vocab)
+    waiting = {roles.spelling[at]: closer for at, closer in enumerate(roles.closes)}
+    assert {char: closer for char, closer in waiting.items() if closer} == {
+        "(": ")",
+        "[": ")",
+    }
 
 
 # ── merge_windows ─────────────────────────────────────────────────────────
@@ -302,23 +354,37 @@ def test_names_is_padded_across_the_skip_section() -> None:
 def test_an_opener_spanning_three_windows_closes_with_its_middle_mark() -> None:
     """``R_OPEN`` in window 1, ``R_MARK`` in window 2, ``R_CLOSE`` in window
     3 — the replay threads all three through the one real stack."""
-    frame = (5, "(", [], "paren")
-    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, "(")]]
+    frame = (5, ")", [], "paren")
+    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, ")")]]
     assert merge_windows(chunks, 0) == [Region(5, 15, "paren", (10,))]
 
 
 def test_a_mismatched_closer_is_dropped() -> None:
-    """A closer the frame on top does not want records nothing: no closer is
-    also a separator (:func:`scan_vocabulary`), so it has no other role."""
+    """A closer the frame on top does not wait for records nothing: no closer
+    is also a separator (:func:`scan_vocabulary`), so it has no other role."""
     chunks = [
         [
-            (R_OPEN, 1, (1, "[", [], "brak")),
+            (R_OPEN, 1, (1, "]", [], "brak")),
             (R_MARK, 3),
-            (R_CLOSE, 5, "("),  # wrong opener: dropped
-            (R_CLOSE, 9, "["),
+            (R_CLOSE, 5, ")"),  # not the frame's closer: dropped
+            (R_CLOSE, 9, "]"),
         ]
     ]
     assert merge_windows(chunks, 0) == [Region(1, 9, "brak", (3,))]
+
+
+def test_an_underflowed_shared_closer_closes_either_pairs_frame() -> None:
+    """Frames of two pairs sharing ``)`` both wait for it, so the one
+    underflowed closer closes whichever opened the frame on top."""
+    chunks = [
+        [(R_OPEN, 0, (0, ")", [], "a")), (R_MARK, 2)],
+        [(R_CLOSE, 4, ")"), (R_OPEN, 6, (6, ")", [], "b")), (R_MARK, 8)],
+        [(R_CLOSE, 10, ")")],
+    ]
+    assert merge_windows(chunks, 0) == [
+        Region(0, 4, "a", (2,)),
+        Region(6, 10, "b", (8,)),
+    ]
 
 
 def test_r_done_regions_from_two_windows_keep_document_order() -> None:

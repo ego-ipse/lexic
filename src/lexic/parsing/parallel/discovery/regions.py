@@ -185,7 +185,8 @@ class Vocab(NamedTuple):
     """What the sweep watches for, and what each character means to it.
 
     :ivar pairs: opener → ``(closer, rule)`` for the tracked bracket pairs.
-    :ivar closers: closer → its opener.
+    :ivar closers: closer → every opener it closes, each once — two standing
+        pairs may share one closer (``"(" … ")"`` and ``"[" … ")"``).
     :ivar marks: The separator characters.
     :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
         pays one dict miss. A single-character fast path beside it was built
@@ -213,7 +214,8 @@ class Roles(NamedTuple):
     an interior's lead character for the skips — so the four tables concatenate
     into a single spelling and ``str.find`` classifies a character in one pass.
     Which ROLE it found is which section the index landed in, and the same
-    index reads :attr:`names` (or :attr:`skips`) for whatever that role needs.
+    index reads :attr:`names`, :attr:`closes` (or :attr:`skips`) for whatever
+    that role needs.
 
     **No character holds two roles**, so a character is spelled once and its
     one position is its role: the openers key one table and the closers
@@ -230,9 +232,15 @@ class Roles(NamedTuple):
     is also faster serially, so the change does not rest on that explanation
     holding.
 
+    **A frame waits for its own closer.** An opener's frame carries the closer
+    its pair ends on, read off :attr:`closes` at OPEN, and a closer closes the
+    top frame when it is that character. So two pairs sharing one closer
+    (``"(" … ")"`` and ``"[" … ")"``) each close their own frame: keyed by the
+    closer alone, one opener would win and the other's frames never close.
+
     **Closers and marks share a section**, and no boundary separates them,
-    because one test already does: a closer's value is its opener and a mark's
-    is ``""``, so an unmatched closer is simply dropped.
+    because one test already does: a closer's name is non-empty and a mark's is
+    ``""``, so a closer the top frame does not wait for is simply dropped.
 
     :ivar spelling: Every watched character, once: skips, openers, then
         closers and marks together. It is both the classification table and
@@ -241,9 +249,11 @@ class Roles(NamedTuple):
         string, so neither walk tests for ``-1``.
     :ivar skips: Parallel to the skip section, which starts at zero.
     :ivar names: Parallel to the WHOLE spelling — the bracket rule under an
-        opener, the owning opener under a closer, ``""`` under a mark, and
+        opener, the openers it closes under a closer, ``""`` under a mark, and
         ``""`` under the skip section, which is padded so the walk indexes by
         position and never subtracts.
+    :ivar closes: Parallel to the whole spelling like :attr:`names` — the
+        closer an opener's frame waits for, ``""`` everywhere else.
     :ivar n_skip: Where the opener section begins.
     :ivar n_open: Where the closers and marks begin.
     """
@@ -251,12 +261,14 @@ class Roles(NamedTuple):
     spelling: str
     skips: tuple[Skip, ...]
     names: tuple[str, ...]
+    closes: tuple[str, ...]
     n_skip: int
     n_open: int
 
 
 type Frame = tuple[int, str, list[int], str]
-"""One open bracket on the walk's stack: where, which, its marks, its rule.
+"""One open bracket on the walk's stack: where, the closer it waits for, its
+marks, its rule.
 
 The rule travels ON the frame because the index that named it was already in
 hand at OPEN time; re-deriving it at close would be the lookup this spelling
@@ -285,6 +297,14 @@ def walk_roles(vocab: Vocab) -> Roles:
             + tuple(vocab.closers.values())
             + ("",) * len(marks)
         ),
+        # `closer[0]` is the shared one-character object `spelling[pos]` also
+        # hands out (CPython shares those below U+0100), so a close test is an
+        # identity hit: measured 1-1.5% off the window walk at the mt seats.
+        closes=(
+            ("",) * n_skip
+            + tuple(closer[0] for closer, _rule in vocab.pairs.values())
+            + ("",) * (len(vocab.closers) + len(marks))
+        ),
         n_skip=n_skip,
         n_open=n_skip + len(vocab.pairs),
     )
@@ -300,7 +320,9 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
     handed to the skip unconditionally the way the sweep does.
     """
     pairs = pair_rules(grammar)
-    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
+    closers: dict[str, str] = {}
+    for opener, (closer, _rule) in pairs.items():
+        closers[closer] = closers.get(closer, "") + opener
     # No pair character is a mark. A standing pair's closer can still spell a
     # separator, but only at a site the scan never reads (an unreachable rule,
     # or inside an interior the walk skips): a READ separator site spelling it
@@ -369,26 +391,28 @@ def walk_regions(
 
     The tables are aliased into locals before the loop, deliberately: reading
     them off the record inside it measured 10-30% slower across the roster,
-    18% on the grammar that walks the most offsets.
+    18% on the grammar that walks the most offsets. One unpack of the record
+    aliases them all, cheaper than a field read each.
 
     The opening bracket's rule is read at OPEN time, off the index the find
     already produced, and carried on the stack — so closing needs no lookup.
+    The closer the frame waits for is read at OPEN time too, so a closer
+    closes the top frame by comparing itself with it — read back off the
+    spelling, where it is the same object as in :attr:`Roles.closes`.
     """
-    spelling, skips, names = roles.spelling, roles.skips, roles.names
-    n_skip, n_open = roles.n_skip, roles.n_open
+    spelling, skips, names, closes, n_skip, n_open = roles
     found: list[Region] = []
     stack: list[Frame] = []
     skip_to = 0
     for at in offsets:
         if at < skip_to:
             continue  # inside an opaque interior — never read
-        char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.spelling
+        pos = spelling.find(text[at])  # never -1: see Roles.spelling
         if pos < n_skip:
             skip_to = skip_delimited(text, at, skips[pos])
         elif pos < n_open:
-            stack.append((at, char, [], names[pos]))
-        elif stack and stack[-1][1] == names[pos]:
+            stack.append((at, closes[pos], [], names[pos]))
+        elif stack and stack[-1][1] == spelling[pos]:
             if stack[-1][2] and at - stack[-1][0] >= min_span:
                 found.append(_region(stack.pop(), at))
             else:
@@ -428,8 +452,8 @@ one. Everything it can settle alone is settled; everything else becomes an
 ordered event the merge replays against the one real stack.
 
 ``R_DONE`` is a region opened and closed inside the window — already final.
-``R_CLOSE`` is a closer that underflowed, carrying the opener it wants, which
-is the one thing the merge would otherwise have to look up. ``R_MARK`` is a
+``R_CLOSE`` is a closer that underflowed, carrying its character, which the
+merge compares with the closer its top frame waits for. ``R_MARK`` is a
 separator at the underflow level. ``R_OPEN`` is an opener still standing at
 the window's end, whose mark list later windows keep appending to.
 """
@@ -525,15 +549,14 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
     that has one, so ``n_skip`` is zero here and the opener section starts at
     the first position.
     """
-    spelling, names, n_open = roles.spelling, roles.names, roles.n_open
+    spelling, _skips, names, closes, _n_skip, n_open = roles
     events: list[tuple] = []
     stack: list[Frame] = []
-    for at in _sweep_window(text, roles.spelling, lo, hi):
-        char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.spelling
+    for at in _sweep_window(text, spelling, lo, hi):
+        pos = spelling.find(text[at])  # never -1: see Roles.spelling
         if pos < n_open:
-            stack.append((at, char, [], names[pos]))
-        elif stack and stack[-1][1] == names[pos]:
+            stack.append((at, closes[pos], [], names[pos]))
+        elif stack and stack[-1][1] == spelling[pos]:
             if stack[-1][2] and at - stack[-1][0] >= min_span:
                 events.append((R_DONE, at, _region(stack.pop(), at)))
             else:
@@ -541,7 +564,9 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
         elif stack and not names[pos]:
             stack[-1][2].append(at)  # a mark; a closer nothing wanted is dropped
         elif not stack:
-            events.append((R_MARK, at) if not names[pos] else (R_CLOSE, at, names[pos]))
+            events.append(
+                (R_MARK, at) if not names[pos] else (R_CLOSE, at, spelling[pos])
+            )
     # Already in document order, and the residual openers belong at the end:
     # the loop appends as it sweeps, which is ascending, and every frame still
     # on the stack opened before the window's last event and closes after it.

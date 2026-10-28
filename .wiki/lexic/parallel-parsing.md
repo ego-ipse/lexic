@@ -203,7 +203,21 @@ out skips, openers, then closers and marks together, and **each character is
 spelled once**: no derived vocabulary gives a character two roles (below), so
 its one position is its role. Closers
 and marks share a section because one test already separates them — a closer's
-value is its opener, a mark's is `""` — and an unmatched closer is dropped.
+name is the openers it closes, a mark's is `""` — and a closer the top frame
+does not wait for is dropped.
+
+**A frame waits for its own closer.** Two standing pairs may share a closer —
+`a ::= "(" w (";" w)* ")"` and `b ::= "[" w (";" w)* ")"` — so an opener's
+frame carries the closer its pair ends on, read off `Roles.closes` at open, and
+a closer closes the top frame when it is that character; a window's underflowed
+closer carries its character into the merge for the same test. Keyed by the
+closer alone, one opener would win and no `(` frame would close:
+`(x;y),[p;q),(r;s)` would find only the `[` run, a long `(` run would never
+split, and the frame enclosing it would be swallowed with it. A lost region is
+a lost split, not a wrong model. Depth counting is unaffected: every closer
+counts one down on one counter. The close test reads the closer back off the
+spelling, and `closes` holds the same shared one-character objects, so the test
+is an identity hit, which measured 1–1.5% off the window walk at the mt seats.
 
 **No closer is a mark.** `scan_vocabulary` removes every pair character from
 the marks. A standing pair's closer can still spell a separator, but only at a
@@ -211,7 +225,7 @@ site the scan never reads — a rule nothing reaches, or the inside of an
 interior the walk skips — because a read separator site is no delimiter of
 the pair's arm, and `pair_rules` would have let the pair fall. So the mark role
 is never met, the walks and the window merge carry no closer-as-mark branch,
-and a window's underflowed closer carries only the opener it wants.
+and a window's underflowed closer carries only its own character.
 
 **No character plays two pair roles.** `standing_pairs` drops a pair whose
 character also delimits another standing pair in the other role — `|` in
@@ -249,8 +263,8 @@ bench, the ground truth and the shapes that once broke it.
 `par_find` divides a document into arithmetic windows, walks each with a stack
 that may UNDERFLOW, and replays what a window could not settle against one
 stack. Four event kinds carry that: a region opened and closed inside the window
-is already final; a closer that underflowed carries the opener it wants and
-whether it is also a separator; a separator at the underflow level; and an
+is already final; a closer that underflowed carries its character; a
+separator at the underflow level; and an
 opener still standing at the window's end, whose mark list later windows keep
 appending to. The merge is O(windows x depth) — each window contributes at most
 its own residual depth in openers, and every other event settles in constant

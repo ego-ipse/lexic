@@ -29,8 +29,11 @@ from lexic.parsing.parallel.discovery.regions import (
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import (
     CLOSER_SEPARATOR_UNREAD,
+    SHARED_CLOSER,
     TWO_ROLE_PAIRS,
     TWO_ROLE_SHAPES,
+    shared_closer_document,
+    shared_closer_source,
     two_role_source,
 )
 from tools.benchmark.cases.grammars import BENCHES
@@ -81,7 +84,7 @@ def walk_through_dicts(text, offsets, vocab, min_span) -> list[Region]:
     """The walk as it read before the spelling change, kept independent.
 
     The dict form: `char in pairs`, `char in vocab.closers` with the stack-top
-    check, then `char in vocab.marks`, over the offsets an interior leaves
+    frame's own pair closing on it, then `char in vocab.marks`, over the offsets an interior leaves
     behind. The branch ORDER is part of the contract — a character with two
     roles takes the first that claims it, and a closer the stack does not want
     falls through to the mark branch.
@@ -93,7 +96,7 @@ def walk_through_dicts(text, offsets, vocab, min_span) -> list[Region]:
         char = text[at]
         if char in pairs:
             stack.append((at, char, []))
-        elif char in vocab.closers and stack and stack[-1][1] == vocab.closers[char]:
+        elif char in vocab.closers and stack and pairs[stack[-1][1]][0] == char:
             opener, open_char, inside = stack.pop()
             if inside and at - opener >= min_span:
                 found.append(Region(opener, at, pairs[open_char][1], tuple(inside)))
@@ -134,6 +137,18 @@ def test_every_bench_grammar_walks_identically(bench, min_span: int) -> None:
     grammar = bench.compiled.codegen_grammar
     spelled, dicts = both_walks(grammar, bench.corpus, min_span)
     assert spelled == dicts
+
+
+@pytest.mark.parametrize("min_span", MIN_SPANS)
+@pytest.mark.parametrize("shape", SHARED_CLOSER)
+def test_a_shared_closer_walks_identically(shape: str, min_span: int) -> None:
+    """Two pairs closing on one ``)``: the dict form closes a frame on its OWN
+    pair's closer, so every ``(`` run and every ``[`` run is in both answers."""
+    grammar = compile_text(shared_closer_source(shape)).codegen_grammar
+    text = shared_closer_document(shape, [(opener, 30) for opener in "([" * 20])
+    spelled, dicts = both_walks(grammar, text, min_span)
+    assert spelled == dicts
+    assert {region.rule for region in spelled} >= {"a", "b"}
 
 
 def test_the_roster_differential_is_not_vacuous() -> None:
@@ -180,8 +195,9 @@ def test_a_sabotaged_spelling_is_caught() -> None:
 
 def _derived_grammars():
     """Every grammar whose vocabulary the walk is built from here: the bench,
-    the ground truth, and the shapes that once derived a character in two
-    roles (a closer that was also a mark; a closer that opened another pair)."""
+    the ground truth, the shapes that once derived a character in two roles
+    (a closer that was also a mark; a closer that opened another pair), and two
+    pairs sharing one closer, which the spelling holds once."""
     yield from (bench.compiled.codegen_grammar for bench in BENCHES)
     for path in sorted(GROUND_TRUTH.glob("*.*bnf")):
         yield compile_from_path(path).codegen_grammar
@@ -189,6 +205,8 @@ def _derived_grammars():
         yield compile_text(source).codegen_grammar
     for shape in TWO_ROLE_SHAPES:
         yield compile_text(two_role_source(shape)).codegen_grammar
+    for shape in SHARED_CLOSER:
+        yield compile_text(shared_closer_source(shape)).codegen_grammar
 
 
 def test_every_derived_spelling_holds_each_character_once() -> None:

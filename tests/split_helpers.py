@@ -13,6 +13,7 @@ a stale second answer behind.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from threading import Barrier, Event, Thread
 
 from lexic.compile import CompiledGrammar
@@ -205,6 +206,33 @@ sharing the top level's separator."""
 def two_role_source(shape: str) -> str:
     """The grammar text of one ``TWO_ROLE_SHAPES`` entry."""
     return "\n".join(TWO_ROLE_SHAPES[shape]) + "\nword ::= [a-z0-9]+\n"
+
+
+SHARED_CLOSER = {
+    "top": 'root ::= part ("," part)*',
+    "wrapped": 'root ::= "{" part ("," part)* "}"',
+}
+"""Two standing pairs closing on one character: ``a`` opens on ``(`` and ``b``
+on ``[``, and both close on ``)``. One copy: the region walk, the windowed find
+and the split read the same shapes."""
+
+
+def shared_closer_source(shape: str) -> str:
+    """The grammar text of one ``SHARED_CLOSER`` shape."""
+    return (
+        SHARED_CLOSER[shape]
+        + '\npart ::= a | b\na ::= "(" w (";" w)* ")"\n'
+        + 'b ::= "[" w (";" w)* ")"\nw ::= [a-z0-9]+\n'
+    )
+
+
+def shared_closer_document(shape: str, runs: Sequence[tuple[str, int]]) -> str:
+    """One part per ``(opener, words)`` in ``runs``, comma-separated."""
+    body = ",".join(
+        opener + ";".join(f"w{index}" for index in range(words)) + ")"
+        for opener, words in runs
+    )
+    return "{" + body + "}" if shape == "wrapped" else body
 
 
 SETTLE = 5.0

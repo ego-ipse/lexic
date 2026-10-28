@@ -31,6 +31,7 @@ from lexic.parsing.parallel.discovery.regions import (
     scan_vocabulary,
 )
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import shared_closer_document, shared_closer_source
 from tools.benchmark.cases.grammars import BENCHES
 
 SKIPPING_GRAMMARS = ("json.gbnf", "json.abnf")
@@ -168,6 +169,41 @@ def test_one_window_and_many_agree() -> None:
     fixture = compile_text(BRACKETS).codegen_grammar
     text = bracket_document(120)
     assert par_find(fixture, text, 0, 1) == par_find(fixture, text, 0, 9)
+
+
+# ── two pairs sharing one closer ──────────────────────────────────────────
+
+SHARED_RUNS = "([(" * 20
+"""Sixty runs alternating between the two pairs that close on ``)``."""
+
+
+@pytest.mark.parametrize("windows", WINDOWS)
+@pytest.mark.parametrize("min_span", MIN_SPANS)
+def test_a_shared_closer_windows_every_run(min_span: int, windows: int) -> None:
+    """Every ``(`` run and every ``[`` run closes, in the windows as in the
+    walk, and the root run closes after them all."""
+    fixture = compile_text(shared_closer_source("wrapped")).codegen_grammar
+    assert windowed(fixture), "the shared-closer fixture grew an opaque interior"
+    text = shared_closer_document("wrapped", [(opener, 30) for opener in SHARED_RUNS])
+    serial, parallel = both_finds(fixture, text, min_span, windows)
+    assert parallel == serial
+    rules = {"(": "a", "[": "b"}
+    assert [region.rule for region in serial] == [
+        *(rules[opener] for opener in SHARED_RUNS),
+        "root",
+    ]
+
+
+@pytest.mark.parametrize("windows", WINDOWS)
+@pytest.mark.parametrize("seed", range(12))
+def test_ragged_shared_closer_soup_windows_identically(seed: int, windows: int):
+    """Fuzzed soup over both openers, their one closer and the marks."""
+    fixture = compile_text(shared_closer_source("wrapped")).codegen_grammar
+    rng = random.Random(seed)
+    alphabet = ["(", "[", ")", "{", "}", ",", ";", "a", "bb"]
+    text = "".join(rng.choice(alphabet) for _ in range(rng.randint(200, 600)))
+    serial, parallel = both_finds(fixture, text, 0, windows)
+    assert parallel == serial, f"seed {seed}, {windows} windows"
 
 
 # ── the refusal: an opaque interior takes the serial walk ─────────────────
