@@ -1006,9 +1006,11 @@ through the original binding. That is why it is a third source beside
 `plan/routed.py`'s two shapes and not a third way to split.
 
 It does NOT share `routed.py`'s extent arithmetic. A whole-extent terminated
-interior ends at the LAST mark, because its units own their final character; on
-a separated spine that offset is the last OPERATOR, and everything past it is
-the final term. Reusing it would drop that term silently rather than decline.
+interior ends where its enclosing node's tail begins, with every unit's final
+mark inside it, because its units own their final character; a separated spine
+has no such tail, and the offset nearest it is the last OPERATOR, with
+everything past it the final term. Reusing it would drop that term silently
+rather than decline.
 
 **The boundary proof is per character, deliberately.** `rule_spells` answers
 "can spell" for any mark wider than `MARK_ARITY`, so a three-character mark

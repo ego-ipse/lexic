@@ -29,10 +29,14 @@ from lexic.parsing.parallel.stitch.interior import (
     walk_down,
 )
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import assert_parallel_matches_sequential
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
+    TAILED,
+    TAILED_LINE,
     routed_document,
     routed_pieces,
+    tailed_document,
 )
 from tests.unit.lexic.parsing.parallel.stitch.support import recorded_split
 
@@ -407,3 +411,37 @@ def test_a_lead_count_that_does_not_match_the_pieces_declines() -> None:
     """One mark per join, or the fold has no idea what joins what."""
     case = folded_pieces(1200, 4)
     assert fold_spines(list(case.spines), case.leads[:-1], case.step) is None
+
+
+# ── a whole-extent paragraph whose tail is not its last mark ──────────────
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("shape", TAILED)
+def test_a_tailed_paragraph_splits_and_keeps_the_sequential_model(
+    shape: str, cores: int
+) -> None:
+    """Each piece wears the tail after its own last line, the final piece
+    included, so all of them parse and the split builds the sequential model."""
+    compiled = compile_text(TAILED[shape] + TAILED_LINE, cache_key=f"tailed-{shape}")
+    text = tailed_document(shape, 6000)
+    recording, parallel = recorded_split(compiled, text, cores)
+    assert parallel is not None
+    assert len(recording.calls) > 2, "the shell and at least two pieces parsed"
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+@pytest.mark.parametrize("tail", ["", ","])
+@pytest.mark.parametrize("shape", ["dot", "dot-wrapped"])
+def test_a_document_without_its_tail_is_declined_before_any_parse(
+    shape: str, tail: str
+) -> None:
+    """No region is located, so no shell or piece is parsed for the split;
+    the sequential parse is what refuses."""
+    compiled = compile_text(TAILED[shape] + TAILED_LINE, cache_key=f"tailed-{shape}")
+    text = tailed_document(shape, 6000, tail)
+    recording, parallel = recorded_split(compiled, text, 8)
+    assert parallel is None
+    assert recording.calls == []
+    with pytest.raises(UnsupportedConstructError):
+        compiled.parse(text, cores=1)

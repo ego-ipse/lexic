@@ -1,5 +1,11 @@
 # Log
 
+## A whole-extent interior ends where its tail begins (2026-10-28)
+
+`parallel-parsing.md` records that a whole-extent routed interior's run ends at
+its enclosing node's tail rather than its last mark; `decisions.md` restates the
+folded source's reason for its own extent arithmetic in those terms.
+
 ## An island climbs on one chart (2026-10-28)
 
 `decisions.md` records why an island's window grows on one chart instead of

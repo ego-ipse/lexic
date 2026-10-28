@@ -519,8 +519,9 @@ def locate(text: str, plan: RoutedPlan) -> Region | None:
 
     A WHOLE-extent interior is not searched for: it runs from its enclosing
     node's start to that node's own tail, and both are read off the neighbours'
-    fixed widths. The final mark is the tail — the repetition's run ends before
-    it, which is what leaves each piece able to wear one of its own.
+    fixed widths. The run ends where that node's tail begins, which is what
+    leaves each piece able to wear a tail of its own; a document not ending in
+    the tail has no region, so nothing is parsed for it.
     """
     if plan.whole:
         return _whole_region(text, plan)
@@ -546,8 +547,10 @@ def _whole_region(text: str, plan: RoutedPlan) -> Region | None:
         return None
     lo = len(plan.before)
     hi = len(text) - len(plan.after)
-    tail = text.rfind(plan.mark, lo, hi)
-    if tail < lo:
+    # The run ends where the enclosing rule's tail begins. The last mark need
+    # not be the tail: under `para ::= line+ "."` it is the last line's own.
+    tail = hi - len(plan.closing)
+    if tail < lo or not text.startswith(plan.closing, tail):
         return None
     marks = _interior_marks(text, lo - 1, tail, plan.mark)
     return Region(lo - 1, tail, plan.rule, marks)

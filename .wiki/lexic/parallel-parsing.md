@@ -78,6 +78,13 @@ neighbour that varies — `pre{1,2}` spelling `#` or `##` — must decline: read
 as one `#`, a piece whose interior opens with `#` parsed `pre` as two and the
 stitched model lost a character per piece.
 
+**Its run ends where the enclosing node's tail begins**, not at the last mark.
+The two coincide only when the tail is the mark alone (`para ::= line+ "\n"`).
+Under `para ::= line+ "."` the last mark is the last line's own, and a run cut
+there left the final piece without it, so every split declined; under a tail
+beginning with the mark (`"\n\n"`) the last mark is inside the tail. A
+document not ending in the tail has no region, and nothing is parsed for it.
+
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
 same `parallel -> pda` edge `plan/speculation.py` already uses for
