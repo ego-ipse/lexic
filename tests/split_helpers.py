@@ -289,3 +289,16 @@ class FiledDuringRead(dict):
         for key in super().__iter__():
             self[("~filed meanwhile", len(self))] = None
             yield key
+
+
+PAREN_SUM = (
+    "root ::= expr\n"
+    "expr ::= term (addop term)*\n"
+    "term ::= factor (mulop factor)*\n"
+    'factor ::= [0-9]+ | "(" expr ")"\n'
+    'addop ::= "+" | "-"\n'
+    'mulop ::= "*" | "/"\n'
+)
+"""A run separated by a SET of leads inside a bracket: the paren pair's run is
+``term (addop term)*``, led by ``+`` or ``-``, and each term carries ``*`` and
+``/`` of its own. One copy, for the suites that pin the region route over it."""

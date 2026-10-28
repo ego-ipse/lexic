@@ -26,7 +26,7 @@ a grammar whose boundary is already one character keeps the plan it had.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
 from typing import NamedTuple
 
@@ -36,6 +36,7 @@ from lexic.ir import (
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNoneType,
     IrRule,
     IrRuleRef,
 )
@@ -46,6 +47,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     RuleTable,
     exact_text,
     last_charset,
+    literal_char,
     rule_table,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -320,6 +322,57 @@ def _body_leads(
         names.add(found[1])
     lead = names.pop() if len(names) == 1 else ""
     return (chars, lead)
+
+
+_LEADS: dict[int, tuple[IrAst, dict[str, frozenset[str]]]] = memo({})
+
+
+def run_leads(
+    grammar: IrAst, pairs: Mapping[str, tuple[str, str]]
+) -> dict[str, frozenset[str]]:
+    """opener → its bracket's OWN run's lead SET (:func:`_run_owners`), read off
+    :func:`roles`' records: ``"(" expr ")"`` gets ``+-``, never its terms' ``*/``."""
+    entry = _LEADS.get(id(grammar))
+    if entry is None:
+        records = roles(grammar).records
+        rules = rule_table(grammar)
+        found: dict[str, frozenset[str]] = {}
+        for opener, (_closer, rule) in pairs.items():
+            owners = {
+                owner
+                for arm in rules[rule].body
+                if arm and literal_char(arm[0], rules) == opener
+                for owner in _run_owners(rule, tuple(arm), rules)
+            }
+            marks = [r.mark for r in records if r.container in owners]
+            if len(own := {mark for mark in marks if len(mark) == 1}) > 1:
+                found[opener] = frozenset(own)
+        entry = _LEADS[id(grammar)] = (grammar, found)
+    return entry[1]
+
+
+def _run_owners(rule: str, arm: tuple[IrItem, ...], rules: RuleTable) -> set[str]:
+    """The bracket rule if its arm holds a run (:func:`holds_run`), else the refs inside."""
+    if holds_run(arm, rules):
+        return {rule}
+    return {
+        str(ref)
+        for item in arm[1:-1]
+        if not isinstance(ref := item.unit_ref(), IrNoneType)
+        and (target := rules.get(str(ref))) is not None
+        and not isinstance(inner := target.sole_arm(), IrNoneType)
+        and holds_run(tuple(inner), rules)
+    }
+
+
+def holds_run(arm: tuple[IrItem, ...], rules: RuleTable) -> bool:
+    """Whether an arm holds ``head tail*``: an unbounded one-arm tail, lead head."""
+    for head, tail in zip(arm, arm[1:]):
+        body = rules[str(tail.atom)].body if str(tail.atom) in rules else tail.atom
+        if tail.quantifier.unbounded() and isinstance(body, IrAlternation):
+            if len(body) == 1 and len(body[0]) == 2 and body[0][1].atom == head.atom:
+                return True
+    return False
 
 
 _ROLES: dict[int, tuple[IrAst, Roles]] = memo({})

@@ -79,9 +79,10 @@ def _template_lead(template: GrammarModel, plan: RegionPlan) -> str | None:
         else:
             return None
     rendered = "".join(parts)
-    return (
-        rendered if rendered.startswith(plan.separator) else plan.separator + rendered
-    )
+    if rendered[:1] in plan.separators:
+        return rendered
+    # A lead the model does not keep: only a one-character set can say which.
+    return next(iter(plan.separators)) + rendered if len(plan.separators) == 1 else None
 
 
 def template_tail(
@@ -97,8 +98,12 @@ def template_tail(
 def _boundary_lead(
     work: RegionWork, later: GrammarModel, text: str, cut: int
 ) -> str | None:
-    """The cut separator plus noise owned by the later piece's fake opener."""
-    lead = work.plan.separator
+    """The cut separator plus noise owned by the later piece's fake opener.
+
+    The separator is the character the document holds at the cut: a run led by
+    a set (``+`` or ``-``) is rebuilt with the lead it actually had.
+    """
+    lead = text[cut]
     begin_at = work.plan.outer_begin
     if begin_at is None:
         return lead

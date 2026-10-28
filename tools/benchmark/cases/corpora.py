@@ -224,6 +224,24 @@ def arith_corpus(target: int) -> str:
     return "".join(parts)
 
 
+def paren_arith_corpus(target: int) -> str:
+    """One paren group holding a long SUM of roughly ``target`` characters.
+
+    Its terms are products with a small group among them, and the leads between
+    terms alternate ``+`` and ``-``, so the group's own run is long and led by
+    both characters while every term carries ``*`` and ``/`` of its own.
+    """
+    parts: list[str] = []
+    size, step = 2, 0
+    while size < target:
+        lead = "" if not parts else "+-"[step % 2]
+        term = f"{step % 97 + 1}*({step % 89 + 2}-{step % 7 + 1})/{step % 13 + 1}"
+        parts.append(lead + term)
+        size += len(lead) + len(term)
+        step += 1
+    return "(" + "".join(parts) + ")"
+
+
 def csv_corpus(rows: int) -> str:
     """A rectangular CSV body — no quoting, so the grammar stays unambiguous."""
     return "\n".join(",".join(f"cell {r}{c}" for c in range(6)) for r in range(rows))

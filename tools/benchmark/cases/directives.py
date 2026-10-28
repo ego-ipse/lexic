@@ -34,6 +34,7 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "announced": (("header", "line"), ("nl",)),
     "arithmetic": (("number",), ()),
+    "paren-arithmetic": (("number",), ()),
     "backtrack": (("bind", "block"), ("nl",)),
     "csv": (("field",), ("nl",)),
     # Nothing here is noise: the blank line IS the paragraph boundary, so a

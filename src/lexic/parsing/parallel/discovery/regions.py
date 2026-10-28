@@ -46,6 +46,7 @@ from lexic.parsing.parallel.roles import (
     BracketArm,
     bracket_arms,
     repeated_bodies,
+    run_leads,
     standing_pairs,
 )
 
@@ -129,6 +130,21 @@ def separators(grammar: IrAst) -> frozenset[str]:
     return frozenset(char for char in found if char is not None)
 
 
+def own_marks(text: str, found: list[Region], vocab: Vocab) -> list[Region]:
+    """Keep each region's marks to the ones its own run separates by
+    (:attr:`Vocab.leads`): a frame records every mark at its depth, and another
+    run's lead there (its terms' ``*/``, a sum's ``+-`` inside a list's item)
+    stands inside an item. Free where no pair's set differs from the marks."""
+    if all(own == vocab.marks for own in vocab.leads.values()):
+        return found
+    kept = []
+    for region in found:
+        own = vocab.leads[text[region.opener]]
+        if marks := tuple(at for at in region.marks if text[at] in own):
+            kept.append(region._replace(marks=marks))
+    return kept
+
+
 class Vocab(NamedTuple):
     """What the sweep watches for, and what each character means to it.
 
@@ -136,6 +152,9 @@ class Vocab(NamedTuple):
     :ivar closers: closer → every opener it closes, each once — two standing
         pairs may share one closer (``"(" … ")"`` and ``"[" … ")"``).
     :ivar marks: The separator characters.
+    :ivar leads: opener → the marks its own run separates by: its lead set
+        (:func:`~...roles.run_leads`), else the one-literal separators, which
+        are every mark a pair without a lead set ever had (:func:`own_marks`).
     :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
         pays one dict miss. A single-character fast path beside it was built
         and MEASURED in-process at 0.98x — twice, results exact — and
@@ -146,6 +165,7 @@ class Vocab(NamedTuple):
     pairs: dict[str, tuple[str, str]]
     closers: dict[str, str]
     marks: frozenset[str]
+    leads: dict[str, frozenset[str]]
     skips: dict[str, Skip]
 
     @property
@@ -271,20 +291,23 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
     closers: dict[str, str] = {}
     for opener, (closer, _rule) in pairs.items():
         closers[closer] = closers.get(closer, "") + opener
+    leads = run_leads(grammar, pairs)
     # No pair character is a mark. A standing pair's closer can still spell a
     # separator, but only at a site the scan never reads (an unreachable rule,
     # or inside an interior the walk skips): a READ separator site spelling it
     # is no delimiter of the pair's arm, so :func:`pair_rules` would have let
     # the pair fall. The mark role is therefore never met, and dropping it
     # leaves every closer with one role.
-    marks = separators(grammar) - set(pairs) - set(closers)
+    plain = separators(grammar) - set(pairs) - set(closers)
+    marks = plain.union(*leads.values()) - set(pairs) - set(closers)
     watched = frozenset(pairs) | frozenset(closers) | marks
     skips = tuple(
         region
         for region in interiors(grammar)
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
-    return Vocab(pairs, closers, marks, skip_leads(skips))
+    own = {opener: leads.get(opener, plain) for opener in pairs}
+    return Vocab(pairs, closers, marks, own, skip_leads(skips))
 
 
 def sweep_offsets(text: str, watched: set[str]) -> list[int]:
@@ -322,9 +345,10 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     :returns: The regions, in closing order.
     """
     vocab = scan_vocabulary(grammar)
-    return walk_regions(
+    found = walk_regions(
         text, sweep_offsets(text, vocab.watched), walk_roles(vocab), min_span
     )
+    return own_marks(text, found, vocab)
 
 
 def walk_regions(
@@ -437,11 +461,12 @@ def par_find(
     roles = walk_roles(vocab)
     windows = max(1, min(workers, len(text)))
     if vocab.skips or windows < 2:
-        return walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+        found = walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+        return own_marks(text, found, vocab)
     spans = window_bounds(len(text), windows)
     run = partial(_run_window, text, roles, min_span)
     chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]
-    return merge_windows(chunks, min_span)
+    return own_marks(text, merge_windows(chunks, min_span), vocab)
 
 
 def _run_window(

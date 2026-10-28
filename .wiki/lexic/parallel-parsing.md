@@ -292,6 +292,31 @@ the pair's arm, and `pair_rules` would have let the pair fall. So the mark role
 is never met, the walks and the window merge carry no closer-as-mark branch,
 and a window's underflowed closer carries only its own character.
 
+**A region's run may be separated by a SET of leads.** `"(" expr ")"` over
+`expr ::= term (addop term)*` with `addop ::= "+" | "-"` has no one separator:
+whichever lead stands between two terms is the boundary. `roles.run_leads` reads,
+per standing pair, `roles`' one-character separator records for the rule
+holding the bracket's OWN repetition: the bracket rule where its arm repeats
+something itself (`"[" e ("," e)* "]"`), else a reference between the
+delimiters whose rule does. So the paren pair leads with `+-` and never with its
+terms' `*/`, and a list of sums never takes its items' `+-`. The scan watches
+the leads beside the one-literal `separators`, and `own_marks` keeps each
+region's marks to its own run's: a pair's lead set, else the one-literal
+separators, which are every mark such a pair ever had. A frame records every
+mark at its depth, and another run's lead there stands inside an item. A
+vocabulary where every pair's set is all of its marks returns the regions
+untouched, which is every grammar separated by one literal, so those pay
+nothing new. The plan takes a run held by a reference only where the arm
+repeats nothing itself, for the same reason.
+
+The plan carries the set (`RegionPlan.separators`), read the same way
+(`literal_char` first, then the records), and `tasks.safe_leads` asks the proof
+per owner and per character: `owner_excludes` for every lead, and none of them
+in `RegionPlan.around`, the ALPHABET of the bracket arm's other items (a least
+fixpoint, so a recursive `ws` reads as what it spells). A joint is rebuilt with
+the lead the document holds at the cut, `text[cut]`, so a `-` joint never
+reuses a `+` tail.
+
 **No character plays two pair roles.** `standing_pairs` drops a pair whose
 character also delimits another standing pair in the other role — `|` in
 `angle ::= "<" word "|"` and `bar ::= "|" word ("," word)* ">"` drops both.

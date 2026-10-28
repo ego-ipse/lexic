@@ -30,6 +30,7 @@ from lexic.parsing.parallel.discovery.regions import (
     listed,
     merge_windows,
     nearest_first,
+    own_marks,
     pair_rules,
     par_find,
     scan_vocabulary,
@@ -41,6 +42,7 @@ from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import (
     CLOSER_SEPARATOR_UNREAD,
+    PAREN_SUM,
     SHARED_CLOSER,
     closer_separator_document,
     shared_closer_source,
@@ -323,7 +325,7 @@ def _vocab(
     skips: dict[str, Skip] | None = None,
 ) -> Vocab:
     """A hand-built :class:`Vocab`, every table empty unless given."""
-    return Vocab(pairs or {}, closers or {}, marks, skips or {})
+    return Vocab(pairs or {}, closers or {}, marks, {}, skips or {})
 
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
@@ -553,3 +555,24 @@ def test_nearest_first_orders_found_marks_as_listed_orders_a_list(want: float) -
     down = iter([at for at in reversed(marks) if lo <= at < middle])
     up = iter([at for at in marks if middle <= at < hi])
     assert list(nearest_first(down, up, want)) == list(listed(marks, want, lo, hi))
+
+
+def test_a_pair_whose_run_leads_with_a_set_watches_the_set() -> None:
+    """The paren pair's run separates by ``+`` or ``-``: both are watched, and
+    are that pair's leads; the terms' ``*/`` are neither."""
+    vocab = scan_vocabulary(compile_text(PAREN_SUM, cache_key="pair-leads").grammar)
+    assert vocab.leads == {"(": frozenset("+-")}
+    assert vocab.marks == frozenset("+-")
+
+
+def test_a_one_literal_separator_has_no_lead_set_and_is_left_alone() -> None:
+    """A json-shaped pair separates by one literal: its own marks are the
+    one-literal separators, every mark there is, and the regions come back as
+    the very list the walk built."""
+    grammar = compile_text(
+        'root ::= "[" item ("," item)* "]"\nitem ::= [a-z]+\n', cache_key="one-lead"
+    ).grammar
+    vocab = scan_vocabulary(grammar)
+    assert vocab.leads == {"[": frozenset(",")} and vocab.marks == frozenset(",")
+    found = [Region(0, 6, "root", (2, 4))]
+    assert own_marks("[a,b,c]", found, vocab) is found

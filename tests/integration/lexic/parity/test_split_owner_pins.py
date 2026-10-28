@@ -33,6 +33,7 @@ from tools.benchmark.cases.grammars import BENCHES
 # row -> (owner, mark) the planner derives today; None where it derives no plan
 OWNERS: dict[str, tuple[str, str] | None] = {
     "arithmetic": ("term", "+"),
+    "paren-arithmetic": ("term", "+"),
     "csv": ("row", "\n"),
     "json": None,
     "gbnf-meta": ("rule", "\t"),
@@ -74,6 +75,9 @@ OWNERS: dict[str, tuple[str, str] | None] = {
 # row -> whether a parse at four workers divides the document at all
 SPLITS: dict[str, bool] = {
     "arithmetic": True,
+    # Its one paren group holds the whole expression, so the top-level plan
+    # finds no cut and the region path divides the group on `+` and `-`.
+    "paren-arithmetic": True,
     "csv": True,
     "json": True,
     "gbnf-meta": True,

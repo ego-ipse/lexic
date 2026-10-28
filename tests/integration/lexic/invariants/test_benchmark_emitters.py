@@ -66,6 +66,8 @@ _ANTLR = frozenset({"antlr", "antlr-lex", "antlr-py", "antlr-py-lex"})
 
 EXPECTED: dict[str, frozenset[str]] = {
     "arithmetic": _ALL,
+    # The same grammar; only the document is wrapped in one paren group.
+    "paren-arithmetic": _ALL,
     "csv": _ALL,
     "json": _ALL,
     # PEG and pyparsing both have POSSESSIVE repetition and cannot back out of a

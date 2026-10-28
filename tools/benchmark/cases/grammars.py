@@ -49,6 +49,7 @@ from tools.benchmark.cases.corpora import (
     meta_corpus,
     mixedends_corpus,
     nested_corpus,
+    paren_arith_corpus,
     reopening_corpus,
     split_nullable_corpus,
     start_fallback_corpus,
@@ -344,6 +345,17 @@ _DEFINED_BENCHES = (
         "arithmetic",
         _ARITH,
         Samples(arith_corpus(4000), arith_corpus(32 * 1024)),
+        ("1+2", "(1)", "12*3", "1/2-3", "((1+2))"),
+        ("1+", "()", "1++2", "", "1 + 2"),
+    ),
+    # The same language with the whole expression in ONE paren group: the run
+    # its terms make is separated by a SET of leads (`addop ::= "+" | "-"`)
+    # inside a bracket, where no top-level plan can cut. The region path cuts
+    # at either lead and never at the terms' own `*` and `/`.
+    _bench(
+        "paren-arithmetic",
+        _ARITH,
+        Samples(paren_arith_corpus(4000), paren_arith_corpus(32 * 1024)),
         ("1+2", "(1)", "12*3", "1/2-3", "((1+2))"),
         ("1+", "()", "1++2", "", "1 + 2"),
     ),

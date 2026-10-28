@@ -11,8 +11,10 @@ from lexic.parsing.parallel.discovery.partition import partition
 from lexic.parsing.parallel.discovery.regions import find
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.stitch.merge import MergeRequest
+from lexic.parsing.parallel.stitch.plan import bracket_rule, derive_plan
 from lexic.parsing.parallel.stitch.safety import owner_excludes
-from lexic.parsing.parallel.stitch.tasks import region_works
+from lexic.parsing.parallel.stitch.tasks import region_works, safe_leads
+from tests.split_helpers import PAREN_SUM
 from tests.unit.lexic.parsing.parallel.stitch.support import record_stitches
 
 
@@ -92,3 +94,36 @@ def test_a_division_whose_cuts_would_rederive_differently_still_stitches(
     split = compiled.parse(text, cores=8)
     assert stitched == [True]
     assert split.dump() == compiled.parse(text, cores=1).dump()
+
+
+def _lead_set_plan(source: str, key: str):
+    compiled = compile_text(source, cache_key=key)
+    grammar = compiled.codegen_grammar
+    plan = derive_plan(grammar, compiled.product, bracket_rule(grammar, "factor", "("))
+    assert plan is not None
+    return compiled.split_analysis or compiled.grammar, plan
+
+
+def test_a_lead_set_is_safe_where_no_owner_and_no_wrapper_spells_a_lead() -> None:
+    """``term`` spells neither ``+`` nor ``-``, and the arm around the run holds
+    only its delimiters: every lead at the region's depth is a boundary."""
+    analysis, plan = _lead_set_plan(PAREN_SUM, "safe-leads")
+    assert safe_leads(analysis, plan)
+
+
+def test_a_lead_set_is_refused_where_a_wrapper_can_emit_a_lead() -> None:
+    """A ``+`` the bracket arm's own wrapper may spell stands at the region's
+    depth without separating anything, so the set is not safe."""
+    source = PAREN_SUM.replace('"(" expr ")"', '"(" sign? expr ")"') + 'sign ::= "+"\n'
+    analysis, plan = _lead_set_plan(source, "unsafe-wrapper")
+    assert plan.around.has("+")
+    assert not safe_leads(analysis, plan)
+
+
+def test_a_lead_set_is_refused_where_the_head_spells_a_lead() -> None:
+    """Per character: a term that can spell ``-`` itself owns some ``-`` marks."""
+    source = PAREN_SUM.replace("factor ::= [0-9]+ |", 'factor ::= [0-9]+ | "~-" |')
+    analysis, plan = _lead_set_plan(source, "unsafe-head")
+    assert not owner_excludes(analysis, plan.head_rule, "-", region_scan=True)
+    assert owner_excludes(analysis, plan.head_rule, "+", region_scan=True)
+    assert not safe_leads(analysis, plan)

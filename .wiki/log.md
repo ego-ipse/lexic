@@ -2835,3 +2835,10 @@ states the set's bounds and that nothing in a set guesses.
 target, so `mark_sub_roots` sees groups behind `OP_REF1`; `check_entry_shape`
 holds attempt, gated selection and leaf mutually exclusive, a dispatch clone
 exempt.
+
+## A bracketed run separated by a set of leads divides (2026-10-28)
+
+`parallel-parsing.md`'s region-scan section: per-pair lead sets read from the
+separator records, the own-marks filter and its free path, the per-owner,
+per-character safety with the bracket arm's `around` alphabet, and the joint
+lead read from the text.

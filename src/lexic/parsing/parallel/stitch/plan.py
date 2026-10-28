@@ -29,6 +29,8 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
     rule_table,
 )
+from lexic.parsing.parallel.roles import Separator, holds_run, roles
+from lexic.parsing.pda.analysis.predicates import atom_alphabet, rule_alphabets
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
 
@@ -47,7 +49,7 @@ class RegionPlan(NamedTuple):
 
     root: IrAst
     head_rule: str
-    separator: str
+    separators: frozenset[str]
     outer_type: type[GrammarModel]
     items_type: type[GrammarModel]
     tail_type: type[GrammarModel]
@@ -56,6 +58,7 @@ class RegionPlan(NamedTuple):
     outer_items: int
     outer_end: int | None
     outer_trail: frozenset[str]
+    around: CharSet
     items_head: int
     items_rest: int
     tail_head: int
@@ -143,9 +146,28 @@ def _ref_at(items: tuple[IrItem, ...], at: int) -> str | None:
     return str(atom) if isinstance(atom, IrRuleRef) else None
 
 
+def _leads(
+    rules: RuleTable,
+    records: tuple[Separator, ...],
+    tail_arm: tuple[IrItem, ...],
+    container: str,
+) -> frozenset[str]:
+    """What a tail's lead separates by: the one literal it spells, else the
+    one-character records :func:`~lexic.parsing.parallel.roles.roles` keeps for
+    the run's container — a SET (``addop ::= "+" | "-"``). Empty when neither."""
+    char = literal_char(tail_arm[0], rules)
+    if char is not None:
+        return frozenset({char})
+    own = {r.mark for r in records if r.container == container and len(r.mark) == 1}
+    return frozenset(own) if len(own) > 1 else frozenset()
+
+
 def _candidate(
-    rules: RuleTable, outer_arm: tuple[IrItem, ...], at: int
-) -> tuple[str, str, str, str] | None:
+    rules: RuleTable,
+    records: tuple[Separator, ...],
+    outer_arm: tuple[IrItem, ...],
+    at: int,
+) -> tuple[str, str, str, frozenset[str]] | None:
     """The items/tail recurrence rooted at one outer-arm position."""
     items_name = _ref_at(outer_arm, at)
     items_rule = rules.get(items_name or "")
@@ -155,10 +177,10 @@ def _candidate(
     head, tail_name = _ref_at(items_arm, 0), _ref_at(items_arm, 1)
     tail_rule = rules.get(tail_name or "")
     tail_arm = tail_rule.sole_arm() if tail_rule is not None else IrNone
-    separator = (
-        literal_char(tail_arm[0], rules)
+    leads = (
+        _leads(rules, records, tuple(tail_arm), items_name)
         if not isinstance(tail_arm, IrNoneType) and len(tail_arm) == 2
-        else None
+        else frozenset()
     )
     valid_tail = (
         not isinstance(tail_arm, IrNoneType)
@@ -167,24 +189,26 @@ def _candidate(
     )
     if head is None or tail_name is None or not items_arm[1].quantifier.unbounded():
         return None
-    return (
-        (items_name, tail_name, head, separator) if valid_tail and separator else None
-    )
+    return (items_name, tail_name, head, leads) if valid_tail and leads else None
 
 
 def _direct_candidate(
-    rules: RuleTable, outer_arm: tuple[IrItem, ...], at: int
-) -> tuple[str, str, str] | None:
+    rules: RuleTable,
+    records: tuple[Separator, ...],
+    outer_arm: tuple[IrItem, ...],
+    at: int,
+    container: str,
+) -> tuple[str, str, frozenset[str]] | None:
     """A direct ``head tail*`` recurrence at two outer-arm positions."""
     if at + 1 >= len(outer_arm):
         return None
     head, tail_name = _ref_at(outer_arm, at), _ref_at(outer_arm, at + 1)
     tail_rule = rules.get(tail_name or "")
     tail_arm = tail_rule.sole_arm() if tail_rule is not None else IrNone
-    separator = (
-        literal_char(tail_arm[0], rules)
+    leads = (
+        _leads(rules, records, tuple(tail_arm), container)
         if not isinstance(tail_arm, IrNoneType) and len(tail_arm) == 2
-        else None
+        else frozenset()
     )
     repeats = outer_arm[at + 1].quantifier.unbounded()
     returns_head = (
@@ -192,8 +216,8 @@ def _direct_candidate(
         and len(tail_arm) == 2
         and _ref_at(tail_arm, 1) == head
     )
-    if head and tail_name and separator and repeats and returns_head:
-        return tail_name, head, separator
+    if head and tail_name and leads and repeats and returns_head:
+        return tail_name, head, leads
     return None
 
 
@@ -204,7 +228,7 @@ class _PlanInput(NamedTuple):
     binding: ModelExecutable
     rule_name: str
     outer_arm: tuple[IrItem, ...]
-    candidate: tuple[int, str, str, str, str]
+    candidate: tuple[int, str, str, str, frozenset[str]]
 
 
 def _boundary_slots(
@@ -277,6 +301,18 @@ def _finite_chars(
     )
 
 
+def _around(root: IrAst, arm: tuple[IrItem, ...], run: range) -> CharSet:
+    """Everything the bracket arm's items other than the run can emit — their
+    ALPHABET, a least fixpoint, so a recursive wrapper (``ws ::= " " ws | ""``)
+    reads as what it spells — so a lead it holds is known not to be a wrapper's."""
+    alphabets = (rule_alphabets(rule_table(root)),)
+    found = CharSet.EMPTY
+    for at, item in enumerate(arm):
+        if at not in run:
+            found = found.union(atom_alphabet(item.atom, alphabets))
+    return found
+
+
 def _boundary_charsets(
     root: IrAst, arm: tuple[IrItem, ...], before: int, after: int
 ) -> tuple[frozenset[str], frozenset[str]]:
@@ -319,7 +355,7 @@ def _configured_binding(
 
 def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     """Bind a derived recurrence to exact generated model slots/classes."""
-    items_at, items_name, tail_name, head_name, separator = source.candidate
+    items_at, items_name, tail_name, head_name, leads = source.candidate
     routines = source.binding.routines
     outer_pr = routines.get(source.rule_name)
     items_pr = routines.get(items_name)
@@ -341,7 +377,7 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     return RegionPlan(
         root=source.root,
         head_rule=head_name,
-        separator=separator,
+        separators=leads,
         outer_type=bound.outer_type,
         items_type=bound.items_type,
         tail_type=bound.tail_type,
@@ -350,6 +386,7 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
         outer_items=bound.items_slot,
         outer_end=end,
         outer_trail=boundary[1],
+        around=_around(source.root, source.outer_arm, range(items_at, items_at + 1)),
         items_head=bound.head_slot,
         items_rest=bound.rest_slot,
         tail_head=bound.tail_head,
@@ -363,7 +400,7 @@ class _DirectInput(NamedTuple):
     binding: ModelExecutable
     rule_name: str
     outer_arm: tuple[IrItem, ...]
-    candidate: tuple[int, str, str, str]
+    candidate: tuple[int, str, str, frozenset[str]]
 
 
 class _DirectBinding(NamedTuple):
@@ -394,7 +431,7 @@ def _direct_binding(
 
 def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     """Bind a bracket rule that carries ``head tail*`` on itself."""
-    head_at, tail_name, head_name, separator = source.candidate
+    head_at, tail_name, head_name, leads = source.candidate
     outer_pr = source.binding.routines.get(source.rule_name)
     tail_pr = source.binding.routines.get(tail_name)
     if outer_pr is None or tail_pr is None:
@@ -414,7 +451,7 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     return RegionPlan(
         root=source.root,
         head_rule=head_name,
-        separator=separator,
+        separators=leads,
         outer_type=bound.outer_type,
         items_type=bound.outer_type,
         tail_type=bound.tail_type,
@@ -423,6 +460,7 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
         outer_items=-1,
         outer_end=end,
         outer_trail=boundary[1],
+        around=_around(source.root, source.outer_arm, range(head_at, head_at + 2)),
         items_head=bound.head_slot,
         items_rest=bound.rest_slot,
         tail_head=bound.tail_head,
@@ -453,22 +491,32 @@ def derive_plan(
     entry = _REGION_PLANS.get(key)
     if entry is None:
         rules = rule_table(grammar)
+        records = roles(grammar).records
         outer = rules.get(rule_name)
         outer_arm = outer.sole_arm() if outer is not None else IrNone
+        # A run held by a reference between the delimiters is the bracket's own
+        # only where the arm holds no run itself (`holds_run`): `"[" e ("," e)*
+        # "]"` is the list's run, never the sum each `e` holds.
         candidates = (
             [
                 (at, *candidate)
                 for at in range(len(outer_arm))
-                if (candidate := _candidate(rules, outer_arm, at)) is not None
+                if (candidate := _candidate(rules, records, outer_arm, at)) is not None
             ]
             if not isinstance(outer_arm, IrNoneType)
+            and not holds_run(tuple(outer_arm), rules)
             else []
         )
         direct = (
             [
                 (at, *candidate)
                 for at in range(len(outer_arm))
-                if (candidate := _direct_candidate(rules, outer_arm, at)) is not None
+                if (
+                    candidate := _direct_candidate(
+                        rules, records, outer_arm, at, rule_name
+                    )
+                )
+                is not None
             ]
             if not isinstance(outer_arm, IrNoneType)
             else []
