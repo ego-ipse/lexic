@@ -56,32 +56,47 @@ def _any_text(text: str) -> bool:
     return bool(text)
 
 
+_NOISE, _MANY = "", None
+"""What an item spells besides one literal: text that varies (a class, a
+quantified item, a choice, a rule spelling no literal), or one fixed spelling of
+several literals, which is no one literal (nor is a single-armed recursion)."""
+
+
 def _spelling(
     item: IrItem, rule_map: RuleTable, accept: Callable[[str], bool]
 ) -> str | None:
-    """The literal an item spells, through one unit rule reference.
+    """The literal an item spells amid noise, through single-armed references.
 
-    A grammar may name its punctuation (``begin-object ::= ws "{" ws``), and
-    the punctuation may sit among noise, so a rule spells one literal when
-    exactly one of its items does.
+    A grammar may name its punctuation (``begin-object ::= ws "{" ws``) and set
+    it among text that varies, so an item spells a literal when that literal is
+    the one its fixed spelling holds, and ``accept`` is asked of that one.
+    ``ws "set " name "\\n"`` spells two literals, and ``member ::= string ":"
+    value`` spells the string's two quotes besides, so neither spells one; a
+    choice varies, as a quantified item does, so ``ws ::= " " ws | ""`` is noise.
     """
+    found = _literal_of(item, rule_map, frozenset())
+    return found if found and accept(found) else None
+
+
+def _literal_of(item: IrItem, rule_map: RuleTable, seen: frozenset[str]) -> str | None:
+    """The one literal an item spells, :data:`_NOISE`, or :data:`_MANY`."""
     if not item.quantifier.once():
-        return None
+        return _NOISE
     atom = item.atom
     if isinstance(atom, IrLiteral):
-        return str(atom) if accept(str(atom)) else None
-    if not isinstance(atom, IrRuleRef):
-        return None
-    target = rule_map.get(str(atom))
-    arms = tuple(target.body) if target is not None else ()
+        return str(atom)
+    name = str(atom) if isinstance(atom, IrRuleRef) else ""
+    if name in seen:
+        return _MANY
+    target = rule_map.get(name) if name else None
+    arms = tuple(atom) if isinstance(atom, IrAlternation) else ()
+    arms = tuple(target.body) if target is not None else arms
     if len(arms) != 1:
-        return None
-    spelled = [
-        text
-        for inner in tuple(arms[0])
-        if (text := _spelling(inner, rule_map, accept)) is not None
-    ]
-    return spelled[0] if len(spelled) == 1 else None
+        return _NOISE  # a choice varies, as a quantified item does
+    inner = seen | {name} if name else seen
+    found = (_literal_of(one, rule_map, inner) for one in arms[0])
+    spelled = [got for got in found if got != _NOISE]
+    return spelled[0] if len(spelled) == 1 else (_MANY if spelled else _NOISE)
 
 
 def literal_char(item: IrItem, rule_map: RuleTable) -> str | None:

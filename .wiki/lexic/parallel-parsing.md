@@ -219,6 +219,23 @@ runs, not dozens of divided regions.
 
 ---
 
+## What an item spells
+
+Every derivation that asks which character an item stands for (bracket pairs,
+separators, interiors, routed shells, the safety walk) asks
+`shapes.literal_char` / `literal_text`. An item spells a literal when that
+literal is the one its fixed spelling holds amid text that varies: through
+single-armed references, `begin-object ::= ws "{" ws` spells `{`. Text that
+varies is noise: a class, a quantified item, a choice, a rule with no literal.
+So whitespace written as `ws ::= " " ws | ""` frames its `{` like `[ \t]*` does.
+A fixed spelling of several literals is no one literal, and nor is a
+single-armed recursion. `ws "set " name "\n"` spells two, and
+`member ::= string ":" value` spells the string's two quotes besides its `:`.
+Read with the one-character test applied before the count, commands' entries
+read as `\n`, their END taken for their lead. A misread opener or closer could
+never stand, because the every-site rule finds the character at its true site
+inside the rule, which delimits nothing.
+
 ## The region walk reads ONE spelling string
 
 `regions.py` classifies each structural character with a single `str.find` into

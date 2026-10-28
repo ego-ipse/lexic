@@ -842,3 +842,26 @@ def test_a_run_closed_by_a_shared_closer_splits(shape: str, runs: str, cores: in
     text = shared_closer_document(shape, _SHARED_CLOSER_RUNS[runs])
     assert engages(compiled, text, cores)
     assert_parallel_matches_sequential(compiled, text, cores)
+
+
+# ── punctuation named through whitespace that varies ──────────────────────
+
+_NAMED_BRACES = (
+    'root ::= lbrace item ("," item)* rbrace\nlbrace ::= ws "{" ws\n'
+    'rbrace ::= ws "}" ws\nitem ::= [a-z0-9]+\n'
+)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize(
+    "ws", ['" " ws | ""', '" " | "\\t" | ""'], ids=("recursion", "choice")
+)
+def test_braces_named_through_varying_whitespace_split(ws: str, cores: int) -> None:
+    """``lbrace ::= ws "{" ws`` spells ``{`` whatever the whitespace's form, so
+    the run between the braces splits and builds the sequential model."""
+    compiled = compile_text(
+        _NAMED_BRACES + f"ws ::= {ws}\n", cache_key=f"adv-faith-named-{ws}"
+    )
+    text = "{ " + ",".join(f"w{k}" for k in range(6000)) + " }"
+    assert engages(compiled, text, cores)
+    assert_parallel_matches_sequential(compiled, text, cores)

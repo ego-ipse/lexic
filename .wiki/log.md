@@ -1,5 +1,11 @@
 # Log
 
+## What an item spells (2026-10-28)
+
+`parallel-parsing.md` records when `literal_char`/`literal_text` read an item
+as one literal: the one its fixed spelling holds amid text that varies, a
+choice included, and never one of several.
+
 ## The engine reads an arm as its items (2026-10-28)
 
 `ir-shapes.md` records that no engine reader filters an `IrSequence`, and that
