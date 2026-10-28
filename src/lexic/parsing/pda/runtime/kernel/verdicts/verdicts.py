@@ -33,7 +33,7 @@ from lexic.parsing.pda.runtime.admission import (
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
-from lexic.parsing.pda.runtime.kernel.sides import (
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     PENDING,
     UNSEEN,
     Sides,

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.parsing.pda.runtime.kernel import verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts import verdicts
 from tests.parity_helpers import DECLINED, answers
 
 S = (

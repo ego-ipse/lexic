@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.runtime.kernel.verdicts — the boundary verdict
+"""Tests for lexic.parsing.pda.runtime.kernel.verdicts.verdicts — the boundary verdict
 ``Attempting`` inherits.
 
 A verdict reads the live cursor, so its seams are driven on real kernels: the
@@ -26,14 +26,14 @@ from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime import admission
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel import sides, verdicts
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
-from lexic.parsing.pda.runtime.kernel.sides import (
+from lexic.parsing.pda.runtime.kernel.verdicts import sides, verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     PENDING,
     UNSEEN,
     Sides,
 )
-from lexic.parsing.pda.runtime.kernel.verdicts import (
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import (
     FORKED,
     STOP_FORCED,
     TAKE,
@@ -44,7 +44,7 @@ from tests import parity_helpers
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import Shortest
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
-from tests.unit.lexic.parsing.pda.runtime.kernel.side_support import (
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
     NOISE_RUNS,
     TOP,
     completed_side,

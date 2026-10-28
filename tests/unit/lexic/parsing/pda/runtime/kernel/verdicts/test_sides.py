@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.runtime.kernel.sides — the stacks a boundary
+"""Tests for lexic.parsing.pda.runtime.kernel.verdicts.sides — the stacks a boundary
 verdict is asked on.
 
 A side is driven on a real kernel, so its seams are exercised there: the
@@ -23,22 +23,22 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel import sides
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
-from lexic.parsing.pda.runtime.kernel.sides import (
+from lexic.parsing.pda.runtime.kernel.verdicts import sides
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     Sides,
     descending,
     entered,
     iterating,
     landing,
 )
-from lexic.parsing.pda.runtime.kernel.verdicts import (
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import (
     Verdicts,
 )
 from tests import parity_helpers
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
-from tests.unit.lexic.parsing.pda.runtime.kernel.side_support import (
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
     NOISE_RUNS,
     TOP,
     completed_side,

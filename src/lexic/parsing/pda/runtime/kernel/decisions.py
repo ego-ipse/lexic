@@ -9,7 +9,7 @@ carries no slots of its own — every attribute it reads is declared by the kern
 
 What a both-viable boundary resolves to — take, stop-forced or fork, asked
 as the forest gate asks it, on completed VALUES — is
-:mod:`~lexic.parsing.pda.runtime.kernel.verdicts`'s, whose host class this one
+:mod:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts`'s, whose host class this one
 extends.
 """
 
@@ -35,7 +35,7 @@ from lexic.parsing.pda.runtime.build import (
     Frame,
 )
 from lexic.parsing.pda.runtime.islands import IslandEnds
-from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
 __all__ = ["Attempting", "claim"]

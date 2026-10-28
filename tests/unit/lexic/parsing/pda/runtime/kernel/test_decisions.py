@@ -6,7 +6,7 @@ decision half of ``PdaKernel``.
 ``tests/unit/lexic/parsing/pda/test_group_attempt.py`` and the parity suite;
 this file targets the loop-close bookkeeping, an island iteration's bail, and
 what a sub-run writes for the verdict to read. The verdict itself is
-:mod:`lexic.parsing.pda.runtime.kernel.verdicts`'s, and its tests beside it.
+:mod:`lexic.parsing.pda.runtime.kernel.verdicts.verdicts`'s, and its tests beside it.
 """
 
 from __future__ import annotations

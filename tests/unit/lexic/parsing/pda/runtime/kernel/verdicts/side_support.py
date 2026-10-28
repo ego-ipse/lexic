@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel import sides, verdicts
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
-from lexic.parsing.pda.runtime.kernel.verdicts import (
+from lexic.parsing.pda.runtime.kernel.verdicts import sides, verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import (
     FORKED,
     STOP_FORCED,
     TAKE,

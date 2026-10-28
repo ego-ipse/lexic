@@ -1,7 +1,7 @@
 """Boundary sides — the stacks a verdict is asked on, and the sub-runs they settle.
 
-Shed from :mod:`~lexic.parsing.pda.runtime.kernel.verdicts` by the file-size rule
-as a host class :class:`~lexic.parsing.pda.runtime.kernel.verdicts.Verdicts`
+Shed from :mod:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts` by the file-size rule
+as a host class :class:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts.Verdicts`
 inherits: a side is a structural copy of the live stack with one decision taken,
 driven one copied frame at a time, recording where each completes (its ledger)
 and settling each attempt sub-run it stands inside as that sub-run's live caller
