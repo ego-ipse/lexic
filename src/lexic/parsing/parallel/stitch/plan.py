@@ -224,6 +224,34 @@ def _boundary_slots(
     return begin, end
 
 
+def _unlaid(
+    rules: RuleTable,
+    arm: tuple[IrItem, ...],
+    run: range,
+    kept: tuple[int | None, int | None],
+    routine: RuleRoutine,
+) -> bool:
+    """Whether the bracket arm captures a value INSIDE its brackets, beside its
+    run, that the stitch never lays back.
+
+    The merged node is a stand-in's with the region's items overlaid. Only the
+    two wrapper references beside the run (``kept``) take their values from the
+    pieces, and what stands outside the brackets is the holder's, so any other
+    capture between the delimiters would keep the STAND-IN's value, not the
+    document's: ``"(" [ ]* list [ ]* ")"`` came back without its spaces. The
+    delimiters are the nearest items either side of the run that spell one
+    character (:func:`literal_char`); such a plan declines.
+    """
+    spells = [literal_char(item, rules) is not None for item in arm]
+    opens = max((at for at in range(run.start) if spells[at]), default=-1)
+    closes = next((at for at in range(run.stop, len(arm)) if spells[at]), len(arm))
+    for at in range(opens + 1, closes):
+        if at not in run and (slot := field_slot(routine, at)) is not None:
+            if slot not in kept:
+                return True
+    return False
+
+
 def _finite_chars(
     item: IrItem, rules: RuleTable, seen: frozenset[str] = frozenset()
 ) -> frozenset[str]:
@@ -302,6 +330,11 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     if bound is None:
         return None
     begin, end = _boundary_slots(source.outer_arm, items_at - 1, items_at + 1, outer_pr)
+    rules = rule_table(source.root)
+    if _unlaid(
+        rules, source.outer_arm, range(items_at, items_at + 1), (begin, end), outer_pr
+    ):
+        return None
     boundary = _boundary_charsets(
         source.root, source.outer_arm, items_at - 1, items_at + 1
     )
@@ -370,6 +403,11 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     if bound is None:
         return None
     begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_pr)
+    rules = rule_table(source.root)
+    if _unlaid(
+        rules, source.outer_arm, range(head_at, head_at + 2), (begin, end), outer_pr
+    ):
+        return None
     boundary = _boundary_charsets(
         source.root, source.outer_arm, head_at - 1, head_at + 2
     )
