@@ -83,6 +83,10 @@ SEVERAL_ARMS = {
         "wxyab+cba+d!",
     ),
     "the start rule": ('root ::= root "a" | root "b" | "a"\n', "abbaab"),
+    "a literal past an arm's last capture": (
+        'root ::= x "!"\nx ::= x "a" | x op y ";" | "z"\nop ::= "+"\ny ::= [b-d]\n',
+        "za+b;a+c;!",
+    ),
 }
 """Folds over several recursive arms, each iteration built through the arm it
 took — bare literals that capture nothing, captures, and a mixture."""

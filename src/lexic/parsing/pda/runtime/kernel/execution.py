@@ -560,15 +560,18 @@ def _folded_arms[Carry](text: str, model: Carry, steps: list[Any] | tuple) -> Ca
     :class:`~lexic.parsing.pda.compiler.program.flatten.FoldIteration`, built
     through the arm it took — slot 0 the value so far, the rest that arm's own
     items' values, in the arm rule's item order (its βs follow its recursive
-    slot)."""
+    slot).
+
+    The whole of the iteration's sink array is handed on, one slot per β item,
+    as an arm's clone build is handed its frame's: the build reads the slots its
+    captures name, and an item past the last capture — a trailing literal — is a
+    slot it never reads. Where the iteration captured nothing its array is
+    absent, and every captured slot past the first is then empty."""
     for iteration in steps:
         step = iteration.step
-        scratch: list[Any] = [None] * step.slots
-        scratch[0] = [model]
-        for at, values in enumerate(iteration.sinks or (), 1):
-            if at < step.slots:
-                scratch[at] = values
-        model = step.build(text, (), scratch)
+        values = iteration.sinks
+        rest = values if values is not None else [None] * (step.slots - 1)
+        model = step.build(text, (), [[model], *rest])
     return model
 
 
