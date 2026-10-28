@@ -20,7 +20,9 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.tables.decider import LeftmostLongest, carving
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
+    FlatClone,
 )
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     NESTING_DEPTH,
@@ -498,7 +500,9 @@ class Verdicts[Carry](Sides[Carry]):
         forks.
         """
         live = self.stack[depth]
-        items = descending(live) + ([live.i] if iterating(live) else [])
+        items = self._pushed_by(
+            depth, descending(live) + ([live.i] if iterating(live) else [])
+        )
         whole = bool(items) and all(once(live, k) for k in items)
         if len(set(items)) == 1:
             own = self._own_step(stop[6][depth], take[6][depth], items[0])
@@ -507,6 +511,18 @@ class Verdicts[Carry](Sides[Carry]):
         elif not whole:
             return FORKED
         return self._child_step(ends, stop[1], whole)
+
+    def _pushed_by(self, depth: int, items: list[int]) -> list[int]:
+        """Of ``items`` — a frame just past an exactly-once item with a loop next
+        lists both — the one that pushed the frame above it: the item whose
+        payload IS that frame's clone, every other a plain clone, which pushes
+        only itself (:func:`_plain`). Otherwise ``items`` unchanged."""
+        if len(set(items)) < 2 or depth + 1 >= len(self.stack):
+            return items
+        child, payloads = self.stack[depth + 1].clone, self.stack[depth].arm.payloads
+        named = [k for k in set(items) if payloads[k] is child]
+        others = [payloads[k] for k in set(items) if k not in named]
+        return named if len(named) == 1 and all(map(_plain, others)) else items
 
     def _own_step(self, mine: Frame[Carry], theirs: Frame[Carry], k: int) -> int | None:
         """The rank by item ``k``'s own recorded end on the two copies of one
@@ -672,3 +688,12 @@ class Verdicts[Carry](Sides[Carry]):
             return FORKED if unc else TAKE
         taken = self._advance(self._made(makers, True, False), -1)
         return self._compared(done, unc, taken, makers)
+
+
+def _plain(payload: object) -> bool:
+    """Whether a payload pushes only itself: no dispatch, no attempt entries."""
+    return (
+        isinstance(payload, FlatClone)
+        and payload.mode != BUILD_DISPATCH
+        and payload.attempt is None
+    )

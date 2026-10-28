@@ -18,6 +18,7 @@ from lexic.ir import IrNamedTuple, IrStr
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
     OP_REF,
     OP_REF1,
 )
@@ -420,6 +421,34 @@ def test_a_take_side_death_forces_the_stop_outside_a_side(
     )
     lockstep = vars(Verdicts)["_lockstep_verdict"]
     assert lockstep(kern, flat_arm(1), 0, 0, (1, [])) == verdict
+
+
+_LOOP = flat_clone(attempt=None)
+"""The clone a loop item's payload names and the frame above stands in."""
+
+
+@pytest.mark.parametrize(
+    ("first", "named"),
+    [
+        (flat_clone(attempt=None), [1]),
+        (flat_clone(BUILD_DISPATCH, attempt=None), [0, 1]),
+        (flat_clone(attempt=((), ())), [0, 1]),
+        (_LOOP, [0, 1]),
+    ],
+    ids=["plain", "dispatching", "attempting", "same-clone"],
+)
+def test_the_item_that_pushed_the_frame_above_is_named_only_where_certain(
+    first, named: list[int]
+) -> None:
+    """A frame past an exactly-once item with a loop next lists both. The
+    frame above stands in the loop's clone, so the loop pushed it — unless
+    the other item could also land there: a dispatch chases to an arm, an
+    attempt runs an entry, and the same clone names both. Then both stay."""
+    kern = live_kernel()
+    below = Frame(flat_arm(2, payloads=(first, _LOOP)), [], flat_clone(), 0)
+    kern.stack = [below, Frame(flat_arm(1), [], _LOOP, 0)]
+    pushed_by = vars(Verdicts)["_pushed_by"]
+    assert pushed_by(kern, 0, [0, 1]) == named
 
 
 @pytest.mark.parametrize(
