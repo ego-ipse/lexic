@@ -67,6 +67,12 @@ like the interior itself.
 """
 
 
+def step_kind(item: IrItem) -> str:
+    """:data:`INTO_UNIT` when the item descended through is a run field, else
+    :data:`REF` — by the binding's own run rule, ``quantifier.repeats()``."""
+    return INTO_UNIT if item.quantifier.repeats() else REF
+
+
 class Descent(NamedTuple):
     """One step from a rule to the rule below it.
 
@@ -317,9 +323,8 @@ def _terminated_at(
     if not isinstance(atom, IrRuleRef):
         return None
     start = str(grammar.start)
-    found = _descend(
-        grammar, rules, str(atom), (Descent(start, at, REF),), frozenset({start})
-    )
+    first = Descent(start, at, step_kind(items[at]))
+    found = _descend(grammar, rules, str(atom), (first,), frozenset({start}))
     if found is None:
         return None
     chain, shape, owner = found
@@ -351,10 +356,8 @@ def _descend(
         atom = item.atom
         if not isinstance(atom, IrRuleRef):
             continue
-        kind = INTO_UNIT if item.quantifier.unbounded() else REF
-        below = _descend(
-            grammar, rules, str(atom), chain + (Descent(name, at, kind),), seen | {name}
-        )
+        step = Descent(name, at, step_kind(item))
+        below = _descend(grammar, rules, str(atom), chain + (step,), seen | {name})
         if below is not None:
             return below
     return None

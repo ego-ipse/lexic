@@ -62,7 +62,7 @@ def test_interior_route_finds_the_shells_slot_and_the_runs_slot():
     plan = routed_plan(grammar)
     assert plan is not None
 
-    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run)
 
     assert route is not None
     steps, child = route
@@ -78,9 +78,9 @@ def test_interior_route_declines_a_container_or_rule_the_fold_does_not_know():
     binding = compiled.product
 
     unknown = (Descent("no-such-rule", 0, REF),)
-    assert interior_route(binding, unknown, "block", 1, False) is None
+    assert interior_route(binding, unknown, "block", 1) is None
     known = (Descent("start", 0, REF),)
-    assert interior_route(binding, known, "no-such-rule", 1, False) is None
+    assert interior_route(binding, known, "no-such-rule", 1) is None
 
 
 def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces():
@@ -101,7 +101,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     )
     shell = parse_model(grammar, stand_in, binding)
     pieces = [parse_model(plan.rooted, part, binding) for part in parts]
-    route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
+    route = interior_route(binding, plan.chain, plan.rule, plan.run)
     assert route is not None
 
     stitched = stitch_interior(shell, pieces, route)
@@ -445,3 +445,61 @@ def test_a_document_without_its_tail_is_declined_before_any_parse(
     assert recording.calls == []
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(text, cores=1)
+
+
+# ── a whole-extent body reached by single references ──────────────────────
+
+_ONCE_REACHED = {
+    "body": 'root ::= body\nbody ::= line+ "\\n"\n',
+    "wrap-body": 'root ::= wrap\nwrap ::= body\nbody ::= line+ "\\n"\n',
+    "pre-body": 'root ::= pre body\npre ::= "#"\nbody ::= line+ "\\n"\n',
+}
+"""Whole-extent bodies the start rule reaches through single references, with
+no repetition around them: no step on the route is a run."""
+
+_BOUNDED_RUN = 'root ::= body\nbody ::= para{1,3}\npara ::= line+ "\\n"\n'
+"""A whole-extent paragraph inside a BOUNDED repetition: a run field the
+binding builds by ``repeats()``, though the repetition has an upper bound."""
+
+
+def _body_document(shape: str, lines: int) -> str:
+    """One body of ``lines`` lines and its tail, behind ``#`` where a ``pre``
+    stands first."""
+    body = "".join(f"w{'abcdefghij'[k % 10]}x\n" for k in range(lines)) + "\n"
+    return "#" + body if shape == "pre-body" else body
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("shape", _ONCE_REACHED)
+def test_a_body_reached_by_single_references_splits(shape: str, cores: int):
+    """No step of the route is a run, so the stand-in's body is read where it
+    stands, and the split builds the sequential model."""
+    compiled = compile_text(
+        _ONCE_REACHED[shape] + TAILED_LINE, cache_key=f"once-reached-{shape}"
+    )
+    text = _body_document(shape, 6000)
+    _recording, parallel = recorded_split(compiled, text, cores)
+    assert parallel is not None
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+def test_a_route_through_single_references_has_no_run_step():
+    """``root ::= body`` reaches the body through one field, not a run."""
+    compiled = compile_text(_ONCE_REACHED["body"] + TAILED_LINE)
+    plan = routed_plan(compiled.codegen_grammar)
+    assert plan is not None and plan.whole
+    route = interior_route(compiled.product, plan.chain, plan.rule, plan.run)
+    assert route == (((0, None),), 0)
+
+
+def test_a_bounded_run_is_a_run_step():
+    """``para{1,3}`` is a run field, so the step into it addresses its
+    element, and the split still builds the sequential model."""
+    compiled = compile_text(_BOUNDED_RUN + TAILED_LINE, cache_key="bounded-run")
+    plan = routed_plan(compiled.codegen_grammar)
+    assert plan is not None and plan.whole
+    route = interior_route(compiled.product, plan.chain, plan.rule, plan.run)
+    assert route == (((0, None), (0, 0)), 0)
+    text = _body_document("body", 6000)
+    assert recorded_split(compiled, text, 8)[1] is not None
+    assert_parallel_matches_sequential(compiled, text, 8)

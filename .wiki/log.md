@@ -1,5 +1,11 @@
 # Log
 
+## A route step is a run where the binding builds one (2026-10-28)
+
+`parallel-parsing.md` records that a routed interior's descent labels each step
+by the item's `repeats()`, first step included, and that the route reads only
+that label.
+
 ## A whole-extent interior ends where its tail begins (2026-10-28)
 
 `parallel-parsing.md` records that a whole-extent routed interior's run ends at

@@ -57,7 +57,6 @@ def interior_route[M: IrNamedTuple](
     chain: tuple[Descent, ...],
     rule: str,
     run: int,
-    whole: bool,
 ) -> tuple[tuple[ModelStep, ...], int] | None:
     """``(the steps down to the interior, the slot of its run)``, or ``None``.
 
@@ -68,25 +67,21 @@ def interior_route[M: IrNamedTuple](
     interior's depth and its run's index independently, and they could
     disagree.
 
-    A step addresses an element of a RUN when it descends into a repeated unit
-    (:data:`INTO_UNIT`), or when it is the last step of a whole-extent
-    interior — which sits inside its enclosing repetition rather than in a
-    field of its own.
+    A step addresses an element of a RUN exactly when it descends through a
+    run field (:data:`INTO_UNIT`), which the descent decides by the binding's
+    own rule (:func:`~lexic.parsing.parallel.plan.routed.step_kind`).
 
     :param chain: The descent from the start rule to the interior's rule.
     :param rule: The interior's own rule.
     :param run: The repetition's item index within it.
-    :param whole: Whether the interior is its enclosing node's whole extent.
     """
     steps: list[ModelStep] = []
-    for index, step in enumerate(chain):
+    for step in chain:
         routine = binding.routines.get(step.rule)
         slot = field_slot(routine, step.item) if routine is not None else None
         if slot is None:
             return None
-        last = index == len(chain) - 1
-        in_run = step.kind == INTO_UNIT or (last and whole)
-        steps.append((slot, 0 if in_run else None))
+        steps.append((slot, 0 if step.kind == INTO_UNIT else None))
     inner = binding.routines.get(rule)
     child = field_slot(inner, run) if inner is not None else None
     return None if child is None else (tuple(steps), child)
@@ -108,7 +103,7 @@ def _route(binding: ModelExecutable[Any], plan: RoutedPlan) -> Route | None:
     key = (id(binding), id(plan))
     entry = _ROUTES.get(key)
     if entry is None:
-        route = interior_route(binding, plan.chain, plan.rule, plan.run, plan.whole)
+        route = interior_route(binding, plan.chain, plan.rule, plan.run)
         entry = _ROUTES[key] = (binding, plan, route)
     return entry[2]
 

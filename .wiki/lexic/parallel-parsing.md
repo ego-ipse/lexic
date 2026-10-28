@@ -85,6 +85,14 @@ there left the final piece without it, so every split declined; under a tail
 beginning with the mark (`"\n\n"`) the last mark is inside the tail. A
 document not ending in the tail has no region, and nothing is parsed for it.
 
+**A route step is a run exactly where the binding builds one.** The descent
+labels each step `INTO_UNIT` when the item it goes through `repeats()` (the
+binding's own run rule, `rulemap`) and `REF` otherwise, first step included,
+and the route reads that label alone. Treating "the last step of a
+whole-extent interior" as a run would misread `root ::= body`, whose body is a
+plain field, and labelling by `unbounded()` would miss a bounded run
+(`para{1,3}`).
+
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
 same `parallel -> pda` edge `plan/speculation.py` already uses for
