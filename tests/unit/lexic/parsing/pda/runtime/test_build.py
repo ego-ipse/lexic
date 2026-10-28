@@ -86,6 +86,26 @@ def test_a_fresh_frame_starts_at_item_zero_with_its_span_start_seeded():
     assert frame.clone.mode == 7
 
 
+def test_an_inherited_prefix_reads_every_fork_in_the_chain_oldest_first():
+    """A chain of forks, each frame's own sinks in a different state: none
+    yet, too short to hold the item, and holding it. Only the frame that
+    holds item ``at`` contributes, and the oldest fork's values come first."""
+    oldest = Frame(flat_arm(2), [], flat_clone(), 0)
+    oldest.sinks = [None, ["a", "b"]]
+    short = Frame(flat_arm(2), [], flat_clone(), 0)
+    short.sinks = [["x"]]
+    short.inherited = oldest
+    absent = Frame(flat_arm(2), [], flat_clone(), 0)
+    absent.inherited = short
+    newest = Frame(flat_arm(2), [], flat_clone(), 0)
+    newest.sinks = [None, ["c"]]
+    newest.inherited = absent
+
+    assert newest.inherited_prefix(1) == ["a", "b", "c"]
+    assert newest.inherited_prefix(0) == ["x"]
+    assert absent.inherited_prefix(1) == ["a", "b"]
+
+
 def test_a_frame_admits_no_attribute_outside_its_slots():
     """The layout is closed — a typo'd lane is an error, not a silent write."""
     frame = Frame(flat_arm(0), [], flat_clone(), 0)
