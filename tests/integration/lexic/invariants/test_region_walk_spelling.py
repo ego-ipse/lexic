@@ -27,6 +27,12 @@ from lexic.parsing.parallel.discovery.regions import (
     walk_roles,
 )
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import (
+    CLOSER_SEPARATOR_UNREAD,
+    TWO_ROLE_PAIRS,
+    TWO_ROLE_SHAPES,
+    two_role_source,
+)
 from tools.benchmark.cases.grammars import BENCHES
 
 JSON_GRAMMARS = ("json.gbnf", "json.abnf")
@@ -170,3 +176,26 @@ def test_a_sabotaged_spelling_is_caught() -> None:
     assert len(set(roles.names)) > 1, "the fixture must carry distinct values"
     sabotaged = roles._replace(names=tuple(reversed(roles.names)))
     assert walk_regions(text, offsets, sabotaged, 0) != honest
+
+
+def _derived_grammars():
+    """Every grammar whose vocabulary the walk is built from here: the bench,
+    the ground truth, and the shapes that once derived a character in two
+    roles (a closer that was also a mark; a closer that opened another pair)."""
+    yield from (bench.compiled.codegen_grammar for bench in BENCHES)
+    for path in sorted(GROUND_TRUTH.glob("*.*bnf")):
+        yield compile_from_path(path).codegen_grammar
+    for source in (*CLOSER_SEPARATOR_UNREAD.values(), TWO_ROLE_PAIRS):
+        yield compile_text(source).codegen_grammar
+    for shape in TWO_ROLE_SHAPES:
+        yield compile_text(two_role_source(shape)).codegen_grammar
+
+
+def test_every_derived_spelling_holds_each_character_once() -> None:
+    """The walk sweeps its spelling and classifies by position, so a character
+    in two sections would be swept twice and read as only one role. No
+    derived vocabulary holds one: this is that construction, asserted."""
+    spellings = [walk_roles(scan_vocabulary(g)).spelling for g in _derived_grammars()]
+    assert len(spellings) > len(BENCHES)
+    doubled = [s for s in spellings if len(set(s)) != len(s)]
+    assert not doubled, doubled

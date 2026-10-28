@@ -1,5 +1,12 @@
 # Log
 
+## No character plays two pair roles (2026-10-28)
+
+`parallel-parsing.md` records why `standing_pairs` drops a pair whose
+character also delimits another pair in the other role, and that the walk now
+sweeps its spelling (each character once); `invariants.md` why the windowed
+differential no longer carries a two-role fixture.
+
 ## No closer is a mark (2026-10-28)
 
 `parallel-parsing.md` records why `scan_vocabulary` drops pair characters from

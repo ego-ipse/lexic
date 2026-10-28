@@ -69,12 +69,10 @@ ragged documents, since `find` is a SCAN and must agree on malformed input too.
 Two properties the differential must keep or it proves nothing. A grammar whose
 vocabulary carries an opaque interior is REFUSED the windows, so comparing one
 only shows that the refusal returns the serial answer — the windowed path is
-exercised through grammars asserted to be skip-free. And a character carrying
-two roles, a closer that also opens another pair, is what distinguishes the
-sweep alphabet from the classification spelling; a fixture holding that
-property is required, and asserted to hold it. It is a real grammar: no closer
-is ever a mark, so a hand-built vocabulary would test a shape no grammar
-derives.
+exercised through grammars asserted to be skip-free. No grammar derives a
+character carrying two roles: no closer is a mark, and no character opens one
+standing pair and closes another. So the walk sweeps its own spelling, and
+the differential carries no two-role fixture.
 
 ## The parser's per-character loop is pinned by its bytecode
 

@@ -127,6 +127,86 @@ def closer_separator_document(shape: str, parts: int) -> str:
     )
 
 
+TWO_ROLE_PAIRS = (
+    'root ::= part ("," part)*\n'
+    "part ::= angle | bar | word\n"
+    'angle ::= "<" word "|"\n'
+    'bar ::= "|" word ("," word)* ">"\n'
+    "word ::= [a-z0-9]+\n"
+)
+"""``|`` closes ``angle`` and opens ``bar``: one character in two pair roles.
+A depth count would net it to zero and read a ``bar``'s own commas as top-level
+marks, and a walk can read it only one way, so neither pair stands
+(:func:`~lexic.parsing.parallel.roles.standing_pairs`). One copy: the scan, the
+region walk and the split read the same shape."""
+
+
+def two_role_document(words: int) -> str:
+    """``words`` words, a ``bar`` of ``words`` words, and ``words`` words again."""
+    run = ",".join(f"w{index}" for index in range(words))
+    return run + ",|" + ",".join(f"x{index}" for index in range(words)) + ">," + run
+
+
+TWO_ROLE_SHAPES = {
+    "list": (
+        'root ::= "[" part ("," part)* "]"',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" word (";" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "top": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" word (";" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "nest": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" part ("." part)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "tail": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle word | bar | word",
+    ),
+    "tail-list": (
+        'root ::= "[" part ("," part)* "]"',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle word | bar | word",
+    ),
+    "lines": (
+        'root ::= line+\nline ::= part ("," part)* "\\n"',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" word ("," word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "lines-nl-in-bar": (
+        'root ::= line+\nline ::= part (" " part)* "\\n"',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" word ("\\n" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "semis": (
+        'root ::= part (";" part)*',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= word | angle | bar",
+    ),
+}
+"""Shapes around ``|`` closing ``angle`` and opening ``bar``: the two pairs in a
+list, at the top level, nested, juxtaposed with a word, line-terminated, and
+sharing the top level's separator."""
+
+
+def two_role_source(shape: str) -> str:
+    """The grammar text of one ``TWO_ROLE_SHAPES`` entry."""
+    return "\n".join(TWO_ROLE_SHAPES[shape]) + "\nword ::= [a-z0-9]+\n"
+
+
 SETTLE = 5.0
 """Seconds a thread's exit signal is given before a case fails."""
 

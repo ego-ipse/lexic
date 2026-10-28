@@ -199,9 +199,9 @@ runs, not dozens of divided regions.
 
 `regions.py` classifies each structural character with a single `str.find` into
 one concatenated spelling, not with a chain of dict tests. The sections are laid
-out skips, openers, then closers and marks together, and **that order IS the
-branch precedence**: `find` returns the earliest match, so a character carrying
-two roles resolves exactly as it did when each table was tested in turn. Closers
+out skips, openers, then closers and marks together, and **each character is
+spelled once**: no derived vocabulary gives a character two roles (below), so
+its one position is its role. Closers
 and marks share a section because one test already separates them — a closer's
 value is its opener, a mark's is `""` — and an unmatched closer is dropped.
 
@@ -213,6 +213,20 @@ the pair's arm, and `pair_rules` would have let the pair fall. So the mark role
 is never met, the walks and the window merge carry no closer-as-mark branch,
 and a window's underflowed closer carries only the opener it wants.
 
+**No character plays two pair roles.** `standing_pairs` drops a pair whose
+character also delimits another standing pair in the other role — `|` in
+`angle ::= "<" word "|"` and `bar ::= "|" word ("," word)* ">"` drops both.
+Kept, it broke both scans. The depth count nets such a character to zero where
+the depth moves by one, so inside a `bar` with no angle before it the count
+read one low and the bar's own commas came back as depth-0 cuts. The region walk
+reads it as an opener first, so inside a `bar` an angle's `|` opened a frame the
+bar's `>` closed. A cut there survived only because some piece failed to parse,
+which is not a proof: a two-role character is exactly what lets a cut re-pair the
+brackets so that every piece parses, the class 14⁵'s witness belongs to. With the
+pairs gone, the separator plan's safety proof sees the bar's own separators and
+refuses before any cut, and no grammar derives a vocabulary in which a character
+holds two roles.
+
 This is not a style preference. Shared-dict membership in that loop does not
 scale across threads on this build: 0.53x on sixteen threads, against 7.64x for
 the same loop over private containers. Reading one string is faster serially
@@ -220,12 +234,15 @@ too, so the change does not rest on that explanation holding. The tables are
 aliased into locals before the loop — reading them off the record inside it
 measures 10-30% slower across the roster.
 
-**A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
-once per role, because that is what makes classification by precedence work.
-`Roles.watched` holds each character once, and is what a sweep iterates.
-Sweeping the spelling reports every offset of a two-role character twice.
-`watched` is derived from `spelling`, which is what makes `spelling.find` total
-over swept offsets: neither walk tests for `-1`.
+**The spelling is the sweep alphabet.** A window sweeps `Roles.spelling`
+itself, which is what makes `spelling.find` total over swept offsets: neither
+walk tests for `-1`. That is sound only because each character is spelled
+once; a character in two sections would be swept twice and read as one role.
+The construction is: openers key one table and closers another, `standing_pairs`
+drops a pair whose character also delimits another in the other role, the marks
+exclude every pair character, and a skip's lead is never watched.
+`test_every_derived_spelling_holds_each_character_once` asserts it over the
+bench, the ground truth and the shapes that once broke it.
 
 ## The windowed find: same answer, discovered in parallel
 

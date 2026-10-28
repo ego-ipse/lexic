@@ -215,11 +215,13 @@ class Roles(NamedTuple):
     Which ROLE it found is which section the index landed in, and the same
     index reads :attr:`names` (or :attr:`skips`) for whatever that role needs.
 
-    **The section order IS the branch precedence.** ``find`` returns the
-    earliest match, and the sections are laid out skips, openers, closers,
-    marks — the order the walk's branches used to be written in — so a
-    character carrying two roles resolves exactly as it did when each table
-    was tested in turn.
+    **No character holds two roles**, so a character is spelled once and its
+    one position is its role: the openers key one table and the closers
+    another, :func:`~lexic.parsing.parallel.roles.standing_pairs` drops a pair
+    whose character also delimits another in the other role, the marks
+    exclude every pair character (:func:`scan_vocabulary`), and a skip's lead
+    is never a watched character. The sections are laid out skips, openers,
+    closers, marks.
 
     This is not a micro-preference. Shared-dict membership in this loop does
     not scale across threads on this build — measured at 0.53x on sixteen
@@ -230,22 +232,13 @@ class Roles(NamedTuple):
 
     **Closers and marks share a section**, and no boundary separates them,
     because one test already does: a closer's value is its opener and a mark's
-    is ``""``. No character is both (:func:`scan_vocabulary`), so an unmatched
-    closer is simply dropped.
+    is ``""``, so an unmatched closer is simply dropped.
 
-    :ivar spelling: Every watched character: skips, openers, then closers and
-        marks together. A character carrying two roles appears ONCE PER ROLE,
-        which is what lets ``find`` classify it by precedence — so this is a
-        classification table and never a set of characters to look for.
-    :ivar watched: The same characters, each ONCE. What a sweep iterates. The
-        two differ exactly when a character holds two roles, and sweeping
-        :attr:`spelling` then finds every one of its offsets twice.
-
-        Derived FROM :attr:`spelling`, which is what makes ``spelling.find``
-        total over swept offsets: every offset a sweep reports holds a
-        character of this string, so the find can never miss. Both walks rely
-        on that and neither tests for ``-1``. A sweep alphabet built from
-        anything else would break the assumption silently.
+    :ivar spelling: Every watched character, once: skips, openers, then
+        closers and marks together. It is both the classification table and
+        what a window sweeps, which is what makes ``spelling.find`` total over
+        swept offsets — every offset a sweep reports holds a character of this
+        string, so neither walk tests for ``-1``.
     :ivar skips: Parallel to the skip section, which starts at zero.
     :ivar names: Parallel to the WHOLE spelling — the bracket rule under an
         opener, the owning opener under a closer, ``""`` under a mark, and
@@ -256,7 +249,6 @@ class Roles(NamedTuple):
     """
 
     spelling: str
-    watched: str
     skips: tuple[Skip, ...]
     names: tuple[str, ...]
     n_skip: int
@@ -273,7 +265,7 @@ removes.
 
 
 def walk_roles(vocab: Vocab) -> Roles:
-    """Spell a vocabulary for the walk, sections in precedence order.
+    """Spell a vocabulary for the walk, one section per role.
 
     Each section's characters and its values come from ONE iteration of the
     same mapping, so position ``i`` of the spelling and entry ``i`` of the
@@ -286,7 +278,6 @@ def walk_roles(vocab: Vocab) -> Roles:
     )
     return Roles(
         spelling=spelling,
-        watched="".join(dict.fromkeys(spelling)),
         skips=tuple(vocab.skips.values()),
         names=(
             ("",) * n_skip  # the skip section, so `names` indexes by `pos`
@@ -374,8 +365,7 @@ def walk_regions(
     ONE ``find`` per structural character classifies it: which section of
     :attr:`Roles.spelling` the index lands in is the role, and the same index
     reads the value that role needs. See :class:`Roles` for why the tables are
-    one string rather than four dicts, and why the section order reproduces the
-    branch precedence the walk used to spell out.
+    one string rather than four dicts, and why each character has one section.
 
     The tables are aliased into locals before the loop, deliberately: reading
     them off the record inside it measured 10-30% slower across the roster,
@@ -393,7 +383,7 @@ def walk_regions(
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.watched
+        pos = spelling.find(char)  # never -1: see Roles.spelling
         if pos < n_skip:
             skip_to = skip_delimited(text, at, skips[pos])
         elif pos < n_open:
@@ -538,9 +528,9 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
     spelling, names, n_open = roles.spelling, roles.names, roles.n_open
     events: list[tuple] = []
     stack: list[Frame] = []
-    for at in _sweep_window(text, roles.watched, lo, hi):
+    for at in _sweep_window(text, roles.spelling, lo, hi):
         char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.watched
+        pos = spelling.find(char)  # never -1: see Roles.spelling
         if pos < n_open:
             stack.append((at, char, [], names[pos]))
         elif stack and stack[-1][1] == names[pos]:

@@ -24,9 +24,12 @@ from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
 from tests.split_helpers import (
     CLOSER_SEPARATOR_UNREAD,
+    TWO_ROLE_PAIRS,
     assert_parallel_matches_sequential,
     closer_separator_document,
     engages,
+    two_role_document,
+    two_role_source,
 )
 
 _CORES = (2, 3, 8)
@@ -717,3 +720,96 @@ def test_a_closer_spelling_an_unread_separator_keeps_the_sequential_model(
     doc = closer_separator_document(shape, 12000)
     assert engages(compiled, doc, cores)
     assert_parallel_matches_sequential(compiled, doc, cores)
+
+
+# ── a character that closes one pair and opens another ────────────────────
+
+
+def _words(prefix: str, count: int, mark: str) -> str:
+    return mark.join(f"{prefix}{index}" for index in range(count))
+
+
+_TWO_ROLE_DOCUMENTS = (
+    ("list", "[<" + _words("a", 3000, ".") + "|,|" + _words("b", 3000, ";") + ">]"),
+    (
+        "list",
+        "["
+        + ",".join(
+            "<x.y|" if i % 3 == 0 else "|p;q>" if i % 3 == 1 else f"w{i}"
+            for i in range(3000)
+        )
+        + "]",
+    ),
+    ("top", "|" + _words("b", 3000, ";") + ">,<" + _words("a", 3000, ".") + "|"),
+    (
+        "top",
+        ",".join(
+            "<x.y|" if i % 3 == 0 else "|p;q>" if i % 3 == 1 else f"w{i}"
+            for i in range(3000)
+        ),
+    ),
+    ("nest", "<" + _words("a", 3000, ".") + "|,|" + _words("b", 3000, ";") + ">"),
+    ("nest", "|<x|;" + _words("w", 3000, ";") + ">"),
+    ("tail", "|<x|w0;" + _words("w", 3000, ";") + ">"),
+    ("tail", ",".join(f"|<x|w{i};v{i}>" for i in range(1500))),
+    ("tail-list", "[a,|<x.y|w0;" + _words("w", 3000, ";") + ">,b]"),
+    (
+        "lines",
+        "".join(
+            f"w{i},|b{i},c{i}>,<a|\n" if i % 2 else f"x{i},y{i}\n" for i in range(2000)
+        ),
+    ),
+    (
+        "lines",
+        "w,|"
+        + _words("x", 3000, ",")
+        + ">\n"
+        + "".join(f"a{i},b{i}\n" for i in range(1500)),
+    ),
+    (
+        "lines-nl-in-bar",
+        "".join(
+            f"w{i} |b{i}\nc{i}\nd{i}> <a|\n" if i % 2 else f"x{i} y{i}\n"
+            for i in range(2000)
+        ),
+    ),
+    ("semis", ";".join(f"|b{i};c{i};<a|>" if i % 2 else f"w{i}" for i in range(3000))),
+    ("semis", "w;|" + _words("x", 3000, ";") + ">;v"),
+)
+"""Documents a two-role ``|`` reads differently in: big angles, big bars,
+mixtures, a bar opening right after an angle closes, and a bar with no angle
+before it, where a depth count would read one low."""
+
+
+def test_a_separator_inside_a_two_role_pair_is_refused_before_any_cut() -> None:
+    """With neither pair standing, the separator plan's safety proof sees the
+    bar's own commas and licenses nothing: no cut is ever proposed inside a
+    bar, rather than proposed and then refused by a piece that fails."""
+    compiled = compile_text(TWO_ROLE_PAIRS, cache_key="adv-faith-two-role")
+    plans = split_plans(compiled.codegen_grammar)
+    assert plans, "the separator plan must exist for its refusal to mean anything"
+    assert not safe_plans(plans, compiled.split_analysis or compiled.grammar)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+def test_a_two_role_witness_declines_and_keeps_the_sequential_model(
+    cores: int,
+) -> None:
+    """The bar's commas never become cuts: the split declines, and the model is
+    the sequential one."""
+    compiled = compile_text(TWO_ROLE_PAIRS, cache_key="adv-faith-two-role")
+    text = two_role_document(3000)
+    assert not engages(compiled, text, cores)
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("case", range(len(_TWO_ROLE_DOCUMENTS)))
+def test_two_role_shapes_keep_the_sequential_model(case: int, cores: int) -> None:
+    """Every shape around the two-role ``|``: engaged or declined, the model
+    holds."""
+    shape, text = _TWO_ROLE_DOCUMENTS[case]
+    compiled = compile_text(
+        two_role_source(shape), cache_key=f"adv-faith-two-role-{shape}"
+    )
+    assert_parallel_matches_sequential(compiled, text, cores)

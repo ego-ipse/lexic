@@ -340,8 +340,11 @@ def standing_pairs(
     A scan counts depth on every occurrence it reads, so a pair stands only
     while each site spelling either of its characters is a delimiter of a
     standing pair's arm; ``strays`` names the characters that fail, given the
-    pairs standing. A fallen pair's delimiters are stray sites like any other,
-    so the check repeats until no pair falls.
+    pairs standing. A character that opens one standing pair and closes
+    another fails as well: the count moves it by zero where the depth moves
+    by one, and the walk can only read it as one of the two. A fallen pair's
+    delimiters are stray sites like any other, so the check repeats until no
+    pair falls.
 
     :param pairs: Candidate ``(opener, closer)`` pairs, in definition order.
     :param strays: The characters some read site spells off a standing arm's
@@ -349,7 +352,8 @@ def standing_pairs(
     :returns: The pairs that stand, in their given order.
     """
     while True:
-        stray = strays(pairs)
+        crossed = {opener for opener, _ in pairs} & {closer for _, closer in pairs}
+        stray = strays(pairs) | crossed
         kept = [pair for pair in pairs if not stray & set(pair)]
         if len(kept) == len(pairs):
             return kept

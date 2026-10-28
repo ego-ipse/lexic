@@ -36,7 +36,11 @@ from lexic.parsing.parallel.discovery.regions import (
 )
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
-from tests.split_helpers import CLOSER_SEPARATOR_UNREAD, closer_separator_document
+from tests.split_helpers import (
+    CLOSER_SEPARATOR_UNREAD,
+    closer_separator_document,
+    two_role_source,
+)
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")
 
@@ -141,6 +145,15 @@ def test_a_closer_spelling_an_unread_separator_finds_the_run(shape: str):
     dots = tuple(at for at, char in enumerate(doc) if char == ".")
     grammar = compile_text(CLOSER_SEPARATOR_UNREAD[shape]).grammar
     assert find(grammar, doc) == [Region(0, len(doc) - 1, "root", dots)]
+
+
+def test_a_closer_that_opens_another_pair_derives_neither():
+    """``|`` closes ``angle`` and opens ``bar``; the walk could read it only
+    as one of the two, opening a frame from an angle's closer inside a bar.
+    Neither pair stands, so nothing is read from the wrong delimiter."""
+    grammar = compile_text(two_role_source("nest")).grammar
+    assert pair_rules(grammar) == {}
+    assert not find(grammar, "|<x|;y;z>")
 
 
 def test_an_opener_two_pairs_claim_derives_neither():
@@ -267,25 +280,7 @@ def _vocab(
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert walk_roles(_vocab()) == Roles("", "", (), (), 0, 0)
-
-
-def test_watched_deduplicates_a_two_role_character() -> None:
-    """A closer that also opens another pair stands twice in the
-    classification spelling and ONCE in the sweep alphabet.
-
-    The spelling needs both, so `find` can resolve the character by precedence;
-    a sweep that iterated it would report every one of that character's offsets
-    twice.
-    """
-    vocab = _vocab(
-        pairs={"<": ("|", "angle"), "|": (">", "bar")},
-        closers={"|": "<", ">": "|"},
-    )
-    roles = walk_roles(vocab)
-    assert roles.spelling.count("|") == 2
-    assert roles.watched.count("|") == 1
-    assert set(roles.watched) == set(roles.spelling)
+    assert walk_roles(_vocab()) == Roles("", (), (), 0, 0)
 
 
 def test_names_is_padded_across_the_skip_section() -> None:

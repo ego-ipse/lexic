@@ -7,11 +7,12 @@ EXACTLY the depth-0 marks the whole-document scan reports inside it.
 
 from __future__ import annotations
 
-from lexic.compile import parse_grammar
+from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.parallel import Roles, Scanner, roles
 from lexic.parsing.parallel.discovery.scan import occurrences, spelling_offsets
 from lexic.parsing.parallel.roles import Terminator
+from tests.split_helpers import TWO_ROLE_PAIRS
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 DOC = "{qaq: {qbq: {qcq: qdq}}, qeq: qfq, qgq: {qhq: qiq}}".replace("q", '"')
@@ -77,6 +78,16 @@ def test_a_count_over_a_longer_spelling_counts_its_overlaps():
     assert occurrences("aaa", "aa", 0, 3) == 2
     assert occurrences("aaa", "a", 0, 3) == 3
     assert occurrences("aaa", "aa", 1, 3) == 1
+
+
+def test_a_character_closing_one_pair_and_opening_another_is_never_counted():
+    """``|`` closes ``angle`` and opens ``bar``; a count would move it by zero
+    where the depth moves by one, reading the bar's own commas at depth 0. No
+    such pair stands, so the scan counts no depth there at all — and the
+    separator plan's own safety proof has to decide, before any cut."""
+    scanner = Scanner(roles(compile_text(TWO_ROLE_PAIRS).codegen_grammar))
+    assert not scanner.openers
+    assert not scanner.closers
 
 
 # ── multi-character marks ─────────────────────────────────────────────────

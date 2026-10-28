@@ -296,3 +296,10 @@ def test_standing_pairs_keeps_every_pair_no_stray_spells_in_order():
     """Nothing stray: every pair stands, in the order given."""
     pairs = [("[", "]"), ("(", ")")]
     assert standing_pairs(pairs, lambda _standing: frozenset("x")) == pairs
+
+
+def test_standing_pairs_drops_both_pairs_a_character_closes_and_opens():
+    """``|`` closes ``<`` and opens ``>``'s pair: a count nets it to zero, so
+    both pairs fall even with no stray site, and the unrelated pair stands."""
+    pairs = [("<", "|"), ("|", ">"), ("[", "]")]
+    assert standing_pairs(pairs, lambda _standing: frozenset()) == [("[", "]")]
