@@ -2810,3 +2810,9 @@ item a worker already started is never run twice.
 `decisions.md`'s folded-source entry and `parallel-parsing.md`'s plan table: the
 run kind of the folded source, its NON_INITIAL condition, the re-worn base and
 the left-edge join.
+
+## A sequence's EXTEND is bounded at its leftmost shifting item (2026-10-28)
+
+`decisions.md`: the sequence rule of EXTEND, its leftmost-divergence argument,
+the FIRST_2 window test and its surplus, and the licence entry's six remaining
+json witnesses.

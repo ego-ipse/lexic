@@ -19,13 +19,14 @@ from itertools import product
 import pytest
 
 from lexic.compile import compile_text
-from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrCharClass,
     IrChr,
     IrLiteral,
     IrRuleRef,
 )
+from lexic.parsing import recognize
+from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import (
@@ -61,19 +62,16 @@ def extension(source: str, rule: str = "x") -> CharSet:
 
 def members(source: str, alphabet: str, longest: int) -> set[str]:
     """Every string over ``alphabet`` up to ``longest`` that ``source`` derives,
-    by asking the parser — an ambiguous member is a member all the same."""
+    by Earley recognition — an ambiguous member is a member all the same, and
+    no answer here reads EXTEND."""
     compiled = compile_text(source, cache_key=f"members-{hash(source)}")
-    found: set[str] = set()
-    for size in range(longest + 1):
-        for chars in product(alphabet, repeat=size):
-            text = "".join(chars)
-            try:
-                compiled.parse(text)
-            except UnsupportedConstructError as refused:
-                if "ambiguous" not in str(refused) and "two ways" not in str(refused):
-                    continue
-            found.add(text)
-    return found
+    grammar = normalize(compiled.codegen_grammar)
+    return {
+        text
+        for size in range(longest + 1)
+        for text in map("".join, product(alphabet, repeat=size))
+        if recognize(grammar, text)
+    }
 
 
 @pytest.mark.parametrize(
@@ -87,6 +85,9 @@ def members(source: str, alphabet: str, longest: int) -> set[str]:
         ('x ::= "(" x ")" | "y"\n', "", "()y"),
         ('x ::= "a"? "a"\n', "a", "b"),
         ('x ::= y y\ny ::= "a" | "aa"\n', "a", "b"),
+        ('x ::= ([a-b] "z")? [a-b] [0-1]\n', "", "abz01"),
+        ('x ::= "q" [a-b]* [a-b]\n', "ab", "q"),
+        ("x ::= [a-b]? [a-b] [0-1]\n", "", "ab01"),
     ],
     ids=[
         "literal",
@@ -97,6 +98,9 @@ def members(source: str, alphabet: str, longest: int) -> set[str]:
         "balanced",
         "unsettled-seq",
         "unsettled-repeat",
+        "unshifting-seq",
+        "shift-bound",
+        "short-surplus",
     ],
 )
 def test_extend_holds_what_lengthens_a_match_and_nothing_that_cannot(
@@ -105,7 +109,12 @@ def test_extend_holds_what_lengthens_a_match_and_nothing_that_cannot(
     """Each character that can lengthen a complete match is in EXTEND, and a
     construct whose matches are closed has none. EXTEND over-approximates —
     arms sharing a first character take the longer arm's whole ALPHABET — so
-    ``fixed`` names only characters no approximation may hold."""
+    ``fixed`` names only characters no approximation may hold. Where an item's
+    EXTEND meets what follows, the boundary shifts only if what follows can
+    begin with the item's surplus then itself (``unshifting-seq``: a ``z``
+    cannot begin a digit; ``short-surplus``: nor a letter), and a shift reaches
+    back no further than its own item (``shift-bound``: ``q`` is never past
+    one)."""
     got = extension(source)
     assert all(got.has(char) for char in grows), f"missing one of {grows!r}"
     assert not any(got.has(char) for char in fixed), f"holds one of {fixed!r}"
@@ -119,14 +128,43 @@ def test_extend_holds_what_lengthens_a_match_and_nothing_that_cannot(
         ('x ::= y "c"?\ny ::= "a" | "ac"\n', "ac"),
         ('x ::= "(" x ")" | "y" x?\n', "()y"),
         ('x ::= x "a" | "b"\n', "ab"),
+        ('x ::= ([a-b] "z")? [a-b] [0-1]\n', "abz01"),
+        ('x ::= "q" [a-b]* [a-b]\n', "qab"),
+        ('x ::= ([a-b] "z")? [a-b] "z"? [0-1]\n', "abz01"),
+        ('x ::= y [b-c]\ny ::= "a" | "ab"\n', "abc"),
+        ('x ::= [a-c]* "b" "a"+\n', "abc"),
+        ('x ::= y* "b"\ny ::= "a" "ab"?\n', "ab"),
+        ('x ::= ([a-b] "z")? [a-b] [0-1]* [0-1]\n', "abz01"),
+        ("x ::= [b-c]? x?\n", "bc"),
+        ('x ::= "a"* "ab"?\n', "ab"),
     ],
-    ids=["loop", "arm-chain", "optional-tail", "recursive", "left-recursive"],
+    ids=[
+        "loop",
+        "arm-chain",
+        "optional-tail",
+        "recursive",
+        "left-recursive",
+        "unshifting-seq",
+        "shift-bound",
+        "shifting-seq",
+        "lengthening-item",
+        "several-more",
+        "re-split",
+        "two-shifts",
+        "unknown-window",
+        "vanishing-rest",
+    ],
 )
 def test_extend_covers_every_extension_the_language_has(
     source: str, alphabet: str
 ) -> None:
     """Sound against the LANGUAGE, enumerated: for every ``u`` and ``uw`` the
-    parser accepts, ``w``'s first character is in EXTEND."""
+    parser accepts, ``w``'s first character is in EXTEND. The later cases each
+    shift a boundary only through one part of the surplus test: an item's own
+    lengthening, several further occurrences, occurrences that split otherwise
+    (``"a" "ab"`` against ``"aab"``), a second shifting item read at its own
+    position past one that cannot shift, a window the solver cannot see (a
+    recursion it re-enters), and a rest that can vanish."""
     words = members(source, alphabet, 6)
     assert words, "the enumeration found nothing, so it proves nothing"
     seen = {

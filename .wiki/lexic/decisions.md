@@ -1823,10 +1823,51 @@ walk answered nothing, and on chess.gbnf it licensed `move` although `Nd2` and
 by induction, but coarser: on a repetition whose iteration's EXTEND meets its
 own FIRST it falls back to the rule's ALPHABET. Over every bench compile and
 the ground-truth corpus, the 24 units a planner asks are licensed identically
-(one licence, `#` on announced's `section`); 8 unplanned units (chess
-`pawn`/`nonpawn`, json `member`/`object-item2` in three flavours) lose a
-licence to that fallback; a more precise EXTEND is TODO 16′. Chess `move` is
-the licence the swap revokes, and its pin parses both moves.
+(one licence, `#` on announced's `section`); 6 unplanned units (json
+`member`/`object-item2` in three flavours) lose a licence to a whitespace run
+whose boundary shifts (TODO 16′b). Chess `move` is the licence the swap
+revokes, and its pin parses both moves.
+
+## A sequence's EXTEND is bounded at its leftmost shifting item
+
+**Decision:** `seq_extension` scans a sequence's items from the right, keeping
+each item's EXTEND while everything after it can vanish, and noting every item
+whose EXTEND meets the FIRST of what follows. Of those, the leftmost whose
+boundary can really shift (`_may_shift`) bounds the rest: the sequence's
+EXTEND is the kept part plus the ALPHABET of the items from that one on. With
+no such item, the kept part is all of it.
+
+`_may_shift` answers at once where a longer last occurrence of the item (its
+atom's EXTEND, or the atom's whole ALPHABET where occurrences may split
+another way: `_splits_alike`) meets what follows, or where what follows can
+vanish. Otherwise `KWindowFirst.shifts` asks FIRST_2 windows (the solver
+rides `Extensions`, and reads each item's windows once across the fixpoint's
+passes, keyed by the items themselves: a caller may pass a transient list): some window of what follows must `collide` with a window of the
+item's surplus followed by what follows (`extend_follow`). The surplus is up
+to the count's upper bound of whole further occurrences, or a longer last
+one. A window the solver cannot see past is compared on what it knows.
+
+**Why:** take `u` and `uw` in the sequence's language, and the first item
+where two readings of them differ in length; before it, they coincide. If the
+longer reading there is `uw`'s, its item is `u`'s plus a surplus `x`, and `u`'s
+rest is a prefix of `x` followed by `uw`'s rest. If it is `u`'s, swap the two.
+Either way, unless `u`'s rest is empty, the surplus's first character is in
+the item's EXTEND and in the FIRST of what follows, which is the overlap the
+scan notes, and the rest is prefix-compatible with surplus-then-rest, which is
+the window test. If the rest is empty, `w` extends the item itself with a
+vanishing suffix, which the kept part counts. And `w[0]` stands at an offset at
+or past where that item starts, so the ALPHABET from the leftmost shifting
+item on bounds it. The alphabet of the whole sequence, the bound this replaces,
+held every character before the first shift as well: chess `nonpawn`'s piece
+letter, and so its licence. The window test frees an item whose surplus cannot
+begin what follows: chess `pawn`'s `([a-h] "x")?` against a square `[a-h]
+[1-8]`.
+
+Two-occurrence and lengthening surpluses are each needed: `x ::= [a-c]* "b"
+"a"+` shifts only through two further occurrences (`ba`), and `x ::= y* "b"`
+with `y ::= "a" "ab"?` only through `"a" "a"` re-read as `"aab"`, whose `b` is
+neither in `y`'s EXTEND nor its FIRST. Both are pinned against the enumerated
+language in `test_predicates.py`, with a random-rule soak behind them.
 
 ## A bound field's document order is read, never assumed
 

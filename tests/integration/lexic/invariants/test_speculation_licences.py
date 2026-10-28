@@ -39,9 +39,16 @@ _CORPUS_ASKS = {
 }
 """Ground-truth file → (the unit its planner asks about, the licence)."""
 
-_FALLBACK_WITNESSES = {
+_SHIFT_WITNESSES = {
     ("chess.gbnf", "pawn"): "abcdefgh",
     ("chess.gbnf", "nonpawn"): "BKNQR",
+}
+"""Unplanned units EXTEND once refused by falling back to the whole sequence's
+ALPHABET: an item's EXTEND meets what follows it, yet the boundary cannot shift
+there (pawn's ``[a-h] "x"`` cannot begin a square), or a shift reaches no
+opening (nonpawn's ``[a-h]?`` stands past the piece letter)."""
+
+_RUN_WITNESSES = {
     ("json.abnf", "member"): '"',
     ("json.abnf", "object-item2"): '"',
     ("json.ebnf", "member"): '"',
@@ -49,9 +56,10 @@ _FALLBACK_WITNESSES = {
     ("json.gbnf", "member"): '"',
     ("json.gbnf", "object-item2"): '"',
 }
-"""Unplanned units whose sound licence EXTEND's ALPHABET fallback refuses: the
-walk it replaced granted these, and the true EXTEND excludes each opening.
-TODO_3 item 16′'s witnesses for a more precise EXTEND."""
+"""Unplanned units whose sound licence EXTEND still refuses: a whitespace run
+ending one item meets the run opening the next, so their boundary shifts, and
+the true EXTEND excludes each opening all the same. TODO_3 item 16′b's
+witnesses for a shift confined to a run."""
 
 
 _SEATS = ("pda", "lex", "lex-ns")
@@ -100,14 +108,22 @@ def test_chess_move_is_not_licensed() -> None:
     assert speculative_openings(compiled.codegen_grammar, "move") == frozenset()
 
 
-@pytest.mark.xfail(
-    strict=True, reason="EXTEND falls back to the rule's ALPHABET (item 16′)"
-)
-@pytest.mark.parametrize("witness", sorted(_FALLBACK_WITNESSES))
-def test_fallback_witness_keeps_its_licence(witness: tuple[str, str]) -> None:
-    """A more precise EXTEND grants each witness the opening the old walk did."""
+def _licence(witness: tuple[str, str]) -> frozenset[str]:
     name, unit = witness
     grammar = compile_from_path(str(GROUND_TRUTH / name)).codegen_grammar
-    assert speculative_openings(grammar, unit) == frozenset(
-        _FALLBACK_WITNESSES[witness]
-    )
+    return speculative_openings(grammar, unit)
+
+
+@pytest.mark.parametrize("witness", sorted(_SHIFT_WITNESSES))
+def test_unshifting_witness_keeps_its_licence(witness: tuple[str, str]) -> None:
+    """EXTEND grants each witness the opening the old walk did."""
+    assert _licence(witness) == frozenset(_SHIFT_WITNESSES[witness])
+
+
+@pytest.mark.xfail(
+    strict=True, reason="a shift confined to a whitespace run (item 16′b)"
+)
+@pytest.mark.parametrize("witness", sorted(_RUN_WITNESSES))
+def test_run_witness_keeps_its_licence(witness: tuple[str, str]) -> None:
+    """A more precise EXTEND grants each witness the opening the old walk did."""
+    assert _licence(witness) == frozenset(_RUN_WITNESSES[witness])

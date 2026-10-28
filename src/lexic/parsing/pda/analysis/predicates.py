@@ -38,6 +38,7 @@ from lexic.parsing.pda.analysis.cursors import (
     Scope,
     Site,
 )
+from lexic.parsing.pda.analysis.gates.windows import KWindowFirst
 from lexic.parsing.pda.core.charsets import CharSet
 
 if TYPE_CHECKING:  # `analysis` imports this module, so the reference is mutual
@@ -225,10 +226,18 @@ class Extensions(NamedTuple):
 
     :ivar found: Rule name → its EXTEND (or NON_INITIAL) so far.
     :ivar alphabets: Rule name → its ALPHABET, the bound EXTEND falls back to.
+    :ivar windows: FIRST\\ :sub:`2` over the grammar, for the shift test.
     """
 
     found: dict[str, CharSet]
     alphabets: dict[str, CharSet]
+    windows: KWindowFirst
+
+    @classmethod
+    def empty(cls, rules: Mapping[str, IrRule]) -> Extensions:
+        """Every rule's set empty, the fixpoint's start, over ``rules``."""
+        found = {name: CharSet.EMPTY for name in rules}
+        return cls(found, rule_alphabets(rules), KWindowFirst(rules, 2))
 
 
 def _ext_single(_d: object, _n: IrSelf, _nc: object) -> CharSet:
@@ -278,35 +287,59 @@ def item_extension(d: GrammarAnalysis, item: IrItem, maps: Extensions) -> CharSe
         return CharSet.EMPTY
     if hi == 1:
         return ext if lo == 1 else ext.union(first)
-    if d.atom_nullable(atom) or ext.overlaps(first):
+    if not _splits_alike(d, atom, ext):
         return atom_alphabet(atom, (maps.alphabets,))
     return ext if hi == lo else ext.union(first)
+
+
+def _splits_alike(d: GrammarAnalysis, atom: IrAtom, ext: CharSet) -> bool:
+    """Whether a run of ``atom`` and a longer one split alike up to the shorter's
+    end: no occurrence is empty, and none lengthens (``ext``) into the next."""
+    return not d.atom_nullable(atom) and not ext.overlaps(d.atom_first(atom))
 
 
 def seq_extension(
     d: GrammarAnalysis, items: Sequence[IrItem], maps: Extensions
 ) -> CharSet:
-    """EXTEND of a sequence.
-
-    Two readings of ``u`` and ``uw`` first differ at some item, where one is a
-    prefix of the other, so the character after the shorter extends that item
-    and also begins what follows it — unless everything after it is empty and
-    that character is ``w[0]``. So where no item's EXTEND meets the FIRST of
-    what follows it, the sequence extends exactly as its items with nullable
-    suffixes do.
-    """
+    """EXTEND of a sequence: its items' own where all after them can vanish,
+    plus the ALPHABET from the leftmost item whose boundary can shift on
+    (:func:`_may_shift`): readings of ``u`` and ``uw`` first part there."""
     out = CharSet.EMPTY
     after, empty_after = CharSet.EMPTY, True
-    for item in reversed(items):
+    meets: list[tuple[int, CharSet, bool]] = []
+    for at in range(len(items) - 1, -1, -1):
+        item = items[at]
         ext = item_extension(d, item, maps)
         if ext.overlaps(after):
-            return _seq_alphabet(items, maps.alphabets)
+            meets.append((at, after, empty_after))
         if empty_after:
             out = out.union(ext)
         first = d.atom_first(item.atom)
-        after = first.union(after) if item_nullable(d, item) else first
-        empty_after = empty_after and item_nullable(d, item)
+        vanishes = item_nullable(d, item)
+        after = first.union(after) if vanishes else first
+        empty_after = empty_after and vanishes
+    for at, follows, vanishing in reversed(meets):
+        if vanishing or _may_shift(d, items, at, follows, maps):
+            return out.union(_seq_alphabet(items[at:], maps.alphabets))
     return out
+
+
+def _may_shift(
+    d: GrammarAnalysis,
+    items: Sequence[IrItem],
+    at: int,
+    follows: CharSet,
+    maps: Extensions,
+) -> bool:
+    """Whether two readings can part at item ``at``: the item's surplus must
+    begin what follows it (``follows``, its FIRST). A longer last occurrence
+    starts in the atom's EXTEND (its ALPHABET where occurrences may split
+    otherwise); failing that, the windows decide (:meth:`KWindowFirst.shifts`)."""
+    atom = items[at].atom
+    own = cast(CharSet, EXTEND.resolve(atom).eval(d, atom, maps))
+    if items[at].quantifier.repeats() and not _splits_alike(d, atom, own):
+        own = atom_alphabet(atom, (maps.alphabets,))
+    return own.overlaps(follows) or maps.windows.shifts(items, at, own)
 
 
 def arms_extension(
@@ -340,9 +373,7 @@ def rule_extensions(d: GrammarAnalysis) -> Extensions:
     held = d.follows.extended
     if held:
         return held[0]
-    maps = Extensions(
-        {name: CharSet.EMPTY for name in d.rules}, rule_alphabets(d.rules)
-    )
+    maps = Extensions.empty(d.rules)
     grow_charsets(
         maps.found, d.rules, lambda rule: arms_extension(d, list(rule.body), maps)
     )
@@ -400,7 +431,7 @@ def rule_non_initials(rules: Mapping[str, IrRule]) -> Extensions:
     :param rules: The grammar's rules by name.
     :returns: ``found`` each rule's NON_INITIAL, beside the ALPHABET it reads.
     """
-    maps = Extensions({name: CharSet.EMPTY for name in rules}, rule_alphabets(rules))
+    maps = Extensions.empty(rules)
     grow_charsets(
         maps.found,
         rules,

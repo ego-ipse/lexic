@@ -137,14 +137,18 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         by its node ``id`` instead of a name — it is a nameless rule, and the
         two key spaces are the same pair the gate store keeps apart.
     :ivar busy: keys currently being computed (cycle guard).
+    :ivar rests: an arm's items from one item on → the windows :meth:`shifts`
+        reads there: what follows the item, and its further occurrences. Keyed
+        by content, so a caller's transient list never reads another's.
     """
 
-    __slots__ = ("rules", "k", "memo", "busy")
+    __slots__ = ("rules", "k", "memo", "busy", "rests")
 
     rules: Mapping[str, IrRule]
     k: int
     memo: dict[tuple[str | int, int], set[Pref]]
     busy: set[tuple[str | int, int]]
+    rests: dict[tuple[IrItem, ...], tuple[set[Pref], set[Pref]]]
 
     def __init__(self, rules: Mapping[str, IrRule], k: int) -> None:
         """Prepare the FIRST_k solver over ``rules`` at window ``k``."""
@@ -152,6 +156,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.k = k
         self.memo = {}
         self.busy = set()
+        self.rests = {}
 
     def rule_prefixes(self, name: str, r: int) -> set[Pref]:
         """FIRST_r of rule ``name`` — the union of its arms' prefixes.
@@ -261,6 +266,32 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
                 "(empty-language alternation arm)"
             )
         return states
+
+    def shifts(self, items: Sequence[IrItem], at: int, longer: CharSet) -> bool:
+        """Whether some window of what follows item ``at`` of an arm fits one of
+        the item's surplus followed by what follows: the surplus is up to the
+        count's upper bound of further whole occurrences, or a longer last one
+        whose first character is in ``longer``, then anything.
+        """
+        key = tuple(items[at:])
+        got = self.rests.get(key)
+        if got is None:
+            got = self.rests[key] = self._rest(items, at)
+        rest, surplus = got
+        if not longer.is_empty():
+            surplus = surplus | {((longer, CharSet.ANY), MORE)}
+        fits = extend_follow(surplus, rest, self.k)
+        return any(collide(short, long) for short in rest for long in fits)
+
+    def _rest(self, items: Sequence[IrItem], at: int) -> tuple[set[Pref], set[Pref]]:
+        """What follows item ``at``, and its further whole occurrences (none
+        for a required single item), as windows."""
+        quantifier = items[at].quantifier
+        rest = self.arm_prefixes(tuple(items[at + 1 :]), self.k)
+        if quantifier.once():
+            return rest, set()
+        more = IrItem(items[at].atom, IrQuantifier(1, quantifier.hi))
+        return rest, self.arm_prefixes((more,), self.k)
 
 
 def _resolve(table: IrTypeMap, atom: IrSelf) -> IrSelf:
