@@ -1,5 +1,11 @@
 # Log
 
+## The tables say whether a fast build must watch for cycles (2026-10-28)
+
+`decisions.md` records `DecodeTables.cyclic` deciding where FastTree tracks
+re-entries, the pin unroll restored for tracked builds, and why the grammar
+decides rather than a check on the build loop.
+
 ## The fast build builds a zero-width root (2026-10-28)
 
 `decisions.md` records `FastTree.build` returning its holder, and the

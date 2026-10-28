@@ -33,10 +33,6 @@ if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 
-class _Unbounded(Exception):
-    """An untracked build re-entered a handle it is still building."""
-
-
 class FastTree(IrLeaf[IrSelf, IrSelf]):
     """Iterative single-derivation builder over the packed SPPF.
 
@@ -103,70 +99,65 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         :param handle: The packed accepting handle ``(item << B) | end``.
         :returns: The tree, or :data:`IrNone` on a fast-path miss.
         """
-        if self.choices is None:
-            # Bail mode cannot loop: a cycle's keys cannot all hold one family
-            # (a completed item has a finite derivation, so some key on the cycle
-            # offers another), and bail mode declines at the first that holds two.
+        if self.choices is None or not self.kernel.tables.decode.cyclic:
+            # Nothing to watch. Only a cyclic grammar (``A ⇒+ A``) can put a
+            # node inside itself; and bail mode declines at the first key that
+            # holds two families, which every cycle's keys include — a completed
+            # item has a finite derivation, so some key on its cycle offers one.
             return self._run(handle, None)
-        pins = dict(self.choices)
-        try:
-            return self._run(handle, None)
-        except _Unbounded:
-            # A cycle: build again with the same pins, tracking every handle
-            # still being built so each re-entry is avoided or refused.
-            # The memo keeps what the first try finished: each entry was
-            # assembled from its whole chain, a complete subtree either way.
-            opened: set[int] = set()
-            self.choices = Steering(pins, opened)
-            return self._run(handle, opened)
+        # A cyclic grammar: track every handle still being built, so a re-entry
+        # is a pin's unroll, or is avoided where another family remains, or is
+        # refused where none does.
+        opened: dict[int, int] = {}
+        self.choices = Steering(self.choices, opened)
+        return self._run(handle, opened)
 
-    def _run(self, handle: int, opened: set[int] | None) -> IrSelf:
+    def _run(self, handle: int, opened: dict[int, int] | None) -> IrSelf:
         """One build of ``handle``; ``opened`` tracks re-entries, or is ``None``
-        for the untracked first try, which only watches for one.
-
-        :raises _Unbounded: When an untracked resolving build re-enters a handle
-            it is still building — its stack outgrows the chart and repeats one.
-        """
+        where none can happen."""
         holder: list[IrSelf] = [IrNone]
         stack = self.stack = [(handle, holder, 0, None)]
         step = self._step if opened is None else partial(self._tracked, opened)
-        budget = 8 * len(self.kernel.cols) + 4096
-        while True:
-            # Steps in rounds: an acyclic build ends well inside its first, and
-            # only past a round's end is the stack read for a repeated handle.
-            for _ in range(budget):
-                if not stack:
-                    # The holder, not the memo: a zero-width handle takes its
-                    # rule's shared empty tree without a memo entry, and a
-                    # zero-width ROOT is still built.
-                    return holder[0]
-                if not step():
-                    return IrNone
-            if opened is None and self.choices is not None and self._repeats():
-                raise _Unbounded
-            budget *= 2
+        while stack:
+            if not step():
+                return IrNone
+        # The holder, not the memo: a zero-width handle takes its rule's shared
+        # empty tree without a memo entry, and a zero-width ROOT is still built.
+        return holder.pop()
 
-    def _tracked(self, opened: set[int]) -> bool:
+    def _tracked(self, opened: dict[int, int]) -> bool:
         """One step of a tracked build: :meth:`_step`, with every handle that
-        waits on its kids marked open until it is assembled. The chain reader
-        avoids the open handles wherever another family remains; a re-entry
-        into one anyway is a key no family could leave, and is refused.
+        waits on its kids marked open, with the pins left before its own key
+        took one, until it is assembled.
 
-        :param opened: The handles still being built.
-        :raises UnsupportedConstructError: On a re-entry, in a resolving build.
+        A re-entry into an open handle after a pin was consumed since it opened
+        is that pin's one-lap unroll: the pinned family led back to the handle,
+        and the inner occurrence is a fresh visit under the default choices —
+        its own chain covers its span, and the outer occurrence keeps the
+        pinned family, so the unroll is complete. Any other re-entry is a key
+        the chain reader could not steer away from (it avoids open handles
+        wherever another family remains), and is refused.
+
+        :param opened: Each handle still being built → pins left when it opened.
+        :raises UnsupportedConstructError: On a re-entry no family could leave.
         """
         stack = self.stack
         handle, _dest, _slot, resolved = stack[-1]
         if resolved is not None:
-            opened.discard(handle)
+            opened.pop(handle, None)
             return self._step()
-        if handle in opened and self.memo.get(handle) is None:
+        pins = len(self.choices) if self.choices else 0
+        if (
+            handle in opened
+            and self.memo.get(handle) is None
+            and pins >= opened[handle]
+        ):
             return self._cycle()
         depth = len(stack)
         if not self._step():
             return False
         if len(stack) > depth and stack[depth - 1][3] is not None:
-            opened.add(handle)  # its frame now waits on the kids above it
+            opened[handle] = pins  # its frame now waits on the kids above it
         return True
 
     def _step(self) -> bool:
@@ -201,11 +192,6 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             return True
         self._build(handle, dest, slot, resolved)
         return True
-
-    def _repeats(self) -> bool:
-        """Whether a handle waits on its kids twice in the stack — re-entered."""
-        waiting = [frame[0] for frame in self.stack if frame[3] is not None]
-        return len(waiting) != len(set(waiting))
 
     def _cycle(self) -> bool:
         """A re-entry no family could leave: bail mode misses as on any key it
