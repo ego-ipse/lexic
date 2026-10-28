@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
+    all_clones,
     clone_arms,
 )
 from lexic.parsing.pda.compiler.program.gating import (
@@ -21,7 +22,6 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
     vdisp_landing,
     vdisp_target,
 )
-from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
 _WIDE = 'root ::= alt\nalt ::= a | b\na ::= "ab" x\nb ::= "ac" x\nx ::= "z"\n'
@@ -35,9 +35,7 @@ rather than lead-char selectors — the shape this section is about.
 def wide_clone(pda):
     """The one clone carrying a wide selection."""
     found = [
-        one
-        for one in walk_program_clones(pda.program.start).values()
-        if one.wide_selectors is not None
+        one for one in all_clones([pda.program.start]) if one.wide_selectors is not None
     ]
     assert len(found) == 1, f"expected one wide clone, found {len(found)}"
     return found[0]

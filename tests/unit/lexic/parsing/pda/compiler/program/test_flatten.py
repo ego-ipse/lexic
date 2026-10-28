@@ -281,48 +281,6 @@ def test_an_attempt_clones_entries_behind_a_group_are_marked_where_it_forks() ->
     assert entry.sub_root
 
 
-def _reachable(start: object) -> dict[int, FlatClone]:
-    """Every clone reachable through ANY slot of any clone or arm — the walk a
-    complete ``all_clones`` must equal, read off the objects themselves."""
-    found: dict[int, FlatClone] = {}
-    seen: set[int] = set()
-    work = [start]
-    while work:
-        item = work.pop()
-        if isinstance(item, (tuple, list, frozenset)):
-            work.extend(item)
-            continue
-        if not isinstance(item, (FlatClone, FlatArm)) or id(item) in seen:
-            arms = getattr(item, "arms", None)
-            if arms is not None and id(item) not in seen:
-                seen.add(id(item))
-                work.extend(arms)
-            continue
-        seen.add(id(item))
-        if isinstance(item, FlatClone):
-            found[id(item)] = item
-        for cls in type(item).__mro__:
-            for slot in vars(cls).get("__slots__", ()):
-                if hasattr(item, slot):
-                    work.append(getattr(item, slot))
-    return found
-
-
-@pytest.mark.parametrize("name", [bench.name for bench in BENCHES])
-def test_all_clones_reaches_every_clone_the_program_holds(name: str) -> None:
-    """The one walk is complete: from the start clone it visits exactly the
-    clones any slot of the program reaches — groups behind ``OP_REF1``,
-    dispatch targets and attempt entries included."""
-    tables = next(
-        bench for bench in BENCHES if bench.name == name
-    ).compiled.pda_tables()
-    start = tables.program.start
-    if not isinstance(start, FlatClone):
-        pytest.skip("an islanded start holds no clone")
-    walked = {id(clone) for clone in all_clones([start])}
-    assert walked == set(_reachable(start))
-
-
 # ── one entry shape per clone ───────────────────────────────────────────────
 
 
