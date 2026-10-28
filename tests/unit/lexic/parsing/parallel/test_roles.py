@@ -361,3 +361,12 @@ def test_unbounded_noise_holds_no_run() -> None:
     arm, rules = _sole_arm(source, "root")
     assert not holds_run(arm, rules)
     assert holds_run(*_sole_arm(source, "list"))
+
+
+def test_a_literal_tail_named_like_a_rule_holds_no_run() -> None:
+    """``"y"*`` is a literal, not the rule ``y``: read as the rule, its one arm
+    ``"," y`` would return to the head ``y`` and fake a run."""
+    source = 'root ::= "(" y "y"* ")"\ny ::= "," y | "z"\nw ::= "," y\n'
+    arm, rules = _sole_arm(source, "root")
+    rules = {**rules, "y": rules["w"]}  # y read as ITS one arm, as the old reader did
+    assert not holds_run(arm, rules)

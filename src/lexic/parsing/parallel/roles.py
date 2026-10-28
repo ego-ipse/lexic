@@ -338,12 +338,10 @@ def run_leads(
         rules = rule_table(grammar)
         found: dict[str, frozenset[str]] = {}
         for opener, (_closer, rule) in pairs.items():
-            owners = {
-                owner
-                for arm in rules[rule].body
-                if arm and literal_char(arm[0], rules) == opener
-                for owner in _run_owners(rule, tuple(arm), rules)
-            }
+            arms = [
+                a for a in rules[rule].body if a and literal_char(a[0], rules) == opener
+            ]
+            owners = {o for arm in arms for o in _run_owners(rule, tuple(arm), rules)}
             marks = [r.mark for r in records if r.container in owners]
             if len(own := {mark for mark in marks if len(mark) == 1}) > 1:
                 found[opener] = frozenset(own)
@@ -368,7 +366,8 @@ def _run_owners(rule: str, arm: tuple[IrItem, ...], rules: RuleTable) -> set[str
 def holds_run(arm: tuple[IrItem, ...], rules: RuleTable) -> bool:
     """Whether an arm holds ``head tail*``: an unbounded one-arm tail, lead head."""
     for head, tail in zip(arm, arm[1:]):
-        body = rules[str(tail.atom)].body if str(tail.atom) in rules else tail.atom
+        ref = rules.get(str(tail.atom)) if isinstance(tail.atom, IrRuleRef) else None
+        body = tail.atom if ref is None else ref.body
         if tail.quantifier.unbounded() and isinstance(body, IrAlternation):
             if len(body) == 1 and len(body[0]) == 2 and body[0][1].atom == head.atom:
                 return True
