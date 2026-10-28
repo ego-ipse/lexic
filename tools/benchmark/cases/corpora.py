@@ -19,6 +19,21 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[3]
 
 
+def two_mark_corpus(entries: int) -> str:
+    """``name = value`` entries, one per line: two-letter names over the
+    alphabet, so every newline is a boundary the next line settles."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    return "\n".join(
+        f"k{letters[n % 26]}{letters[(n // 26) % 26]} = v" for n in range(entries)
+    )
+
+
+def reopening_corpus(pairs: int) -> str:
+    """An array of short pairs, each its own number: every adjacent two could
+    reopen as one long pair, which the decider keeps."""
+    return "[" + ",".join(f"({n})" for n in range(pairs)) + "]"
+
+
 def split_nullable_corpus(paras: int) -> str:
     """Paragraphs of three lines, including empty ones, each closed by a blank."""
     letters = "abcdefghijklmnopqrstuvwxyz"

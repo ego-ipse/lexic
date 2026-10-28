@@ -148,6 +148,24 @@ EXPECTED: dict[str, frozenset[str]] = {
     # character, so the folded seats are handed the same grammar as the
     # unfolded ones and there is no zero-width terminal to refuse.
     "dense-earley": _ALL - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    # An envelope whose newline both continues a value and opens the next
+    # entry, known only a line later. The Earley seats and ANTLR's adaptive
+    # prediction hold it. lark-lalr resolves the newline's shift/reduce
+    # conflict as a continuation and refuses the corpus at the next `=`
+    # (`UnexpectedToken`), its -lex seat at the next name. Both PEG seats commit
+    # to the continuation and stop partway (`IncompleteParseError`), and
+    # pyparsing likewise (`Expected end of text`). Each is the tool's own
+    # verdict on a boundary it settles without seeing the next line.
+    "two-mark": _ALL
+    - frozenset(
+        {"lark-lalr", "lark-lalr-lex", "parsimonious", "parsimonious-lex", "pyparsing"}
+    ),
+    # Ambiguous by design — `(0),(1)` is one long pair or two short ones — and
+    # every seat holds the language. The faithfulness gate judges acceptance
+    # only, so a seat that carves the ambiguity differently from lexic's decider
+    # is answering the same question; which carving lexic keeps is pinned
+    # beside the row (`test_live_set_rows`).
+    "reopening": _ALL,
     # The three engine-reach rows are left-recursive by construction — that is
     # what makes them reach the engine they are named for — so they lose the
     # same three seats as the rows above, and for the same reason: PEG cannot

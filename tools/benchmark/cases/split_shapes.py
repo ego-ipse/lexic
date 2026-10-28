@@ -3,9 +3,11 @@ exists for.
 
 Every grammar here prices one way the parallel layer can or cannot cut a
 repetition: a split decided by the split rule rather than by lookahead, the same
-unit wrapped, record kinds that end three different ways, and sections that end
-where the next one begins. Like the engine-reach grammars, they are not
-languages anyone would write; their rows live beside the rest in `grammars.py`.
+unit wrapped, record kinds that end three different ways, sections that end
+where the next one begins, an envelope whose separators are also a value's
+continuation, and pairs that reopen where no separator is provably a cut. Like
+the engine-reach grammars, they are not languages anyone would write; their
+rows live beside the rest in `grammars.py`.
 """
 
 SPLIT_NULLABLE = """root ::= para+
@@ -106,3 +108,51 @@ So a cut here cannot be read; it can only be proposed and then verified. That
 is what makes this the shape a certified speculative fallback exists for, where
 :data:`MIXEDENDS` is the shape a wider static proof would reach. Both take the
 speculative route today, so both engage and report a parallel number."""
+
+
+TWO_MARK = """root ::= filler? rule cont* filler?
+rule ::= name ws "=" ws value
+cont ::= ws cnl filler* rule
+cnl ::= comment | crlf | tabsep
+filler ::= comment | blank
+comment ::= "; " word crlf
+blank ::= crlf
+tabsep ::= "\\t"
+name ::= [a-z]+
+ws ::= " "*
+value ::= word (crlf ws word)*
+word ::= [a-z]+
+crlf ::= "\\n"
+"""
+"""An envelope of ``name = value`` entries, each separated from the next by one
+of two marks — a newline or a tab — where a value may also continue across a
+newline.
+
+After a newline, the next line either continues the value (an indented word)
+or opens the next entry (a name and ``=``), and which one is known only a line
+later. That is a both-viable loop boundary on every newline, settled on the
+predictive path by the live set: the take reads one more line and dies at its
+``=``. The row prices that settlement — before it, the shape went to the gated
+engine whole. It is also a split source: the envelope's marks are provable cut
+points, so its mt rows divide the document and run the boundary inside
+workers."""
+
+
+REOPENING = """root ::= arr
+arr ::= "[" pair ("," pair)* "]"
+pair ::= "(" num ")" "," "(" num ")" | "(" num ")"
+num ::= [0-9]+
+"""
+"""An array of pairs, where a pair is one parenthesised number or two joined
+by a comma — so ``(0),(1)`` is one long pair or two short ones.
+
+The language is ambiguous and the decider answers it: leftmost-longest keeps
+the long pair. On the predictive path each pair is an arm choice whose two
+readings both complete; the live set carries both, meets them, and ranks them
+as the gated engine would. Before it, the shape went to the gated engine whole,
+where the chart grows faster than the document.
+
+The mt rows DECLINE, in the open: a comma both separates pairs and sits inside
+a long pair, so no comma is provably a cut, and the region split declines at
+every core count. The row is not eligible for a split, and reports its
+sequential number there."""

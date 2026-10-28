@@ -50,11 +50,11 @@ from tools.benchmark.presentation.cli import (
 ARTIFACT = Path(__file__).resolve().parent / "competitors_baseline.json"
 """The committed cross-engine numbers — what the README publishes from."""
 
-EXPECTED_GRAMMARS = 22
+EXPECTED_GRAMMARS = 24
 """How many languages the fixture set defines.
 
 Pinned so a case silently dropping out is a failure rather than a smaller
-benchmark. The A/B compares 132 rows; that number is this times the seat count.
+benchmark. The A/B compares 144 rows; that number is this times the seat count.
 """
 
 

@@ -47,6 +47,11 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # exists to pin WHICH engine its shape reaches, and a directive that
     # changed a rule's shape could change that answer.
     "start-fallback": ((), ()),
+    # The value's loop IS the boundary the row prices, so `value` stays plain;
+    # names and words are runs, and the spaces around `=` are noise.
+    "two-mark": (("name", "word"), ("ws",)),
+    # The arm choice between pair shapes is the boundary; a number is a run.
+    "reopening": (("num",), ()),
     "interior-exact": ((), ()),
     "interior-climb": ((), ()),
     "relay-fallback": ((), ()),

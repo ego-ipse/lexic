@@ -49,8 +49,10 @@ from tools.benchmark.cases.corpora import (
     meta_corpus,
     mixedends_corpus,
     nested_corpus,
+    reopening_corpus,
     split_nullable_corpus,
     start_fallback_corpus,
+    two_mark_corpus,
     vyx_corpus,
     wrapped_unit_corpus,
 )
@@ -68,7 +70,9 @@ from tools.benchmark.cases.engine_reach import (
 from tools.benchmark.cases.split_shapes import (
     ANNOUNCED,
     MIXEDENDS,
+    REOPENING,
     SPLIT_NULLABLE,
+    TWO_MARK,
     WRAPPED_UNIT,
 )
 
@@ -508,6 +512,32 @@ _DEFINED_BENCHES = (
         Samples(wrapped_unit_corpus(60), wrapped_unit_corpus(480)),
         ("<<<\n\n\n>>>\n", "<<<\na\n\n>>>\n", "<<<\na\nb\n\n\n\n>>>\n"),
         ("", "<<<\n>>>\n", "\n\n", "<<<\na\n\n", "a\n\n>>>\n"),
+    ),
+    # An envelope whose separator is also a value's continuation: every newline
+    # is a loop boundary the next line settles, on the predictive path, by the
+    # live set. Also a split source, so its mt rows run the boundary in workers.
+    _bench(
+        "two-mark",
+        TWO_MARK,
+        Samples(two_mark_corpus(450), two_mark_corpus(4150)),
+        (
+            "ka = v",
+            "ka = v\n w",
+            "ka = v\tkb = w",
+            "; c\nka = v\n",
+            "ka = v\n; c\nkb = w",
+        ),
+        ("", "ka =", "ka = v\n\n\nkb", "KA = v", "ka = v\t"),
+    ),
+    # Pairs that reopen: `(0),(1)` is one long pair or two short ones, an arm
+    # choice whose readings both complete and are ranked by the decider. Its mt
+    # rows decline in the open — a comma inside a long pair makes no cut provable.
+    _bench(
+        "reopening",
+        REOPENING,
+        Samples(reopening_corpus(600), reopening_corpus(5000)),
+        ("[(0)]", "[(0),(1)]", "[(0),(1),(2)]", "[(12),(3),(45),(6)]"),
+        ("[]", "[(0),]", "[(0)(1)]", "(0)", "[(a)]"),
     ),
     # Three languages written directly, which the multi-arm fold runs
     # predictively, and the same three written through a relay rule, which

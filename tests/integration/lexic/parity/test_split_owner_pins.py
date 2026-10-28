@@ -61,6 +61,11 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     "start-fallback": None,
     "interior-exact": None,
     "interior-climb": None,
+    # The envelope's two marks: codepoint order hands back the tab, though a
+    # document may carry only the newline (I14's shape, authored generically).
+    "two-mark": ("rule", "\t"),
+    # No plan: a comma both separates pairs and sits inside a long pair.
+    "reopening": None,
     "relay-fallback": None,
     "relay-exact": None,
     "relay-climb": None,
@@ -100,6 +105,10 @@ SPLITS: dict[str, bool] = {
     "start-fallback": True,
     "interior-exact": True,
     "interior-climb": True,
+    # The envelope divides at its marks; its newline boundaries run in workers.
+    "two-mark": True,
+    # Declines in the open: the region split is asked and finds no provable cut.
+    "reopening": False,
     # The relay rows never divide: the fold does not read through `more`, so
     # there is no folded spine to cut — measured at four workers on the full
     # sample: zero piece-parses, not one.

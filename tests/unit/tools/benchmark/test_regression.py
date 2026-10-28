@@ -43,11 +43,11 @@ def test_the_gate_exits_zero_on_an_intact_tree(
     assert "contracts intact" in capsys.readouterr().out
 
 
-def test_the_roster_is_twenty_two_grammars_and_a_hundred_and_thirty_two_rows() -> None:
+def test_the_roster_is_twenty_four_grammars_and_a_hundred_and_forty_four_rows() -> None:
     """The A/B's row count is this product, and a silent drop must fail."""
-    assert len(BENCHES) == regression.EXPECTED_GRAMMARS == 22
+    assert len(BENCHES) == regression.EXPECTED_GRAMMARS == 24
     assert len(LEXIC_ROWS) == 6
-    assert len(BENCHES) * len(LEXIC_ROWS) == 132
+    assert len(BENCHES) * len(LEXIC_ROWS) == 144
 
 
 def test_a_missing_grammar_is_a_failure_not_a_smaller_benchmark(
@@ -57,7 +57,7 @@ def test_a_missing_grammar_is_a_failure_not_a_smaller_benchmark(
     monkeypatch.setattr(regression, "BENCHES", BENCHES[:-1])
     problems = regression.check()
 
-    assert any("expected 22 benchmark grammars" in problem for problem in problems)
+    assert any("expected 24 benchmark grammars" in problem for problem in problems)
 
 
 def test_every_lexic_row_is_named_by_both_legend_tables() -> None:
