@@ -26,8 +26,8 @@ from lexic.parsing.parallel.stitch.interior import (
     interior_route,
     left_slot,
     stitch_interior,
-    walk_down,
 )
+from lexic.parsing.parallel.stitch.model import PREDICTED, read_route
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import assert_parallel_matches_sequential
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
@@ -275,7 +275,7 @@ def test_an_intermediate_run_of_two_declines_rather_than_taking_the_first():
     body = list(list(model.children())[1].children())[0]
     assert len(body) == 2, "the variant grammar really does build two paragraphs"
 
-    walked = walk_down(model, ((1, None), (0, 0)))
+    walked = read_route(model, ((1, None), (0, 0)), PREDICTED)
 
     assert walked is None, "a run of two is not one run; the plan declines"
 

@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
+from lexic.exceptions import EngineInvariantError
 from lexic.ir import Bound, IrAst, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
+from lexic.parsing.parallel.stitch import model as stitch_model
 from lexic.parsing.parallel.stitch.model import (
+    FOUND,
+    PREDICTED,
+    WRAPPED,
+    Reading,
     envelope_tails,
-    model_at,
     overlaid,
+    read_route,
     sole_routes,
     stitch_envelope,
 )
+from tests.paths import PROJECT_ROOT
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
 from tests.unit.lexic.parsing.parallel.stitch.support import (
     assert_outer_split,
@@ -174,7 +183,7 @@ def test_the_separated_stitch_builds_the_run_as_a_plain_tuple() -> None:
     assert parallel.to_text() == sequential.to_text() == text
 
 
-# ── sole_routes, model_at, overlaid ───────────────────────────────────────
+# ── sole_routes, read_route, overlaid ───────────────────────────────────────
 
 LISTS = (
     "root ::= list\n"
@@ -217,7 +226,7 @@ def test_every_needle_gets_its_own_route_from_one_walk():
     needles = [_inner("[x,[b]]"), _inner("[x,[d]]")]
     routes = sole_routes(root, needles)
     assert all(route is not None for route in routes)
-    reached = [model_at(root, route) for route in routes if route is not None]
+    reached = [read_route(root, route, FOUND) for route in routes if route is not None]
     assert reached == needles
 
 
@@ -228,7 +237,7 @@ def test_a_needle_found_twice_or_never_has_no_route():
     routes = sole_routes(root, [twice, never, once])
     assert routes[0] is None
     assert routes[1] is None
-    assert routes[2] is not None and model_at(root, routes[2]) == once
+    assert routes[2] is not None and read_route(root, routes[2], FOUND) == once
 
 
 def test_the_root_itself_is_never_a_route():
@@ -246,3 +255,61 @@ def test_overlaid_replaces_only_the_named_slots_and_keeps_the_class():
     assert rebuilt == other
     assert type(rebuilt) is type(node)
     assert overlaid(node, {len(node.children()): None}) is None
+
+
+# ── read_route: the three readings ────────────────────────────────────────
+
+_ITEMS = ((0, None), (0, None))
+"""Root → List → Items under :data:`LISTS`: Items holds the first word, then
+the run of ``More``."""
+
+
+def test_only_the_three_readings_exist() -> None:
+    """The module holds exactly FOUND, PREDICTED and WRAPPED, three distinct
+    readings, and no source builds a Reading anywhere else: a reading outside
+    the three is unreachable by construction."""
+    held = {
+        value for value in vars(stitch_model).values() if isinstance(value, Reading)
+    }
+    assert held == {FOUND, PREDICTED, WRAPPED} and len(held) == 3
+    built = [
+        (path.name, line.strip())
+        for path in sorted((PROJECT_ROOT / "src" / "lexic").rglob("*.py"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "Reading(" in line and not line.startswith("class Reading(")
+    ]
+    assert [name for name, _line in built] == ["model.py"] * 3, built
+
+
+def test_found_indexes_a_run_of_any_length() -> None:
+    """A found route's run step reads its element; a predicted one declines a
+    run of two, which was never one run."""
+    root = _lists("[a,b,c]")
+    second = read_route(root, (*_ITEMS, (1, 1)), FOUND)
+    assert second is not None and second.to_text() == ",c"
+    assert read_route(root, (*_ITEMS, (1, 2)), FOUND) is None
+    assert read_route(root, (*_ITEMS, (1, 0)), PREDICTED) is None
+    sole = read_route(_lists("[a,b]"), (*_ITEMS, (1, 0)), PREDICTED)
+    assert sole is not None and sole.to_text() == ",b"
+
+
+def test_a_missing_slot_declines_or_raises_by_reading() -> None:
+    """Found and wrapped routes decline a slot the model does not have; a
+    predicted route's chain disagrees with the model, and that raises."""
+    root = _lists("[a]")
+    assert read_route(root, ((5, None),), FOUND) is None
+    assert read_route(root, ((5, None),), WRAPPED) is None
+    with pytest.raises(EngineInvariantError, match="names slot 5 of Root, which has 1"):
+        read_route(root, ((5, None),), PREDICTED)
+
+
+def test_wrapped_reads_through_an_isolated_node_only() -> None:
+    """A wrapped route declines where a step's node holds anything beside the
+    child it is read through; a found route reads through regardless."""
+    word = (*_ITEMS, (0, None))
+    alone = read_route(_lists("[a]"), word, WRAPPED)
+    assert alone is not None and alone.to_text() == "a"
+    crowded = _lists("[a,b]")
+    assert read_route(crowded, word, WRAPPED) is None
+    found = read_route(crowded, word, FOUND)
+    assert found is not None and found.to_text() == "a"

@@ -1,5 +1,10 @@
 # Log
 
+## One route reader, three readings (2026-10-28)
+
+`parallel-parsing.md` records that `read_route` serves every route under the
+FOUND, PREDICTED or WRAPPED reading, and what each guards.
+
 ## A route step is a run where the binding builds one (2026-10-28)
 
 `parallel-parsing.md` records that a routed interior's descent labels each step

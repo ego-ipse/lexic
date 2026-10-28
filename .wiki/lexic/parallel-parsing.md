@@ -93,6 +93,15 @@ whole-extent interior" as a run would misread `root ::= body`, whose body is a
 plain field, and labelling by `unbounded()` would miss a bounded run
 (`para{1,3}`).
 
+**One reader walks every route, under one of three readings** (`stitch/model.py`
+`read_route`). FOUND (a route `sole_routes` found) indexes a run of any length,
+so json's records stay reachable. PREDICTED (a routed interior's or a folded
+spine's) needs every run to hold exactly one element and raises on a slot the
+model lacks. WRAPPED (a separated plan's start wrappers) needs every other child
+of each step's node empty. The three are module constants, and no caller builds
+a reading of its own. Adopting the strictest reading everywhere would decline
+every region route.
+
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
 same `parallel -> pda` edge `plan/speculation.py` already uses for

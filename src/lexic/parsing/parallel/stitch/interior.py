@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from lexic.exceptions import EngineInvariantError, LexicError
+from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
@@ -44,7 +44,12 @@ from lexic.parsing.parallel.plan.routed import (
 )
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
-from lexic.parsing.parallel.stitch.model import ModelStep, splice
+from lexic.parsing.parallel.stitch.model import (
+    PREDICTED,
+    ModelStep,
+    read_route,
+    splice,
+)
 from lexic.parsing.parallel.stitch.plan import field_slot, model_type
 
 type Ask[M] = tuple[str, ModelExecutable[M], ParseConfig]
@@ -108,46 +113,6 @@ def _route(binding: ModelExecutable[Any], plan: RoutedPlan) -> Route | None:
     return entry[2]
 
 
-def walk_down(node: object, steps: tuple[ModelStep, ...]) -> GrammarModel | None:
-    """The model the steps address, or ``None`` when the shape surprises.
-
-    A slot the model does not have is a chain/model disagreement and RAISES; a
-    run holding the wrong number of elements is a document shape and declines.
-
-    **The arity guard lives here.** ``splice`` bounds a run index
-    (``repeated >= len(child)``) but never checks arity, so a step naming
-    element 0 of a run of three succeeds and rewrites the first, leaving the
-    other two where they are — a wrong model rather than a refusal. The
-    exactly-one check that used to sit in the two-slot caller was written about
-    a PIECE, where one unit is true by construction; an intermediate step runs
-    over the WHOLE model, where it is not.
-
-    So every run step is required to hold exactly one element, and a run of two
-    declines the plan here rather than being silently indexed.
-    """
-    current: object = node
-    for slot, index in steps:
-        if not isinstance(current, GrammarModel):
-            return None
-        fields = list(current.children())
-        if slot >= len(fields):
-            # The chain's slots come from the binding's own routines, so a
-            # slot the model does not have means the chain and the model
-            # disagree about the grammar — not a document shape.
-            raise EngineInvariantError(
-                f"routed chain names slot {slot} of "
-                f"{type(current).__name__}, which has {len(fields)}"
-            )
-        held = fields[slot]
-        if index is None:
-            current = held
-            continue
-        if not is_plain_tuple(held) or len(held) != 1:
-            return None  # a run of two was never one run; the plan declines
-        current = held[0]
-    return current if isinstance(current, GrammarModel) else None
-
-
 def stitch_interior[S: GrammarModel](
     shell: S,
     pieces: list[GrammarModel],
@@ -156,7 +121,7 @@ def stitch_interior[S: GrammarModel](
 ) -> S | None:
     """Put the pieces' runs back into the shell; ``None`` = shape surprise."""
     steps, child = route
-    stand = walk_down(shell, steps)
+    stand = read_route(shell, steps, PREDICTED)
     if stand is None:
         return None
     merged = (
@@ -199,7 +164,7 @@ def _merged_whole(
     """
     merged: list[IrSelf] = []
     for piece in pieces:
-        node = walk_down(piece, steps)
+        node = read_route(piece, steps, PREDICTED)
         if node is None:
             return None
         inner = list(node.children())
@@ -443,7 +408,8 @@ def _folded_stitch[M: IrNamedTuple](
     out of whichever fields happened to line up.
     """
     roots, leads = parsed
-    spines = [walk_down(root, route) for root in roots]
+    models = cast(list[GrammarModel], roots)  # every piece checked a model where parsed
+    spines = [read_route(root, route, PREDICTED) for root in models]
     if any(spine is None for spine in spines):
         return None
     found = cast(list[GrammarModel], spines)

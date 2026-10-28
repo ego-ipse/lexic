@@ -24,11 +24,12 @@ from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.partition import Division, Unit, units
 from lexic.parsing.parallel.discovery.shapes import RuleTable, rule_table
 from lexic.parsing.parallel.stitch.model import (
+    FOUND,
     ModelStep,
     head_rest,
     held_route,
-    model_at,
     overlaid,
+    read_route,
     region_items,
     sole_routes,
     splice,
@@ -490,7 +491,7 @@ def _attach[M, T: GrammarModel](
             return None
         if route[cut:] != done.up:
             return None
-        node = model_at(out, route[:cut])
+        node = read_route(out, route[:cut], FOUND)
         laid = _laid(request, done, node) if node is not None else None
         if laid is None:
             return None
