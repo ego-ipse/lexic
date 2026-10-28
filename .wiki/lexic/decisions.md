@@ -50,12 +50,17 @@ handed both derivations and picks; how it picks is the caller's concern. That
 decision, and the tree route asks nothing (`first_meaning` returns the
 deterministic first, and only the value route can answer what a span MEANS).
 
-**A flipped point is consumed at its first visit.** A unit cycle's same-span
-completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a
-pin that re-applied at its own key would name no finite derivation — the
-pinned build walked `a → b → a` forever. Consumed
-(`splits._descend` pops it; `FastTree` copies the caller's map), a pin names
-the one-lap unroll, exactly the alternative whose value answers the question.
+**A flipped point is consumed where a chain first takes it.** A unit cycle's
+same-span completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`),
+and a pin that re-applied at its own key would name no finite derivation — the
+pinned build walked `a → b → a` forever. Consumed (`splits.leftmost_chain`
+spends the pins on the chain it chose; `FastTree` copies the caller's map), a
+pin names the one-lap unroll, exactly the alternative whose value answers the
+question. A key a level DAG only passes through keeps its pin: one arm's
+handles with one origin share their prefix keys, so an outer handle's splits
+can pass a key that only an inner handle's chain takes, and spending the pin
+there flipped nothing (`a ::= y z w` / `y ::= a | ""` / `z ::= "" | "x"` /
+`w ::= "" | "x"` over "xx" answered without a resolver).
 Family 0 needs no guard: the first family recorded for a key can only
 reference completions recorded strictly earlier, so the default walk is
 acyclic by causality.
@@ -1926,12 +1931,24 @@ only where those steps close a loop (`A ⇒+ A`).
     since the handle opened is that pin's one-lap unroll. The inner
     occurrence is a fresh visit under the default choices, and the outer
     occurrence keeps the pinned family.
-  - **(ii) The default choices avoid a cycle.** The chain reader
-    (`splits._edges_at`, through a `Steering` pins map that carries the open
-    set) drops a family whose child is still being built, wherever another
-    family remains.
-  - **(iii) A key with no way out refuses.** Any other re-entry raises the
-    "cannot be compared" refusal, resolver or not.
+  - **(ii) The default choices take only families that complete.** The
+    chain reader (`splits._edges_at`, through a `Steering` pins map that
+    carries a `fasttree.Stalled`) drops a family that cannot complete beneath
+    the handles still being built, wherever another family remains: its
+    child cannot, or its predecessor no longer reaches dot 0 through families
+    that can. A split can leave a family sound in its own child and stalled in
+    its predecessor's (`a ::= y z` / `y ::= a | ""` / `z ::= "" | "x"` over
+    "x", where the longest split hands `y` the whole span). Only a child over
+    the same span as the handle being read is asked, so only a predecessor
+    ending where the handle ends is walked: it
+    completes when some family of its chain leads only to children that
+    complete in turn, without meeting that handle or an open one over the
+    span (an open one a pin was spent beneath since it opened is exempt: (i)
+    re-enters it). The answer reads the chart alone and is memoised by the
+    handles avoided.
+  - **(iii) A pin no complete derivation honours refuses.** Any other
+    re-entry raises the "cannot be compared" refusal, resolver or not. An
+    unpinned build never reaches it.
 - **Bail mode** never tracks. A cycle's keys cannot all hold one family,
   because a completed item has a finite derivation, so some key on its cycle
   offers another, and bail mode declines at the first key that holds two.
@@ -1940,11 +1957,15 @@ only where those steps close a loop (`A ⇒+ A`).
 
 - The build emits a node only from that node's full predecessor chain, so its
   children tile its span.
-- (ii) drops only families whose child is the handle's own ancestor over the
-  same span. Such a family closes a cycle, so no derivation through it
-  completes in a build that memoises by handle. The decider ranks the
-  remaining families exactly as it ranks any bucket, so the choice is the
-  decider's own among the families that can complete.
+- (ii) drops only families that cannot complete there: every derivation
+  through one closes a cycle on the handle or an ancestor over the same span,
+  and a build that memoises by handle cannot finish one. A child over a
+  shorter span always completes, so no other family is ever dropped, and on
+  an acyclic grammar nothing is asked. The decider ranks the remaining
+  families exactly as it ranks any bucket, so the choice is the decider's own
+  among the families that can complete. The meaning check reads the chains
+  the build took (`FirstTree.steered`), so the family steered away from is
+  one of the alternatives it compares.
 - (i)'s two occurrences each come from a whole chain.
 - Nothing is put in a refused key's place. The build never reads the
   derivation stream.
@@ -1955,10 +1976,20 @@ stack-growth test each measured 0.1–4% of the build in-process. Asking the
 tables costs a cyclic grammar its tracking and every other grammar nothing.
 None of the bench rows is cyclic.
 
-**Limit:** the avoidance is local. A key can dead-end where a complete
-derivation exists through a different choice higher up, for example
-`e ::= f | g` / `f ::= e` / `g ::= e | ""` over an empty span, where `e`
-takes `f`. That span refuses explicitly. Main hung on it.
+**Why the test looks below the key:** a family that re-enters only further
+down cannot be dropped by looking at its own child. Completed handles are per
+arm, so `f ::= e | ""` gives `e`'s one key two children, `f`'s `e` arm and
+`f`'s empty arm, and `f`'s `e`-arm key has one family to avoid: the choice
+that leaves the cycle is made at `e`. Avoiding only a child that was itself
+still being built refused `root ::= "<" e ">"` / `e ::= f` / `f ::= e | ""`
+over "<>", and 793 of the 2,888 small cyclic grammar/text cases that parse
+(`e`, `f` and `g` each with one or two arms from `e`, `f`, `g`, `""`, `"n"`,
+over "<>" and "<n>"), every one of which has a complete derivation. With the
+test below the key, 649 of those refuse as ambiguous without a resolver,
+since a pumped derivation builds another value, and build with one. The other
+144 build either way, since their cycle runs through an arm that builds no
+node (`e ::= e | f` / `f ::= ""` answers `Root(F(''))`). Every case that did
+not refuse a cycle before answers exactly as it did.
 
 ## The derivation stream ends a cycle's branch, and tracks only ancestors
 

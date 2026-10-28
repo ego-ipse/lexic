@@ -23,7 +23,7 @@ those keep the existing selection and stay the ambiguity check's business.
 from __future__ import annotations
 
 from collections.abc import Container
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, TypeGuard
 
 from lexic.parsing.earley.kernel.tables.decider import (
     LEFTMOST_LONGEST,
@@ -60,17 +60,25 @@ class ChainSpec(NamedTuple):
 
 class Steering(dict[int, int]):
     """Pins — key → the family to take there, each consumed at its first use —
-    and the handles a chain must not lead into while another family remains:
-    a tracked fast build's handles still being built."""
+    the families a chain must not take while another remains (a tracked fast
+    build's: those that cannot complete beneath the handles it is still
+    building), and the chains it chose among several families.
 
-    __slots__ = ("avoid",)
+    :ivar avoid: The families to steer away from.
+    :ivar taken: Handle → the chain read for it, wherever a choice was made:
+        steering can move it off the unsteered reading, so the meaning check
+        reads the build's own.
+    """
 
-    def __init__(self, pins: dict[int, int], avoid: Container[int]) -> None:
+    __slots__ = ("avoid", "taken")
+
+    def __init__(self, pins: dict[int, int], avoid: Container[KLink]) -> None:
         """:param pins: The pins.
-        :param avoid: The handles still being built.
+        :param avoid: The families to steer away from.
         """
         super().__init__(pins)
         self.avoid = avoid
+        self.taken: dict[int, list[KLink]] = {}
 
 
 _Level = dict[int, list[tuple[int, int, "KLink"]]]
@@ -95,8 +103,11 @@ def leftmost_chain(
     :param spec: The arm base, packing tier and choice table to cut against.
     :param choices: Keys pinned to one family; an entry overrides the policy at
         that key, which is how the ambiguity check flips a single point. A pin
-        is CONSUMED at its first use (the map is mutated), so on a cyclic chart
-        it names the one-lap unroll rather than a non-terminating constraint.
+        is CONSUMED where a chain first takes its key (the map is mutated), so
+        on a cyclic chart it names the one-lap unroll rather than a
+        non-terminating constraint. A key a level DAG only passes through is
+        not taken there: the same key can stand in an inner handle's chain
+        (one origin, two ends), and that is where the flip must land.
     :param decide: The split decider whose carving is kept.
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
@@ -109,7 +120,12 @@ def leftmost_chain(
     levels = _descend(links, handle, spec, choices)
     if levels is None:
         return None
-    return _choose(links, levels, spec, decide)
+    chain = _choose(links, levels, spec, decide)
+    if choices:
+        _consume(choices, handle, chain, spec.bits)
+    if isinstance(choices, Steering):
+        choices.taken[handle] = chain
+    return chain
 
 
 def sole_chain(
@@ -143,8 +159,8 @@ def sole_chain(
 def _consume(
     choices: dict[int, int], handle: int, chain: list[KLink], bits: int
 ) -> None:
-    """Spend the pins at the keys a sole chain passed, as :func:`_descend`
-    would have on its way down."""
+    """Spend the pins at the keys ``chain`` takes — and only those: a pinned
+    key the level DAG offered but the chain did not take stays pinned."""
     choices.pop(handle, None)
     for link in chain[1:]:
         choices.pop((link[0] << bits) | link[1], None)
@@ -319,27 +335,28 @@ def _edges_at(
 ) -> list[tuple[int, int, KLink]] | None:
     """One key's outgoing edges, or ``None`` when it is missing or dead.
 
-    Under :class:`Steering`, a family whose child is in its ``avoid`` is
-    dropped while another remains. The
-    caller avoids the handles it is still building: such a child is the handle's
-    own ancestor over the same span, so the family closes a cycle and no
-    derivation through it completes in that build. Dropping it leaves the
-    decider ranking exactly the families that can complete — on every other
-    key nothing is dropped and its choice is the one it always was.
+    Under :class:`Steering`, a family in its ``avoid`` is dropped while another
+    remains. A tracked build avoids every family with no complete derivation
+    beneath the handles it is still building — its child, or a child down its
+    predecessor's chain, passes back through one of them over the same span —
+    so no derivation through it completes in that build. Dropping it leaves the
+    decider ranking exactly the families that can complete; on every other key
+    nothing is dropped and its choice is the one it always was.
     """
     bucket = links.get(key)
     if bucket is None:
         return None
-    # A pin is CONSUMED at its first use: on a cyclic chart the pinned family
-    # leads back to its own key, and a pin that re-applied there would name no
-    # finite derivation at all. Consumed, it names the one-lap unroll — flip
-    # the point once, default policy after.
+    # A pin holds wherever its key is read, until a chain takes the key
+    # (leftmost_chain spends it): on a cyclic chart the pinned family leads back
+    # to its own key, and a pin that re-applied there would name no finite
+    # derivation at all. Spent, it names the one-lap unroll — flip the point
+    # once, default policy after.
     edges = [
         ((link[0] << spec.bits) | link[1], index, link)
-        for index, link in _candidates(bucket, choices.pop(key, None))
+        for index, link in _candidates(bucket, choices.get(key))
     ]
-    if isinstance(choices, Steering) and choices.avoid:
-        kept = [e for e in edges if not _closes(e[2][2], choices.avoid)]
+    if isinstance(choices, Steering):
+        kept = [e for e in edges if e[2] not in choices.avoid]
         edges = kept or edges
     return edges or None
 
@@ -373,12 +390,7 @@ def _candidates(bucket: list[KLink], pinned: int | None) -> list[tuple[int, KLin
     return list(enumerate(bucket))
 
 
-def _closes(child: object, avoid: Container[int]) -> bool:
-    """Whether a family's child is one of the handles a build is still building."""
-    return isinstance(child, int) and not isinstance(child, bool) and child in avoid
-
-
-def _is_handle(child: object) -> bool:
+def is_handle(child: object) -> TypeGuard[int]:
     """Whether a family child is a completed handle rather than a scan."""
     return isinstance(child, int) and not isinstance(child, bool)
 
@@ -520,7 +532,7 @@ def _settle(
     bits = spec.bits
     if len({arm_of(link[2], bits, spec.code_choice) for link in tied}) > 1:
         return tied[0]
-    if not all(_is_handle(link[2]) for link in tied):
+    if not all(is_handle(link[2]) for link in tied):
         return tied[0]
     return max(tied, key=lambda link: _child_rank(links, link[2], spec, decide))
 

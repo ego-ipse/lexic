@@ -1,5 +1,11 @@
 # Log
 
+## A cyclic grammar's fast build takes only families that complete (2026-10-28)
+
+`decisions.md`'s fast-build cycle entry now records the completeness test below
+the key, which replaced avoiding only a child still being built, and why the
+meaning check reads the chains the build took.
+
 ## The derivation stream ends a cycle's branch (2026-10-28)
 
 `decisions.md` records that the stream's open set holds only ancestors, that a

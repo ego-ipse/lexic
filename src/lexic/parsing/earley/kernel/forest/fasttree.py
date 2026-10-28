@@ -8,9 +8,9 @@ either would close the loop.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq, IrTuple
@@ -21,10 +21,12 @@ from lexic.parsing.earley.kernel.forest.forest import (
     PayloadLeaf,
 )
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
+from lexic.parsing.earley.kernel.tables.atoms import KLink
 from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
     Steering,
+    is_handle,
     leftmost_chain,
     sole_chain,
 )
@@ -105,19 +107,19 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
             # holds two families, which every cycle's keys include — a completed
             # item has a finite derivation, so some key on its cycle offers one.
             return self._run(handle, None)
-        # A cyclic grammar: track every handle still being built, so a re-entry
-        # is a pin's unroll, or is avoided where another family remains, or is
-        # refused where none does.
+        # A cyclic grammar: track every handle still being built, and steer
+        # each chain away from a child that cannot complete beneath them, so a
+        # re-entry is only ever a pin's unroll, or a pinned flip refused.
         opened: dict[int, int] = {}
-        self.choices = Steering(self.choices, opened)
-        return self._run(handle, opened)
+        stalled = Stalled(self, opened)
+        self.choices = Steering(self.choices, stalled)
+        return self._run(handle, partial(self._tracked, opened, stalled))
 
-    def _run(self, handle: int, opened: dict[int, int] | None) -> IrSelf:
-        """One build of ``handle``; ``opened`` tracks re-entries, or is ``None``
-        where none can happen."""
+    def _run(self, handle: int, step: Callable[[], bool] | None = None) -> IrSelf:
+        """One build of ``handle``, by ``step`` (the plain one by default)."""
         holder: list[IrSelf] = [IrNone]
         stack = self.stack = [(handle, holder, 0, None)]
-        step = self._step if opened is None else partial(self._tracked, opened)
+        step = step or self._step
         while stack:
             if not step():
                 return IrNone
@@ -125,20 +127,23 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         # empty tree without a memo entry, and a zero-width ROOT is still built.
         return holder.pop()
 
-    def _tracked(self, opened: dict[int, int]) -> bool:
+    def _tracked(self, opened: dict[int, int], stalled: Stalled) -> bool:
         """One step of a tracked build: :meth:`_step`, with every handle that
         waits on its kids marked open, with the pins left before its own key
         took one, until it is assembled.
 
-        A re-entry into an open handle after a pin was consumed since it opened
-        is that pin's one-lap unroll: the pinned family led back to the handle,
-        and the inner occurrence is a fresh visit under the default choices —
-        its own chain covers its span, and the outer occurrence keeps the
-        pinned family, so the unroll is complete. Any other re-entry is a key
-        the chain reader could not steer away from (it avoids open handles
-        wherever another family remains), and is refused.
+        The chain reader drops every family whose child cannot complete beneath
+        the open handles (:class:`Stalled`) wherever another family remains, so
+        an unpinned build never re-enters one. A re-entry after a pin was
+        consumed since the handle opened is that pin's one-lap unroll: the
+        pinned family led back to the handle, and the inner occurrence is a
+        fresh visit under the default choices — its own chain covers its span,
+        and the outer occurrence keeps the pinned family, so the unroll is
+        complete. Any other re-entry follows a pin no complete derivation
+        honours, and is refused.
 
         :param opened: Each handle still being built → pins left when it opened.
+        :param stalled: The completeness test, told which handle is collected.
         :raises UnsupportedConstructError: On a re-entry no family could leave.
         """
         stack = self.stack
@@ -154,6 +159,7 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         ):
             return self._cycle()
         depth = len(stack)
+        stalled.at = handle
         if not self._step():
             return False
         if len(stack) > depth and stack[depth - 1][3] is not None:
@@ -267,6 +273,112 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         return out
 
 
+class Stalled(IrLeaf[IrSelf, IrSelf]):
+    """The families a tracked build must not take: those with no complete
+    derivation beneath the handle being collected.
+
+    A family completes when its child does and its predecessor still reaches
+    dot 0 through families that complete — a family can be sound in its own
+    child and still lead, through a split, to a predecessor whose every child
+    re-enters the cycle. Only a child over the SAME span as the handle can fail:
+    a shorter one has a finite derivation whose smallest repeats no handle on
+    any path, and no open handle shares its span. Such a child must end where
+    the handle does, so only a predecessor ending there is walked. A child
+    completes when its own chain does, without meeting a handle to avoid: the
+    handle being collected, and every open one over that span except those a
+    pin was spent beneath since they opened — re-entering one of those is the
+    pin's one-lap unroll, a fresh visit.
+
+    The **mutable** per-build cursor (like :class:`FastTree`): it reads the
+    chart alone, so its answers are memoised by the handles avoided. It runs
+    only in a cyclic grammar's resolving build, and its depth is bounded by the
+    grammar's items, never the document.
+
+    :ivar at: The handle whose chain is being read.
+    """
+
+    __slots__ = ("at", "_build", "_links", "_opened", "_known")
+
+    at: int
+
+    def __init__(self, build: FastTree, opened: dict[int, int]) -> None:
+        """:param build: The tracked build — its kernel, and its pins left.
+        :param opened: Its handles still being built → pins left when each
+            opened, in path order.
+        """
+        self.at = -1
+        self._build = build
+        self._links = build.kernel.family_reader()
+        self._opened = opened
+        self._known: dict[tuple[int, int, frozenset[int]], bool] = {}
+
+    def __contains__(self, link: object) -> bool:
+        """Whether family ``link`` of the handle being read cannot complete."""
+        at = self.at
+        t = self._build.kernel.tables
+        bits = t.packing.bits
+        pred, end, child = cast(KLink, link)
+        held = self._held(at, bits)
+        if is_handle(child) and not self._completes(child, held):
+            return True
+        base = t.codes.arm_base[t.codes.code_arm[at >> bits >> bits]]
+        return not self._reaches((pred << bits) | end, at, base, held)
+
+    def _held(self, at: int, bits: int) -> frozenset[int]:
+        """The handles a child of ``at`` must not re-enter."""
+        opened = self._opened
+        pins = len(self._build.choices or ())
+        held = {at}
+        for handle in reversed(opened):  # the path's same-span tail
+            if not _same_span(handle, at, bits):
+                break
+            if pins >= opened[handle]:  # no pin spent beneath it: no unroll
+                held.add(handle)
+        return frozenset(held)
+
+    def _completes(self, handle: int, held: frozenset[int]) -> bool:
+        """Whether ``handle`` derives its span without any of ``held``."""
+        if handle in held:
+            return False
+        kernel = self._build.kernel
+        t = kernel.tables
+        packing = t.packing
+        if not _same_span(handle, self.at, packing.bits):
+            return True  # shorter than the handles avoided: it meets none
+        item = handle >> packing.bits
+        code = item >> packing.bits
+        if item & packing.mask == handle & packing.mask:
+            if t.empty_tree(t.codes.arm_rule[t.codes.code_arm[code]]) is not None:
+                return True  # the build takes the rule's shared empty tree
+        if handle in kernel.st.leo_links:
+            expand_leo(kernel.st, t, handle)
+        base = t.codes.arm_base[t.codes.code_arm[code]]
+        return self._reaches(handle, handle, base, held | {handle})
+
+    def _reaches(self, key: int, owner: int, base: int, held: frozenset[int]) -> bool:
+        """Whether ``key``'s chain reaches dot 0 through families whose children
+        complete without ``held``; ``owner`` is the completed handle it builds.
+        A key ending short of ``owner`` holds no child over its span."""
+        bits = self._build.kernel.tables.packing.bits
+        if (key >> bits >> bits) == base or (key ^ owner) & ((1 << bits) - 1):
+            return True
+        known = self._known.get((key, owner, held))
+        if known is None:
+            known = any(
+                not (is_handle(link[2]) and not self._completes(link[2], held))
+                and self._reaches((link[0] << bits) | link[1], owner, base, held)
+                for link in self._links.get(key) or ()
+            )
+            self._known[(key, owner, held)] = known
+        return known
+
+
+def _same_span(handle: int, other: int, bits: int) -> bool:
+    """Whether two packed handles start and end at the same columns."""
+    mask = (1 << bits) - 1
+    return (handle ^ other) & mask == 0 and ((handle ^ other) >> bits) & mask == 0
+
+
 class FirstTree(NamedTuple):
     """The first derivation of a span, and what building it left behind.
 
@@ -274,11 +386,15 @@ class FirstTree(NamedTuple):
     :ivar tree: The derivation.
     :ivar memo: Handle → the subtree the fast build made for it; empty when
         the tree came off the decoded chart instead, which keeps no handles.
+    :ivar steered: Handle → the chain a cyclic grammar's build chose where it
+        had a choice, which its steering can move off the unsteered reading;
+        ``None`` where nothing was steered.
     """
 
     handle: int
     tree: ParseTree
     memo: dict[int, ParseTree]
+    steered: dict[int, list[KLink]] | None = None
 
 
 def first_tree(
@@ -301,7 +417,9 @@ def first_tree(
         build = FastTree(kern, {}, decide)
         tree = build.build(handle)
         if isinstance(tree, ParseTree):
-            return FirstTree(handle, tree, build.memo)
+            steering = build.choices
+            steered = steering.taken if isinstance(steering, Steering) else None
+            return FirstTree(handle, tree, build.memo, steered)
     return None
 
 

@@ -75,13 +75,34 @@ CYCLES = {
         'mid ::= p | q\np ::= "n"\nq ::= "n"\n',
         "<n>",
     ),
-    "no-way-out": ('root ::= "<" e ">"\ne ::= f | g\nf ::= e\ng ::= e | ""\n', "<>"),
+    "exit-through-g": (
+        'root ::= "<" e ">"\ne ::= f | g\nf ::= e\ng ::= e | ""\n',
+        "<>",
+    ),
+    "exit-through-empty-arm": ('root ::= "<" e ">"\ne ::= f\nf ::= e | ""\n', "<>"),
+    "exit-two-below": ('root ::= "<" e ">"\ne ::= f\nf ::= g | ""\ng ::= e\n', "<>"),
+    "self-arm-to-empty": ('root ::= "<" e ">"\ne ::= e | f\nf ::= ""\n', "<>"),
+    "unroll-below-a-pin": ('root ::= "<" e ">"\ne ::= e | f\nf ::= e | ""\n', "<>"),
+    "stalled-behind-a-split": ('a ::= y z\ny ::= a | ""\nz ::= "" | "x"\n', "x"),
+    "flip-in-an-inner-chain": (
+        'a ::= y z w\ny ::= a | ""\nz ::= "" | "x"\nw ::= "" | "x"\n',
+        "xx",
+    ),
 }
 """Cycles the value route's first-derivation build walks into: a self arm, two
 rules that are each other's unit arm (one with the comparison's flip leading
 back into the cycle), the same through an empty span beside an arm choice whose
-two arms build different values, and a key whose every family leads back into
-a handle still being built."""
+two arms build different values, and three empty spans whose first-ranked
+family leads back into a handle still being built while another family leaves
+the cycle — at the key itself, or only below it (``e`` takes ``f``, whose only
+family re-enters ``e``; the way out is ``e``'s ``g``, or ``f``'s empty arm, or
+that arm beside a ``g`` that re-enters ``e`` a step further down) —
+one whose comparison pins ``f``'s ``e`` arm, which leaves only by
+re-entering the ``e`` the pin was spent beneath: the pin's unroll; one where
+the longest split hands ``y`` the whole span, so the family is sound in its
+own child and stalled in its predecessor's; and one whose comparison flips a
+key the outer ``a``'s splits pass through and only an inner ``a``'s chain
+takes."""
 
 
 def _earley(label: str, config: ParseConfig) -> object:
@@ -109,6 +130,7 @@ def _complete(model: object, label: str) -> str:
     [
         ("self-unit", "Root(SArm2('a'))"),
         ("mutual-pair", "BArm2('y')"),
+        ("self-arm-to-empty", "Root(F(''))"),
     ],
 )
 @pytest.mark.parametrize("config", [ParseConfig(), KEEP_FIRST])
@@ -146,13 +168,49 @@ def test_a_cycle_with_two_meanings_takes_the_resolvers_answer(
     assert _complete(_earley(label, KEEP_FIRST), label) == expected
 
 
-@pytest.mark.parametrize("config", [ParseConfig(), KEEP_FIRST])
-def test_a_key_with_no_way_out_refuses_explicitly(config: ParseConfig) -> None:
-    """``e`` takes ``f``, and ``f``'s only family re-enters the ``e`` still being
-    built: no complete derivation follows that choice, so the span refuses as
-    one that cannot be compared — resolver or not — rather than fold a cut."""
-    with pytest.raises(UnsupportedConstructError, match="cannot be compared"):
-        _earley("no-way-out", config)
+@pytest.mark.parametrize(
+    "label",
+    [
+        "exit-through-g",
+        "exit-through-empty-arm",
+        "exit-two-below",
+        "unroll-below-a-pin",
+        "stalled-behind-a-split",
+        "flip-in-an-inner-chain",
+    ],
+)
+def test_a_cycle_left_below_its_choice_is_ambiguous(label: str) -> None:
+    """The family the decider ranks first re-enters the cycle further down, and
+    the way out is a family the build only meets there. It is taken, and the
+    span still has a derivation that pumps the cycle and builds another value,
+    so with no resolver it refuses as ambiguous — not as a cycle it cannot
+    leave."""
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        _earley(label, ParseConfig())
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("exit-through-g", "Root(F(G()))"),
+        ("exit-through-empty-arm", "Root(E(F()))"),
+        ("exit-two-below", "Root(E(F()))"),
+        ("unroll-below-a-pin", "Root(F())"),
+        ("stalled-behind-a-split", "A(Y(A(Y(), Z(''))), Z('x'))"),
+        (
+            "flip-in-an-inner-chain",
+            "A(Y(A(Y(A(Y(), Z(''), W(''))), Z('x'), W(''))), Z('x'), W(''))",
+        ),
+    ],
+)
+def test_a_cycle_left_below_its_choice_takes_the_resolvers_answer(
+    label: str, expected: str
+) -> None:
+    """With a resolver, the span answers the complete derivation the decider
+    ranks first: ``e``'s ``f`` arm, left through ``g`` or ``f``'s empty arm,
+    and, where the longest split would hand ``y`` the whole span, ``y`` over
+    the empty span instead, taking its ``a`` arm once."""
+    assert _complete(_earley(label, KEEP_FIRST), label) == expected
 
 
 STREAMED = {
@@ -165,7 +223,18 @@ STREAMED = {
         "root('<', e(f(e())), mid(q('n')), '>')",
         "root('<', e(), mid(q('n')), '>')",
     ],
-    "no-way-out": ["root('<', e(f(e(g()))), '>')", "root('<', e(g()), '>')"],
+    "exit-through-g": ["root('<', e(f(e(g()))), '>')", "root('<', e(g()), '>')"],
+    "exit-through-empty-arm": ["root('<', e(f()), '>')"],
+    "exit-two-below": ["root('<', e(f()), '>')"],
+    "self-arm-to-empty": ["root('<', e(e(f())), '>')", "root('<', e(f()), '>')"],
+    "unroll-below-a-pin": ["root('<', e(e(f())), '>')", "root('<', e(f()), '>')"],
+    "stalled-behind-a-split": ["a(y(), z('x'))"],
+    "flip-in-an-inner-chain": [
+        "a(y(a(y(), z(), w('x'))), z('x'), w())",
+        "a(y(a(y(), z('x'), w())), z('x'), w())",
+        "a(y(), z('x'), w('x'))",
+        "a(y(a(y(), z(), w('x'))), z(), w('x'))",
+    ],
 }
 """What the derivation stream enumerates on each cycle: every derivation in
 which no handle sits inside itself over its own span, so finitely many."""

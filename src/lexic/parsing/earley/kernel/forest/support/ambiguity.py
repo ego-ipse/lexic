@@ -408,7 +408,11 @@ def different_meaning[Value, NodeValue](
     witness = _sibling_witness(kernel, siblings, base, builder, decide)
     if witness is not None:
         return MeaningPair(base, witness)
-    flips = _decided_flips(run, memo) if memo.nodes else _canonical_flips(run, choices)
+    flips = (
+        _decided_flips(run, memo, first.steered)
+        if memo.nodes
+        else _canonical_flips(run, choices)
+    )
     return MeaningPair(base, _flipped_witness(run, flips, base, memo))
 
 
@@ -448,7 +452,9 @@ def _flipped_witness[Value, NodeValue](
     return None
 
 
-def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
+def _decided_flips(
+    run: MeaningRun, memo: MeaningMemo, steered: dict[int, list[KLink]] | None
+) -> list[tuple[int, int]]:
     """The arm alternatives of the DECIDED derivation, and no others.
 
     The decider fixed every boundary the derivation has. An arm choice left
@@ -458,7 +464,12 @@ def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
     decider rejected, and a derivation this engine never produces cannot make
     the span mean two things.
 
+    The chain at each node is the one the build read: where a cyclic grammar's
+    build steered off a family that cannot complete, the unsteered reading
+    would name that family as the derivation's and miss it as an alternative.
+
     :param memo: The decided build, whose handles are the derivation's nodes.
+    :param steered: The build's own chains where it steered, if any.
     :returns: ``(point, family)`` pairs, by point then family.
     """
     kernel, decide = run.kernel, run.decide
@@ -470,7 +481,9 @@ def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
         spec = spec_for(
             tables.codes, bits, tables.code_choice, tables.decode.code_droppable, handle
         )
-        chain = leftmost_chain(links, handle, spec, {}, decide)
+        chain = steered.get(handle) if steered else None
+        if chain is None:
+            chain = leftmost_chain(links, handle, spec, {}, decide)
         key = handle
         for link in reversed(chain or ()):
             found.update(
