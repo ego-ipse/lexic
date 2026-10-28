@@ -20,7 +20,7 @@ and differs only in what the join builds.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, cast
 
 from lexic.exceptions import LexicError
@@ -273,7 +273,28 @@ def fold_route[M: IrNamedTuple](
     return tuple(steps)
 
 
-def _left_edge(
+type StepNodes = Mapping[
+    type[GrammarModel], tuple[int, Callable[[list[Any]], GrammarModel]]
+]
+"""Each step class a spine's nodes may be — its left slot, the field it recurses
+into, and its positional construction."""
+
+
+def step_nodes(classes: Iterable[type[GrammarModel]]) -> StepNodes | None:
+    """The spine's step classes as :data:`StepNodes`, or ``None`` when one has
+    no left slot to graft into."""
+    found: dict[
+        type[GrammarModel], tuple[int, Callable[[list[Any]], GrammarModel]]
+    ] = {}
+    for step in classes:
+        at = left_slot(step)
+        if at < 0:
+            return None
+        found[step] = (at, step.fast_construct()[0])
+    return found
+
+
+def _class_edge(
     node: GrammarModel, step: type[GrammarModel], at: int
 ) -> tuple[list[GrammarModel], GrammarModel]:
     """One spine's step nodes, outermost first, and the base beneath them.
@@ -293,6 +314,26 @@ def _left_edge(
         if not isinstance(below, GrammarModel):
             return spine, node
         node = below
+    return spine, node
+
+
+def _left_edge(
+    node: GrammarModel, steps: StepNodes
+) -> tuple[list[GrammarModel], GrammarModel]:
+    """:func:`_class_edge` over several step classes, the step table read only
+    where the class changes; one class walks by identity alone."""
+    if len(steps) == 1:
+        ((step, (at, _construct)),) = steps.items()
+        return _class_edge(node, step, at)
+    spine: list[GrammarModel] = []
+    while (found := steps.get(kind := node.__class__)) is not None:
+        at = found[0]
+        while node.__class__ is kind:
+            spine.append(node)
+            below = node[at]
+            if not isinstance(below, GrammarModel):
+                return spine, node
+            node = below
     return spine, node
 
 
@@ -333,7 +374,7 @@ def fold_spines(
     at = left_slot(step)
     if at < 0 or len(leads) != len(spines) - 1:
         return None
-    edges = [_left_edge(spine, step, at) for spine in spines]
+    edges = [_class_edge(spine, step, at) for spine in spines]
     template = next((nodes[-1] for nodes, _base in edges if nodes), None)
     if template is None:
         return None
@@ -342,11 +383,29 @@ def fold_spines(
     for index in range(1, len(spines)):
         nodes, base = edges[index]
         graft = template.rebuild([joined, leads[index - 1], base])
-        joined = _regraft(nodes, at, construct, graft)
+        joined = _class_regraft(nodes, at, construct, graft)
     return joined
 
 
-def _regraft(
+def fold_runs(spines: list[GrammarModel], steps: StepNodes) -> GrammarModel | None:
+    """A RUN spine's pieces as one, left-associated; ``None`` = shape surprise.
+
+    Each later piece began with the base's own text (the plan's re-worn base),
+    so its innermost base is that stand-in: the join drops it and grafts the
+    accumulated value in its place, rebuilding the piece's left edge through
+    each node's own class. Every node is ``arm(previous, its captures)``, so
+    folding the iterations two pieces apart is folding them in one.
+    """
+    joined = spines[0]
+    for spine in spines[1:]:
+        nodes, _stand_in = _left_edge(spine, steps)
+        if not nodes:
+            return None
+        joined = _regraft(nodes, steps, joined)
+    return joined
+
+
+def _class_regraft(
     nodes: list[GrammarModel],
     at: int,
     construct: Callable[[list[Any]], GrammarModel],
@@ -359,6 +418,23 @@ def _regraft(
     validation, and no walk of what was already built.
     """
     for node in reversed(nodes):
+        values = list(node)
+        values[at] = value
+        value = construct(values)
+    return value
+
+
+def _regraft(
+    nodes: list[GrammarModel], steps: StepNodes, value: GrammarModel
+) -> GrammarModel:
+    """:func:`_class_regraft` over several step classes, each node through its
+    own; one class reads its slot and construction once, since a per-node
+    lookup measured 4% of a led join."""
+    if len(steps) == 1:
+        ((at, construct),) = steps.values()
+        return _class_regraft(nodes, at, construct, value)
+    for node in reversed(nodes):
+        at, construct = steps[node.__class__]
         values = list(node)
         values[at] = value
         value = construct(values)
@@ -386,6 +462,8 @@ def folded_split[M: IrNamedTuple](
         folded_divide(text, region, pool.workers, plan) if region is not None else None
     )
     route = fold_route(binding, plan.chain)
+    if plan.steps:
+        return _split_run(parse, grammar, ask, (plan, pieces, route), pool)
     step = model_type(binding.routines.get(plan.step))
     if pieces is None or route is None or step is None:
         return None
@@ -393,6 +471,51 @@ def folded_split[M: IrNamedTuple](
     if parsed is None:
         return None
     return _folded_stitch(parsed, route, step)
+
+
+def _split_run[M: IrNamedTuple](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    ask: Ask[M],
+    work: tuple[FoldedPlan, Pieces | None, tuple[ModelStep, ...] | None],
+    pool: WorkPool,
+) -> M | None:
+    """A RUN spine's pieces parsed and stitched, or ``None`` = sequential."""
+    plan, pieces, route = work
+    classes = fold_classes(ask[1], plan)
+    steps = step_nodes(classes) if classes is not None else None
+    if pieces is None or route is None or steps is None:
+        return None
+    parsed = _folded_models(parse, grammar, ask, (plan, pieces), pool)
+    return stitch_run(parsed[0], route, steps) if parsed is not None else None
+
+
+def fold_classes[M: IrNamedTuple](
+    binding: ModelExecutable[M], plan: FoldedPlan
+) -> list[type[GrammarModel]] | None:
+    """The generated class of every step rule a RUN plan names, or ``None``."""
+    found = [model_type(binding.routines.get(rule)) for rule in plan.steps]
+    return None if None in found else cast(list[type[GrammarModel]], found)
+
+
+def stitch_run[M: IrNamedTuple](
+    roots: list[M], route: tuple[ModelStep, ...], steps: StepNodes
+) -> M | None:
+    """A RUN spine's piece documents as the one document model, or ``None``.
+
+    Each piece's spine is read at ``route``, the spines are folded into one
+    (:func:`fold_runs`), and the result is put back in the first piece's
+    shell; an empty route is the start rule's own spine, so the fold IS the
+    model.
+    """
+    spines = [read_route(cast(GrammarModel, root), route, PREDICTED) for root in roots]
+    if any(spine is None for spine in spines):
+        return None
+    merged = fold_runs(cast(list[GrammarModel], spines), steps)
+    if merged is None:
+        return None
+    rebuilt = splice(cast(GrammarModel, roots[0]), route, merged) if route else merged
+    return cast(M, rebuilt) if rebuilt is not None else None
 
 
 def _folded_stitch[M: IrNamedTuple](

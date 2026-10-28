@@ -8,6 +8,7 @@ Model stitching is owned by the orchestrator, not this analysis leaf.
 
 from __future__ import annotations
 
+from math import ceil
 from typing import NamedTuple, cast
 
 import pytest
@@ -26,7 +27,9 @@ from lexic.parsing.parallel.discovery.regions import (
     Roles,
     Vocab,
     find,
+    listed,
     merge_windows,
+    nearest_first,
     pair_rules,
     par_find,
     scan_vocabulary,
@@ -532,3 +535,14 @@ def test_the_floor_holds_on_both_window_paths_at_its_boundary() -> None:
     assert par_find(grammar, doc, 5, windows) == find(grammar, doc, 5) == [outer]
     kept = par_find(grammar, doc, 4, windows)
     assert kept == find(grammar, doc, 4) and len(kept) == len(inner) + 1
+
+
+@pytest.mark.parametrize("want", (0, 3, 4.5, 7, 12.5, 30))
+def test_nearest_first_orders_found_marks_as_listed_orders_a_list(want: float) -> None:
+    """Two walks out from ``want`` merge into the order :func:`listed` reads
+    off a list: nearest first, the earlier on a tie, every mark once."""
+    marks = [1, 2, 4, 5, 9, 12, 13, 20]
+    lo, hi, middle = 0, 25, min(max(ceil(want), 0), 25)
+    down = iter([at for at in reversed(marks) if lo <= at < middle])
+    up = iter([at for at in marks if middle <= at < hi])
+    assert list(nearest_first(down, up, want)) == list(listed(marks, want, lo, hi))

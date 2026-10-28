@@ -53,11 +53,11 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     # `test_folded_spine_split`; here it is `None` because that is what the
     # PLANNER derives, which is what this table is about.
     "island-earley": None,
-    # The three engine-reach rows derive no plan and no folded source either.
-    # Their reason is now distinct from island-earley's and worth naming: the
-    # fold TAKES each of them, but the recursive arm's remainder is a bare
-    # literal (`A ::= A "a" | "a"`), so there is no separator RULE — nothing to
-    # spell a mark, and nothing to re-parse a removed one under.
+    # The three direct engine-reach rows derive no plan either, and split
+    # through the folded source as RUNS: the recursive arms' remainders are
+    # bare literals (`A ::= A "a" | A "b" | "a"`), with no separator rule, so
+    # the cut falls before any character that begins a step
+    # (`test_folded_run_split`). `None` here for the same reason as above.
     "start-fallback": None,
     "interior-exact": None,
     "interior-climb": None,
@@ -93,14 +93,16 @@ SPLITS: dict[str, bool] = {
     # `term (addop term)*`, and the source reads that shape analysis to find
     # the spine. The separator is ` + ` / ` - `, owned by `term`.
     "island-earley": True,
-    # These three never divide, and their reason is NOT island-earley's. The
-    # fold takes each of them too, but `A ::= A "a" | "a"` has no separator
-    # rule between its terms, so the source declines before any boundary proof
-    # is asked — measured at four workers on the full sample: zero
-    # piece-parses, not one.
-    "start-fallback": False,
-    "interior-exact": False,
-    "interior-climb": False,
+    # These three divide through the folded source too, as RUNS of bare steps:
+    # no separator rule leads a step, so the cut falls before any character
+    # that begins one, which the grammar proves nothing else can hold past its
+    # first position.
+    "start-fallback": True,
+    "interior-exact": True,
+    "interior-climb": True,
+    # The relay rows never divide: the fold does not read through `more`, so
+    # there is no folded spine to cut — measured at four workers on the full
+    # sample: zero piece-parses, not one.
     "relay-fallback": False,
     "relay-exact": False,
     "relay-climb": False,

@@ -2798,3 +2798,9 @@ warm and is counted (`replicas.warm_census`).
 
 `decisions.md`'s take-back entry in the present tense; a pin that a taken-back
 item a worker already started is never run twice.
+
+## A left-recursive run splits before its step characters (2026-10-28)
+
+`decisions.md`'s folded-source entry and `parallel-parsing.md`'s plan table: the
+run kind of the folded source, its NON_INITIAL condition, the re-worn base and
+the left-edge join.

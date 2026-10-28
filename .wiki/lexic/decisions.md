@@ -1079,6 +1079,31 @@ the character at `len - k` — is sound and NOT taken. It is what a grammar whos
 owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
 would need, and nothing on the roster does.
 
+**A spine of bare steps is a RUN, cut before the character that begins a
+step.** `item ::= item "a" | item "b" | "z"` has no separator rule: nothing
+spells a removable mark and nothing re-parses one, so the led proof above has
+nothing to ask. `folded._run` asks instead whether a step's first character
+can only stand FIRST: `starts`, the union of the βs' FIRST sets, must miss
+NON_INITIAL of every base arm and every β (`predicates.rule_non_initials`, the
+characters a string of the language carries past its first position, a least
+fixpoint bounded by ALPHABET), and no base arm may be nullable. Then every
+`starts` character past the spine's start begins an iteration, and `settled`
+already says the iteration before it ends there. The cut KEEPS that character;
+a later piece re-wears the shell and the base's own text (the text before the
+spine's first `starts` character), and the join drops that stand-in base and
+rebuilds the piece's left edge through each node's own class
+(`stitch.interior.fold_runs`). The left fold is associative over the iteration
+sequence, so the result is the sequential model by construction. The proof is
+read once per grammar, in the plan's memo.
+
+It is the fallback when the led proof refuses, and it needs no shell
+exclusion: it removes no mark, and the extent is the shell's fixed widths, so a
+tail the spine can also spell does not move it. The join rebuilds every node on
+a later piece's left edge, which is all of that piece's nodes: one tuple
+construction each, serial after the pieces parse. Immutable left-nested records
+leave no cheaper join, so the run's MT seats are priced with it against their
+sequential seats.
+
 ## A stop-set is granted only where its first exit is the split answer
 
 A stop-set loop leaves at the first character its continuation can start with:

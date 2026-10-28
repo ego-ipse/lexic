@@ -14,7 +14,7 @@ that routes to it.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, NamedTuple, Sequence, cast
 
 from lexic.ir import (
@@ -167,19 +167,48 @@ def rule_alphabets(rules: Mapping[str, IrRule]) -> dict[str, CharSet]:
     :raises UnsupportedConstructError: On an unregistered atom type.
     """
     found = {name: CharSet.EMPTY for name in rules}
-    nc = (found,)
+    return grow_charsets(
+        found,
+        rules,
+        lambda rule: _arms_union(rule.body, lambda arm: _seq_alphabet(arm, found)),
+    )
+
+
+def grow_charsets(
+    found: dict[str, CharSet],
+    rules: Mapping[str, IrRule],
+    value: Callable[[IrRule], CharSet],
+) -> dict[str, CharSet]:
+    """Grow ``found`` to the least fixpoint of ``value``, one rule at a time.
+
+    ``value`` reads ``found`` for a rule's references, so it sees its own
+    partial answers. Every per-rule reading in this module is monotone and
+    bounded by ALPHABET, so the iteration terminates.
+
+    :param found: Rule name → its set so far, every one starting empty.
+    :param rules: The grammar's rules by name.
+    :param value: A rule's set, read off ``found`` as it stands.
+    :returns: ``found``, grown.
+    """
     changed = True
     while changed:
         changed = False
         for name, rule in rules.items():
-            acc = CharSet.EMPTY
-            for arm in rule.body:
-                for item in arm:
-                    acc = acc.union(atom_alphabet(item.atom, nc))
-            if acc != found[name]:
-                found[name] = acc
+            got = value(rule)
+            if got != found[name]:
+                found[name] = got
                 changed = True
     return found
+
+
+def _arms_union(
+    arms: Iterable[Sequence[IrItem]], arm_value: Callable[[list[IrItem]], CharSet]
+) -> CharSet:
+    """The union of ``arm_value`` over an alternation's arms."""
+    out = CharSet.EMPTY
+    for arm in arms:
+        out = out.union(arm_value(list(arm)))
+    return out
 
 
 # ── EXTEND — what can lengthen a complete match ───────────────────────
@@ -192,9 +221,9 @@ def rule_alphabets(rules: Mapping[str, IrRule]) -> dict[str, CharSet]:
 
 
 class Extensions(NamedTuple):
-    """The EXTEND fixpoint's working maps, riding the ``nc`` channel.
+    """An EXTEND or NON_INITIAL fixpoint's working maps, riding ``nc``.
 
-    :ivar found: Rule name → its EXTEND so far.
+    :ivar found: Rule name → its EXTEND (or NON_INITIAL) so far.
     :ivar alphabets: Rule name → its ALPHABET, the bound EXTEND falls back to.
     """
 
@@ -213,7 +242,8 @@ def _ext_any(_d: object, _n: IrSelf, _nc: object) -> CharSet:
 
 
 def _ext_ruleref(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
-    """A rule ref extends as its target does, read at its CURRENT value."""
+    """A rule ref reads its target at its CURRENT value in the fixpoint's
+    maps — EXTEND and NON_INITIAL alike; an undefined one is ANY."""
     got = cast(Extensions, nc).found.get(str(n))
     return CharSet.ANY if got is None else got
 
@@ -224,11 +254,11 @@ def _ext_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[object]) -> Cha
     return arms_extension(d, list(n), cast(Extensions, nc))
 
 
-def _seq_alphabet(items: Sequence[IrItem], maps: Extensions) -> CharSet:
+def _seq_alphabet(items: Sequence[IrItem], alphabets: dict[str, CharSet]) -> CharSet:
     """Every character a sequence can derive."""
     out = CharSet.EMPTY
     for item in items:
-        out = out.union(atom_alphabet(item.atom, (maps.alphabets,)))
+        out = out.union(atom_alphabet(item.atom, (alphabets,)))
     return out
 
 
@@ -270,7 +300,7 @@ def seq_extension(
     for item in reversed(items):
         ext = item_extension(d, item, maps)
         if ext.overlaps(after):
-            return _seq_alphabet(items, maps)
+            return _seq_alphabet(items, maps.alphabets)
         if empty_after:
             out = out.union(ext)
         first = d.atom_first(item.atom)
@@ -294,7 +324,7 @@ def arms_extension(
         if any(empties[i] for i in others):
             out = out.union(firsts[j])
         if any(firsts[i].overlaps(firsts[j]) for i in others):
-            out = out.union(_seq_alphabet(arm, maps))
+            out = out.union(_seq_alphabet(arm, maps.alphabets))
     return out
 
 
@@ -313,15 +343,69 @@ def rule_extensions(d: GrammarAnalysis) -> Extensions:
     maps = Extensions(
         {name: CharSet.EMPTY for name in d.rules}, rule_alphabets(d.rules)
     )
-    changed = True
-    while changed:
-        changed = False
-        for name, rule in d.rules.items():
-            got = arms_extension(d, list(rule.body), maps)
-            if got != maps.found[name]:
-                maps.found[name] = got
-                changed = True
+    grow_charsets(
+        maps.found, d.rules, lambda rule: arms_extension(d, list(rule.body), maps)
+    )
     held.append(maps)
+    return maps
+
+
+# ── NON-INITIAL — what can stand anywhere but first ────────────────────
+#
+# NON_INITIAL(L) holds every character some string of L carries at a position
+# past its first. Every rule below over-approximates it, with ALPHABET as the
+# bound, so a caller can only ever prove too LITTLE with it: the one use is
+# that a character outside it, met past the start of such a string, begins one.
+
+
+def _inner_literal(_d: object, n: IrSelf, _nc: object) -> CharSet:
+    """A literal's characters past its first."""
+    tail = str(n)[1:]
+    return CharSet.from_chars(*set(tail)) if tail else CharSet.EMPTY
+
+
+def _inner_alternation(_d: object, n: IrSelf, nc: Sequence[object]) -> CharSet:
+    """A group's is the union of its arms'."""
+    assert isinstance(n, IrAlternation)
+    return _arms_union(n, lambda arm: seq_non_initial(arm, cast(Extensions, nc)))
+
+
+def seq_non_initial(items: Sequence[IrItem], maps: Extensions) -> CharSet:
+    """NON_INITIAL of a sequence: every item past the first contributes its
+    whole ALPHABET (an earlier item may have consumed text), and so does a
+    first item that can repeat (its second occurrence stands past the first).
+
+    :param items: The sequence's items.
+    :param maps: ``found`` the rules' NON_INITIAL so far, ``alphabets`` their
+        ALPHABET.
+    """
+    if not items:
+        return CharSet.EMPTY
+    head, hi = items[0], items[0].quantifier.upper()
+    first = (
+        atom_alphabet(head.atom, (maps.alphabets,))
+        if hi is None or hi > 1
+        else cast(CharSet, NON_INITIAL.resolve(head.atom).eval(None, head.atom, maps))
+    )
+    return first.union(_seq_alphabet(items[1:], maps.alphabets))
+
+
+def rule_non_initials(rules: Mapping[str, IrRule]) -> Extensions:
+    """Every rule's NON_INITIAL — the least fixpoint, grown from empty.
+
+    Monotone and bounded by ALPHABET, so the iteration terminates; a
+    left-recursive rule grows into its own answer as :func:`rule_alphabets`'
+    does.
+
+    :param rules: The grammar's rules by name.
+    :returns: ``found`` each rule's NON_INITIAL, beside the ALPHABET it reads.
+    """
+    maps = Extensions({name: CharSet.EMPTY for name in rules}, rule_alphabets(rules))
+    grow_charsets(
+        maps.found,
+        rules,
+        lambda rule: _arms_union(rule.body, lambda arm: seq_non_initial(arm, maps)),
+    )
     return maps
 
 
@@ -525,6 +609,14 @@ ALPHABET: IrTypeMap = IrTypeMap(
     IrAction(IrAlphabet, IrLambda(_alpha_any)),
     IrAction(IrRuleRef, IrLambda(_alpha_ruleref)),
     IrAction(IrAlternation, IrLambda(_alpha_alternation)),
+)
+NON_INITIAL: IrTypeMap = IrTypeMap(
+    IrAction(IrLiteral, IrLambda(_inner_literal)),
+    IrAction(IrCharClass, IrLambda(_ext_single)),
+    IrAction(IrNot, IrLambda(_ext_single)),
+    IrAction(IrAlphabet, IrLambda(_alpha_any)),
+    IrAction(IrRuleRef, IrLambda(_ext_ruleref)),
+    IrAction(IrAlternation, IrLambda(_inner_alternation)),
 )
 HARD: IrTypeMap = IrTypeMap(
     IrAction(IrLiteral, IrLambda(_hard_terminal)),

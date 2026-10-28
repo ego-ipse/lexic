@@ -224,7 +224,8 @@ def test_a_mark_the_owner_can_spell_is_refused(case: str) -> None:
         f"{case}: the owner no longer emits {emitted!r}, so the refusal under "
         "test is not the one this case exists for"
     )
-    assert folded_plan(grammar) is None
+    plan = folded_plan(grammar)
+    assert plan is None or not plan.lead, "the led proof licensed a spelled mark"
 
 
 def test_the_first_character_of_the_sharp_case_is_excluded() -> None:
@@ -238,11 +239,17 @@ def test_the_first_character_of_the_sharp_case_is_excluded() -> None:
     ).codegen_grammar
     assert owner_excludes(grammar, "term", "+")
     assert not owner_excludes(grammar, "term", "a")
-    assert folded_plan(grammar) is None
+    plan = folded_plan(grammar)
+    assert plan is not None
+    # Refused as a LED spine, which would remove ``"+a"`` whole; taken as a
+    # RUN, cut before the ``+`` alone, which begins nothing but an ``op``.
+    assert (plan.lead, plan.marks, plan.steps) == ("", ("+",), ("expr-arm1",))
 
 
-def test_a_tail_the_spine_can_also_spell_is_refused() -> None:
-    """An extent bounded by text the interior can emit is a guess, not a proof."""
+def test_a_tail_the_spine_can_also_spell_is_refused_a_led_plan() -> None:
+    """An extent bounded by text the interior can emit is a guess to the led
+    proof, which declines. The RUN kind reads the extent off the shell's fixed
+    width and removes nothing, so it takes the spine, cut before each ``+``."""
     source = (
         "root ::= expr sep\n"
         "expr ::= expr op term | term\n"
@@ -251,7 +258,9 @@ def test_a_tail_the_spine_can_also_spell_is_refused() -> None:
         'sep ::= ";"\n'
     )
     assert takes_the_fold(source, "spelled-tail")
-    assert folded_plan(compiled(source, "spelled-tail").codegen_grammar) is None
+    plan = folded_plan(compiled(source, "spelled-tail").codegen_grammar)
+    assert plan is not None
+    assert (plan.lead, plan.marks, plan.after) == ("", ("+",), ";")
 
 
 def test_a_grammar_with_no_left_recursion_has_no_folded_plan() -> None:
@@ -290,18 +299,16 @@ def test_a_repetition_between_start_and_the_spine_declines() -> None:
     assert folded_plan(compiled(source, "under-a-repetition").codegen_grammar) is None
 
 
-def test_a_step_with_no_separator_rule_is_refused() -> None:
-    """``A ::= A "a" | "a"`` folds, and still has nothing to cut on.
-
-    A distinct negative from every mark refusal above, and the one the three
-    engine-reach rows take. The fold TAKES this shape — so a test that only
-    checked "no fold, no plan" would miss it — but the recursive arm's
-    remainder is a bare literal, leaving no separator RULE: nothing to spell a
-    mark with, and nothing to re-parse a removed one under.
-    """
+def test_a_step_with_no_separator_rule_is_a_run() -> None:
+    """``A ::= A "a" | "a"`` folds, and has no separator RULE: nothing to
+    spell a removed mark with, and nothing to re-parse one under. The led
+    proof declines it, and the RUN kind takes it — cut before each ``a`` past
+    the base, which keeps it."""
     source = 'root ::= expr\nexpr ::= expr "a" | "a"\n'
     assert takes_the_fold(source, "no-separator-rule")
-    assert folded_plan(compiled(source, "no-separator-rule").codegen_grammar) is None
+    plan = folded_plan(compiled(source, "no-separator-rule").codegen_grammar)
+    assert plan is not None
+    assert (plan.lead, plan.marks, plan.steps) == ("", ("a",), ("expr-arm1",))
 
 
 NEAREST = (100, 200, 300, 400)

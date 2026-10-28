@@ -67,6 +67,7 @@ document and are never cached across two of them**.
 | envelope | optional head/tail wrapping the repetition, separator is a noise run | the envelope's own certified boundary |
 | routed | an interior a character sweep cannot see | route-derived interiors |
 | folded | a left recursion the predictive path folds into `(γ)(β)*`, its boundaries settled | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
+| folded, run | the same, its βs led by no separator rule (or the led proof refused) | no β's first character in NON_INITIAL of any base arm or β, and no nullable base arm |
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
@@ -120,6 +121,14 @@ It over-refuses and never mis-splits, which is the direction a decline is free
 in. The refusal it is easiest to get wrong is a mark whose FIRST character is
 excluded and whose later one is not — `"+a"` over `[a-z]+` — so that is a
 committed witness rather than a note.
+
+**A RUN spine is cut before the character that begins a step**, and keeps it.
+With no separator rule there is no mark to remove: `folded._run` proves that a
+β's first character stands only first in every base arm and β
+(`predicates.rule_non_initials`), so each one past the spine's start begins an
+iteration. A later piece re-wears the base's own text before its βs, and
+`stitch.interior.fold_runs` drops that stand-in and rebuilds the piece's left
+edge over the value so far. The three direct engine-reach rows split this way.
 
 ---
 

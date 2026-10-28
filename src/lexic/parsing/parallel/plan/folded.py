@@ -23,7 +23,9 @@ silently drop a term rather than decline.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from functools import partial
+from math import ceil
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrNone, IrNoneType, IrRule
@@ -33,13 +35,16 @@ from lexic.parsing.parallel.discovery.regions import (
     Region,
     floor_cuts,
     listed,
+    nearest_first,
 )
 from lexic.parsing.parallel.discovery.shapes import RuleTable, exact_text, rule_table
 from lexic.parsing.parallel.plan.routed import REF, Descent
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.predicates import rule_non_initials, seq_non_initial
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
+from lexic.parsing.pda.core.charsets import CharSet
 
 _PLANS: dict[int, tuple[IrAst, "FoldedPlan | None"]] = memo({})
 """Fold-source memo — id(grammar) → (grammar, plan). The strong reference pins
@@ -64,6 +69,10 @@ class FoldedPlan(NamedTuple):
     :ivar after: The fixed text standing after it, likewise.
     :ivar lead_grammar: The grammar rooted at :attr:`lead`, which the removed
         marks re-parse under so the join can rebuild them.
+    :ivar steps: Set on a RUN spine — one whose βs no separator rule leads — to
+        every recursive arm's rule. A run is cut before any character that
+        begins a β (:attr:`marks`, one character each), keeps it, and has no
+        lead; the base's own text is what a later piece re-wears to begin.
     """
 
     rule: str
@@ -75,6 +84,7 @@ class FoldedPlan(NamedTuple):
     before: str
     after: str
     lead_grammar: IrAst
+    steps: tuple[str, ...] = ()
 
 
 def folded_plan(grammar: IrAst) -> FoldedPlan | None:
@@ -233,7 +243,10 @@ def _derive(grammar: IrAst) -> FoldedPlan | None:
         return None
     name, chain, before, after = found
     fold = folds[name]
-    return _certified(grammar, rules, (name, fold), (chain, before, after))
+    shell = (chain, before, after)
+    return _certified(grammar, rules, (name, fold), shell) or _run(
+        grammar, analysis, (name, fold), shell
+    )
 
 
 def _certified(
@@ -245,6 +258,8 @@ def _certified(
     """The plan the boundary proof licenses over this shell, or ``None``."""
     name, fold = taken
     chain, before, after = shell
+    if len(fold.steps) != 1:
+        return None  # a LED spine is one arm's: its join rebuilds that arm's node
     ref = fold.steps[0].rest[0].unit_ref() if fold.steps[0].rest else IrNone
     lead = None if isinstance(ref, IrNoneType) else str(ref)
     owners = _owners(rules[name], fold)
@@ -270,6 +285,72 @@ def _certified(
     )
 
 
+def _run(
+    grammar: IrAst,
+    analysis: GrammarAnalysis,
+    taken: tuple[str, Fold],
+    shell: tuple[tuple[Descent, ...], str, str],
+) -> FoldedPlan | None:
+    """The plan for a RUN spine — βs no separator leads — or ``None``.
+
+    Cut before a character that begins a β, wherever no piece can hold one
+    anywhere but first: then every such character past the spine's start
+    begins an iteration, because it cannot sit inside a base arm or a β at a
+    later position, and the pieces after the base are βs. The boundary proof
+    (`settled`) already says an iteration cannot be lengthened by a character
+    that begins one, so the iteration before a cut ends there in the piece as
+    it does in the document. Read off the grammar — FIRST, ALPHABET and
+    NON_INITIAL — once per grammar; the document only says where those
+    characters stand.
+    """
+    name, fold = taken
+    starts = _step_starts(fold, analysis)
+    if starts is None or not _first_only(rule_table(grammar), taken, analysis, starts):
+        return None
+    chain, before, after = shell
+    return FoldedPlan(
+        name,
+        fold.steps[0].rule,
+        "",
+        tuple(sorted(starts.chars)),
+        (),
+        chain,
+        before,
+        after,
+        grammar,
+        tuple(step.rule for step in fold.steps),
+    )
+
+
+def _step_starts(fold: Fold, analysis: GrammarAnalysis) -> CharSet | None:
+    """The characters a β begins with, or ``None`` when a cut could not find
+    them in the text."""
+    starts = CharSet.EMPTY
+    for step in fold.steps:
+        starts = starts.union(analysis.seq_first(list(step.rest)))
+    return None if starts.negated or not starts.chars else starts
+
+
+def _first_only(
+    rules: RuleTable,
+    taken: tuple[str, Fold],
+    analysis: GrammarAnalysis,
+    starts: CharSet,
+) -> bool:
+    """Whether no base arm is empty and every piece holds ``starts`` only first.
+
+    An empty base would leave the spine's first β at its start, so the text
+    before the first mark would not be the base.
+    """
+    name, fold = taken
+    bases = [list(tuple(rules[name].body)[at]) for at in fold.base]
+    if any(all(analysis.item_nullable(one) for one in items) for items in bases):
+        return False
+    inner = rule_non_initials(rules)
+    pieces = [*bases, *(list(step.rest) for step in fold.steps)]
+    return not any(seq_non_initial(items, inner).overlaps(starts) for items in pieces)
+
+
 def locate(text: str, plan: FoldedPlan) -> Region | None:
     """The spine's certified extent, with every separator inside it.
 
@@ -284,10 +365,12 @@ def locate(text: str, plan: FoldedPlan) -> Region | None:
         return None
     lo = len(plan.before)
     hi = len(text) - len(plan.after)
-    return (
-        Region(lo, hi, plan.rule, marks_in(text, lo, hi, plan.marks))
-        if lo < hi
-        else None
+    if lo >= hi:
+        return None
+    # A run's cut characters stand at nearly every offset, so they are found
+    # where a cut is asked for (`_divide_run`) rather than listed here.
+    return Region(
+        lo, hi, plan.rule, () if plan.steps else marks_in(text, lo, hi, plan.marks)
     )
 
 
@@ -349,6 +432,8 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
     text comes back as a lead the stitch re-parses, because the spine node it
     belongs to is built across the boundary and neither piece can own it.
     """
+    if plan.steps:
+        return _divide_run(text, region, workers, plan)
     lo, hi = region.opener, region.closer
     if not region.marks:
         return None
@@ -374,6 +459,89 @@ def divide(text: str, region: Region, workers: int, plan: FoldedPlan) -> Pieces 
         tuple(plan.before + text[a:b] + plan.after for a, b in zip(starts, ends)),
         tuple(text[at:start] for at, start in zip(chosen, begins)),
     )
+
+
+def _divide_run(
+    text: str, region: Region, workers: int, plan: FoldedPlan
+) -> Pieces | None:
+    """A RUN spine cut into ``workers`` pieces, or ``None`` if it will not."""
+    lo, hi = region.opener, region.closer
+    first = _first_of(text, plan.marks, lo + 1, hi)
+    if first < 0:
+        return None  # no iteration: nothing to cut between
+    cutting: Cutting = (
+        partial(_around, text, plan.marks),
+        (lo, hi),
+        lambda at: at if at >= first else None,
+        (False, 0),
+    )
+    for count in range(min(workers, capacity(hi - lo)), 1, -1):
+        found = floor_cuts(cutting, count)
+        if found is not None:
+            return run_pieces(text, region, plan, found[0])
+    return None
+
+
+def run_pieces(
+    text: str, region: Region, plan: FoldedPlan, cuts: Sequence[int]
+) -> Pieces:
+    """The documents a RUN spine's ``cuts`` make — any offsets holding a mark
+    past the spine's first.
+
+    A cut falls before a character that begins a β and KEEPS it: the next
+    piece starts there. A later piece begins with βs, so it re-wears the
+    base's own text as well as the shell to be a document under the start
+    rule — the text from the spine's start to its first mark, which the plan
+    proved is the base (`_run`). The join discards that base again.
+    """
+    lo, hi = region.opener, region.closer
+    base = text[lo : _first_of(text, plan.marks, lo + 1, hi)]
+    starts, ends = [lo, *cuts], [*cuts, hi]
+    return Pieces(
+        tuple(
+            plan.before + ("" if a == lo else base) + text[a:b] + plan.after
+            for a, b in zip(starts, ends)
+        ),
+        (),
+    )
+
+
+def _around(
+    text: str, chars: tuple[str, ...], want: float, lo: int, hi: int
+) -> Iterator[int]:
+    """Every offset in ``[lo, hi)`` holding one of ``chars``, nearest ``want``
+    first, the earlier on a tie — found where asked, never listed."""
+    split = min(max(ceil(want), lo), hi)
+    return nearest_first(
+        _leftward(text, chars, lo, split), _rightward(text, chars, split, hi), want
+    )
+
+
+def _rightward(text: str, chars: tuple[str, ...], lo: int, hi: int) -> Iterator[int]:
+    """The offsets in ``[lo, hi)`` holding one of ``chars``, ascending."""
+    at = _first_of(text, chars, lo, hi)
+    while at >= 0:
+        yield at
+        at = _first_of(text, chars, at + 1, hi)
+
+
+def _leftward(text: str, chars: tuple[str, ...], lo: int, hi: int) -> Iterator[int]:
+    """The offsets in ``[lo, hi)`` holding one of ``chars``, descending."""
+    at = _last_of(text, chars, lo, hi)
+    while at >= 0:
+        yield at
+        at = _last_of(text, chars, lo, at)
+
+
+def _first_of(text: str, chars: tuple[str, ...], lo: int, hi: int) -> int:
+    """The first offset in ``[lo, hi)`` holding one of ``chars``, or ``-1``."""
+    found = [at for char in chars if (at := text.find(char, lo, hi)) >= 0]
+    return min(found) if found else -1
+
+
+def _last_of(text: str, chars: tuple[str, ...], lo: int, hi: int) -> int:
+    """The last offset in ``[lo, hi)`` holding one of ``chars``, or ``-1``."""
+    return max((text.rfind(char, lo, hi) for char in chars), default=-1)
 
 
 def past_separator(text: str, marks: tuple[str, ...], at: int) -> int | None:
