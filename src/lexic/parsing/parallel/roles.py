@@ -165,39 +165,107 @@ def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     return frozenset({text}) if wide else frozenset()
 
 
-def _arm_pair(
-    items: tuple[IrItem, ...], anchor_set: frozenset[str]
-) -> tuple[str, str] | None:
-    """The arm's opener/closer pair, when it has the bracketing shape.
+class BracketArm(NamedTuple):
+    """One arm opening on one character and closing on another.
 
-    DELIMITING, not nesting, is the test. A pair serves two readers at once:
-    the scan counts depth with it, and
-    :func:`~...stitch.safety.owner_excludes` attributes what stands between
-    the delimiters to the nested region rather than to its owner. The second
-    reader needs no recursion — a flat ``"{" inner "}"`` owns its own commas
-    just as a nesting one does — and narrowing the derivation to constructs
-    that can hold another instance of themselves silently un-attributes them.
+    :ivar opener: The character item 0 spells.
+    :ivar closer: The character the LAST later item with one spells.
+    :ivar rule: The rule the arm belongs to.
+    :ivar arm: The arm's index in that rule's body.
+    :ivar closes: The closer's item index.
     """
-    if len(items) < 3:
-        return None
-    opener = _anchor_char(items[0], anchor_set)
-    if opener is None:
-        return None
-    closer_at = next(
-        (
-            j
-            for j in range(len(items) - 1, 0, -1)
-            if _anchor_char(items[j], anchor_set) is not None
-        ),
-        0,
-    )
-    closer = _anchor_char(items[closer_at], anchor_set)
-    if closer is None or closer == opener:
-        return None
-    delimited = any(
-        isinstance(item.atom, (IrRuleRef, IrAlternation)) for item in items[1:closer_at]
-    )
-    return (opener, closer) if delimited else None
+
+    opener: str
+    closer: str
+    rule: str
+    arm: int
+    closes: int
+
+
+def bracket_arms(
+    grammar: IrAst, char_of: Callable[[IrItem], str | None], enclosing: bool
+) -> list[BracketArm]:
+    """Every arm of three items or more that opens and closes on two different
+    characters, read through ``char_of``, in definition order.
+
+    The one walk both pair derivations read; each brings its own reader.
+    :func:`roles` reads anchors and asks ``enclosing``: DELIMITING, not nesting,
+    is its test, and a pair also serves
+    :func:`~...stitch.safety.owner_excludes`, which attributes what stands
+    between the delimiters to the nested region, so the arm must hold a
+    reference or group there. A flat ``"{" inner "}"`` owns its own commas just
+    as a nesting one does, so nothing narrower is asked. The region scan reads
+    literals and keeps the provenance its stray reading needs.
+    """
+    out: list[BracketArm] = []
+    for rule in grammar.rules:
+        for at, arm in enumerate(rule.body):
+            items = tuple(arm)
+            if len(items) < 3:
+                continue
+            spelled = [char_of(item) for item in items]
+            closes = max((k for k, char in enumerate(spelled) if char and k), default=0)
+            opener, closer = spelled[0], spelled[closes]
+            if not closes or not opener or closer == opener:
+                continue
+            if enclosing and not any(
+                isinstance(item.atom, (IrRuleRef, IrAlternation))
+                for item in items[1:closes]
+            ):
+                continue
+            out.append(BracketArm(opener, str(closer), str(rule.name), at, closes))
+    return out
+
+
+class RepeatedBody(NamedTuple):
+    """A body some arm repeats.
+
+    :ivar container: The rule owning the arm.
+    :ivar item: The repeated rule; ``""`` for an inline group.
+    :ivar body: What repeats.
+    """
+
+    container: str
+    item: str
+    body: IrAlternation
+
+
+def repeated_bodies(grammar: IrAst, nested: bool) -> list[RepeatedBody]:
+    """Every unbounded body an arm repeats, in definition order; with
+    ``nested``, the ones inside its groups too.
+
+    The one walk both separator derivations read. A repetition is often written
+    inside another group (RFC json spells its member list
+    ``[ member *( value-separator member ) ]``), which the region scan reaches.
+    :func:`roles` records a separator against the arm's own repetition, so it
+    reads the top level only.
+    """
+    rule_map = rule_table(grammar)
+    out: list[RepeatedBody] = []
+    for rule in grammar.rules:
+        for arm in rule.body:
+            _collect(str(rule.name), tuple(arm), rule_map, nested, out)
+    return out
+
+
+def _collect(
+    container: str,
+    items: tuple[IrItem, ...],
+    rule_map: RuleTable,
+    nested: bool,
+    out: list[RepeatedBody],
+) -> None:
+    """:func:`repeated_bodies` over one run of items."""
+    for item in items:
+        atom = item.atom
+        target = rule_map.get(str(atom)) if isinstance(atom, IrRuleRef) else None
+        if item.quantifier.unbounded() and target is not None:
+            out.append(RepeatedBody(container, str(atom), target.body))
+        elif item.quantifier.unbounded() and isinstance(atom, IrAlternation):
+            out.append(RepeatedBody(container, "", atom))
+        if nested and isinstance(atom, IrAlternation):
+            for arm in atom:
+                _collect(container, tuple(arm), rule_map, nested, out)
 
 
 def _lead_info(
@@ -285,10 +353,8 @@ def _derive_roles(grammar: IrAst) -> Roles:
     anchor_set = anchors(grammar)
     by_name = rule_table(grammar)
     records: list[Separator] = []
-    for rule in grammar.rules:
-        for arm in rule.body:
-            for item in arm:
-                _repeated_separators(str(rule.name), item, by_name, anchor_set, records)
+    for repeated in repeated_bodies(grammar, nested=False):
+        _repeated_separators(repeated, by_name, anchor_set, records)
     pairs = _pairs(grammar, anchor_set)
     paired = {char for pair in pairs for char in pair}
     kept = tuple(record for record in records if not set(record.mark) & paired)
@@ -307,12 +373,8 @@ def _pairs(grammar: IrAst, anchor_set: frozenset[str]) -> tuple[tuple[str, str],
     the arms of STANDING pairs account for every site of both characters
     (:func:`~lexic.parsing.parallel.discovery.anchors.anchor_site_counts`).
     """
-    arms = [
-        pair
-        for rule in grammar.rules
-        for arm in rule.body
-        if (pair := _arm_pair(tuple(arm), anchor_set)) is not None
-    ]
+    read = partial(_anchor_char, anchor_set=anchor_set)
+    arms = [arm[:2] for arm in bracket_arms(grammar, read, enclosing=True)]
     sites = anchor_site_counts(grammar)
     strays = partial(_miscounted, arms, sites)
     return tuple(standing_pairs(list(dict.fromkeys(arms)), strays))
@@ -498,28 +560,18 @@ def _body_edge(
 
 
 def _repeated_separators(
-    container: str,
-    item: IrItem,
+    repeated: RepeatedBody,
     by_name: RuleTable,
     anchor_set: frozenset[str],
     records: list[Separator],
 ) -> None:
-    """Collect the separator records an unbounded item contributes."""
-    if not item.quantifier.unbounded():
-        return
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and str(atom) in by_name:
-        repeated, body = str(atom), by_name[str(atom)].body
-    elif isinstance(atom, IrAlternation):
-        repeated, body = "", atom
-    else:
-        return
-    found = _body_leads(body, by_name, anchor_set)
+    """Collect the separator records one repeated body contributes."""
+    found = _body_leads(repeated.body, by_name, anchor_set)
     if found is None:
         return
     chars, lead = found
     for mark in sorted(chars, key=lambda spelling: (len(spelling), spelling)):
-        record = Separator(mark, container, repeated, lead)
+        record = Separator(mark, repeated.container, repeated.item, lead)
         if record not in records:
             records.append(record)
 

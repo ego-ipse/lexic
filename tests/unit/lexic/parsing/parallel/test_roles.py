@@ -14,7 +14,12 @@ from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles import Terminator, agreed_tail, standing_pairs
+from lexic.parsing.parallel.roles import (
+    Terminator,
+    agreed_tail,
+    repeated_bodies,
+    standing_pairs,
+)
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 
@@ -303,3 +308,29 @@ def test_standing_pairs_drops_both_pairs_a_character_closes_and_opens():
     both pairs fall even with no stray site, and the unrelated pair stands."""
     pairs = [("<", "|"), ("|", ">"), ("[", "]")]
     assert standing_pairs(pairs, lambda _standing: frozenset()) == [("[", "]")]
+
+
+# ── the shared site walk: each reader's own reach ─────────────────────────
+
+_CLASS_INTERIOR = 'root ::= unit ("," unit)*\nunit ::= "<" [a-z] ">" | [0-9]+\n'
+"""``<`` and ``>`` delimit a class, not a reference or group."""
+
+
+def test_a_pair_stands_for_roles_only_around_a_construct():
+    """roles asks ``enclosing``: a pair serves the owner-exclusion proof, which
+    attributes what stands between the delimiters to a nested region, so the
+    arm must hold a reference or group there. The region scan's reader keeps
+    the same arm (test_regions)."""
+    grammar = compile_text(_CLASS_INTERIOR).codegen_grammar
+    assert roles(grammar).pairs == ()
+
+
+def test_roles_reads_only_an_arms_own_repetition():
+    """A repetition nested inside a group is no separator of the arm holding
+    the group: the walk finds it with ``nested``, and roles does not ask."""
+    authored = parse_grammar(
+        'root ::= "[" ( item ("," item)* )? "]"\nitem ::= [a-z]+\n', GBNF_FLAVOUR
+    )
+    assert [r.item for r in repeated_bodies(authored, nested=True)] == [""]
+    assert not repeated_bodies(authored, nested=False)
+    assert roles(authored).records == ()

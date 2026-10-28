@@ -207,6 +207,13 @@ def test_a_shared_closer_leaves_the_enclosing_frame_to_its_own_closer():
     ]
 
 
+def test_the_region_scan_counts_a_bracket_around_no_construct():
+    """A bracket arm delimiting only a class still moves the depth the scan
+    counts, so its pair stands here, where roles does not take it."""
+    source = 'root ::= unit ("," unit)*\nunit ::= "<" [a-z] ">" | [0-9]+\n'
+    assert pair_rules(compile_text(source).codegen_grammar) == {"<": (">", "unit")}
+
+
 # ── find ──────────────────────────────────────────────────────────────────
 
 

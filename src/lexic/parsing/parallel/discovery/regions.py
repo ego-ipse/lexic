@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from typing import NamedTuple
 
-from lexic.ir import IrAlternation, IrAst, IrItem, IrRuleRef
+from lexic.ir import IrAst
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
     Site,
@@ -36,14 +36,18 @@ from lexic.parsing.parallel.discovery.interiors import (
     stray_spellings,
 )
 from lexic.parsing.parallel.discovery.shapes import (
-    RuleTable,
     edge_char,
     literal_char,
     rule_table,
 )
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.roles import standing_pairs
+from lexic.parsing.parallel.roles import (
+    BracketArm,
+    bracket_arms,
+    repeated_bodies,
+    standing_pairs,
+)
 
 
 class Region(NamedTuple):
@@ -66,16 +70,6 @@ class Region(NamedTuple):
         return self.closer - self.opener
 
 
-class _Bracket(NamedTuple):
-    """One bracketing arm: its pair, and the item indices that spell it."""
-
-    opener: str
-    closer: str
-    rule: str
-    arm: int
-    closes: int
-
-
 _PAIRS: dict[int, tuple[IrAst, dict[str, tuple[str, str]]]] = memo({})
 """Pair memo — id(grammar) → (grammar, pairs), pinned like the anchor memo."""
 
@@ -90,7 +84,8 @@ def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
     """
     entry = _PAIRS.get(id(grammar))
     if entry is None:
-        arms = _brackets(grammar)
+        read = partial(literal_char, rule_map=rule_table(grammar))
+        arms = bracket_arms(grammar, read, enclosing=False)
         pairs = list(dict.fromkeys((arm.opener, arm.closer) for arm in arms))
         out: dict[str, tuple[str, str]] = {}
         for opener, closer in standing_pairs(pairs, partial(_strays, grammar, arms)):
@@ -101,24 +96,8 @@ def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
     return entry[1]
 
 
-def _brackets(grammar: IrAst) -> list[_Bracket]:
-    """Every arm opening on one character and closing on another, in order."""
-    rule_map = rule_table(grammar)
-    out: list[_Bracket] = []
-    for rule in grammar.rules:
-        for at, arm in enumerate(rule.body):
-            spelled = [literal_char(item, rule_map) for item in arm]
-            closes = max((k for k, char in enumerate(spelled) if char), default=0)
-            if len(spelled) < 3 or not closes:
-                continue
-            opener, closer = spelled[0], spelled[closes]
-            if opener and closer and closer != opener:
-                out.append(_Bracket(opener, closer, str(rule.name), at, closes))
-    return out
-
-
 def _strays(
-    grammar: IrAst, arms: list[_Bracket], standing: list[tuple[str, str]]
+    grammar: IrAst, arms: list[BracketArm], standing: list[tuple[str, str]]
 ) -> frozenset[str]:
     """The standing pairs' characters a scan-read site spells off their arms.
 
@@ -137,48 +116,17 @@ def _strays(
     return stray_spellings(grammar, watched, held)
 
 
-def _repeated_bodies(
-    items: tuple[IrItem, ...], rule_map: RuleTable
-) -> list[IrAlternation]:
-    """Every unbounded body reachable from these items, nesting included.
-
-    A repetition is often written inside another group — RFC json spells its
-    member list ``[ member *( value-separator member ) ]`` — so a walk that
-    reads only an arm's top-level items finds nothing that repeats.
-    """
-    out: list[IrAlternation] = []
-    for item in items:
-        atom = item.atom
-        body = None
-        if isinstance(atom, IrRuleRef):
-            target = rule_map.get(str(atom))
-            body = target.body if target is not None else None
-        elif isinstance(atom, IrAlternation):
-            body = atom
-        if body is not None and item.quantifier.unbounded():
-            out.append(body)
-        if isinstance(atom, IrAlternation):
-            for arm in atom:
-                out.extend(_repeated_bodies(tuple(arm), rule_map))
-    return out
-
-
 def separators(grammar: IrAst) -> frozenset[str]:
     """The characters that separate a repetition's items.
 
     Derived, never named: the single character every arm of a repeated body
     begins with is what stands between one item and the next.
     """
-    rule_map = rule_table(grammar)
-    spells = partial(literal_char, rule_map=rule_map)
-    found: set[str] = set()
-    for rule in grammar.rules:
-        for arm in rule.body:
-            for body in _repeated_bodies(tuple(arm), rule_map):
-                char = edge_char(body, 0, spells)
-                if char is not None:
-                    found.add(char)
-    return frozenset(found)
+    spells = partial(literal_char, rule_map=rule_table(grammar))
+    found = (
+        edge_char(r.body, 0, spells) for r in repeated_bodies(grammar, nested=True)
+    )
+    return frozenset(char for char in found if char is not None)
 
 
 class Vocab(NamedTuple):

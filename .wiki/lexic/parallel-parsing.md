@@ -245,6 +245,21 @@ read as `\n`, their END taken for their lead. A misread opener or closer could
 never stand, because the every-site rule finds the character at its true site
 inside the rule, which delimits nothing.
 
+## One site walk, read by each derivation its own way
+
+`roles.bracket_arms` and `roles.repeated_bodies` are the one walk over a
+grammar's arms that both pair-and-separator derivations read. Each reader
+brings its own filter.
+
+| | roles (scanner, planner, safety) | region scan (`regions`) |
+|---|---|---|
+| bracket reader | anchors (counted across the text) | literals (read outside skipped interiors) |
+| `enclosing` | yes: a pair serves owner exclusion, so a reference or group must stand between the delimiters | no: every bracket moves the depth it counts |
+| `nested` | no: a separator belongs to the arm's own repetition | yes: `[ member *( , member ) ]` |
+| lead | a SET of anchor marks, through rule chains | the ONE character every arm leads with |
+
+These are differences of role, each pinned by a witness, not twins.
+
 ## The region walk reads ONE spelling string
 
 `regions.py` classifies each structural character with a single `str.find` into

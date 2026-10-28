@@ -1,5 +1,11 @@
 # Log
 
+## One site walk for pairs and separators (2026-10-28)
+
+`parallel-parsing.md` records `roles.bracket_arms`/`repeated_bodies` as the one
+walk both derivations read, and each reader's filter (reader, `enclosing`,
+`nested`, lead).
+
 ## What an item spells (2026-10-28)
 
 `parallel-parsing.md` records when `literal_char`/`literal_text` read an item
