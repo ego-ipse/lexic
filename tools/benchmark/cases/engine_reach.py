@@ -54,7 +54,7 @@ The island's alphabet is ``a`` and ``b``, its continuation a newline, so
 own continuation and hands the sub-parse an exact width. One
 ``island_run``, no doubling, and the whole-parse fallback never runs.
 
-Pinned: ``island_parse`` 1, ``island_run`` 1, an exact ``policy.window``,
+Pinned: ``island_parse`` 1, one window (``island_run`` 1, no growth), an exact ``policy.window``,
 ``earley_model`` 0.
 
 One sub-parse at a proved width costs the same however long the island is, so
@@ -76,7 +76,8 @@ extending at the edge. The island still ANSWERS rather than falling back,
 because every proper prefix is followed by an ``a`` that the tail refuses, so
 exactly one end composes.
 
-Pinned: ``island_parse`` 1, ``earley_model`` 0, and ``island_run`` exactly
+Pinned: ``island_parse`` 1, ``earley_model`` 0, and windows (the one
+``island_run`` opens and each ``WindowKernel.grow``) exactly
 ``ceil(log2(remaining / ISLAND_WINDOW)) + 1``. The formula documents the
 relationship; it CANNOT catch a change to ``ISLAND_WINDOW`` itself, because a
 wider window makes the row climb less and the formula obligingly computes the
@@ -90,9 +91,9 @@ document stops witnessing the moment the initial window widens. This sample
 climbs five times as shipped and four if that window doubles, so the loop is
 still exercised after a change to the constant rather than only before it.
 
-A climb re-parses its characters at every width, so this is the roster's most
-expensive row per character — more so than either row beside it. That cost IS
-the price of the witness: a document that climbs must be re-scanned to climb.
+A climb grows one chart (`resume.WindowKernel`), so each width scans only the
+characters it adds: the row costs about what `interior-exact` does, plus a
+growth step per width. What the pair still prices is the climb's own overhead.
 
 **This row and `interior-exact` differ in exactly one property: whether the
 island's alphabet contains its continuation's first character.** That is what

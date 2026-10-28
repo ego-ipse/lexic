@@ -1,5 +1,10 @@
 # Log
 
+## An island climbs on one chart (2026-10-28)
+
+`decisions.md` records why an island's window grows on one chart instead of
+re-parsing each width, and why that equals a fresh window of the final width.
+
 ## A cyclic grammar's fast build takes only families that complete (2026-10-28)
 
 `decisions.md`'s fast-build cycle entry now records the completeness test below

@@ -303,8 +303,7 @@ class IslandContinuations:
         the cursor: the island would have to consume that character to get
         there, and it cannot. So the extent is bounded by that position, the
         window is exactly that wide, and ONE sub-parse at that width settles
-        the island — no 256-character floor, no doubling, no re-parse of the
-        same characters at five widths.
+        the island — no 256-character floor and no growth step per doubling.
 
         This does not weaken the two-ends refusal. A completion end BEFORE the
         bound is exactly the case that refusal already handles, and it is

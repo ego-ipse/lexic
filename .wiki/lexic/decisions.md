@@ -341,7 +341,62 @@ followable end and still delegates.
 **Cost:** vyx loses `nl-escape` and `nl-force` as delegates in each of its 25
 islands. No other bench or ground-truth grammar loses one.
 
+## 2026-10-28 — An island climbs on one chart
+
+**Decision:** an island whose width no continuation proves climbs by growing one
+chart, `resume.WindowKernel`, rather than re-parsing the same characters at every
+width. The window opens at `ISLAND_WINDOW` and doubles while the chart reaches
+past its stop. Each width drives only the columns it adds.
+
+**Why:** the climb re-parsed its prefix at every width. On interior-climb that
+was 6,242 characters scanned per parse against the 2,404 the island holds, and
+the four discarded windows were a quarter of the PDA seat's parse, which lost to
+the Earley seat it islands into.
+
+**Why growing equals re-parsing:** a window's chart is exactly the one a wider
+window builds over the same columns, so a growth is a continuation, not a
+repair.
+
+- **No rollback, so the families stay.** `ResumableKernel.extend` refuses SPPF
+  families because a rollback cannot truncate them. A window only grows, so
+  nothing is ever truncated, and every family recorded stays true of the wider
+  window.
+- **The stop column is closed as an interior one.** Its seeds are gated on the
+  document's next character, not on the empty slice of an input end, so the
+  column the next width scans from is already the one a wider window closes.
+  There is nothing to re-open.
+- **A scan near the stop reads past it.** The window's text carries the longest
+  literal's reach beyond the stop, so no literal is cut short there.
+- **A delegate reads the document.** Its sub-run decides its own extent whatever
+  the width, and its completion is filed where it lands, past the stop too.
+- **What lands past the stop is held aside** while the window stands, so between
+  widths every reader sees a parse of the window's text: the text ends at the
+  stop, and no column past it is in sight.
+- **No run terminal can occur.** A run's maximal munch depends on input past any
+  stop, but island tables are compiled plain (`PdaTables._island_miss` →
+  `compile_tables`; only the tree route collapses runs). The window refuses
+  run-collapsed tables loudly rather than handle a case that cannot arise.
+
+**When it grows:** the chart reaches past the stop when something landed beyond
+it, or an item at the stop faces a terminal the next character starts. That is
+exact where the edge-zone test below was conservative: it read a zone of columns
+short of an input end, because a cut literal filed nothing. Some islands stop a
+width sooner.
+
+**What moved:** over the parsing, parity, token and adversarial suites, 10,559
+island parses answer the same end and value. Four carry a delegated leaf where
+the re-run walked the chart: a delegate that needed lookahead past its window
+declined there and now reads it.
+
+**Pinned:** every climb the suites drive, regrown width by width, equals a window
+opened at its final width — columns, families and delegated completions, in
+order (`test_island_windows`), with a delegate whose word lands past the first
+stop. Every roster island's tables are plain.
+
 ## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
+
+**Superseded** by the entry above: the window grows on one chart and reads
+liveness past its stop, so `_may_extend` and the edge zone are gone.
 
 **Decision:** `island_parse` grows its doubling window iff the windowed chart
 has an item filed in the edge zone — the last `max(terms.lens)` columns

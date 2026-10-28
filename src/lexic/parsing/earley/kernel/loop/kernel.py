@@ -52,6 +52,19 @@ means the delegate declined, so the predictor falls through to normal
 prediction (the fail-soft safety net). See :meth:`Kernel._seed`."""
 
 
+def _check_capacity(tables: ParserTables, columns: int) -> None:
+    """Refuse a parse wider than the packed column capacity.
+
+    :raises UnsupportedConstructError: When ``columns`` reaches
+        ``tables.packing.advance``.
+    """
+    if columns >= tables.packing.advance:
+        raise UnsupportedConstructError(
+            f"parsing: input of {columns} chars exceeds the packed "
+            f"column capacity ({tables.packing.advance - 1})"
+        )
+
+
 class Kernel(IrLeaf[IrSelf, IrSelf]):
     """One Earley parse over compiled tables — chart, SPPF and driver in one.
 
@@ -115,11 +128,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :raises UnsupportedConstructError: If ``text`` exceeds the packed
             column capacity (``tables.packing.advance - 1`` chars).
         """
-        if len(text) >= tables.packing.advance:
-            raise UnsupportedConstructError(
-                f"parsing: input of {len(text)} chars exceeds the packed "
-                f"column capacity ({tables.packing.advance - 1})"
-            )
+        _check_capacity(tables, len(text))
         self.tables = tables
         self.text = text
         self.record_links = record_links
@@ -127,6 +136,34 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.st = KernelState(len(text) + 1)
         self.delegates = delegates or {}
         self.delegated = {}
+
+    # ── the columns ───────────────────────────────────────────────────
+
+    def open_columns(self, end: int) -> None:
+        """Every per-column lane, :attr:`cols` included, open to column ``end``.
+
+        :raises UnsupportedConstructError: When ``end`` is past the packed
+            column capacity.
+        """
+        _check_capacity(self.tables, end)
+        cols = self.cols
+        cols.extend([[] for _ in range(len(cols), end + 1)])
+        self.st.open_to(end)
+
+    def cut_columns(self, keep: int) -> tuple[list[list[int]], list[list]]:
+        """Every per-column lane, :attr:`cols` included, cut back to its first
+        ``keep`` columns.
+
+        :returns: What was cut, for :meth:`restore_columns`.
+        """
+        held = self.cols[keep:]
+        del self.cols[keep:]
+        return held, self.st.cut(keep)
+
+    def restore_columns(self, held: tuple[list[list[int]], list[list]]) -> None:
+        """Put back what :meth:`cut_columns` took."""
+        self.cols.extend(held[0])
+        self.st.restore(held[1])
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -137,8 +174,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         reader: native lookups, no wrapper, no marker check. A chart that
         factored gets a :class:`FamilyTable` that resolves promoted keys. The
         choice holds for the reader's lifetime because only recognition
-        promotes — Leo expansion appends to buckets but never promotes, and
-        ``ResumableKernel.extend`` refuses under ``record_links``.
+        promotes — Leo expansion appends to buckets but never promotes,
+        ``ResumableKernel.extend`` refuses under ``record_links``, and a growing
+        ``WindowKernel`` is read for families only once it has stopped growing.
         """
         return FamilyTable(self) if self.st.groups else self.st.links
 

@@ -8,6 +8,8 @@ the kernel, so ``kernel``, ``leo`` and ``readout`` all sit above it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 
@@ -30,6 +32,29 @@ element type, and negative so it cannot collide: a predecessor item, an origin
 column and a child handle are all packed non-negative ints, so no producer can
 file this triple. Compared by IDENTITY against this one module-level object,
 never by value."""
+
+
+def _sets(count: int) -> list[set]:
+    """``count`` empty sets — a set-valued lane's fresh columns."""
+    return [set() for _ in range(count)]
+
+
+def _maps(count: int) -> list[dict]:
+    """``count`` empty dicts — a map-valued lane's fresh columns (a literal,
+    which builds faster than calling ``dict``)."""
+    return [{} for _ in range(count)]
+
+
+COLUMN_LANES: tuple[tuple[str, Callable[[int], list]], ...] = (
+    ("seen", _sets),
+    ("waiting", _maps),
+    ("scannable", _maps),
+    ("predicted", _sets),
+    ("leo", _maps),
+)
+"""The per-parse lanes indexed by column, and what each column starts as —
+spelled once, so opening, cutting and restoring a span of columns cannot leave
+one lane behind and misalign the rest."""
 
 
 class KernelState(IrLeaf[IrSelf, IrSelf]):
@@ -101,14 +126,34 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
-        self.seen = [set() for _ in range(columns)]
-        self.waiting = [{} for _ in range(columns)]
-        self.scannable = [{} for _ in range(columns)]
-        self.predicted = [set() for _ in range(columns)]
-        self.leo = [{} for _ in range(columns)]
+        for name, make in COLUMN_LANES:
+            setattr(self, name, make(columns))
         self.links = {}
         self.leo_links = {}
         self.groups = {}
+
+    def open_to(self, end: int) -> None:
+        """Every per-column lane long enough to index column ``end``."""
+        for name, make in COLUMN_LANES:
+            lane = getattr(self, name)
+            lane.extend(make(end + 1 - len(lane)))
+
+    def cut(self, keep: int) -> list[list]:
+        """Every per-column lane cut back to its first ``keep`` columns.
+
+        :returns: What was cut, lane by lane, for :meth:`restore`.
+        """
+        held = []
+        for name, _make in COLUMN_LANES:
+            lane = getattr(self, name)
+            held.append(lane[keep:])
+            del lane[keep:]
+        return held
+
+    def restore(self, held: list[list]) -> None:
+        """Put back what :meth:`cut` took, lane by lane."""
+        for (name, _make), part in zip(COLUMN_LANES, held):
+            getattr(self, name).extend(part)
 
     def file_item(self, i: int, item: int, s: int) -> None:
         """File a just-inserted item under the symbol its dot faces.

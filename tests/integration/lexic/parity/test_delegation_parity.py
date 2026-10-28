@@ -42,6 +42,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.resume import WindowKernel
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
@@ -266,17 +267,18 @@ def test_a_lookahead_decided_delegate_still_fires(
     )
     cg = compile_text(source, cache_key="delegation-lookahead")
     product = prod(cg)
-    injected: list[object] = []
+    kernels: list[WindowKernel] = []
     real = islands.island_run
 
-    def watched(tables: ParserTables, window: str, delegates=None):
-        kern, best = real(tables, window, delegates)
-        injected.extend(kern.delegated.values())
-        return kern, best
+    def watched(tables: ParserTables, text: str, pos: int, width: int, delegates=None):
+        kern = real(tables, text, pos, width, delegates)
+        kernels.append(kern)
+        return kern
 
     monkeypatch.setattr(islands, "island_run", watched)
     text = "abxxandacyyorabx"
     got = cg.parse(text).dump()
+    injected = [leaf for kern in kernels for leaf in kern.delegated.values()]
     assert injected, "the lookahead-decided rule no longer delegates"
     want = earley_model(product.instance_grammar, text, cg.product, product.tables)
     assert got == want.dump()

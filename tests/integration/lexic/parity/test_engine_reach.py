@@ -36,6 +36,7 @@ import lexic.parsing.pda.runtime.matchers as matchers_mod
 import lexic.parsing.products as products_mod
 from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.resume import WindowKernel
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
 from lexic.parsing.products import model_product
@@ -57,6 +58,7 @@ def reach_counts(monkeypatch) -> Counter[str]:
     counts: Counter[str] = Counter()
     real_parse = execution_mod.island_parse
     real_run = islands_mod.island_run
+    real_grow = vars(WindowKernel)["grow"]
     real_earley = products_mod.earley_model
     real_delegated = vars(Kernel)["_complete_delegated"]
 
@@ -65,10 +67,14 @@ def reach_counts(monkeypatch) -> Counter[str]:
         counts["exact"] += policy.window is not None
         return real_parse(tables, text, pos, name, policy)
 
-    def island_run(tables, window, delegates=None):
+    def island_run(tables, text, pos, width, delegates=None):
         counts["runs"] += 1
         counts["delegates"] = max(counts["delegates"], len(delegates or {}))
-        return real_run(tables, window, delegates)
+        return real_run(tables, text, pos, width, delegates)
+
+    def grow(self, stop):
+        counts["runs"] += 1  # a window, on the chart the last one left
+        return real_grow(self, stop)
 
     def earley_model(*args, **kwargs):
         counts["earley"] += 1
@@ -80,6 +86,7 @@ def reach_counts(monkeypatch) -> Counter[str]:
 
     monkeypatch.setattr(execution_mod, "island_parse", island_parse)
     monkeypatch.setattr(islands_mod, "island_run", island_run)
+    monkeypatch.setattr(WindowKernel, "grow", grow)
     monkeypatch.setattr(products_mod, "earley_model", earley_model)
     monkeypatch.setattr(Kernel, "_complete_delegated", complete_delegated)
     return counts
