@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
+from lexic.parsing import products
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
@@ -169,3 +170,21 @@ def test_a_capture_free_fold_is_the_models_earley_builds(text: str) -> None:
     """
     pda, earley = pda_and_earley('root ::= root "a" | "a"\n', text, "fold-count-parse")
     assert pda == earley
+
+
+def test_a_workers_copy_of_a_several_armed_fold_parses_alike() -> None:
+    """A split's worker parses on its own private copy of the tables, and the
+    step group's construction is copied with them: the copy builds the model
+    the original does. A construction the copy cannot see inside refuses."""
+    source, text = SEVERAL_ARMS["a capture beside a bare literal"]
+    compiled = compile_text(source, cache_key="fold-arms-replica")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    binding = compiled.product
+    replica = binding.replica()
+    copy = binding.copied(product.pda, replica)
+
+    got = products.pda_model(copy, text, replica.executor)
+    want = products.pda_model(product.pda, text, binding.executor)
+
+    assert copy is not product.pda
+    assert got.dump() == want.dump()

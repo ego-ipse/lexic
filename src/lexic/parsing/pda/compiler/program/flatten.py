@@ -395,25 +395,30 @@ class FoldIteration[Carry](NamedTuple):
     sinks: list[list[Carry] | None] | None
 
 
-def fold_iteration[Carry](
-    steps: Mapping[FlatArm, FoldStep[Carry]],
-    arm: FlatArm,
-    sinks: list[list[Carry] | None] | None,
-) -> FoldIteration[Carry]:
-    """The iteration a completed fold step-group frame stands for.
+class FoldArms[Carry](NamedTuple):
+    """The construction a several-armed fold's step group completes with.
 
     A fold over several recursive arms parses ``(γ)(β1 | β2 …)*``; the step
     group is that alternation, and the frame running it holds the arm the next
-    character chose. Bound to its ``steps`` (each group arm → its recursive
-    arm's build) as the step group's construction, it reports that arm's build
-    and the frame's own captures into the folding frame's step sink, so the fold
-    builds each iteration through the arm that matched it.
+    character chose. Called with that arm and the frame's own captures, it
+    reports the arm's build and those captures as one :class:`FoldIteration`
+    into the folding frame's step sink, so the fold builds each iteration
+    through the arm that matched it.
 
-    :param steps: Each step-group arm → its recursive arm's build.
-    :param arm: The arm the completed frame ran.
-    :param sinks: The frame's per-item values.
+    A record rather than a bound function: a worker's private table copy
+    rebuilds records and their mappings field by field, and refuses a
+    ``functools.partial``, which it cannot see inside.
+
+    :ivar steps: Each step-group arm → its recursive arm's build.
     """
-    return FoldIteration(steps[arm], sinks)
+
+    steps: Mapping[FlatArm, FoldStep[Carry]]
+
+    def __call__(
+        self, arm: FlatArm, sinks: list[list[Carry] | None] | None
+    ) -> FoldIteration[Carry]:
+        """The iteration a completed step-group frame stands for."""
+        return FoldIteration(self.steps[arm], sinks)
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────

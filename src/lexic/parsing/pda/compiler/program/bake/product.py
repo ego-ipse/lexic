@@ -39,7 +39,6 @@ may be absent, and what an omitted field falls back to all come off the record.
 
 from __future__ import annotations
 
-from functools import partial
 from typing import Mapping
 
 from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
@@ -50,9 +49,9 @@ from lexic.parsing.pda.compiler.program.bake.lowering import (
 )
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
+    FoldArms,
     clear_build,
     clone_arms,
-    fold_iteration,
     no_construction,
     no_fast_construction,
 )
@@ -227,7 +226,7 @@ def _bake_fold_arms[Carry](clone: FlatClone[Carry], fold: FoldBuild[Carry]) -> N
     item is the step group. Baked :data:`BUILD_FOLD` it collects its own captures
     instead of passing them through, and completes as the
     :class:`~lexic.parsing.pda.compiler.program.flatten.FoldIteration` of the arm
-    it ran (:func:`~lexic.parsing.pda.compiler.program.flatten.fold_iteration`).
+    it ran (:class:`~lexic.parsing.pda.compiler.program.flatten.FoldArms`).
     ``n_items`` ``-1`` is what the fold's completion tells a step group by; the
     folded clone's own is ``0``, its iterations being records rather than a
     flat run of values.
@@ -253,7 +252,7 @@ def _bake_fold_arms[Carry](clone: FlatClone[Carry], fold: FoldBuild[Carry]) -> N
             )
         steps = {flat: step for (_, _, flat), step in zip(group.selectors, fold.arms)}
         group.mode = BUILD_FOLD
-        group.ctor = partial(fold_iteration, steps)
+        group.ctor = FoldArms(steps)
         group.n_items = -1
 
 

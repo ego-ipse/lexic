@@ -353,7 +353,9 @@ arms: two βs whose FIRST sets meet put their alphabets into the pieces' EXTEND
 iteration of the step group runs one of its arms. The step group is baked
 `BUILD_FOLD` with `n_items` −1 (`bake.product._bake_fold_arms`), so it keeps its
 own captures and completes as a `flatten.FoldIteration`: that arm's build and its
-per-item values, through `partial(fold_iteration, {arm: FoldStep})`. The folded
+per-item values, through `flatten.FoldArms`, a record mapping each arm to its
+`FoldStep` (a worker's private table copy rebuilds a record; a `partial` it
+refuses). The folded
 clone (`n_items` 0) folds those records left-nested (`execution._folded_arms`).
 A flat sink could not say which arm an iteration took — two arms can capture the
 same number of values of the same kinds — so the record carries it.
