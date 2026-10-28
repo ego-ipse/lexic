@@ -22,6 +22,7 @@ those keep the existing selection and stay the ambiguity check's business.
 
 from __future__ import annotations
 
+from collections.abc import Container
 from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.parsing.earley.kernel.tables.decider import (
@@ -55,6 +56,21 @@ class ChainSpec(NamedTuple):
     code_arm: tuple[int, ...]
     arm_base: tuple[int, ...]
     code_droppable: tuple[bool, ...]
+
+
+class Steering(dict[int, int]):
+    """Pins — key → the family to take there, each consumed at its first use —
+    and the handles a chain must not lead into while another family remains:
+    a tracked fast build's handles still being built."""
+
+    __slots__ = ("avoid",)
+
+    def __init__(self, pins: dict[int, int], avoid: Container[int]) -> None:
+        """:param pins: The pins.
+        :param avoid: The handles still being built.
+        """
+        super().__init__(pins)
+        self.avoid = avoid
 
 
 _Level = dict[int, list[tuple[int, int, "KLink"]]]
@@ -301,7 +317,16 @@ def _edges_at(
     spec: ChainSpec,
     choices: dict[int, int],
 ) -> list[tuple[int, int, KLink]] | None:
-    """One key's outgoing edges, or ``None`` when it is missing or dead."""
+    """One key's outgoing edges, or ``None`` when it is missing or dead.
+
+    Under :class:`Steering`, a family whose child is in its ``avoid`` is
+    dropped while another remains. The
+    caller avoids the handles it is still building: such a child is the handle's
+    own ancestor over the same span, so the family closes a cycle and no
+    derivation through it completes in that build. Dropping it leaves the
+    decider ranking exactly the families that can complete — on every other
+    key nothing is dropped and its choice is the one it always was.
+    """
     bucket = links.get(key)
     if bucket is None:
         return None
@@ -313,6 +338,9 @@ def _edges_at(
         ((link[0] << spec.bits) | link[1], index, link)
         for index, link in _candidates(bucket, choices.pop(key, None))
     ]
+    if isinstance(choices, Steering) and choices.avoid:
+        kept = [e for e in edges if not _closes(e[2][2], choices.avoid)]
+        edges = kept or edges
     return edges or None
 
 
@@ -343,6 +371,11 @@ def _candidates(bucket: list[KLink], pinned: int | None) -> list[tuple[int, KLin
     if pinned is not None:
         return [(pinned, bucket[pinned])]
     return list(enumerate(bucket))
+
+
+def _closes(child: object, avoid: Container[int]) -> bool:
+    """Whether a family's child is one of the handles a build is still building."""
+    return isinstance(child, int) and not isinstance(child, bool) and child in avoid
 
 
 def _is_handle(child: object) -> bool:

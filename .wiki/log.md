@@ -1,5 +1,10 @@
 # Log
 
+## The fast build stops at a cycle and builds only complete derivations (2026-10-28)
+
+`decisions.md` records the untracked try and its tracked rebuild, the avoid
+set and the explicit refusal, with why every tree they build is complete.
+
 ## One Earley fill; the island's span is a readout (2026-10-27)
 
 `decisions.md` records `Kernel.run` skipping empty columns as the one fill, and

@@ -1909,3 +1909,51 @@ start completions as it went. The read belongs to the readout seam. The skip
 belongs in `run` too. Every item a column will ever hold arrives from an
 earlier column's scan, so a column that is empty at its turn stays empty. On
 run-collapsed tables most columns of a long run are such columns.
+
+## The fast build stops at a cycle and builds only complete derivations
+
+**Decision:** a resolving `FastTree.build` first runs untracked, exactly as
+before, stepping in rounds. A cycle shows itself as a handle waiting on its
+kids twice in the stack once a round runs out. When that happens the build
+starts again with the same pins, tracking each handle whose kids are still
+being built.
+
+- **Avoid the cycle.** The chain reader (`splits._edges_at`, through a
+  `Steering` pins map) drops a family whose child is still being built,
+  wherever another family remains at that key.
+- **Refuse where it cannot.** Where every family leads back into a handle
+  still being built, the build raises the "cannot be compared" refusal,
+  resolver or not.
+
+Bail-mode builds never track. A cycle's keys cannot all hold one family,
+because a completed item has a finite derivation, so some key on the cycle
+offers another, and bail mode declines at the first key that holds two.
+
+**Why every tree is complete:**
+
+- The build emits a node only from that node's full predecessor chain, so its
+  children tile its span. The untracked try either finishes, every node
+  assembled that way, or is caught and built again.
+- Avoidance drops only families whose child is the handle's own ancestor over
+  the same span. Such a family closes a cycle, so no derivation through it
+  completes in a build that memoises by handle. The decider ranks the
+  remaining families exactly as it ranks any bucket, so the choice is the
+  decider's own among the families that can complete. On a key no open
+  handle reaches, nothing is dropped.
+- Nothing is put in a refused key's place. The build never reads the
+  derivation stream, whose cycle cut emits a truncated node (TODO 20″).
+
+**A pin's one-lap unroll is not kept as a separate rule.** The untracked try
+already takes it, as main always did. No witness was found where a tracked
+rebuild needs it, so there it is refused like any other inescapable
+re-entry.
+
+**Limit:** the avoidance is local. A key can dead-end where a complete
+derivation exists through a different choice higher up, for example
+`e ::= f | g` / `f ::= e` / `g ::= e | ""` over an empty span, where `e`
+takes `f`. That span refuses explicitly. Main hung on it, and the first
+version of this guard folded the stream's cut into `Root(F(None))`.
+
+**Cost:** the untracked try is the old loop in rounds. Per-parse calls are
+unchanged, and time inside the build is within run-to-run noise on the Earley
+and island seats.
