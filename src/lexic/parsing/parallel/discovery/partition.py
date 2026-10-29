@@ -20,13 +20,11 @@ from typing import NamedTuple, Protocol
 from lexic.parsing.parallel.policy import clears_floor
 
 
-class Span(Protocol):
-    """A divisible span: an opener and a closer around separated items.
+class Bracketed(Protocol):
+    """Where a span stands: the two characters bracketing it.
 
     :ivar opener: Offset of the character opening it.
     :ivar closer: Offset of the character closing it.
-    :ivar marks: Offsets of the separators directly inside it.
-    :ivar ends: Whether those marks END items rather than lead them.
     """
 
     @property
@@ -38,6 +36,14 @@ class Span(Protocol):
     def closer(self) -> int:
         """Offset of the character closing it."""
         raise NotImplementedError
+
+
+class Span(Bracketed, Protocol):
+    """A divisible span: an opener and a closer around separated items.
+
+    :ivar marks: Offsets of the separators directly inside it.
+    :ivar ends: Whether those marks END items rather than lead them.
+    """
 
     @property
     def marks(self) -> tuple[int, ...]:
@@ -76,14 +82,14 @@ class Division[S: Span](NamedTuple):
         ]
 
 
-class _Nest[S: Span](NamedTuple):
+class _Nest[S: Bracketed](NamedTuple):
     """Each region's direct children, and the regions no other region holds."""
 
     children: dict[S, list[S]]
     top: list[S]
 
 
-def _nest[S: Span](found: list[S]) -> _Nest[S]:
+def _nest[S: Bracketed](found: list[S]) -> _Nest[S]:
     """Nesting by one ordered pass: brackets nest, so a region's parent is the
     innermost earlier region still open at its opener."""
     children: dict[S, list[S]] = {}
@@ -241,7 +247,7 @@ def _first(test: Callable[[int], bool], lo: int, hi: int) -> int:
     return lo
 
 
-def render[S: Span](
+def render[S: Bracketed](
     text: str, window: tuple[int, int], regions: list[S], keep: list[str]
 ) -> str:
     """``text`` over ``window`` with each region's interior replaced.
