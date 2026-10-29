@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.roles`` — derived anchor roles.
+"""Tests for ``lexic.parsing.parallel.roles.derive`` — derived anchor roles.
 
 The demonstrable shapes: a bracketing arm derives an opener/closer pair
 (trailing noise after the closer allowed), and a repeated body's leading
@@ -14,13 +14,8 @@ from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles import (
-    Terminator,
-    agreed_tail,
-    holds_run,
-    repeated_bodies,
-    standing_pairs,
-)
+from lexic.parsing.parallel.roles.derive import Terminator, agreed_tail, standing_pairs
+from lexic.parsing.parallel.roles.runs import repeated_bodies
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 
@@ -335,38 +330,3 @@ def test_roles_reads_only_an_arms_own_repetition():
     assert [r.item for r in repeated_bodies(authored, nested=True)] == [""]
     assert not repeated_bodies(authored, nested=False)
     assert roles(authored).records == ()
-
-
-def _sole_arm(source: str, rule: str):
-    grammar = compile_text(source, cache_key=f"holds-run-{hash(source)}").grammar
-    rules = {str(r.name): r for r in grammar.rules}
-    return tuple(rules[rule].body[0]), rules
-
-
-def test_an_arm_holds_a_run_where_a_tail_returns_to_its_head() -> None:
-    """``"[" e ("," e)* "]"`` holds the list's run, inline or through a rule."""
-    arm, rules = _sole_arm('root ::= "[" e ("," e)* "]"\ne ::= [0-9]+\n', "root")
-    assert holds_run(arm, rules)
-    arm, rules = _sole_arm(
-        'root ::= "[" e more* "]"\nmore ::= "," e\ne ::= [0-9]+\n', "root"
-    )
-    assert holds_run(arm, rules)
-
-
-def test_unbounded_noise_holds_no_run() -> None:
-    """``[ ]*`` repeats, but returns to no head: the arm's run is ``list``'s."""
-    source = (
-        'root ::= "(" [ ]* list [ ]* ")"\nlist ::= item ("," item)*\nitem ::= [a-z]+\n'
-    )
-    arm, rules = _sole_arm(source, "root")
-    assert not holds_run(arm, rules)
-    assert holds_run(*_sole_arm(source, "list"))
-
-
-def test_a_literal_tail_named_like_a_rule_holds_no_run() -> None:
-    """``"y"*`` is a literal, not the rule ``y``: read as the rule, its one arm
-    ``"," y`` would return to the head ``y`` and fake a run."""
-    source = 'root ::= "(" y "y"* ")"\ny ::= "," y | "z"\nw ::= "," y\n'
-    arm, rules = _sole_arm(source, "root")
-    rules = {**rules, "y": rules["w"]}  # y read as ITS one arm, as the old reader did
-    assert not holds_run(arm, rules)

@@ -29,7 +29,8 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
     rule_table,
 )
-from lexic.parsing.parallel.roles import Separator, holds_run, roles
+from lexic.parsing.parallel.roles.derive import Separator, roles
+from lexic.parsing.parallel.roles.runs import holds_run
 from lexic.parsing.pda.analysis.predicates import atom_alphabet, rule_alphabets
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
@@ -153,7 +154,7 @@ def _leads(
     container: str,
 ) -> frozenset[str]:
     """What a tail's lead separates by: the one literal it spells, else the
-    one-character records :func:`~lexic.parsing.parallel.roles.roles` keeps for
+    one-character records :func:`~lexic.parsing.parallel.roles.derive.roles` keeps for
     the run's container — a SET (``addop ::= "+" | "-"``). Empty when neither."""
     char = literal_char(tail_arm[0], rules)
     if char is not None:

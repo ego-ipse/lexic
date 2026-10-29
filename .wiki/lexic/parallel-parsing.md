@@ -257,7 +257,7 @@ inside the rule, which delimits nothing.
 
 ## One site walk, read by each derivation its own way
 
-`roles.bracket_arms` and `roles.repeated_bodies` are the one walk over a
+`roles.runs.bracket_arms` and `roles.runs.repeated_bodies` are the one walk over a
 grammar's arms that both pair-and-separator derivations read. Each reader
 brings its own filter.
 
@@ -266,14 +266,14 @@ brings its own filter.
 | bracket reader | anchors (counted across the text) | literals (read outside skipped interiors) |
 | `enclosing` | yes: a pair serves owner exclusion, so a reference or group must stand between the delimiters | no: every bracket moves the depth it counts |
 | `nested` | no: a separator belongs to the arm's own repetition | yes: `[ member *( , member ) ]` |
-| lead | a SET of anchor marks, through rule chains | the run's own lead SET (`roles.run_leads`, kept per region by `regions.own_marks`); one character only where the run is separated by a single literal |
+| lead | a SET of anchor marks, through rule chains | the run's own lead SET (`roles.derive.run_leads`, kept per region by `regions.own_marks`); one character only where the run is separated by a single literal |
 
 These are differences of role, each pinned by a witness, not twins.
 
-`roles.holds_run` reads a run's tail as a rule only when the tail IS a rule
+`roles.runs.holds_run` reads a run's tail as a rule only when the tail IS a rule
 reference: a literal spelled like a rule (`"y"*` beside a rule `y`) holds no
 run, where reading it as the rule would let that rule's arm fake one
-(`test_roles.py::test_a_literal_tail_named_like_a_rule_holds_no_run`).
+(`roles/test_runs.py::test_a_literal_tail_named_like_a_rule_holds_no_run`).
 
 ## The region walk reads ONE spelling string
 
@@ -309,7 +309,7 @@ and a window's underflowed closer carries only its own character.
 
 **A region's run may be separated by a SET of leads.** `"(" expr ")"` over
 `expr ::= term (addop term)*` with `addop ::= "+" | "-"` has no one separator:
-whichever lead stands between two terms is the boundary. `roles.run_leads` reads,
+whichever lead stands between two terms is the boundary. `roles.derive.run_leads` reads,
 per standing pair, `roles`' one-character separator records for the rule
 holding the bracket's OWN repetition: the bracket rule where its arm repeats
 something itself (`"[" e ("," e)* "]"`), else a reference between the

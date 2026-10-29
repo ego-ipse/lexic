@@ -34,7 +34,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
     rule_table,
 )
-from lexic.parsing.parallel.roles import Roles, roles
+from lexic.parsing.parallel.roles.derive import Roles, roles
 
 
 def spelling_offsets(text: str, spelling: str, lo: int, hi: int) -> list[int]:
@@ -223,7 +223,7 @@ class Delimiting(NamedTuple):
 def delimiting(grammar: IrAst, region_scan: bool) -> Delimiting:
     """The spans one scan owns: the region scan counts every derived bracket
     pair and skips the certified interiors; the windowed scan counts only the
-    pairs :func:`~lexic.parsing.parallel.roles.roles` tracks."""
+    pairs :func:`~lexic.parsing.parallel.roles.derive.roles` tracks."""
     tracked = None if region_scan else set(roles(grammar).pairs)
     pairs = frozenset(
         (opener, closer, rule)
@@ -245,7 +245,7 @@ def read_outside(
     A literal is walked character by character, so a merged ``"),("`` shows its
     comma. No quantified literal spells a delimiter — a pair stands only while
     every read site spelling it delimits
-    (:func:`~lexic.parsing.parallel.roles.standing_pairs`) — but an item at
+    (:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`) — but an item at
     depth 0 that may emit one leaves the depth unknown, and then the whole arm
     is read. A reference inside a span keeps its brackets to a nested region,
     as the scan reads them. With ``joined`` the delimiters bordering a read

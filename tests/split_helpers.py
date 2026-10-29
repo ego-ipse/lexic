@@ -138,7 +138,7 @@ TWO_ROLE_PAIRS = (
 """``|`` closes ``angle`` and opens ``bar``: one character in two pair roles.
 A depth count would net it to zero and read a ``bar``'s own commas as top-level
 marks, and a walk can read it only one way, so neither pair stands
-(:func:`~lexic.parsing.parallel.roles.standing_pairs`). One copy: the scan, the
+(:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`). One copy: the scan, the
 region walk and the split read the same shape."""
 
 

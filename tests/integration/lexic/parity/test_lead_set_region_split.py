@@ -19,7 +19,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.parallel.discovery.regions import find, pair_rules
-from lexic.parsing.parallel.roles import run_leads
+from lexic.parsing.parallel.roles.derive import run_leads
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import (
     PAREN_SUM,

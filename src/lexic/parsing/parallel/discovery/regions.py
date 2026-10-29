@@ -42,13 +42,8 @@ from lexic.parsing.parallel.discovery.shapes import (
 )
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.roles import (
-    BracketArm,
-    bracket_arms,
-    repeated_bodies,
-    run_leads,
-    standing_pairs,
-)
+from lexic.parsing.parallel.roles.derive import run_leads, standing_pairs
+from lexic.parsing.parallel.roles.runs import BracketArm, bracket_arms, repeated_bodies
 
 
 class Region(NamedTuple):
@@ -81,7 +76,7 @@ def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
     A piece of a region parses under the rule whose arm spells that pair, so
     the split needs the RULE, not just the characters. A pair stands only
     while every site the scan reads spelling either character is a delimiter
-    of a standing arm (:func:`~lexic.parsing.parallel.roles.standing_pairs`).
+    of a standing arm (:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`).
     """
     entry = _PAIRS.get(id(grammar))
     if entry is None:
@@ -153,7 +148,7 @@ class Vocab(NamedTuple):
         pairs may share one closer (``"(" … ")"`` and ``"[" … ")"``).
     :ivar marks: The separator characters.
     :ivar leads: opener → the marks its own run separates by: its lead set
-        (:func:`~...roles.run_leads`), else the one-literal separators, which
+        (:func:`~...roles.derive.run_leads`), else the one-literal separators, which
         are every mark a pair without a lead set ever had (:func:`own_marks`).
     :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
         pays one dict miss. A single-character fast path beside it was built
@@ -187,7 +182,7 @@ class Roles(NamedTuple):
 
     **No character holds two roles**, so a character is spelled once and its
     one position is its role: the openers key one table and the closers
-    another, :func:`~lexic.parsing.parallel.roles.standing_pairs` drops a pair
+    another, :func:`~lexic.parsing.parallel.roles.derive.standing_pairs` drops a pair
     whose character also delimits another in the other role, the marks
     exclude every pair character (:func:`scan_vocabulary`), and a skip's lead
     is never a watched character. The sections are laid out skips, openers,

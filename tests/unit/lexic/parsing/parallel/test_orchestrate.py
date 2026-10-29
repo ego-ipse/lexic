@@ -32,7 +32,7 @@ from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.planner import certified_plan, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
-from lexic.parsing.parallel.roles import roles
+from lexic.parsing.parallel.roles.derive import roles
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (

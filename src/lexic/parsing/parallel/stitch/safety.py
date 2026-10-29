@@ -51,7 +51,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     rule_table,
     sole_char,
 )
-from lexic.parsing.parallel.roles import roles
+from lexic.parsing.parallel.roles.derive import roles
 from lexic.parsing.pda.core.charsets import CharSet
 
 

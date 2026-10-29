@@ -24,7 +24,7 @@ from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
 from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, spellings
-from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
+from lexic.parsing.parallel.roles.derive import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.safety import (
     bounds_units,
     mark_interiors,

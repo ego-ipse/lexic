@@ -32,7 +32,7 @@ from lexic.parsing.parallel.policy import (
     worker_count,
 )
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.roles import Roles, Terminator, roles
+from lexic.parsing.parallel.roles.derive import Roles, Terminator, roles
 
 
 def reads_a_sweep(plan: SplitPlan) -> bool:

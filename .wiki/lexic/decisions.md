@@ -1802,7 +1802,7 @@ of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
 **Decision:** both scans derive an opener/closer pair only when every site
 spelling either character is a delimiter of a standing pair's arm, and a fallen
 pair's delimiters are stray sites too, so the check repeats until no pair falls
-(`roles.standing_pairs`, one fixpoint for both). The window scan's `roles`
+(`roles.derive.standing_pairs`, one fixpoint for both). The window scan's `roles`
 counts sites with `anchors.anchor_site_counts`, the same site walk that
 certifies anchors. The region scan's `regions.pair_rules` asks
 `interiors.stray_spellings`: it reads every site reachable from the start

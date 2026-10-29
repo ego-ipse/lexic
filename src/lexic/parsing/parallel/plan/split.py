@@ -15,7 +15,7 @@ from lexic.ir import IrAst, IrCharClass, IrItem, IrLiteral, IrRuleRef, IrSelf
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import RuleTable
 from lexic.parsing.parallel.plan.envelope import EnvelopePlan
-from lexic.parsing.parallel.roles import Separator
+from lexic.parsing.parallel.roles.derive import Separator
 from lexic.parsing.parallel.stitch.safety import Boundary
 from lexic.parsing.pda.core.charsets import CharSet
 

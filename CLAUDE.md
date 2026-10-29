@@ -308,7 +308,10 @@ src/lexic/
         routed.py                  Route-derived interiors — a region the character sweep cannot see
         speculation.py             When a cut may be PROPOSED — the precondition speculation runs under
         split.py                   SplitPlan — one grammar's cut shape, reused across documents
-      roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
+      roles/                       Role derivation — opener/closer pairs and repetition separators, per grammar
+        __init__.py                the group's package marker
+        derive.py                  Pairs, separator and terminator records, and the leads or terminators a bracket's run reads from them
+        runs.py                    Where a bracket's own run stands — arm sites, repeated bodies, whether an arm holds a run
       discovery/
         __init__.py                Region-discovery package marker
         anchors.py                 Structural anchor analysis

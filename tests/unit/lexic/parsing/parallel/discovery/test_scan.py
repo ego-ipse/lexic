@@ -11,7 +11,7 @@ from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.parallel import Roles, Scanner, roles
 from lexic.parsing.parallel.discovery.scan import occurrences, spelling_offsets
-from lexic.parsing.parallel.roles import Terminator
+from lexic.parsing.parallel.roles.derive import Terminator
 from tests.split_helpers import TWO_ROLE_PAIRS
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
