@@ -153,6 +153,26 @@ A clone also enters as at most one shape, checked by `check_entry_shape` after
 A dispatch clone is exempt, because the chase reads its own selection; the gbnf
 self-grammar's `cc-neg` is a dispatch clone with a wide selection.
 
+## No delegate program holds a verdict site
+
+A delegate runs an island's interior as a document prefix (`prefix_run`), where
+"did this side complete" would read a delegate's early completion as a death.
+That never matters, because no delegate can fork: the delegated analysis files
+every conflicted rule as an island, and delegation drops islands and whatever
+reaches one. `test_delegate_compile.py::test_no_delegate_program_holds_a_verdict_site`
+walks every roster grammar's delegates, and an attempting interior's, whole
+through `all_clones` and finds no verdict site; `test_an_interior_that_attempts_is_never_delegated_beside_one_that_is`
+pins the drop.
+
+## A bench row priced for a route stays on that route
+
+`two-mark` and `reopening` exist to price the live set.
+`parity/test_live_set_rows.py::test_the_row_asks_the_live_set_on_the_predictive_route`
+parses each row's corpus on `lexic-pda`, `lexic-lex` and `lexic-lex-ns`, and
+fails unless a live set is asked and no parse reaches the gated engine whole. A
+change that sent either shape back to whole-document Earley would leave the row
+timing another route under the same name; this is what refuses it.
+
 ## What these invariants mean in practice
 
 - You cannot add a new atom type without updating every open dispatch table it touches (`codegen/binding.py`, `codegen/model_emitter.py`, each flavour's emit `actions`, its `Reducer`).

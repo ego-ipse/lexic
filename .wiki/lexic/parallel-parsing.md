@@ -182,6 +182,16 @@ survive" and "is this the same product" are two questions with two digests.
 The stitch reads that one predicate at every site for the same reason: a
 second spelling would be a second chance to get the subclass case wrong.
 
+**A capture the stitch never lays back declines the plan.** The merged node is a
+stand-in's with the region's items overlaid, and only the wrapper references
+beside the run take their values from the pieces. A bracket arm that captures a
+value in a slot of its own, inside its brackets and beside its run (the spaces
+of `"(" [ ]* list [ ]* ")"`), would come back with the stand-in's value, so
+such a plan declines and the parse is the sequential one.
+`parity/test_region_unlaid_capture.py`: `test_a_plan_with_an_unlaid_capture_declines`,
+and `test_captured_wrapper_spaces_survive_a_parallel_parse` at 0, 1 and 3
+spaces on 2, 8 and 16 workers.
+
 ---
 
 ## The region route divides top-down, and each piece is a worker's share
@@ -256,9 +266,14 @@ brings its own filter.
 | bracket reader | anchors (counted across the text) | literals (read outside skipped interiors) |
 | `enclosing` | yes: a pair serves owner exclusion, so a reference or group must stand between the delimiters | no: every bracket moves the depth it counts |
 | `nested` | no: a separator belongs to the arm's own repetition | yes: `[ member *( , member ) ]` |
-| lead | a SET of anchor marks, through rule chains | the ONE character every arm leads with |
+| lead | a SET of anchor marks, through rule chains | the run's own lead SET (`roles.run_leads`, kept per region by `regions.own_marks`); one character only where the run is separated by a single literal |
 
 These are differences of role, each pinned by a witness, not twins.
+
+`roles.holds_run` reads a run's tail as a rule only when the tail IS a rule
+reference: a literal spelled like a rule (`"y"*` beside a rule `y`) holds no
+run, where reading it as the rule would let that rule's arm fake one
+(`test_roles.py::test_a_literal_tail_named_like_a_rule_holds_no_run`).
 
 ## The region walk reads ONE spelling string
 
@@ -417,6 +432,12 @@ arithmetic's first two plans never stand at depth 0, and reading each of them
 out twice made its split 1.9 times slower. An opaque scanner's level is its
 walk, listed from the start.
 
+**An opening plan's pieces are exactly the gaps between its cuts:** each runs
+from one cut to the next. `orchestrate._reselect` rests on it. It is asked only
+for an opening plan and reads its floor on cut offsets, which are the two
+pieces' own widths only while every piece starts on its mark
+(`plan/test_cuts.py::test_an_opening_plans_pieces_are_the_gaps_between_its_cuts`).
+
 ### Which plans may SHARE a scanner
 
 Several plans can be certified for one grammar. `plan/cuts.py` answers who may
@@ -441,6 +462,14 @@ occurrence in a stretch costs a `find`, a sort and a discard.
 **A new plan shape must be checked against `reads_a_sweep`** — it is the rule
 that decides whether the shape's cuts come from the shared scan or from a pass
 of its own.
+
+`invariants/test_shared_scanner_is_cost_only.py::test_the_union_does_not_change_what_a_plan_finds`
+holds that, per roster row. Each sweep-reading plan's candidates and cuts on the
+full document are the same under the shared scanner as under its own. The row
+must have compared at least one candidate, except a row declared in
+`REGION_ONLY` with its reason (`paren-arithmetic`, whose split is a region
+plan's, which reads no sweep). A declared row must find none, so a stale
+declaration fails as surely as a missing one.
 
 ---
 

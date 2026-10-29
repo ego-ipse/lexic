@@ -2305,3 +2305,33 @@ unless a fast build is forced to miss.
 meaning check compares one family per arm at each arm choice
 (`_canonical_flips`, chart-ordered under the decider's carving). A supplied
 resolver settles the result, and without one the span is refused.
+
+## A head that declines a wrong base split is untimed, not failed (2026-10-29)
+
+**Decision:** when a head stops splitting where its base
+split, the gate refuses the pair only if the base's split was right. If the
+base's own split departs from the base's own sequential model at any worker
+count from 2 to the row's, the row is recorded untimed as "base split unsound:
+head declines a wrong split" with the count and the text offset. It is not
+failed, not timed, and not hidden.
+
+**Witness:** the `reopening` row (`arr ::= "[" pair ("," pair)* "]"`, a pair
+being `(n),(n)` or `(n)`) on main `800fc6d9`. Its region split carved
+`(2578),(2579)` as two short pairs where the sequential parse reads one long
+one: wrong at 2, 3, 6, 8 and 16 workers, right at 4 and 5. `4e9d4cea` made the
+head decline it for want of an ownership proof, and the runner's 4-core A/B then
+refused the head for "no longer splits".
+
+**Why every count:** a check at the row's own count passed the witness at 4. A
+model equal at one count can be right by where that count's cuts land, so only
+a departure at no count from 2 to N lets the refusal stand. **Why a fresh
+process per count:** the base's sequential route on such a shape can be a
+whole-document chart, about 10 GB on the witness, and attempts sharing a
+process stack their high-water marks.
+
+**Why not a weaker rule:** a ratio against a wrong model measures nothing, and
+failing the head for correcting it blocks the correction. Anything that proves
+nothing keeps the refusal: a base whose sequential parse refuses, or a probe
+that dies. The rule reads models, never row names. The gate's page is
+`tools/benchmark/README.md`; the pins are listed there.
+

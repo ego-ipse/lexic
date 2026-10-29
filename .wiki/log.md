@@ -1,5 +1,22 @@
 # Log
 
+## The record reconciled against what landed since main (2026-10-29)
+
+Eleven invariants established by the recent landings were not yet written down.
+- `invariants.md`: no delegate program holds a verdict site; a bench row priced
+  for a route stays on it.
+- `parallel-parsing.md`: an unlaid capture declines the plan; `holds_run` reads a
+  tail as a rule only when it is one; an opening plan's pieces are the gaps
+  between its cuts; the shared scanner's per-row check and its `REGION_ONLY`
+  declaration.
+- `testing.md`: the concurrency lane's decline witness; a guard goes after setup.
+- `transpilation.md`: a non-model class refuses by name.
+- `decisions.md`: the unsound-base gate rule, with its reason and the
+  reopening witness.
+- `tools/benchmark/README.md`: the same rule and the copy protocol's two
+  declared lists.
+Each names the test that pins it.
+
 ## EXTEND and NON_INITIAL have their own group (2026-10-29)
 
 The two charset fixpoints moved out of `pda/analysis/predicates.py` into

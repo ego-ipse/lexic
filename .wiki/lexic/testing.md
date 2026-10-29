@@ -172,6 +172,23 @@ Two traps worth knowing before writing one:
   names an address that is free again on the next line, and CPython hands it
   straight back. Hold the object.
 
+Two rules for the fixtures and guards such a test leans on:
+
+- **A decline witness must be a shape no split route lifts.** The lane's `FLAT`
+  (`concurrency/fixtures.py`) is a bracket around one opaque run of record
+  text, `root ::= "[" body "]"` with `body ::= [a-z0-9:{},]*`. Every character
+  between the brackets belongs to one maximal-munch run, so there is no anchor
+  to cut at and no repeated item to divide. The lane asserts the decline
+  (`test_fork_safety.py::test_a_retained_pool_does_not_prove_a_split_engaged`:
+  "the decline witness engaged"), so a route that learns the witness's shape
+  fails there, and the fix is a new witness, not a weaker assertion.
+- **A guard a test installs goes after the test's setup.** Compiling grammar
+  text runs the self-grammar's own fold, which takes a `PoolLease` of its own
+  wherever the policy grants a few workers. So a guard that raises on any lease
+  must be installed after the compile
+  (`test_orchestrate.py::test_split_model_settles_too_few_workers_before_entering_poollease`,
+  compiled cold on a four-worker policy first).
+
 ---
 
 ## The guarded runner
