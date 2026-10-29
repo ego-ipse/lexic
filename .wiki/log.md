@@ -1,5 +1,12 @@
 # Log
 
+## `tracemalloc` runs without `PYTHON_TLBC=0` (2026-10-29)
+
+CPython 3.14.5's gh-148037 fix removes the tracer × thread-local-bytecode
+deadlock: on the box's 3.14.8 the lexic-free reproducer and a traced pool parse
+both exit with TLBC on. `testing.md` drops
+the flag from its rule and keeps it only for releases before 3.14.5.
+
 ## One site walk for pairs and separators (2026-10-28)
 
 `parallel-parsing.md` records `roles.bracket_arms`/`repeated_bodies` as the one
