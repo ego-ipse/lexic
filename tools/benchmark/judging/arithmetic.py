@@ -90,8 +90,14 @@ where the base's split departed.
 """
 
 
-def untimed(row: str, status: str, clock: str) -> Verdict:
-    """A row decided without a ratio — every number ``nan``, zero pairs."""
+def unsound(row: str, clock: str, cores: int, offset: int) -> Verdict:
+    """The :data:`UNSOUND_BASE` row: where the base's split departed, and no
+    ratio — every number ``nan``, zero pairs.
+
+    :param cores: The first worker count at which the base's split departed.
+    :param offset: Where in the document its model left the sequential one.
+    """
+    status = f"{UNSOUND_BASE} (at {cores} workers, from offset {offset})"
     return Verdict(row, status, math.nan, math.nan, math.nan, math.nan, 0, clock)
 
 

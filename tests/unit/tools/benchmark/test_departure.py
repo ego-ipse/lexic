@@ -18,9 +18,10 @@ from pathlib import Path
 import pytest
 
 from lexic.compile import compile_text
+from lexic.exceptions import LexicError
 from lexic.model import GrammarModel
 from tests.unit.tools.benchmark.benchmark_helpers import BASE, CONTRACT, HEAD, OBSERVED
-from tools.benchmark import compare
+from tools.benchmark import compare, quick
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.execution import isolation, worker
 from tools.benchmark.execution.isolation import Job, RowRequest
@@ -182,7 +183,7 @@ def _departing(at: dict[int, int | None], asked: list[int]):
     """A base whose split departs from its sequential model as ``at`` says."""
 
     def run_departure(job: Job) -> int | None:
-        assert job.label.startswith("json/lexic-mt/") and job.root == BASE
+        assert job.label.endswith(f"/split-{job.request.cores}") and job.root == BASE
         assert job.request.cores is not None
         asked.append(job.request.cores)
         return at[job.request.cores]
@@ -227,7 +228,7 @@ def test_a_head_declining_a_split_right_at_every_count_is_still_refused(
     with pytest.raises(ValueError, match="no longer splits") as caught:
         compare.grow(compare.Arms(BASE, HEAD, 4), "json", "lexic-mt")
 
-    assert "every count from 2 to 4" in str(caught.value)
+    assert "no count from 2 to 4" in str(caught.value)
     assert asked == [2, 3, 4]
 
 
@@ -235,7 +236,7 @@ def test_an_untimed_row_prints_after_every_timed_one(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Its ``nan`` cannot scramble the slowest-first order of the timed rows."""
-    unsound = arithmetic.untimed("json/lexic-mt", arithmetic.UNSOUND_BASE, "wall")
+    unsound = arithmetic.unsound("json/lexic-mt", "wall", 2, 8)
     timed = [
         arithmetic.Verdict(f"json/{name}", "ok", ratio, 0.9, 1.1, 1.2, 6, "cpu")
         for name, ratio in (("a", 0.95), ("b", 1.05), ("c", 1.0))
@@ -245,3 +246,66 @@ def test_an_untimed_row_prints_after_every_timed_one(
 
     rows = [line.split()[0] for line in capsys.readouterr().out.splitlines()[1:]]
     assert rows == ["json/b", "json/c", "json/a", "json/lexic-mt"]
+
+
+AMBIGUOUS = 'root ::= a | b\na ::= "x"\nb ::= "x"\n'
+"""Two arms deriving one string with different meanings: the sequential parse
+refuses ``x`` as ambiguous."""
+
+
+def test_a_sequential_parse_that_refuses_proves_no_departure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A base whose own sequential route refuses the document has not shown its
+    split wrong — even a split that hands back a model reads as no departure."""
+    compiled = compile_text(AMBIGUOUS, cache_key="departure-refusal")
+    with pytest.raises(LexicError, match="ambiguous"):
+        compiled.parse("x", cores=1)
+    monkeypatch.setattr(occupancy, "split_model", lambda *_a, **_k: _sequential())
+
+    assert split_departure(compiled, "x", 2) is None
+
+
+def test_a_probe_that_dies_keeps_the_refusal_never_reads_unsound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A departure worker killed (memory, a crash) decided nothing: the head's
+    refusal stands, carrying why the probe could not answer."""
+
+    def dies(_job: Job) -> int | None:
+        raise RuntimeError("benchmark worker failed for x: Killed")
+
+    monkeypatch.setattr(compare, "run_job", _stopped_splitting)
+    monkeypatch.setattr(compare, "run_departure", dies)
+
+    with pytest.raises(compare.StoppedSplitting, match="no longer splits") as caught:
+        compare.grow(compare.Arms(BASE, HEAD, 4), "json", "lexic-mt")
+
+    assert "base probe failed" in str(caught.value) and "Killed" in str(caught.value)
+
+
+def test_the_quick_tier_records_a_wrong_base_split_as_the_gate_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One row, one verdict, whichever tier asks: the reopening-shaped row —
+    wrong at two workers, right at the row's four — is unsound in both, does
+    not fail the quick run, and leaves it nothing to project."""
+    monkeypatch.setattr(compare, "run_job", _stopped_splitting)
+    monkeypatch.setattr(
+        compare, "run_departure", _departing({2: 16936, 3: None, 4: None}, [])
+    )
+    arms = compare.Arms(BASE, HEAD, 4)
+
+    reading = quick.projected(quick.read_row(arms, "reopening", "lexic-mt", 6))
+    gate, _pairing = compare.grow(arms, "reopening", "lexic-mt")
+
+    same = ("row", "status", "pairs", "clock")
+    assert [getattr(reading.verdict, f) for f in same] == [
+        getattr(gate, f) for f in same
+    ]
+    assert math.isnan(reading.verdict.ratio) and math.isnan(gate.ratio)
+    assert reading.verdict.status == (
+        "base split unsound: head declines a wrong split (at 2 workers, from offset 16936)"
+    )
+    assert reading.projection is None and reading.pairing.candidate == ()
+    assert quick.exit_code([reading]) == 0

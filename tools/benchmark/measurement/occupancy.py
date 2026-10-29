@@ -33,6 +33,7 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar
+from lexic.exceptions import LexicError
 from lexic.ir import IrAddress, IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.parallel import split_model, worker_count
@@ -213,19 +214,25 @@ def _occupant(model: GrammarModel, address: IrAddress) -> tuple[type, str]:
 def split_departure(compiled: CompiledGrammar, document: str, cores: int) -> int | None:
     """Where this artifact's split at ``cores`` departs from its sequential model.
 
-    ``None`` when the split declines or builds the sequential model. The
-    sequential parse runs FIRST: on a grammar whose sequential route is a
-    whole-document chart, that parse is the process's peak, and a split run
-    before it leaves its own high-water mark underneath. On a 34 KB witness,
+    ``None`` when the split declines or builds the sequential model, and when
+    the sequential parse refuses the document: a refusal proves nothing about
+    the split, so it must never read as one that departed.
+
+    That parse runs FIRST: on a grammar whose sequential route is a
+    whole-document chart, it is the process's peak, and a split run before it
+    leaves its own high-water mark underneath. On a 34 KB witness,
     sequential then two workers peaked at 12.0 GB; three split attempts then
     sequential, at 15.4 GB.
 
     Asked of one worker count per process, by the caller, for the same reason.
     """
     ask = Request(document, compiled.product)
-    sequential = parse_model(
-        compiled.codegen_grammar, document, compiled.product, ask.config
-    )
+    try:
+        sequential = parse_model(
+            compiled.codegen_grammar, document, compiled.product, ask.config
+        )
+    except LexicError:
+        return None
     split = split_model(
         parse_model,
         compiled.codegen_grammar,

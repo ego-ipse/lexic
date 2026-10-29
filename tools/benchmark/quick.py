@@ -51,6 +51,7 @@ from tools.benchmark.compare import (
     MAX_PAIRS,
     MIN_PAIRS,
     Arms,
+    opening,
     report_table,
     rosters,
     sample,
@@ -212,9 +213,15 @@ def clock_for(row: str) -> str:
 
 
 def read_row(arms: Arms, grammar: str, row: str, pairs: int) -> Reading:
-    """Measure one row at ``pairs`` pairs and judge it by the gate's rule."""
+    """Measure one row at ``pairs`` pairs and judge it by the gate's rule.
+
+    Started through the gate's own :func:`~tools.benchmark.compare.opening`, so
+    a head declining a wrong base split reads here exactly as it does there.
+    """
     label = f"{grammar}/{row}"
-    pairing = sample(arms, grammar, row, pairs, 0)
+    pairing, settled = opening(arms, grammar, row, pairs)
+    if settled is not None:
+        return Reading(settled, pairing, None)
     return Reading(decide(label, pairing, clock_for(label)), pairing, None)
 
 
@@ -238,7 +245,12 @@ def extend(arms: Arms, reading: Reading, pairs: int) -> Reading:
 
 
 def projected(reading: Reading) -> Reading:
-    """The same reading, carrying the count that would settle it."""
+    """The same reading, carrying the count that would settle it.
+
+    An untimed row has no pairs to project from, and keeps ``None``.
+    """
+    if not reading.pairing.candidate:
+        return reading
     return reading._replace(projection=separation(reading.pairing))
 
 

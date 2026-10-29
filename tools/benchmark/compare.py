@@ -37,14 +37,13 @@ from tools.benchmark.execution.isolation import (
 )
 from tools.benchmark.judging.arithmetic import (
     MT_ROWS,
-    UNSOUND_BASE,
     Pairing,
     Verdict,
     decide,
     log_interval,
     primary_reading,
     slowest_first,
-    untimed,
+    unsound,
 )
 from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
@@ -183,7 +182,7 @@ def _sided(one: Arm, other: Arm) -> tuple[Arm, Arm] | None:
 
 
 class StoppedSplitting(ValueError):
-    """The head declined a split its base engaged; :func:`grow` judges that split."""
+    """The head declined a split its base engaged; :func:`opening` judges it."""
 
 
 def _strategy(one: Arm, other: Arm, row: str) -> None:
@@ -192,7 +191,7 @@ def _strategy(one: Arm, other: Arm, row: str) -> None:
     Asymmetric on purpose. A head that STOPS splitting a document its base
     split is doing less work and will look faster for it — that is a regression
     wearing a speedup's clothes, and it fails unless the base's split was wrong
-    (:func:`grow`). A head that STARTS splitting is the improvement being
+    (:func:`opening`). A head that STARTS splitting is the improvement being
     measured; refusing it would discard the very reading that shows it, so it
     is reported and the ratio stands.
 
@@ -385,18 +384,37 @@ exactly rather than stepped over.
 
 
 def unsound_base(arms: Arms, grammar: str, row: str) -> tuple[int, int] | None:
-    """The first count from two to the row's at which the base's split departs
-    from its own sequential model, and the text offset; ``None`` if none does.
-
-    Every count, because a carving can be right at one by where its cuts land
-    and wrong at the next. One fresh base process per count; the first
-    departure ends the search.
-    """
+    """The first count from 2 to the row's where the base's split departs from its
+    own sequential model, and where — every count, one process each, because a
+    carving can be right at one count by where its cuts land; ``None`` if none."""
     for cores in range(2, arms.cores + 1):
         offset = run_departure(_job(arms.base, grammar, row, cores, f"split-{cores}"))
         if offset is not None:
             return cores, offset
     return None
+
+
+def opening(
+    arms: Arms, grammar: str, row: str, pairs: int
+) -> tuple[Pairing, Verdict | None]:
+    """Every tier's start: a row's first ``pairs`` pairs, or, for a head that stopped
+    splitting a split :func:`unsound_base` finds departing, its untimed verdict."""
+    try:
+        return sample(arms, grammar, row, pairs, 0), None
+    except StoppedSplitting as stopped:
+        try:
+            found = unsound_base(arms, grammar, row)
+        except RuntimeError as failed:
+            raise StoppedSplitting(
+                f"{stopped} — base probe failed: {failed}"
+            ) from failed
+        if found is None:
+            raise StoppedSplitting(
+                f"{stopped} — and at no count from 2 to {arms.cores} does the "
+                "base's split depart from its own sequential model"
+            ) from stopped
+    clock = "wall" if row in MT_ROWS else "cpu"
+    return Pairing((), (), ()), unsound(f"{grammar}/{row}", clock, *found)
 
 
 def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
@@ -409,25 +427,12 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
 
     Each round continues the absolute pair index, which is what keeps both
     schedules in phase across the boundary.
-
-    A head that stopped splitting is refused, unless the base's split departs
-    from its own sequential model at some count up to the row's
-    (:func:`unsound_base`): then the row is :data:`UNSOUND_BASE`, untimed.
     """
     clock = "wall" if row in MT_ROWS else "cpu"
     label = f"{grammar}/{row}"
-    try:
-        pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
-    except StoppedSplitting as stopped:
-        found = unsound_base(arms, grammar, row)
-        if found is None:
-            raise StoppedSplitting(
-                f"{stopped} — and the base's split builds its own sequential "
-                f"model at every count from 2 to {arms.cores}"
-            ) from stopped
-        cores, offset = found
-        word = f"{UNSOUND_BASE} (at {cores} workers, from offset {offset})"
-        return untimed(label, word, clock), Pairing((), (), ())
+    pairing, settled = opening(arms, grammar, row, MIN_PAIRS)
+    if settled is not None:
+        return settled, pairing
     verdict = decide(label, pairing, clock)
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
         extra = sample(arms, grammar, row, BLOCK, len(pairing.candidate))
@@ -606,11 +611,6 @@ def status(verdicts: Sequence[Verdict]) -> int:
     """
     slower = [verdict for verdict in verdicts if verdict.status == "slower"]
     unresolved = [verdict for verdict in verdicts if verdict.status == "unresolved"]
-    unsound = [v for v in verdicts if v.status.startswith(UNSOUND_BASE)]
-    if unsound:
-        print(f"\n{len(unsound)} row(s) untimed — reported, not blocking:")
-        for verdict in unsound:
-            print(f"  {verdict.row}: {verdict.status}")
     if unresolved:
         print(
             f"\n{len(unresolved)} row(s) unresolved after {MAX_PAIRS} pairs — "

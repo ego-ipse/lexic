@@ -6,11 +6,9 @@ import json
 from pathlib import Path
 
 from tools.benchmark import aggregate
-from tools.benchmark.judging.arithmetic import UNSOUND_BASE, Verdict, untimed
+from tools.benchmark.judging.arithmetic import UNSOUND_BASE, Verdict, unsound
 
-UNSOUND = untimed(
-    "reopening/lexic-mt", f"{UNSOUND_BASE} (at 2 workers, from offset 8)", "wall"
-)
+UNSOUND = unsound("reopening/lexic-mt", "wall", 2, 8)
 TIMED = Verdict("json/lexic-pda", "ok", 1.01, 0.98, 1.03, 1.04, 6, "cpu")
 
 
