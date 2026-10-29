@@ -79,6 +79,31 @@ class Verdict(NamedTuple):
     clock: str
 
 
+UNSOUND_BASE = "base split unsound: head declines a wrong split"
+"""The word for a row whose head stopped splitting where the base's split was WRONG.
+
+Not failed: the head declined a split whose model is not the base's own
+sequential one, which is a correction rather than lost work. Not timed: the
+base's clock measured a wrong answer, so no ratio of it means anything. Not
+hidden: it is a row in every table, with the worker count and text offset
+where the base's split departed.
+"""
+
+
+def untimed(row: str, status: str, clock: str) -> Verdict:
+    """A row decided without a ratio — every number ``nan``, zero pairs."""
+    return Verdict(row, status, math.nan, math.nan, math.nan, math.nan, 0, clock)
+
+
+def slowest_first(verdicts: Sequence[Verdict]) -> list[Verdict]:
+    """Every table's row order: timed rows slowest first, untimed rows after.
+
+    An untimed row's ``nan`` ratio compares false both ways, so sorting it
+    among the timed ones would scramble their order around it.
+    """
+    return sorted(verdicts, key=lambda verdict: (not verdict.pairs, -verdict.ratio))
+
+
 def primary_reading(observation: Observation, row: str) -> float:
     """The clock this row is judged on.
 

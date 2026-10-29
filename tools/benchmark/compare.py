@@ -28,14 +28,23 @@ from pathlib import Path
 from statistics import median
 from typing import NamedTuple
 
-from tools.benchmark.execution.isolation import Job, RowRequest, run_job, run_roster
+from tools.benchmark.execution.isolation import (
+    Job,
+    RowRequest,
+    run_departure,
+    run_job,
+    run_roster,
+)
 from tools.benchmark.judging.arithmetic import (
     MT_ROWS,
+    UNSOUND_BASE,
     Pairing,
     Verdict,
     decide,
     log_interval,
     primary_reading,
+    slowest_first,
+    untimed,
 )
 from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
@@ -173,23 +182,28 @@ def _sided(one: Arm, other: Arm) -> tuple[Arm, Arm] | None:
     return None
 
 
+class StoppedSplitting(ValueError):
+    """The head declined a split its base engaged; :func:`grow` judges that split."""
+
+
 def _strategy(one: Arm, other: Arm, row: str) -> None:
     """Guard the one strategy change that would flatter the head, report the rest.
 
     Asymmetric on purpose. A head that STOPS splitting a document its base
     split is doing less work and will look faster for it — that is a regression
-    wearing a speedup's clothes, and it fails. A head that STARTS splitting is
-    the improvement being measured; refusing it would discard the very reading
-    that shows it, so it is reported and the ratio stands.
+    wearing a speedup's clothes, and it fails unless the base's split was wrong
+    (:func:`grow`). A head that STARTS splitting is the improvement being
+    measured; refusing it would discard the very reading that shows it, so it
+    is reported and the ratio stands.
 
-    :raises ValueError: When the head no longer engages a split the base did.
+    :raises StoppedSplitting: When the head no longer engages a split the base did.
     """
     pair = _sided(one, other)
     if pair is None:
         return
     base, head = pair
     if base.observation.engaged and not head.observation.engaged:
-        raise ValueError(
+        raise StoppedSplitting(
             f"{row}: head no longer splits where base did — a head that stops "
             "splitting is doing less work, not the same work faster"
         )
@@ -370,6 +384,21 @@ exactly rather than stepped over.
 """
 
 
+def unsound_base(arms: Arms, grammar: str, row: str) -> tuple[int, int] | None:
+    """The first count from two to the row's at which the base's split departs
+    from its own sequential model, and the text offset; ``None`` if none does.
+
+    Every count, because a carving can be right at one by where its cuts land
+    and wrong at the next. One fresh base process per count; the first
+    departure ends the search.
+    """
+    for cores in range(2, arms.cores + 1):
+        offset = run_departure(_job(arms.base, grammar, row, cores, f"split-{cores}"))
+        if offset is not None:
+            return cores, offset
+    return None
+
+
 def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
     """Sample a row until it settles inside the envelope, or the bound runs out.
 
@@ -380,10 +409,25 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
 
     Each round continues the absolute pair index, which is what keeps both
     schedules in phase across the boundary.
+
+    A head that stopped splitting is refused, unless the base's split departs
+    from its own sequential model at some count up to the row's
+    (:func:`unsound_base`): then the row is :data:`UNSOUND_BASE`, untimed.
     """
     clock = "wall" if row in MT_ROWS else "cpu"
     label = f"{grammar}/{row}"
-    pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
+    try:
+        pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
+    except StoppedSplitting as stopped:
+        found = unsound_base(arms, grammar, row)
+        if found is None:
+            raise StoppedSplitting(
+                f"{stopped} — and the base's split builds its own sequential "
+                f"model at every count from 2 to {arms.cores}"
+            ) from stopped
+        cores, offset = found
+        word = f"{UNSOUND_BASE} (at {cores} workers, from offset {offset})"
+        return untimed(label, word, clock), Pairing((), (), ())
     verdict = decide(label, pairing, clock)
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
         extra = sample(arms, grammar, row, BLOCK, len(pairing.candidate))
@@ -412,7 +456,7 @@ def report_table(verdicts: Sequence[Verdict]) -> None:
         f"{'row':{width}}  {'clock':>5}  {'ratio':>7}  {'ci low':>7}  "
         f"{'ci high':>7}  {'noise':>7}  {'pairs':>5}  status"
     )
-    for verdict in sorted(verdicts, key=lambda entry: -entry.ratio):
+    for verdict in slowest_first(verdicts):
         print(
             f"{verdict.row:{width}}  {verdict.clock:>5}  {verdict.ratio:7.4f}  "
             f"{verdict.low:7.4f}  {verdict.high:7.4f}  {verdict.envelope:7.4f}  "
@@ -562,6 +606,11 @@ def status(verdicts: Sequence[Verdict]) -> int:
     """
     slower = [verdict for verdict in verdicts if verdict.status == "slower"]
     unresolved = [verdict for verdict in verdicts if verdict.status == "unresolved"]
+    unsound = [v for v in verdicts if v.status.startswith(UNSOUND_BASE)]
+    if unsound:
+        print(f"\n{len(unsound)} row(s) untimed — reported, not blocking:")
+        for verdict in unsound:
+            print(f"  {verdict.row}: {verdict.status}")
     if unresolved:
         print(
             f"\n{len(unresolved)} row(s) unresolved after {MAX_PAIRS} pairs — "

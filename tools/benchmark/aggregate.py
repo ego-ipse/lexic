@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple, Sequence
 
-from tools.benchmark.judging.arithmetic import Verdict
+from tools.benchmark.judging.arithmetic import UNSOUND_BASE, Verdict, slowest_first
 
 
 class Gathered(NamedTuple):
@@ -59,7 +59,7 @@ def _markdown_rows(rows: Sequence[Verdict]) -> list[str]:
         "| row | clock | ratio | ci low | ci high | noise | pairs | status |",
         "|---|---|---:|---:|---:|---:|---:|---|",
     ]
-    for row in sorted(rows, key=lambda entry: -entry.ratio):
+    for row in slowest_first(rows):
         lines.append(
             f"| `{row.row}` | {row.clock} | {_cell(row.ratio)} | {_cell(row.low)} "
             f"| {_cell(row.high)} | {_cell(row.envelope)} | {row.pairs} "
@@ -94,7 +94,10 @@ def verdict_line(gathered: Gathered) -> str:
     """The one-line judgement the run's exit code follows."""
     slower = sum(row.status == "slower" for row in gathered.rows)
     unresolved = sum(row.status == "unresolved" for row in gathered.rows)
-    tail = f" ({unresolved} unresolved, reported, not blocking)" if unresolved else ""
+    unsound = sum(row.status.startswith(UNSOUND_BASE) for row in gathered.rows)
+    notes = [f"{unresolved} unresolved"] if unresolved else []
+    notes += [f"{unsound} untimed, {UNSOUND_BASE}"] if unsound else []
+    tail = f" ({'; '.join(notes)} — reported, not blocking)" if notes else ""
     if slower or gathered.missing:
         return (
             f"**FAIL** — {slower} row(s) slower than this machine's envelope, "
@@ -135,7 +138,7 @@ def plain(gathered: Gathered) -> str:
             f"{'row':{width}}  {'clock':>5}  {'ratio':>7}  {'ci low':>7}  "
             f"{'ci high':>7}  {'noise':>7}  {'pairs':>5}  status"
         )
-        for row in sorted(gathered.rows, key=lambda entry: -entry.ratio):
+        for row in slowest_first(gathered.rows):
             lines.append(
                 f"{row.row:{width}}  {row.clock:>5}  {row.ratio:7.4f}  "
                 f"{row.low:7.4f}  {row.high:7.4f}  {row.envelope:7.4f}  "

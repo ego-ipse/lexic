@@ -87,11 +87,11 @@ def _environment(request: RowRequest, root: Path) -> dict[str, str]:
     return environment
 
 
-def _decode(output: str, job: Job) -> Mapping[str, Json]:
+def _decode(output: str, label: str) -> Mapping[str, Json]:
     """Decode the final JSON line written by a worker."""
     lines = [line for line in output.splitlines() if line.strip()]
     if not lines:
-        raise RuntimeError(f"benchmark worker returned nothing for {job.label}")
+        raise RuntimeError(f"benchmark worker returned nothing for {label}")
     decoded = json.loads(lines[-1])
     if not isinstance(decoded, dict):
         raise RuntimeError(f"benchmark worker wrote invalid JSON: {decoded!r}")
@@ -104,8 +104,13 @@ def run_job(job: Job) -> RowResult:
     The process starts, does everything it was asked, and exits before this
     function returns. No other benchmark process is running meanwhile.
     """
+    return read_result(_answer(_command(job.request), job))
+
+
+def _answer(command: list[str], job: Job) -> Mapping[str, Json]:
+    """Run one worker command for ``job`` alone and decode its last line."""
     completed = subprocess.run(
-        _command(job.request),
+        command,
         capture_output=True,
         text=True,
         check=False,
@@ -115,7 +120,25 @@ def run_job(job: Job) -> RowResult:
     if completed.returncode:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise RuntimeError(f"benchmark worker failed for {job.label}: {detail}")
-    return read_result(_decode(completed.stdout, job))
+    return _decode(completed.stdout, job.label)
+
+
+def run_departure(job: Job) -> int | None:
+    """Where ``job``'s split departs from its sequential model, in a fresh process.
+
+    One worker count per process: a sequential parse whose route is a
+    whole-document chart is a process's peak, and attempts sharing a process
+    stack their high-water marks.
+
+    :returns: The text offset, or ``None`` when the split declines or builds
+        the sequential model.
+    :raises RuntimeError: When the row refuses or the worker fails.
+    """
+    answer = _answer([*_command(job.request), "--departs"], job)
+    if "refusal" in answer:
+        raise RuntimeError(f"{job.label}: row refused: {answer['refusal']}")
+    departs = answer["departs"]
+    return None if departs is None else int(str(departs))
 
 
 class ReportRow(NamedTuple):

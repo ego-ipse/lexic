@@ -33,7 +33,8 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar
-from lexic.ir import IrAst
+from lexic.ir import IrAddress, IrAst
+from lexic.model import GrammarModel
 from lexic.parsing.parallel import split_model, worker_count
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.products import parse_model
@@ -165,3 +166,71 @@ def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occ
     if split is None:
         return Occupancy("the unified split seam found no eligible work", plan, 1)
     return Occupancy(None, plan, attempt.workers_besides(threading.get_ident()))
+
+
+def departure(split: GrammarModel, sequential: GrammarModel) -> int | None:
+    """Where two models of one document first part company, as a text offset.
+
+    ``None`` when they are equal. Read off both emissions, root first: the
+    first extent whose address, span or occurrence differs names where the
+    split's carving left the sequential one — the start of the item the two
+    read differently, not the root that merely contains it. Two models that
+    spell different texts part at their first differing character; two that
+    differ only where nothing is emitted are reported at the start.
+
+    Untimed and cold: it runs only on a row whose split is under suspicion.
+    """
+    if split == sequential:
+        return None
+    one, other = split.emit_addressed(), sequential.emit_addressed()
+    if one.text != other.text:
+        pairs = zip(one.text, other.text, strict=False)
+        return next(
+            (at for at, (a, b) in enumerate(pairs) if a != b),
+            min(len(one.text), len(other.text)),
+        )
+    for mine, theirs in zip(one.extents, other.extents, strict=False):
+        if mine != theirs or _occupant(split, mine.address) != _occupant(
+            sequential, theirs.address
+        ):
+            return min(mine.span.start, theirs.span.start)
+    if len(one.extents) != len(other.extents):
+        shorter = min(len(one.extents), len(other.extents))
+        return max(one.extents, other.extents, key=len)[shorter].span.start
+    return 0
+
+
+def _occupant(model: GrammarModel, address: IrAddress) -> tuple[type, str]:
+    """What stands at ``address``: its class, and its spelling if it is a leaf.
+
+    A container is compared by class alone — its contents are later extents of
+    their own, and comparing it whole would make the root the first difference.
+    """
+    part = model.occurrence(address)
+    return type(part), "" if isinstance(part, tuple) else str(part)
+
+
+def split_departure(compiled: CompiledGrammar, document: str, cores: int) -> int | None:
+    """Where this artifact's split at ``cores`` departs from its sequential model.
+
+    ``None`` when the split declines or builds the sequential model. The
+    sequential parse runs FIRST: on a grammar whose sequential route is a
+    whole-document chart, that parse is the process's peak, and a split run
+    before it leaves its own high-water mark underneath. On a 34 KB witness,
+    sequential then two workers peaked at 12.0 GB; three split attempts then
+    sequential, at 15.4 GB.
+
+    Asked of one worker count per process, by the caller, for the same reason.
+    """
+    ask = Request(document, compiled.product)
+    sequential = parse_model(
+        compiled.codegen_grammar, document, compiled.product, ask.config
+    )
+    split = split_model(
+        parse_model,
+        compiled.codegen_grammar,
+        ask,
+        cores,
+        analysis=compiled.split_analysis or compiled.grammar,
+    )
+    return None if split is None else departure(split, sequential)

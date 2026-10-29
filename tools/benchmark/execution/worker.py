@@ -29,7 +29,11 @@ from tools.benchmark.measurement.contract import (
     Observation,
     digest,
 )
-from tools.benchmark.measurement.occupancy import Occupancy, declined_reason
+from tools.benchmark.measurement.occupancy import (
+    Occupancy,
+    declined_reason,
+    split_departure,
+)
 from tools.benchmark.measurement.sampling import interleaved, noise_spread
 
 
@@ -128,6 +132,27 @@ def report_payload(
         getattr(parse, "close", lambda: None)()
 
 
+def departure_payload(
+    bench: Bench, engine: str, _rounds: int, cores: int | None, full: bool
+) -> dict[str, Json]:
+    """Where this row's split at ``cores`` departs from its sequential model.
+
+    Not a measurement: the gate asks it of a base whose head stopped
+    splitting, one worker count per process, to tell a lost split from a
+    wrong one. ``departs`` is a text offset, or ``None`` when the split
+    declines or builds the sequential model.
+    """
+    built = one_engine(bench, engine, cores, full)
+    if built.parse is None:
+        return {"refusal": built.refusal}
+    try:
+        if cores is None or built.artifact is None:
+            return {"departs": None}
+        return {"departs": split_departure(built.artifact, built.document, cores)}
+    finally:
+        getattr(built.parse, "close", lambda: None)()
+
+
 def _noise_payload(
     bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
 ) -> dict[str, Json]:
@@ -153,6 +178,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--noise", action="store_true")
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--departs", action="store_true")
     args = parser.parse_args(argv)
     if args.engine not in PRODUCT:
         parser.error(f"unknown benchmark row {args.engine!r}")
@@ -161,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         build = _noise_payload
     elif args.report:
         build = report_payload
+    elif args.departs:
+        build = departure_payload
     else:
         build = _payload
     payload = build(bench, args.engine, args.rounds, args.cores, args.full)

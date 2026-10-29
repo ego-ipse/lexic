@@ -82,6 +82,7 @@ SHARED_VOCABULARY = frozenset(
         "lexic.generate.generate",
         "lexic.grammars.ABNF_FLAVOUR",
         "lexic.grammars.GBNF_FLAVOUR",
+        "lexic.ir.IrAddress",
         "lexic.ir.IrAst",
         "lexic.ir.inline_refs",
         "lexic.model.GrammarModel",
