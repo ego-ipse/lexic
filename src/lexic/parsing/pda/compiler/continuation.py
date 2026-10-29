@@ -22,6 +22,7 @@ from typing import Iterator
 from lexic.ir import IrAlternation, IrItem, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.conflicts import may_steal
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
     MORE,
@@ -32,7 +33,6 @@ from lexic.parsing.pda.analysis.gates.windows import (
 from lexic.parsing.pda.analysis.predicates import (
     Span,
     rule_alphabets,
-    rule_extensions,
     rule_spans,
     seq_span,
 )

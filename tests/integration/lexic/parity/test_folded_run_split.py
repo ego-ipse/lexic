@@ -28,7 +28,7 @@ from lexic.parsing.parallel.stitch.interior import (
     stitch_run,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import rule_non_initials, seq_non_initial
+from lexic.parsing.pda.analysis.extend.inner import rule_non_initials, seq_non_initial
 from lexic.parsing.pda.compiler.leftrec.shape import foldable
 from tests.split_helpers import engages
 from tools.benchmark.cases.grammars import BENCHES

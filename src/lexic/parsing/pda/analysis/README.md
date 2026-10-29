@@ -70,6 +70,17 @@ analysis property, not a compiler fallback.
    firsts, seeded empty. Over-eaten chars that can only be semantic deny the
    licence.
 
+## `extend/` — the charset fixpoints
+
+EXTEND (what can lengthen a complete match) and NON_INITIAL (what a string can
+carry past its first character) are whole-grammar fixpoints over the same
+`Extensions` maps, not per-node predicates, so they live in their own group:
+`maps.py` holds the maps and the atom bodies both tables share, `lengthen.py`
+EXTEND and the `rule_extensions` every reader of one analysis shares, and
+`inner.py` NON_INITIAL. They read the per-node predicates (`atom_alphabet`,
+`seq_alphabet`, `grow_charsets`, nullability) from `predicates.py`, which never
+imports them. See `extend/README.md`.
+
 ## `taxonomy.py` — the stored result
 
 `Taxonomy` holds the classified notes (`conflicts` / `demoted` / `fail`) plus

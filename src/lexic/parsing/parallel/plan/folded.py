@@ -42,7 +42,7 @@ from lexic.parsing.parallel.plan.routed import REF, Descent
 from lexic.parsing.parallel.policy import capacity
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import rule_non_initials, seq_non_initial
+from lexic.parsing.pda.analysis.extend.inner import rule_non_initials, seq_non_initial
 from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
 from lexic.parsing.pda.core.charsets import CharSet
 

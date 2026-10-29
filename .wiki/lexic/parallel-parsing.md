@@ -125,7 +125,7 @@ committed witness rather than a note.
 **A RUN spine is cut before the character that begins a step**, and keeps it.
 With no separator rule there is no mark to remove: `folded._run` proves that a
 β's first character stands only first in every base arm and β
-(`predicates.rule_non_initials`), so each one past the spine's start begins an
+(`extend.inner.rule_non_initials`), so each one past the spine's start begins an
 iteration. A later piece re-wears the base's own text before its βs, and
 `stitch.interior.fold_runs` drops that stand-in and rebuilds the piece's left
 edge over the value so far. The three direct engine-reach rows split this way.

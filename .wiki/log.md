@@ -1,5 +1,13 @@
 # Log
 
+## EXTEND and NON_INITIAL have their own group (2026-10-29)
+
+The two charset fixpoints moved out of `pda/analysis/predicates.py` into
+`pda/analysis/extend/`: `maps.py` (the `Extensions` maps and the atom bodies both
+tables share), `lengthen.py` (EXTEND, `rule_extensions`) and `inner.py`
+(NON_INITIAL). `decisions.md` and `parallel-parsing.md` name the new homes;
+`predicates.py` keeps the per-node predicates the fixpoints read.
+
 ## `tracemalloc` runs without `PYTHON_TLBC=0` (2026-10-29)
 
 CPython 3.14.5's gh-148037 fix removes the tracer × thread-local-bytecode

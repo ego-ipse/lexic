@@ -48,7 +48,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     rule_table,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import rule_extensions
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.core.charsets import CharSet
 
 

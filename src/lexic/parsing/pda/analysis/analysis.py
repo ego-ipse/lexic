@@ -46,6 +46,8 @@ from lexic.parsing.pda.analysis.cursors import (
     Scope,
     Site,
 )
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
+from lexic.parsing.pda.analysis.extend.maps import Extensions
 from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K, stop_exit_settles
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
@@ -58,9 +60,7 @@ from lexic.parsing.pda.analysis.predicates import (
     FOLLOW_FEED,
     HARD,
     STOPSET_ATOM,
-    Extensions,
     item_nullable,
-    rule_extensions,
     seq_nullable,
 )
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec, Taxonomy

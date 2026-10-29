@@ -345,7 +345,7 @@ islands. No other bench or ground-truth grammar loses one.
 iteration built through the arm it took, by that arm's own routine. The boundary
 proof (`leftrec.shape.settled`) already makes one character choose between the
 arms: two βs whose FIRST sets meet put their alphabets into the pieces' EXTEND
-(`predicates.arms_extension`), which then meets the βs' FIRST.
+(`extend.lengthen.arms_extension`), which then meets the βs' FIRST.
 
 **How the arm is known:** the rewritten rule is `(γ)(β1 | β2 …)*`, and each
 iteration of the step group runs one of its arms. The step group is baked
@@ -1133,7 +1133,7 @@ greedily, as it settles a split. That matches the grammar only when the text
 fixes every boundary. `leftrec/shape.settled` asks for that by analysis: the
 EXTEND of γ, and of the steps, must be disjoint from FIRST(β). EXTEND is the
 set of characters at which a complete match can be lengthened and still match
-(`analysis/predicates.rule_extensions`, a least fixpoint bounded by ALPHABET).
+(`analysis/extend/lengthen.rule_extensions`, a least fixpoint bounded by ALPHABET).
 Take the first boundary where two carvings differ. The shorter piece there is
 lengthened by the character that starts a β, so disjointness leaves one
 carving at every width. A rule that fails it is not folded and islands, where
@@ -1152,7 +1152,7 @@ step.** `item ::= item "a" | item "b" | "z"` has no separator rule: nothing
 spells a removable mark and nothing re-parses one, so the led proof above has
 nothing to ask. `folded._run` asks instead whether a step's first character
 can only stand FIRST: `starts`, the union of the βs' FIRST sets, must miss
-NON_INITIAL of every base arm and every β (`predicates.rule_non_initials`, the
+NON_INITIAL of every base arm and every β (`extend.inner.rule_non_initials`, the
 characters a string of the language carries past its first position, a least
 fixpoint bounded by ALPHABET), and no base arm may be nullable. Then every
 `starts` character past the spine's start begins an iteration, and `settled`
@@ -1878,7 +1878,7 @@ divide under their own plan.
 ## The speculation licence reads the PDA's EXTEND, built once per analysis
 
 **Decision:** the exclusive-opening clause of `parallel/plan/speculation`
-reads `analysis/predicates.rule_extensions` over the one `GrammarAnalysis` the
+reads `analysis/extend/lengthen.rule_extensions` over the one `GrammarAnalysis` the
 determinism clause builds, and runs last, after determinism, vanishing and
 visibility, so only a unit every other clause passes asks for it.
 `rule_extensions` builds EXTEND once per analysis, on the first ask, and keeps

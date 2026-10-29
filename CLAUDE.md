@@ -333,6 +333,11 @@ src/lexic/
         conflicts.py               Late conflict classifiers split from the oracle
         demote.py                  The demotion cascade — what a conflicted decision may be demoted TO
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
+        extend/                    What can lengthen a match, or stand past its start — the charset fixpoints
+          __init__.py              the group's package marker
+          maps.py                  Extensions — the fixpoints' working maps, and the atom bodies they share
+          lengthen.py              EXTEND — item, sequence and arm rules, the shifting bound, R3's confinement, rule_extensions
+          inner.py                 NON_INITIAL — every character a string can carry past its first
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
           greedy.py           The split-greedy licence — a loop the split rule settles, not lookahead

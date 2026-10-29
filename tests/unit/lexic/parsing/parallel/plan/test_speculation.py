@@ -18,7 +18,7 @@ from lexic.parsing.parallel.plan.speculation import (
     speculative_openings,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import rule_extensions
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.core.charsets import CharSet
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
     ANNOUNCED,
