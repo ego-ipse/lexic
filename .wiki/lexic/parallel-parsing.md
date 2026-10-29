@@ -182,15 +182,15 @@ survive" and "is this the same product" are two questions with two digests.
 The stitch reads that one predicate at every site for the same reason: a
 second spelling would be a second chance to get the subclass case wrong.
 
-**A capture the stitch never lays back declines the plan.** The merged node is a
-stand-in's with the region's items overlaid, and only the wrapper references
-beside the run take their values from the pieces. A bracket arm that captures a
-value in a slot of its own, inside its brackets and beside its run (the spaces
-of `"(" [ ]* list [ ]* ")"`), would come back with the stand-in's value, so
-such a plan declines and the parse is the sequential one.
-`parity/test_region_unlaid_capture.py`: `test_a_plan_with_an_unlaid_capture_declines`,
-and `test_captured_wrapper_spaces_survive_a_parallel_parse` at 0, 1 and 3
-spaces on 2, 8 and 16 workers.
+**A capture the stitch cannot lay back declines the plan.** The merged node is a
+stand-in's with the region's items overlaid, so a slot no piece writes keeps the
+stand-in's value. A bracket arm's capture inside its brackets and beside its run
+(the spaces of `"(" [ ]* list [ ]* ")"`) is laid back as an edge from the first
+or last piece (below); one that fails either condition there declines the plan,
+and the parse is the sequential one.
+`parity/test_region_unlaid_capture.py`: `test_captured_spaces_survive_a_parallel_parse`
+at 0, 1 and 3 spaces on 2, 8 and 16 workers, `test_the_plan_lays_each_capture_back_from_its_side`,
+and `test_a_capture_the_pieces_cannot_restore_declines`.
 
 ---
 
@@ -225,6 +225,25 @@ stand-in's node together with its true edge slots. An edge slot can straddle
 the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and
 the HOLDER's part outside it, so the edge is built from the two slots'
 children and taken only when it spells exactly that text.
+
+**An inline capture between the brackets and the run is an edge too.** The
+arm `"(" [ ]* list [ ]* ")"` captures its spaces in slots of its own, and the
+merged node is the stand-in's, so a slot no piece wrote keeps the stand-in's
+value: divided, it would come back without the document's spaces. The plan lists
+every such slot in `RegionPlan.edges` beside the wrapper edges, chosen once at
+bind (`stitch.plan._edges`). A capture before the run takes its value from the
+FIRST piece and one after it from the LAST, because those pieces' text between
+the bracket and the run is the document's own. Two conditions make that true,
+and a capture failing either keeps the plan from binding:
+- **It can vanish.** A middle piece is cut on both sides and holds none of it,
+  so a capture it cannot do without (`[ ]+`) would fail every middle piece.
+- **Its alphabet misses the run's** (`predicates.rule_alphabets`, as `around`
+  reads it). A piece's text ends early, and the boundary between capture and
+  run must be fixed by characters, not by what follows the cut: `[ ,]*` before
+  a comma list is refused.
+
+A plan with no capture lists only its wrapper edges, so its stitch does the same
+work it always did.
 
 A stand-in's needle must be unique in the unit that holds it, not in the whole
 document. The uniqueness pre-filter reads the NEEDLE's text — what the holder's
@@ -341,7 +360,7 @@ unbounded reference, and that unit's terminator records for the container are
 one character each. `roles.derive.run_ends` hands the scan those terminators as
 the pair's marks (`Vocab.ends`); `own_marks` keeps them and sets `Region.ends`.
 `derive_plan` asks the same reading first and builds `_terminated_plan` from it,
-with the same `_unlaid` cut. Because both read one predicate, a bracket is
+with the same edge rule (`_edges`). Because both read one predicate, a bracket is
 terminated for the scan exactly when its plan is: a led-and-terminated arm (`"["
 entry more* "]"`, `more ::= "," entry`, `entry ::= e ";"`) is led for both. A cut
 falls AFTER the terminator, so `partition` gives each piece an inclusive window

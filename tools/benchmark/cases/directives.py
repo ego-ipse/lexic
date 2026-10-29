@@ -54,6 +54,7 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # The arm choice between pair shapes is the boundary; a number is a run.
     "reopening": (("num",), ()),
     "terminated-run": (("name", "value"), ()),
+    "captured-spaces": (("item",), ()),
     "interior-exact": ((), ()),
     "interior-climb": ((), ()),
     "relay-fallback": ((), ()),

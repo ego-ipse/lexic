@@ -26,6 +26,7 @@ from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import (
     RuleTable,
+    derives_empty,
     literal_char,
     rule_table,
 )
@@ -36,7 +37,11 @@ from lexic.parsing.parallel.roles.derive import (
     run_terminators,
 )
 from lexic.parsing.parallel.roles.runs import holds_run
-from lexic.parsing.pda.analysis.predicates import atom_alphabet, rule_alphabets
+from lexic.parsing.pda.analysis.predicates import (
+    atom_alphabet,
+    rule_alphabets,
+    seq_alphabet,
+)
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
 
@@ -68,6 +73,10 @@ class RegionPlan(NamedTuple):
     items_head: int
     items_rest: int
     tail_head: int
+    edges: tuple[tuple[int, bool], ...]
+    """Every slot inside the brackets whose truth is a piece's, with whether it
+    stands before the run: the wrapper edges (``outer_begin``, ``outer_end``)
+    and each inline capture between the delimiters (:func:`_edges`)."""
     ends: bool = False
     """A TERMINATED run (``"[" entry+ "]"``): ``separators`` are its units'
     terminators, a piece keeps the one it is cut after, and the region's node is
@@ -258,32 +267,43 @@ def _boundary_slots(
     return begin, end
 
 
-def _unlaid(
+def _edges(
     rules: RuleTable,
     arm: tuple[IrItem, ...],
     run: range,
     kept: tuple[int | None, int | None],
     routine: RuleRoutine,
-) -> bool:
-    """Whether the bracket arm captures a value INSIDE its brackets, beside its
-    run, that the stitch never lays back.
+) -> tuple[tuple[int, bool], ...] | None:
+    """The plan's :attr:`RegionPlan.edges`, or ``None`` where a capture inside
+    the brackets cannot be laid back.
 
-    The merged node is a stand-in's with the region's items overlaid. Only the
-    two wrapper references beside the run (``kept``) take their values from the
-    pieces, and what stands outside the brackets is the holder's, so any other
-    capture between the delimiters would keep the STAND-IN's value, not the
-    document's: ``"(" [ ]* list [ ]* ")"`` came back without its spaces. The
-    delimiters are the nearest items either side of the run that spell one
-    character (:func:`literal_char`); such a plan declines.
+    The merged node is a stand-in's with the region's items overlaid, so every
+    other slot between the delimiters — the nearest one-character items either
+    side of the run (:func:`literal_char`) — must take its value from a piece:
+    ``"(" [ ]* list [ ]* ")"`` would come back without its spaces. A capture
+    before the run is read from the FIRST piece and one after it from the LAST,
+    whose text between the bracket and the run is the document's own. That
+    holds when the capture can be empty, so a middle piece, cut on both sides,
+    parses without it; and when its alphabet misses the run's, so a piece's
+    shorter text carves capture and run where the whole document does.
     """
     spells = [literal_char(item, rules) is not None for item in arm]
     opens = max((at for at in range(run.start) if spells[at]), default=-1)
     closes = next((at for at in range(run.stop, len(arm)) if spells[at]), len(arm))
+    alphabets = rule_alphabets(rules)
+    runs = seq_alphabet(arm[run.start : run.stop], alphabets)
+    edges = [(kept[0], True)] if kept[0] is not None else []
     for at in range(opens + 1, closes):
-        if at not in run and (slot := field_slot(routine, at)) is not None:
-            if slot not in kept:
-                return True
-    return False
+        slot = field_slot(routine, at) if at not in run else None
+        if slot is None or slot in kept:
+            continue
+        item = arm[at]
+        if not derives_empty(item, rules):
+            return None
+        if atom_alphabet(item.atom, (alphabets,)).overlaps(runs):
+            return None
+        edges.append((slot, at < run.start))
+    return (*edges, (kept[1], False)) if kept[1] is not None else tuple(edges)
 
 
 def _finite_chars(
@@ -376,10 +396,14 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     if bound is None:
         return None
     begin, end = _boundary_slots(source.outer_arm, items_at - 1, items_at + 1, outer_pr)
-    rules = rule_table(source.root)
-    if _unlaid(
-        rules, source.outer_arm, range(items_at, items_at + 1), (begin, end), outer_pr
-    ):
+    edges = _edges(
+        rule_table(source.root),
+        source.outer_arm,
+        range(items_at, items_at + 1),
+        (begin, end),
+        outer_pr,
+    )
+    if edges is None:
         return None
     boundary = _boundary_charsets(
         source.root, source.outer_arm, items_at - 1, items_at + 1
@@ -400,6 +424,7 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
         items_head=bound.head_slot,
         items_rest=bound.rest_slot,
         tail_head=bound.tail_head,
+        edges=edges,
     )
 
 
@@ -450,10 +475,14 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     if bound is None:
         return None
     begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_pr)
-    rules = rule_table(source.root)
-    if _unlaid(
-        rules, source.outer_arm, range(head_at, head_at + 2), (begin, end), outer_pr
-    ):
+    edges = _edges(
+        rule_table(source.root),
+        source.outer_arm,
+        range(head_at, head_at + 2),
+        (begin, end),
+        outer_pr,
+    )
+    if edges is None:
         return None
     boundary = _boundary_charsets(
         source.root, source.outer_arm, head_at - 1, head_at + 2
@@ -474,6 +503,7 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
         items_head=bound.head_slot,
         items_rest=bound.rest_slot,
         tail_head=bound.tail_head,
+        edges=edges,
     )
 
 
@@ -494,9 +524,10 @@ def _terminated_plan(
     if outer_pr is None or outer_type is None or slot is None:
         return None
     begin, end = _boundary_slots(arm, at - 1, at + 1, outer_pr)
-    if _unlaid(rule_table(root), arm, range(at, at + 1), (begin, end), outer_pr):
+    edges = _edges(rule_table(root), arm, range(at, at + 1), (begin, end), outer_pr)
+    if edges is None:
         return None
-    opening, closing = _boundary_charsets(root, arm, at - 1, at + 1)
+    boundary = _boundary_charsets(root, arm, at - 1, at + 1)
     return RegionPlan(
         root=root,
         head_rule=unit,
@@ -505,14 +536,15 @@ def _terminated_plan(
         items_type=outer_type,
         tail_type=outer_type,
         outer_begin=begin,
-        outer_skip=opening,
+        outer_skip=boundary[0],
         outer_items=-1,
         outer_end=end,
-        outer_trail=closing,
+        outer_trail=boundary[1],
         around=_around(root, arm, range(at, at + 1)),
         items_head=slot,
         items_rest=slot,
         tail_head=0,
+        edges=edges,
         ends=True,
     )
 

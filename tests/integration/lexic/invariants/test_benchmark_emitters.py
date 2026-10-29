@@ -171,6 +171,8 @@ EXPECTED: dict[str, frozenset[str]] = {
     # Statements told apart by their first word and closed by `;`: nothing
     # here is hard for any formalism. The row prices the region split.
     "terminated-run": _ALL,
+    # Inline spaces and a comma list: every formalism spells them.
+    "captured-spaces": _ALL,
     # The three engine-reach rows are left-recursive by construction — that is
     # what makes them reach the engine they are named for — so they lose the
     # same three seats as the rows above, and for the same reason: PEG cannot

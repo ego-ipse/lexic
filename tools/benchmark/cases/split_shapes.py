@@ -170,3 +170,15 @@ No character stands between two entries, so there is no separator to cut at:
 the cut falls AFTER a terminator, and each piece keeps the one it was cut
 after. The top-level plans cannot reach it, because the run is inside the
 brackets; the region split divides it, which is what the mt rows price."""
+
+
+CAPTURED_SPACES = """root ::= "(" [ ]* list [ ]* ")"
+list ::= item ("," item)*
+item ::= [a-z]+
+"""
+"""A bracketed list whose arm CAPTURES the spaces between each bracket and the
+run, in slots of its own.
+
+The region split lays them back as edges: the leading spaces from the first
+piece and the trailing ones from the last. Without that the plan declines, as a
+stand-in's spaces would replace the document's; the mt rows price the restore."""

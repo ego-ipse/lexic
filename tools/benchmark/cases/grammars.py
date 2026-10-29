@@ -37,6 +37,7 @@ from tools.benchmark.cases.corpora import (
     announced_corpus,
     arith_corpus,
     backtrack_corpus,
+    captured_spaces_corpus,
     csv_corpus,
     dense_earley_corpus,
     ground_truth,
@@ -71,6 +72,7 @@ from tools.benchmark.cases.engine_reach import (
 )
 from tools.benchmark.cases.split_shapes import (
     ANNOUNCED,
+    CAPTURED_SPACES,
     MIXEDENDS,
     REOPENING,
     SPLIT_NULLABLE,
@@ -561,6 +563,15 @@ _DEFINED_BENCHES = (
         Samples(terminated_run_corpus(400), terminated_run_corpus(3600)),
         ("[get a;]", "[set a = 1;]", "[set a = 1;get b;]", "[get abc;get d;]"),
         ("[]", "[get a]", "get a;", "[set a;]", "[get a;;]"),
+    ),
+    # Spaces captured between each bracket and its run: the region split lays
+    # them back from the first and last pieces.
+    _bench(
+        "captured-spaces",
+        CAPTURED_SPACES,
+        Samples(captured_spaces_corpus(700), captured_spaces_corpus(7000)),
+        ("(a)", "( a )", "(a,b)", "(  ab,c )", "(ab)"),
+        ("()", "( )", "(a,)", "(,a)", "a"),
     ),
     # Three languages written directly, which the multi-arm fold runs
     # predictively, and the same three written through a relay rule, which

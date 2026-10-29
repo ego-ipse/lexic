@@ -68,6 +68,7 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     # No plan: a comma both separates pairs and sits inside a long pair.
     "reopening": None,
     "terminated-run": None,
+    "captured-spaces": None,
     "relay-fallback": None,
     "relay-exact": None,
     "relay-climb": None,
@@ -117,6 +118,9 @@ SPLITS: dict[str, bool] = {
     # The run is inside the brackets, past every top-level plan; the region
     # split cuts after each terminator.
     "terminated-run": True,
+    # One paren group, its spaces captured beside the run: the region split
+    # lays them back from the first and last pieces.
+    "captured-spaces": True,
     # The relay rows never divide: the fold does not read through `more`, so
     # there is no folded spine to cut — measured at four workers on the full
     # sample: zero piece-parses, not one.

@@ -1,5 +1,12 @@
 # Log
 
+## An inline capture beside a region's run is laid back (2026-10-29)
+
+`parallel-parsing.md`'s stitch section: `RegionPlan.edges` holds each inline
+capture between the delimiters with the wrapper edges, read from the first
+piece before the run and the last after it, and the two conditions (it can
+vanish, its alphabet misses the run's) under which a capture binds.
+
 ## A bracketed TERMINATED run divides (2026-10-29)
 
 `parallel-parsing.md`'s region-scan section: one reading

@@ -563,17 +563,16 @@ def _laid[M](
     never saw what follows the closer, and the stand-in's own noise may sit
     inside where a real item absorbed the source's. Each edge is built from
     the two slots' children, split at the bracket, and taken only when it
-    spells exactly that truth.
+    spells exactly that truth. An inline capture between the delimiters
+    (:attr:`~...plan.RegionPlan.edges`) holds no bracket, so its truth is the
+    first piece's before the run and the last piece's after it.
     """
     plan, text = done.work.plan, request.text
     region = done.work.region
     overlay = dict(done.overlay)
-    for slot, piece, bracket, opening in (
-        (plan.outer_begin, done.ends[0], text[region.opener], True),
-        (plan.outer_end, done.ends[1], text[region.closer], False),
-    ):
-        if slot is None:
-            continue
+    for slot, opening in plan.edges:
+        piece = done.ends[0] if opening else done.ends[1]
+        bracket = text[region.opener] if opening else text[region.closer]
         edge = _true_edge(_child(node, slot), _child(piece, slot), bracket, opening)
         if edge is None:
             return None
@@ -588,10 +587,13 @@ def _child(model: GrammarModel, slot: int) -> Bound:
 
 
 def _spelled(value: Bound) -> str | None:
-    """An edge slot's text: empty when unset, ``None`` when not a model."""
+    """An edge slot's text: empty when unset, ``None`` when neither a model nor
+    a captured string."""
     if value is None:
         return ""
-    return value.to_text() if isinstance(value, GrammarModel) else None
+    if isinstance(value, GrammarModel):
+        return value.to_text()
+    return value if isinstance(value, str) else None
 
 
 def _true_edge(

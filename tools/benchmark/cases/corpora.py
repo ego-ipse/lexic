@@ -44,6 +44,12 @@ def terminated_run_corpus(entries: int) -> str:
     return f"[{body}]"
 
 
+def captured_spaces_corpus(items: int) -> str:
+    """One paren group of comma-separated words, spaces captured either side."""
+    words = ",".join("abcdefgh"[: k % 8 + 1] for k in range(items))
+    return f"(  {words} )"
+
+
 def split_nullable_corpus(paras: int) -> str:
     """Paragraphs of three lines, including empty ones, each closed by a blank."""
     letters = "abcdefghijklmnopqrstuvwxyz"
