@@ -12,7 +12,7 @@ from lexic.parsing.parallel.stitch.plan import (
     bracket_rule,
     derive_plan,
 )
-from lexic.parsing.parallel.stitch.safety import owner_excludes
+from lexic.parsing.parallel.stitch.safety import owner_excludes, terminates_once
 
 
 def region_works[M](
@@ -60,11 +60,14 @@ def safe_leads(analysis: IrAst, plan: RegionPlan) -> bool:
     """Whether every mark of the plan's lead set is a boundary of its run.
 
     Per owner and per character: the head cannot spell any lead where the scan
-    reads it (:func:`~...stitch.safety.owner_excludes`), and nothing else in
+    reads it (:func:`~...stitch.safety.owner_excludes`) — for a terminated run,
+    every visible terminator in the unit is its last character
+    (:func:`~...stitch.safety.terminates_once`) — and nothing else in
     the bracket arm can emit one (:attr:`RegionPlan.around`, ANY where it
     cannot be read), so a lead at the region's depth stands between two items.
     """
+    proof = terminates_once if plan.ends else owner_excludes
     return not any(plan.around.has(lead) for lead in plan.separators) and all(
-        owner_excludes(analysis, plan.head_rule, lead, region_scan=True)
+        proof(analysis, plan.head_rule, lead, region_scan=True)
         for lead in plan.separators
     )

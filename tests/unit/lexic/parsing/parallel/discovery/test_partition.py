@@ -56,6 +56,20 @@ def test_each_piece_carries_its_own_brackets_and_the_shell_its_stand_in():
     assert (out[-1].held, out[-1].items) == ([0], [-1])
 
 
+def test_a_terminated_piece_keeps_the_terminator_it_is_cut_after():
+    """A cut in a terminated run falls after a terminator, and the piece
+    before it keeps it; a separated run's piece drops its cut mark, which the
+    stitch rebuilds with the tail it leads."""
+    doc = "[a;b;c;d;]"
+    marks = tuple(at for at, char in enumerate(doc) if char == ";")
+    region = Region(0, len(doc) - 1, "root", marks, ends=True)
+    cut = doc.index(";", doc.index("b"))
+    ended = units(doc, [Division(region, (cut,))], ["x;"])
+    assert [unit.text for unit in ended[:2]] == ["[a;b;]", "[c;d;]"]
+    led = units(doc, [Division(region._replace(ends=False), (cut,))], ["x;"])
+    assert [unit.text for unit in led[:2]] == ["[a;b]", "[c;d;]"]
+
+
 def test_render_replaces_each_interior_and_keeps_the_brackets():
     """Over the whole text or a window of it, each interior becomes its
     stand-in and the brackets stay."""

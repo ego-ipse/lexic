@@ -34,6 +34,16 @@ def reopening_corpus(pairs: int) -> str:
     return "[" + ",".join(f"({n})" for n in range(pairs)) + "]"
 
 
+def terminated_run_corpus(entries: int) -> str:
+    """A bracketed run of ``set``/``get`` statements, each closed by ``;``."""
+    keys = "abcdefgh"
+    body = "".join(
+        f"set k{keys[k % 8]} = {k};" if k % 3 else f"get k{keys[k % 8]};"
+        for k in range(entries)
+    )
+    return f"[{body}]"
+
+
 def split_nullable_corpus(paras: int) -> str:
     """Paragraphs of three lines, including empty ones, each closed by a blank."""
     letters = "abcdefghijklmnopqrstuvwxyz"

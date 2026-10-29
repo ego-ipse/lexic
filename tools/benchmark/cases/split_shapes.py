@@ -156,3 +156,17 @@ The mt rows DECLINE, in the open: a comma both separates pairs and sits inside
 a long pair, so no comma is provably a cut, and the region split declines at
 every core count. The row is not eligible for a split, and reports its
 sequential number there."""
+
+
+TERMINATED_RUN = """root ::= "[" entry+ "]"
+entry ::= "set " name " = " value ";" | "get " name ";"
+name ::= [a-z]+
+value ::= [0-9]+
+"""
+"""A bracketed run of statements, each closed by ``;`` and none separated from
+the next — a TERMINATED run inside brackets.
+
+No character stands between two entries, so there is no separator to cut at:
+the cut falls AFTER a terminator, and each piece keeps the one it was cut
+after. The top-level plans cannot reach it, because the run is inside the
+brackets; the region split divides it, which is what the mt rows price."""

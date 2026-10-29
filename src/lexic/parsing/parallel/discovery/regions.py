@@ -42,7 +42,7 @@ from lexic.parsing.parallel.discovery.shapes import (
 )
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.roles.derive import run_leads, standing_pairs
+from lexic.parsing.parallel.roles.derive import run_ends, run_leads, standing_pairs
 from lexic.parsing.parallel.roles.runs import BracketArm, bracket_arms, repeated_bodies
 
 
@@ -53,12 +53,16 @@ class Region(NamedTuple):
     :ivar closer: Offset of the bracket closing it.
     :ivar rule: The rule a piece of it parses under (``object``, ``array``).
     :ivar marks: Offsets of the separators directly inside it.
+    :ivar ends: Whether its marks END items (a terminated run, ``"[" entry+
+        "]"`` with each entry closed by ``;``) rather than lead them, so a
+        piece keeps the mark it is cut after.
     """
 
     opener: int
     closer: int
     rule: str
     marks: tuple[int, ...]
+    ends: bool = False
 
     @property
     def span(self) -> int:
@@ -130,13 +134,14 @@ def own_marks(text: str, found: list[Region], vocab: Vocab) -> list[Region]:
     (:attr:`Vocab.leads`): a frame records every mark at its depth, and another
     run's lead there (its terms' ``*/``, a sum's ``+-`` inside a list's item)
     stands inside an item. Free where no pair's set differs from the marks."""
-    if all(own == vocab.marks for own in vocab.leads.values()):
+    if not vocab.ends and all(own == vocab.marks for own in vocab.leads.values()):
         return found
     kept = []
     for region in found:
-        own = vocab.leads[text[region.opener]]
+        opener = text[region.opener]
+        own, ends = vocab.leads[opener], opener in vocab.ends
         if marks := tuple(at for at in region.marks if text[at] in own):
-            kept.append(region._replace(marks=marks))
+            kept.append(region._replace(marks=marks, ends=ends))
     return kept
 
 
@@ -150,6 +155,8 @@ class Vocab(NamedTuple):
     :ivar leads: opener → the marks its own run separates by: its lead set
         (:func:`~...roles.derive.run_leads`), else the one-literal separators, which
         are every mark a pair without a lead set ever had (:func:`own_marks`).
+    :ivar ends: The openers whose run is TERMINATED (:func:`run_ends`): their
+        marks are its terminators, and a piece keeps the one it is cut after.
     :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
         pays one dict miss. A single-character fast path beside it was built
         and MEASURED in-process at 0.98x — twice, results exact — and
@@ -161,6 +168,7 @@ class Vocab(NamedTuple):
     closers: dict[str, str]
     marks: frozenset[str]
     leads: dict[str, frozenset[str]]
+    ends: frozenset[str]
     skips: dict[str, Skip]
 
     @property
@@ -286,7 +294,8 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
     closers: dict[str, str] = {}
     for opener, (closer, _rule) in pairs.items():
         closers[closer] = closers.get(closer, "") + opener
-    leads = run_leads(grammar, pairs)
+    ended = run_ends(grammar, pairs)
+    leads = run_leads(grammar, pairs) | ended
     # No pair character is a mark. A standing pair's closer can still spell a
     # separator, but only at a site the scan never reads (an unreachable rule,
     # or inside an interior the walk skips): a READ separator site spelling it
@@ -302,7 +311,7 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
     own = {opener: leads.get(opener, plain) for opener in pairs}
-    return Vocab(pairs, closers, marks, own, skip_leads(skips))
+    return Vocab(pairs, closers, marks, own, frozenset(ended), skip_leads(skips))
 
 
 def sweep_offsets(text: str, watched: set[str]) -> list[int]:

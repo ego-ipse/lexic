@@ -245,6 +245,31 @@ def _merge_items[M](
     return out if out.__class__ is work.plan.items_type else None
 
 
+def _joined_run(work: RegionWork, models: list[GrammarModel]) -> GrammarModel | None:
+    """A terminated run's node: its first piece's, the run slot the pieces' runs
+    in order and the closing edge its last piece's. Each piece kept the
+    terminator it was cut after, so nothing between two units is rebuilt."""
+    plan, run = work.plan, []
+    for model in models:
+        part = (
+            _child(model, plan.items_rest)
+            if model.__class__ is plan.outer_type
+            else None
+        )
+        if not isinstance(part, tuple):
+            return None
+        run.extend(part)
+    children: list[Bound] = list(models[0].children())
+    children[plan.items_rest] = tuple(run)
+    if plan.outer_end is not None:
+        children[plan.outer_end] = _child(models[-1], plan.outer_end)
+    try:
+        out = models[0].rebuild(children)
+    except TypeError, ValueError, LexicError:
+        return None
+    return out if out.__class__ is plan.outer_type else None
+
+
 _DEPTHS, _SEEDS, _LONGEST = 6, 256, 256
 """The witness draw: depth-major, seed-minor, heads of at most 256 characters.
 Wide enough that a head shared by dozens of regions still has distinct texts —
@@ -446,8 +471,11 @@ def _finish[M](
 ) -> Attached | None:
     """What the region's pieces decide about its node: the merged items, and
     — through its first and last pieces — its edges inside the brackets."""
-    items = _merge_items(request, work, models)
     plan = work.plan
+    if plan.ends:
+        items = _joined_run(work, models)
+    else:
+        items = _merge_items(request, work, models)
     if items is None:
         return None
     ends = (models[0], models[-1])

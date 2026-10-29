@@ -36,6 +36,7 @@ from lexic.ir import (
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNoneType,
     IrRule,
     IrRuleRef,
 )
@@ -249,6 +250,81 @@ def run_leads(
             if len(own := {mark for mark in marks if len(mark) == 1}) > 1:
                 found[opener] = frozenset(own)
         entry = _LEADS[id(grammar)] = (grammar, found)
+    return entry[1]
+
+
+_ENDS: dict[int, tuple[IrAst, dict[str, frozenset[str]]]] = memo({})
+"""Terminator memo — id(grammar) → (grammar, opener → its run's terminators),
+pinned like `_ROLES`."""
+
+
+class TerminatedRun(NamedTuple):
+    """A bracket arm's run, read as TERMINATED: ``"[" entry+ "]"`` with every
+    entry closed by ``;``.
+
+    :ivar at: The index of the one unbounded reference the arm holds.
+    :ivar unit: The rule it repeats.
+    :ivar marks: The unit's one-character terminators in this container.
+    """
+
+    at: int
+    unit: str
+    marks: frozenset[str]
+
+
+def run_terminators(
+    rule: str,
+    arm: tuple[IrItem, ...],
+    rules: RuleTable,
+    records: tuple[Terminator, ...],
+) -> TerminatedRun | None:
+    """The terminated run ``arm`` of ``rule`` holds, or ``None``.
+
+    The one reading the scan and the region plan share, so both call a run
+    terminated alike. A separated run wins: an arm whose run has an owner
+    (:func:`~...roles.runs.run_owners`) is never terminated. Otherwise the arm
+    must hold exactly one unbounded rule reference, whose unit has terminator
+    records for this container, each one character.
+    """
+    if run_owners(rule, arm, rules):
+        return None
+    runs = [
+        (at, str(item.atom))
+        for at, item in enumerate(arm)
+        if item.quantifier.unbounded() and isinstance(item.atom, IrRuleRef)
+    ]
+    if len(runs) != 1:
+        return None
+    at, unit = runs[0]
+    marks = {
+        mark
+        for record in records
+        if record.container == rule and record.unit == unit
+        for mark in record.mark
+    }
+    if not marks or any(len(mark) != 1 for mark in marks):
+        return None
+    return TerminatedRun(at, unit, frozenset(marks))
+
+
+def run_ends(
+    grammar: IrAst, pairs: Mapping[str, tuple[str, str]]
+) -> dict[str, frozenset[str]]:
+    """opener → the terminators of the run its bracket rule's sole arm holds
+    (:func:`run_terminators`)."""
+    entry = _ENDS.get(id(grammar))
+    if entry is None:
+        records = roles(grammar).terminators
+        rules = rule_table(grammar)
+        found: dict[str, frozenset[str]] = {}
+        for opener, (_closer, rule) in pairs.items():
+            arm = rules[rule].sole_arm()
+            if isinstance(arm, IrNoneType):
+                continue
+            ended = run_terminators(rule, arm, rules, records)
+            if ended is not None:
+                found[opener] = ended.marks
+        entry = _ENDS[id(grammar)] = (grammar, found)
     return entry[1]
 
 

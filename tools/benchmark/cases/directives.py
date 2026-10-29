@@ -53,6 +53,7 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "two-mark": (("name", "word"), ("ws",)),
     # The arm choice between pair shapes is the boundary; a number is a run.
     "reopening": (("num",), ()),
+    "terminated-run": (("name", "value"), ()),
     "interior-exact": ((), ()),
     "interior-climb": ((), ()),
     "relay-fallback": ((), ()),

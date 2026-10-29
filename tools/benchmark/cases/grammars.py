@@ -53,6 +53,7 @@ from tools.benchmark.cases.corpora import (
     reopening_corpus,
     split_nullable_corpus,
     start_fallback_corpus,
+    terminated_run_corpus,
     two_mark_corpus,
     vyx_corpus,
     wrapped_unit_corpus,
@@ -73,6 +74,7 @@ from tools.benchmark.cases.split_shapes import (
     MIXEDENDS,
     REOPENING,
     SPLIT_NULLABLE,
+    TERMINATED_RUN,
     TWO_MARK,
     WRAPPED_UNIT,
 )
@@ -550,6 +552,15 @@ _DEFINED_BENCHES = (
         Samples(reopening_corpus(600), reopening_corpus(5000)),
         ("[(0)]", "[(0),(1)]", "[(0),(1),(2)]", "[(12),(3),(45),(6)]"),
         ("[]", "[(0),]", "[(0)(1)]", "(0)", "[(a)]"),
+    ),
+    # A TERMINATED run inside brackets: no separator between entries, so the
+    # region split cuts after each `;` and every piece keeps its terminator.
+    _bench(
+        "terminated-run",
+        TERMINATED_RUN,
+        Samples(terminated_run_corpus(400), terminated_run_corpus(3600)),
+        ("[get a;]", "[set a = 1;]", "[set a = 1;get b;]", "[get abc;get d;]"),
+        ("[]", "[get a]", "get a;", "[set a;]", "[get a;;]"),
     ),
     # Three languages written directly, which the multi-arm fold runs
     # predictively, and the same three written through a relay rule, which

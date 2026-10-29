@@ -67,6 +67,7 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     "two-mark": ("rule", "\t"),
     # No plan: a comma both separates pairs and sits inside a long pair.
     "reopening": None,
+    "terminated-run": None,
     "relay-fallback": None,
     "relay-exact": None,
     "relay-climb": None,
@@ -113,6 +114,9 @@ SPLITS: dict[str, bool] = {
     "two-mark": True,
     # Declines in the open: the region split is asked and finds no provable cut.
     "reopening": False,
+    # The run is inside the brackets, past every top-level plan; the region
+    # split cuts after each terminator.
+    "terminated-run": True,
     # The relay rows never divide: the fold does not read through `more`, so
     # there is no folded spine to cut — measured at four workers on the full
     # sample: zero piece-parses, not one.

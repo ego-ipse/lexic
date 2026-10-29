@@ -279,20 +279,23 @@ def scan_agrees(view: IrAst, scanned: IrAst, owner: str, marks: frozenset[str]) 
     )
 
 
-_TERMINATOR_PROOFS: dict[tuple[int, str, str], tuple[IrAst, bool]] = memo({}, 0)
+_TERMINATOR_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = memo({}, 0)
 """Per-analysis-view proof that a unit owns no internal terminator marks."""
 
 
-def terminates_once(grammar: IrAst, owner: str, terminator: str) -> bool:
-    """Prove every VISIBLE ``terminator`` in ``owner`` is its final edge."""
-    key = (id(grammar), owner, terminator)
+def terminates_once(
+    grammar: IrAst, owner: str, terminator: str, *, region_scan: bool = False
+) -> bool:
+    """Prove every VISIBLE ``terminator`` in ``owner`` is its final edge — read
+    over the scan the caller uses, as :func:`owner_excludes` is."""
+    key = (id(grammar), owner, terminator, region_scan)
     entry = _TERMINATOR_PROOFS.get(key)
     if entry is None:
         rules = rule_table(grammar)
         target = rules.get(owner)
         scope = Scope(
             rules,
-            _protected(grammar, False, terminator),
+            _protected(grammar, region_scan, terminator),
             {
                 (region.rule, region.arm): region.resumes
                 for region in mark_interiors(grammar, owner, frozenset({terminator}))

@@ -325,7 +325,7 @@ def _vocab(
     skips: dict[str, Skip] | None = None,
 ) -> Vocab:
     """A hand-built :class:`Vocab`, every table empty unless given."""
-    return Vocab(pairs or {}, closers or {}, marks, {}, skips or {})
+    return Vocab(pairs or {}, closers or {}, marks, {}, frozenset(), skips or {})
 
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:

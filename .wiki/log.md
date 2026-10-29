@@ -1,5 +1,13 @@
 # Log
 
+## A bracketed TERMINATED run divides (2026-10-29)
+
+`parallel-parsing.md`'s region-scan section: one reading
+(`roles.derive.run_terminators`) decides a terminated run for the scan and the
+plan alike, with a separated run taking precedence; the inclusive piece windows,
+the terminated plan, `terminates_once` as its proof, and the stitch that joins
+the pieces' runs.
+
 ## A shift confined to a run (2026-10-29)
 
 `decisions.md` records R3: where a sequence's, a repetition's or two arms'

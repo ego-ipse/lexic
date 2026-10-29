@@ -29,7 +29,12 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_char,
     rule_table,
 )
-from lexic.parsing.parallel.roles.derive import Separator, roles
+from lexic.parsing.parallel.roles.derive import (
+    Separator,
+    TerminatedRun,
+    roles,
+    run_terminators,
+)
 from lexic.parsing.parallel.roles.runs import holds_run
 from lexic.parsing.pda.analysis.predicates import atom_alphabet, rule_alphabets
 from lexic.parsing.pda.core.charsets import CharSet
@@ -63,6 +68,10 @@ class RegionPlan(NamedTuple):
     items_head: int
     items_rest: int
     tail_head: int
+    ends: bool = False
+    """A TERMINATED run (``"[" entry+ "]"``): ``separators`` are its units'
+    terminators, a piece keeps the one it is cut after, and the region's node is
+    its first piece's with the run slot (``items_rest``) the pieces' runs joined."""
 
 
 class RegionWork(NamedTuple):
@@ -468,6 +477,46 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     )
 
 
+def _terminated_plan(
+    root: IrAst,
+    binding: ModelExecutable,
+    rule_name: str,
+    arm: tuple[IrItem, ...],
+    ended: TerminatedRun,
+) -> RegionPlan | None:
+    """A bracket arm holding ``unit+`` directly, its units closed by the
+    terminators :func:`~lexic.parsing.parallel.roles.derive.run_terminators`
+    reads for that container."""
+    outer_pr = binding.routines.get(rule_name)
+    outer_type = model_type(outer_pr)
+    at, unit = ended.at, ended.unit
+    slot = field_slot(outer_pr, at) if outer_pr is not None else None
+    if outer_pr is None or outer_type is None or slot is None:
+        return None
+    begin, end = _boundary_slots(arm, at - 1, at + 1, outer_pr)
+    if _unlaid(rule_table(root), arm, range(at, at + 1), (begin, end), outer_pr):
+        return None
+    opening, closing = _boundary_charsets(root, arm, at - 1, at + 1)
+    return RegionPlan(
+        root=root,
+        head_rule=unit,
+        separators=ended.marks,
+        outer_type=outer_type,
+        items_type=outer_type,
+        tail_type=outer_type,
+        outer_begin=begin,
+        outer_skip=opening,
+        outer_items=-1,
+        outer_end=end,
+        outer_trail=closing,
+        around=_around(root, arm, range(at, at + 1)),
+        items_head=slot,
+        items_rest=slot,
+        tail_head=0,
+        ends=True,
+    )
+
+
 _REGION_PLANS: dict[
     tuple[int, int, str], tuple[IrAst, ModelExecutable, RegionPlan | None]
 ] = memo({}, 0, 1)
@@ -493,8 +542,7 @@ def derive_plan(
     if entry is None:
         rules = rule_table(grammar)
         records = roles(grammar).records
-        outer = rules.get(rule_name)
-        outer_arm = outer.sole_arm() if outer is not None else IrNone
+        outer_arm = rules[rule_name].sole_arm() if rule_name in rules else IrNone
         # A run held by a reference between the delimiters is the bracket's own
         # only where the arm holds no run itself (`holds_run`): `"[" e ("," e)*
         # "]"` is the list's run, never the sum each `e` holds.
@@ -523,7 +571,16 @@ def derive_plan(
             else []
         )
         root = IrAst(grammar.rules, rule_name)
-        if not isinstance(outer_arm, IrNoneType) and len(candidates) == 1:
+        ended = (
+            None
+            if isinstance(outer_arm, IrNoneType)
+            else run_terminators(
+                rule_name, tuple(outer_arm), rules, roles(grammar).terminators
+            )
+        )
+        if ended is not None and not isinstance(outer_arm, IrNoneType):
+            plan = _terminated_plan(root, binding, rule_name, tuple(outer_arm), ended)
+        elif not isinstance(outer_arm, IrNoneType) and len(candidates) == 1:
             plan = _configured_plan(
                 _PlanInput(
                     root,

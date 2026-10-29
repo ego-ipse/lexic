@@ -26,6 +26,7 @@ class Span(Protocol):
     :ivar opener: Offset of the character opening it.
     :ivar closer: Offset of the character closing it.
     :ivar marks: Offsets of the separators directly inside it.
+    :ivar ends: Whether those marks END items rather than lead them.
     """
 
     @property
@@ -41,6 +42,11 @@ class Span(Protocol):
     @property
     def marks(self) -> tuple[int, ...]:
         """Offsets of the separators directly inside it."""
+        raise NotImplementedError
+
+    @property
+    def ends(self) -> bool:
+        """Whether its marks end items (a piece keeps the one it is cut after)."""
         raise NotImplementedError
 
     @property
@@ -349,7 +355,12 @@ def _pieces[S: Span](
     out: list[Unit] = []
     for piece in range(last + 1):
         inner = held.get((index, piece), [])
-        window = (bounds[piece], bounds[piece + 1] - (1 if piece < last else 0))
+        # A cut drops the mark between two pieces, which the stitch rebuilds with
+        # the tail it leads; a terminated run's mark ENDS the piece and stays.
+        window = (
+            bounds[piece],
+            bounds[piece + 1] - (0 if region.ends or piece == last else 1),
+        )
         body = stubs.rendered(window, inner)
         kept, items = [k for k, _i in inner], [i for _k, i in inner]
         out.append(Unit(index, open_char + body + close_char, kept, items))

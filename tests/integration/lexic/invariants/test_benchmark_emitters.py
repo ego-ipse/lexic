@@ -168,6 +168,9 @@ EXPECTED: dict[str, frozenset[str]] = {
     # is answering the same question; which carving lexic keeps is pinned
     # beside the row (`test_live_set_rows`).
     "reopening": _ALL,
+    # Statements told apart by their first word and closed by `;`: nothing
+    # here is hard for any formalism. The row prices the region split.
+    "terminated-run": _ALL,
     # The three engine-reach rows are left-recursive by construction — that is
     # what makes them reach the engine they are named for — so they lose the
     # same three seats as the rows above, and for the same reason: PEG cannot

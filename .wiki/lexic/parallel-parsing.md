@@ -332,6 +332,26 @@ fixpoint, so a recursive `ws` reads as what it spells). A joint is rebuilt with
 the lead the document holds at the cut, `text[cut]`, so a `-` joint never
 reuses a `+` tail.
 
+**A region's run may be TERMINATED, not separated.** `"[" entry+ "]"` with
+each entry closed by `;` has no character between two entries, so there is no
+separator to cut at. One reading decides it, `roles.derive.run_terminators`, and
+the scan and the plan both ask it of the bracket rule's sole arm: the arm owns no
+separated run (`run_owners` is empty, so a lead run always wins), it holds one
+unbounded reference, and that unit's terminator records for the container are
+one character each. `roles.derive.run_ends` hands the scan those terminators as
+the pair's marks (`Vocab.ends`); `own_marks` keeps them and sets `Region.ends`.
+`derive_plan` asks the same reading first and builds `_terminated_plan` from it,
+with the same `_unlaid` cut. Because both read one predicate, a bracket is
+terminated for the scan exactly when its plan is: a led-and-terminated arm (`"["
+entry more* "]"`, `more ::= "," entry`, `entry ::= e ";"`) is led for both. A cut
+falls AFTER the terminator, so `partition` gives each piece an inclusive window
+and every piece keeps the terminator it was cut after.
+`tasks.safe_leads` asks `terminates_once` in place of `owner_excludes` — a unit
+that spells its terminator inside itself (`"a;b;"`) refuses the plan, because a
+cut after the inner one would end a piece inside a unit. The stitch has no joint
+to rebuild: `_joined_run` concatenates the pieces' runs under the first piece's
+node and the last piece's closer.
+
 **No character plays two pair roles.** `standing_pairs` drops a pair whose
 character also delimits another standing pair in the other role — `|` in
 `angle ::= "<" word "|"` and `bar ::= "|" word ("," word)* ">"` drops both.

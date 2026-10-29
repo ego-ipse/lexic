@@ -29,11 +29,17 @@ def region_items(model: GrammarModel, plan: RegionPlan) -> GrammarModel | None:
 def head_rest(
     items: GrammarModel, plan: RegionPlan
 ) -> tuple[GrammarModel, tuple[GrammarModel, ...]] | None:
-    """One items node's head and plain-tuple repeated tails."""
+    """One items node's head and plain-tuple repeated tails — for a terminated
+    run (``plan.ends``), its first unit and the rest of its run."""
     children = items.children()
     if max(plan.items_head, plan.items_rest) >= len(children):
         return None
     head, rest = children[plan.items_head], children[plan.items_rest]
+    if plan.ends:
+        if not is_plain_tuple(rest) or not rest:
+            return None
+        units = cast(tuple[GrammarModel, ...], rest)
+        return units[0], units[1:]
     if not isinstance(head, GrammarModel) or not is_plain_tuple(rest):
         return None
     tails = cast(tuple[object, ...], rest)

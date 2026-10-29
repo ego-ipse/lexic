@@ -12,9 +12,17 @@ from __future__ import annotations
 import lexic.parsing
 from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrNoneType
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles.derive import Terminator, agreed_tail, standing_pairs
+from lexic.parsing.parallel.discovery.shapes import rule_table
+from lexic.parsing.parallel.roles.derive import (
+    TerminatedRun,
+    Terminator,
+    agreed_tail,
+    run_terminators,
+    standing_pairs,
+)
 from lexic.parsing.parallel.roles.runs import repeated_bodies
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
@@ -330,3 +338,36 @@ def test_roles_reads_only_an_arms_own_repetition():
     assert [r.item for r in repeated_bodies(authored, nested=True)] == [""]
     assert not repeated_bodies(authored, nested=False)
     assert roles(authored).records == ()
+
+
+def _terminated(source: str, rule: str = "root") -> TerminatedRun | None:
+    grammar = compile_text(
+        source, cache_key=f"terminated-{hash(source)}"
+    ).codegen_grammar
+    rules = rule_table(grammar)
+    arm = rules[rule].sole_arm()
+    assert not isinstance(arm, IrNoneType)
+    return run_terminators(rule, arm, rules, roles(grammar).terminators)
+
+
+def test_a_bracket_arm_holding_a_closed_unit_run_is_terminated():
+    """``"[" entry+ "]"`` with ``entry`` closed by ``;``: the one unbounded
+    reference, and its one-character terminator in this container."""
+    got = _terminated('root ::= "[" entry+ "]"\nentry ::= e ";"\ne ::= [a-z]+\n')
+    assert got == TerminatedRun(1, "entry", frozenset({";"}))
+
+
+def test_a_separated_run_wins_over_a_terminated_one():
+    """``more ::= "," entry`` makes the arm own a separated run, so the same
+    arm is never ALSO terminated: the scan and the plan read it as led."""
+    led = 'root ::= "[" entry more* "]"\nmore ::= "," entry\nentry ::= e ";"\ne ::= [a-z]+\n'
+    assert _terminated(led) is None
+
+
+def test_a_run_is_terminated_only_by_one_reference_and_single_characters():
+    """Two unbounded references, or a terminator two characters long, read as
+    no terminated run."""
+    two = 'root ::= "[" entry+ other* "]"\nentry ::= e ";"\nother ::= e "."\ne ::= [a-z]+\n'
+    wide = 'root ::= "[" entry+ "]"\nentry ::= e ";;"\ne ::= [a-z]+\n'
+    assert _terminated(two) is None
+    assert _terminated(wide) is None
