@@ -535,3 +535,15 @@ def test_subtract_is_intersection_with_the_real_char_complement(
     result = a.subtract(b)
     for ch in (*ALPHABET, OUTSIDE):
         assert result.has(ch) == (a.has(ch) and b_complement.has(ch))
+
+
+def test_within_is_the_subset_order_across_polarities():
+    """``within`` is ⊆: a positive set within a larger one, within ANY, and a
+    negated one within only a negated set excluding no more."""
+    space, both = CharSet.from_chars(" "), CharSet.from_chars(" ", "a")
+    assert space.within(both) and not both.within(space)
+    assert space.within(CharSet.ANY) and not CharSet.ANY.within(space)
+    assert CharSet.EMPTY.within(space)
+    no_a = CharSet(frozenset({"a"}), True)
+    assert no_a.within(CharSet.ANY) and not CharSet.ANY.within(no_a)
+    assert not no_a.within(both) and space.within(no_a)

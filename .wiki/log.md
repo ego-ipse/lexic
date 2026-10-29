@@ -1,5 +1,14 @@
 # Log
 
+## A shift confined to a run (2026-10-29)
+
+`decisions.md` records R3: where a sequence's, a repetition's or two arms'
+boundary shifts only inside a run, EXTEND takes the rest's EXTEND, not the
+ALPHABET. It records the conditions, the proof, the TAILS solve and the
+re-ask that ends the build, and what it costs and buys. The licence entry
+drops its open gap: json's six units keep `"`. The shifting-item entry's pins
+now name `extend/test_lengthen.py`.
+
 ## The record reconciled against what landed since main (2026-10-29)
 
 Eleven invariants established by the recent landings were not yet written down.

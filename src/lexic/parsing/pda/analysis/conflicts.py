@@ -197,7 +197,7 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
             and int(last.quantifier.lo) == 0
             and not last.quantifier.fixed()
         )
-        if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
+        if not absorbs or not first.within(analysis.atom_first(last.atom)):
             return False
     return True
 

@@ -544,7 +544,7 @@ def probe_candidate(
                 if shape is None:
                     continue
                 head, r_name, mid_root, lit = shape
-                if not overlap.subtract(analysis.first[r_name]).is_empty():
+                if not overlap.within(analysis.first[r_name]):
                     continue
                 pnf = _post_noise_follow(analysis, lead, skip=id(head))[r_name]
                 if pnf.has(lit[0]):

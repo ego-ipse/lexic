@@ -56,10 +56,9 @@ _RUN_WITNESSES = {
     ("json.gbnf", "member"): '"',
     ("json.gbnf", "object-item2"): '"',
 }
-"""Unplanned units whose sound licence EXTEND still refuses: a whitespace run
-ending one item meets the run opening the next, so their boundary shifts, and
-the true EXTEND excludes each opening all the same. TODO_3 item 16′b's
-witnesses for a shift confined to a run."""
+"""Unplanned units where a whitespace run ending one item meets the run opening
+the next, so their boundary shifts: the shift is confined to the run, and
+EXTEND excludes each opening, as the true EXTEND does."""
 
 
 _SEATS = ("pda", "lex", "lex-ns")
@@ -120,10 +119,8 @@ def test_unshifting_witness_keeps_its_licence(witness: tuple[str, str]) -> None:
     assert _licence(witness) == frozenset(_SHIFT_WITNESSES[witness])
 
 
-@pytest.mark.xfail(
-    strict=True, reason="a shift confined to a whitespace run (item 16′b)"
-)
 @pytest.mark.parametrize("witness", sorted(_RUN_WITNESSES))
 def test_run_witness_keeps_its_licence(witness: tuple[str, str]) -> None:
-    """A more precise EXTEND grants each witness the opening the old walk did."""
+    """A shift confined to a run grants each witness the opening the old walk
+    did."""
     assert _licence(witness) == frozenset(_RUN_WITNESSES[witness])

@@ -291,7 +291,7 @@ class IslandContinuations:
             last = items[-1]
             if last.quantifier.upper() is not None:
                 return False
-            if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
+            if not extend.within(self.analysis.atom_first(last.atom)):
                 return False
         return True
 

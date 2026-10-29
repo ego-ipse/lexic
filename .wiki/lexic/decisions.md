@@ -1893,10 +1893,10 @@ walk answered nothing, and on chess.gbnf it licensed `move` although `Nd2` and
 by induction, but coarser: on a repetition whose iteration's EXTEND meets its
 own FIRST it falls back to the rule's ALPHABET. Over every bench compile and
 the ground-truth corpus, the 24 units a planner asks are licensed identically
-(one licence, `#` on announced's `section`); 6 unplanned units (json
-`member`/`object-item2` in three flavours) lose a licence to a whitespace run
-whose boundary shifts (TODO 16′b). Chess `move` is the licence the swap
-revokes, and its pin parses both moves.
+(one licence, `#` on announced's `section`), and 6 unplanned units (json
+`member`/`object-item2` in three flavours) keep `"` through a shift confined
+to a run (below). Chess `move` is the licence the swap revokes, and its pin
+parses both moves.
 
 ## A sequence's EXTEND is bounded at its leftmost shifting item
 
@@ -1937,7 +1937,54 @@ Two-occurrence and lengthening surpluses are each needed: `x ::= [a-c]* "b"
 "a"+` shifts only through two further occurrences (`ba`), and `x ::= y* "b"`
 with `y ::= "a" "ab"?` only through `"a" "a"` re-read as `"aab"`, whose `b` is
 neither in `y`'s EXTEND nor its FIRST. Both are pinned against the enumerated
-language in `test_predicates.py`, with a random-rule soak behind them.
+language in `extend/test_lengthen.py`, with a random-rule soak behind them.
+
+## A shift confined to a run adds no ALPHABET (R3)
+
+**Decision:** where two readings may part at an item whose surplus K meets
+what follows, `seq_extension` keeps the ALPHABET fallback out when the shift is
+confined to a run. A run is `C*` over one character set, directly or as a unit
+rule's sole item (`extend/runs.is_run`). The conditions, read off the grammar
+and the maps alone:
+- the rest begins with runs of a class S covering K (`leading_run`);
+- every string of the rest beginning in S is a droppable S-prefix, then a
+  character outside S (`led`), and `heads` are those characters;
+- every extension of the item beginning in S is all S, or leaves S on a
+  character outside `heads`: the item's TAILS miss them.
+
+The same reading frees a repetition whose iterations re-split
+(`item_extension`, the rest being one more iteration), and two arms sharing a
+first character (`arms_extension`, `runs.apart`: both led by the shared run,
+heads disjoint). `led` and `heads` read an arm followed by the rest, never a
+further occurrence: an arm reaches what follows it only through items that
+vanish, so the item is nullable, and its remaining occurrences vanish exactly
+when the rest does and read the same arms again. TAILS is a least fixpoint per
+rule and run class
+(`_tails_ruleref`): one ask's solve reads each key it meets depth-first, and
+passes settle only a cycle among them. Verdicts carry across the EXTEND passes;
+a False one is kept for good, since it falls back to the sound bound. Once the
+maps stand, every True one is re-asked on them (`_still_confined`), and the
+build ends when all hold.
+
+**Why:** let `uw` be the longer reading at the item, so the item's text is
+`u`'s plus an extension x, and `u`'s rest β is a prefix of x followed by `uw`'s
+rest. If x is all S, β is an S-run then a non-S character (led), which cannot
+fall inside x. So β is x then β with part of its leading run dropped, still a
+string of the rest, and `w[0]` is in the rest's EXTEND. If x leaves S on c, β's
+first non-S character would be c, which TAILS against `heads` rules out. The
+mirror case is the same. Any fixpoint of sound rules is sound by induction on
+derivation height, so carrying a verdict is safe once the final maps confirm
+it. What R3 buys: the 6 json units keep their licence, and 26 rule EXTENDs
+shrink over the ground-truth and bench grammars (json's 8 rules × 3 flavours,
+commands' `entry` and `root`); none grows. What it costs is analysis time,
+never a timed parse: ground-truth json.gbnf's EXTEND build goes from 2.78 to
+6.71 ms, vyx's analysis gains 2.1 to 2.3 ms of 91, and a grammar without a run
+pays only the gate (one in-process A/B against the base, every bench row and
+seat). Pinned in `extend/test_lengthen.py`: three tightenings and seven
+near misses, each against the enumerated language. One near miss holds on an
+early pass's maps and fails on the final ones, so only the closing re-ask turns
+it. A TAILS cycle there settles to its least fixpoint. Further pins are in
+`extend/test_runs.py` and `test_speculation_licences.py`'s run witnesses.
 
 ## A bound field's document order is read, never assumed
 

@@ -340,6 +340,7 @@ src/lexic/
           __init__.py              the group's package marker
           maps.py                  Extensions — the fixpoints' working maps, and the atom bodies they share
           lengthen.py              EXTEND — item, sequence and arm rules, the shifting bound, R3's confinement, rule_extensions
+          runs.py                  Runs — what a run lets EXTEND drop, read off the grammar alone
           inner.py                 NON_INITIAL — every character a string can carry past its first
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker

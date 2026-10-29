@@ -149,6 +149,15 @@ class CharSet:
             return bool((other.chars - self.chars) - _EOF_ONLY)
         return bool((self.chars - other.chars) - _EOF_ONLY)
 
+    def within(self, other: CharSet) -> bool:
+        """Whether every member of ``self`` is a member of ``other`` — the
+        subset order, exact across all four polarity combinations.
+
+        :param other: The set to test against.
+        :returns: ``True`` iff ``self ⊆ other``.
+        """
+        return self.subtract(other).is_empty()
+
     def is_empty(self) -> bool:
         """Whether this set has no members.
 

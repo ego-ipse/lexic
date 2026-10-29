@@ -462,7 +462,7 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
                 return None
             out = out.union(sub)
             first = self.analysis.atom_first(item.atom)
-            transparent = first.subtract(self.w).is_empty()
+            transparent = first.within(self.w)
             if not (self.analysis.item_nullable(item) or transparent):
                 return out, False
         return out, True
