@@ -31,6 +31,9 @@ from lexic.parsing.executable import ModelExecutable, process_constants
 from lexic.parsing.parallel import (
     Replica,
     document_view,
+)
+from lexic.parsing.parallel import pool as pool_module
+from lexic.parsing.parallel import (
     replica_count,
 )
 from lexic.parsing.parallel import replicas as replica_module
@@ -630,6 +633,34 @@ def test_a_splits_first_meetings_are_copied_before_the_pools_next_split() -> Non
     assert warmed == 2, "the warm gives every worker its own copy"
     assert len(then.views()) == 2 and id(grammar) not in then.views()
     assert after == warmed, "the next split's pieces made no copy"
+
+
+def test_the_warm_is_never_taken_back_by_the_calling_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The warm hands each worker one task behind a barrier of every worker,
+    so its phase has no spare place and the calling thread takes nothing back:
+    a taken-back task would wait at the barrier for a worker that never comes,
+    and hold the caller there until the barrier times out."""
+    grammar, binding = _pair("warm-never-taken-back")
+    seen: list[tuple[str, bool]] = []
+
+    class Watched(threading.Barrier):
+        """The warm's barrier, noting who arrives at it."""
+
+        def wait(self, timeout: float | None = None) -> int:
+            seen.append((threading.current_thread().name, pool_module.taking_back()))
+            return super().wait(timeout)
+
+    with WorkPool(2) as pool:
+        _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
+        replica_module.settle_first_meetings(pool, binding)
+        monkeypatch.setattr(threading, "Barrier", Watched)
+        replica_module.warm_due(pool.lend(), binding)
+
+    me = threading.current_thread().name
+    assert len(seen) == 2
+    assert all(name != me and not back for name, back in seen)
 
 
 def test_a_pool_owing_nothing_warms_nothing() -> None:

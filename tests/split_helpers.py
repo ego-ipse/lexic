@@ -266,17 +266,24 @@ def hold_workers(pool: WorkPool, count: int, release: Event) -> Thread:
 
     The holding phase runs on a thread of its own, so the caller's next phase
     finds only the rest of the pool free; returned once every held worker is
-    running, for the caller to join after setting ``release``.
+    running, for the caller to join after setting ``release``. Its own share
+    waits until every hold has started, so the holding thread finds nothing
+    left to take back and every hold stays on a worker.
     """
     running = Barrier(count + 1)
+    held = Event()
 
     def hold(_slot: int) -> None:
         running.wait(timeout=30)
         release.wait(timeout=30)
 
-    holder = Thread(target=pool.map, args=(hold, list(range(count))))
+    def started(_submit) -> None:
+        running.wait(timeout=30)
+        held.set()
+
+    holder = Thread(target=pool.map, args=(hold, list(range(count)), started))
     holder.start()
-    running.wait(timeout=30)
+    held.wait(timeout=30)
     return holder
 
 
