@@ -1,5 +1,5 @@
-"""Tests for lexic.parsing.pda.runtime.kernel.sides — the stacks a boundary
-verdict is asked on.
+"""Tests for lexic.parsing.pda.runtime.kernel.verdicts.sides — the stacks a
+live set's readings are.
 
 A side is driven on a real kernel, so its seams are exercised there: the
 ``_advance`` exception contract, the floors a side recovers from the stack and
@@ -23,27 +23,25 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel import sides
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
-from lexic.parsing.pda.runtime.kernel.sides import (
+from lexic.parsing.pda.runtime.kernel.verdicts import sides
+from lexic.parsing.pda.runtime.kernel.verdicts.liveset import LiveSet, Split
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     Sides,
     descending,
     entered,
     iterating,
     landing,
 )
-from lexic.parsing.pda.runtime.kernel.verdicts import (
-    Verdicts,
-)
 from tests import parity_helpers
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
-from tests.unit.lexic.parsing.pda.runtime.kernel.side_support import (
-    NOISE_RUNS,
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
+    ENTRY_AT_THE_START,
     TOP,
     completed_side,
-    converged_tally,
     live_kernel,
+    meeting_tally,
 )
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -54,7 +52,7 @@ def _raise(why: BaseException) -> None:
 
 
 def _side(kern: PdaKernel) -> Side:
-    """The lockstep side ``_advance`` swaps in — the cursor triple, as a value.
+    """The side ``_advance`` swaps in — the cursor triple, as a value.
 
     The reach is the subject, not an accident of testing: ``_routes`` is
     private because nothing outside the kernel may steer it, and a test of
@@ -65,15 +63,15 @@ def _side(kern: PdaKernel) -> Side:
     return kern.stack, kern.pos, routes, [], [], [], [TOP], ()
 
 
-def _cursor(kern: PdaKernel) -> tuple[Side, int, bool]:
+def _cursor(kern: PdaKernel) -> tuple[Side, int, Side | None]:
     """Everything ``_advance``'s ``finally`` promises to put back."""
     caches = kern._caches  # pylint: disable=protected-access  # the seam — see `_side`
-    return _side(kern), caches.probing, caches.uncertain
+    return _side(kern), caches.probing, caches.side
 
 
 def _advance(kern: PdaKernel, side: Side) -> Side | None:
     """Drive one side to exhaustion — the method whose contract is under test."""
-    return kern._advance(side, -1)[0]  # pylint: disable=protected-access  # see `_side`
+    return kern._advance(side, -1)  # pylint: disable=protected-access  # see `_side`
 
 
 def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
@@ -81,8 +79,8 @@ def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
 
     ``ProbeFork`` subclasses :class:`PdaFail`, so the ordinary handler would
     swallow it and hand back ``None`` — indistinguishable from a side that
-    died. The lockstep answers :data:`TAKE` on a dead STOP side, so a
-    swallowed fork would commit a take the gated engine never got to refuse.
+    died. A live set prunes a dead reading, so a swallowed fork would decide
+    for the other way a boundary the gated engine never got to answer.
 
     Injected at the seam deliberately: the contract under test is the
     EXCEPTION's, and a grammar that happens to fork here would test the
@@ -97,22 +95,27 @@ def test_a_probe_fork_propagates_out_of_advance(monkeypatch) -> None:
         _advance(kern, side)
 
 
-def test_advance_restores_the_cursor_when_a_probe_fork_propagates(
-    monkeypatch,
+@pytest.mark.parametrize(
+    "raised",
+    [ProbeFork("undecidable", 0), Split([], [], 0)],
+    ids=["probe-fork", "split"],
+)
+def test_advance_restores_the_cursor_when_a_raise_propagates(
+    monkeypatch, raised: BaseException
 ) -> None:
     """The ``finally`` holds under the raise path.
 
     Early propagation is the one thing that could leave the cursor swapped in:
-    the stack, position, routes and both cache counters are saved around the
-    drive and must come back whether it returned, failed, or raised through.
+    the stack, position, routes, the probing depth and the side being driven
+    are saved around the drive and must come back whether it returned, failed,
+    or raised through — a fork, or a reading's split, which no handler on the
+    way may read as a death.
     """
     kern = live_kernel()
     before = _cursor(kern)
     side = _side(kern)
-    monkeypatch.setattr(
-        PdaKernel, "_drive", lambda *_a, **_k: _raise(ProbeFork("undecidable", 0))
-    )
-    with pytest.raises(ProbeFork):
+    monkeypatch.setattr(PdaKernel, "_drive", lambda *_a, **_k: _raise(raised))
+    with pytest.raises(type(raised)):
         _advance(kern, side)
     assert _cursor(kern) == before
 
@@ -159,17 +162,17 @@ def test_a_fork_inside_a_loop_iteration_settles_it(monkeypatch) -> None:
     """gbnf-meta's trailing comment line is a boundary inside the ``n?``
     iteration the grammar loop is attempting. The stop side ends ``n`` there;
     settled as the live loop settles it, the rest of the line cannot be a
-    ``tail-comment`` (no newline in one), so the stop side dies and the take
-    settles — without the sides ever converging."""
+    ``tail-comment`` (no newline in one), so the stop reading dies and the
+    take settles — without the readings ever meeting."""
     bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     text = "q::=\nBcQ::=#\n#\n"
-    tally = converged_tally(bench.compiled, text, monkeypatch)
+    tally = meeting_tally(bench.compiled, text, monkeypatch)
     monkeypatch.undo()
     seen = _floors_seen(bench.compiled, text, monkeypatch)
     predictive, _gated = parity_helpers.answers(bench.source, "verdicts-gbnf", text)
 
     assert ["loop"] in seen, f"no side was forked inside a loop iteration: {seen}"
-    assert tally["converged"] == 0, tally
+    assert tally["meetings"] == 0, tally
     assert predictive != parity_helpers.DECLINED
 
 
@@ -186,27 +189,14 @@ def test_a_fork_inside_an_attempt_entry_settles_it(monkeypatch) -> None:
     assert predictive == gated
 
 
-ENTRY_AT_THE_START = (
-    "# @non-semantic n m\n"
-    "root ::= a | b\n"
-    'a ::= item n? m? item ";"\n'
-    'b ::= item n? m? item "."\n' + NOISE_RUNS
-)
-"""The start rule is an attempt clone: the run itself starts its entries, and
-a boundary in ``n``'s run sits inside them."""
-
-
 def test_an_entry_the_run_started_settles_into_the_sides_own_root(
     monkeypatch,
 ) -> None:
     """Nothing below the bottom sub-run holds what the winner splices into:
     the run's holder is not on the stack. Each side completes into a root of
-    its own — the value the end-of-input comparison reads — and the parse
-    builds the gated engine's model."""
-    real_floors, real_converged = (
-        vars(Sides)["_side_floors"],
-        vars(Verdicts)["_converged"],
-    )
+    its own — the value two completed readings that meet compare — and the
+    parse builds the gated engine's model."""
+    real_floors, real_met = vars(Sides)["_side_floors"], vars(LiveSet)["_met"]
     bottoms: list[bool] = []
     roots: list[tuple[int, int]] = []
 
@@ -215,12 +205,13 @@ def test_an_entry_the_run_started_settles_into_the_sides_own_root(
         bottoms.extend(root is f[5][1] for f in found if f[0] == 0)
         return root, found
 
-    def converged(self, left, right, *rest):
-        roots.append((len(left[3]), len(right[3])))
-        return real_converged(self, left, right, *rest)
+    def met(self, one, other):
+        if not one.side[0]:  # completed readings meet on their roots
+            roots.append((len(one.side[3]), len(other.side[3])))
+        return real_met(self, one, other)
 
     monkeypatch.setattr(Sides, "_side_floors", floors)
-    monkeypatch.setattr(Verdicts, "_converged", converged)
+    monkeypatch.setattr(LiveSet, "_met", met)
     predictive, gated = parity_helpers.answers(
         ENTRY_AT_THE_START, "verdicts-entry-start", "x #a\nx."
     )
@@ -408,8 +399,8 @@ def test_a_side_that_drains_short_of_the_end_is_dead(monkeypatch) -> None:
     kern = live_kernel("ab")
     monkeypatch.setattr(PdaKernel, "_drive", lambda *_a, **_k: None)
     advance = vars(Sides)["_advance"]
-    assert advance(kern, completed_side(1, []), -1) == (None, False)
-    done, _sampled = advance(kern, completed_side(2, ["r"]), -1)
+    assert advance(kern, completed_side(1, []), -1) is None
+    done = advance(kern, completed_side(2, ["r"]), -1)
     assert done is not None and done[1] == 2 and done[3] == ["r"]
 
 

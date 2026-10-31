@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
+from lexic.parsing import products
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.leftrec.build import fold_build
@@ -55,21 +56,60 @@ def test_the_width_is_the_captures_past_the_recursive_slot() -> None:
     assert got.slots == 3, "and the accumulator ahead of them"
 
 
-def test_more_than_one_recursive_arm_is_refused() -> None:
-    """Which arm an iteration matched is not recoverable from a flat sink.
-
-    The iterations land in one list with no arm tag, so a two-arm fold would
-    have to guess which routine built each one. Refusing leaves the rule
-    islanding, which is correct rather than merely safe.
-    """
-    # The shape reader declines a two-recursive-arm rule before `fold_build`
-    # ever sees one, so the refusal is asserted on a shape constructed to
-    # reach it — otherwise this would pin the wrong module's decision.
-    shape, product = parts('root ::= x "!"\nx ::= x "d" | "a"\n', "x")
+def test_several_recursive_arms_build_one_step_each() -> None:
+    """Each recursive arm keeps its own build, in the order the grammar wrote
+    them; the iterations then say which one they took, so there is no flat
+    width to cut by."""
+    shape, product = parts(
+        'root ::= x "!"\nx ::= x "a" | x op y | "z"\nop ::= "+"\ny ::= [b-d]\n', "x"
+    )
     assert shape is not None
-    two_arms = Fold(shape.base, shape.steps + (shape.steps[0],))
 
-    assert fold_build(two_arms, product.binding.routines) is None
+    got = fold_build(shape, product.binding.routines)
+
+    assert got is not None
+    assert (got.width, got.slots) == (0, 0), "no flat cut"
+    assert [step.slots for step in got.arms] == [1, 3], "x alone; x, op and y"
+
+
+SEVERAL_ARMS = {
+    "two bare literals": ('root ::= x "!"\nx ::= x "a" | x "b" | "z"\n', "zabba!"),
+    "a capture beside a bare literal": (
+        'root ::= x "!"\nx ::= x "a" | x op y | "z"\nop ::= "+"\ny ::= [b-d]\n',
+        "za+ba+c+da!",
+    ),
+    "three arms, a base with a capture": (
+        'root ::= x "!"\nx ::= x "a" | x "b" | x op y | w\nw ::= [w-z]+\n'
+        'op ::= "+"\ny ::= [c-d]\n',
+        "wxyab+cba+d!",
+    ),
+    "the start rule": ('root ::= root "a" | root "b" | "a"\n', "abbaab"),
+    "a literal past an arm's last capture": (
+        'root ::= x "!"\nx ::= x "a" | x op y ";" | "z"\nop ::= "+"\ny ::= [b-d]\n',
+        "za+b;a+c;!",
+    ),
+}
+"""Folds over several recursive arms, each iteration built through the arm it
+took — bare literals that capture nothing, captures, and a mixture."""
+
+
+@pytest.mark.parametrize("label", SEVERAL_ARMS)
+def test_several_recursive_arms_fold_to_earleys_model(label: str) -> None:
+    """Answered on the PDA directly — the rule folded, not an island — with the
+    model Earley builds."""
+    source, text = SEVERAL_ARMS[label]
+    islands = compile_text(source, cache_key=f"fold-arms-{label}").pda_tables().islands
+    assert not islands, f"{label} still islands {sorted(islands)}"
+    pda, earley = pda_and_earley(source, text, f"fold-arms-{label}")
+    assert pda == earley
+
+
+def test_one_iteration_on_each_side_of_a_single_arm_still_folds() -> None:
+    """A lone iteration of each arm, and none at all, build as Earley does."""
+    source = SEVERAL_ARMS["a capture beside a bare literal"][0]
+    for text in ("z!", "za!", "z+b!"):
+        pda, earley = pda_and_earley(source, text, "fold-arms-short")
+        assert pda == earley, text
 
 
 def test_a_step_with_no_routine_is_refused() -> None:
@@ -130,3 +170,21 @@ def test_a_capture_free_fold_is_the_models_earley_builds(text: str) -> None:
     """
     pda, earley = pda_and_earley('root ::= root "a" | "a"\n', text, "fold-count-parse")
     assert pda == earley
+
+
+def test_a_workers_copy_of_a_several_armed_fold_parses_alike() -> None:
+    """A split's worker parses on its own private copy of the tables, and the
+    step group's construction is copied with them: the copy builds the model
+    the original does. A construction the copy cannot see inside refuses."""
+    source, text = SEVERAL_ARMS["a capture beside a bare literal"]
+    compiled = compile_text(source, cache_key="fold-arms-replica")
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    binding = compiled.product
+    replica = binding.replica()
+    copy = binding.copied(product.pda, replica)
+
+    got = products.pda_model(copy, text, replica.executor)
+    want = products.pda_model(product.pda, text, binding.executor)
+
+    assert copy is not product.pda
+    assert got.dump() == want.dump()

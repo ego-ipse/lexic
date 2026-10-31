@@ -559,3 +559,79 @@ def test_a_length_one_mark_never_reaches_the_border_walk():
     a length-one mark cannot be its own border, and the decision table's
     walk over the owner's rules never runs at all."""
     assert mark_overlap(_grammar(_SAFE_SOURCE), "para", "\n") == Overlap(True, False)
+
+
+_TAIL_PAST_CLOSER = (
+    "root ::= arr\n"
+    'arr ::= "[" row ("," row)* "]"\n'
+    'row ::= "{" [a-z]+ ":" [0-9]+ "}" ("," note)*\n'
+    'note ::= "{" "n" ":" [0-9]+ "}"\n'
+)
+"""``row`` delimits with ``{``/``}`` and then keeps going: its tail spells the
+very separator its owner list cuts on, at the list's own depth."""
+
+
+@pytest.mark.parametrize("region_scan", [True, False])
+def test_a_paired_owner_spelling_the_mark_past_its_closer_is_not_protected(
+    region_scan: bool,
+) -> None:
+    """A scan owns a paired rule only between its delimiters: the ``,`` after
+    ``}`` stands at the depth the row stands at, so no proof may hide it."""
+    grammar = compile_text(_TAIL_PAST_CLOSER, cache_key="tail-past-closer").grammar
+    assert not owner_excludes(grammar, "row", ",", region_scan=region_scan)
+
+
+_CLOSED_AT_CLOSER = (
+    "root ::= arr\n"
+    'arr ::= "[" row ("," row)* "]"\n'
+    'row ::= "{" cells "}" ws\n'
+    'cells ::= cell ("," cell)*\n'
+    "cell ::= [a-z]+\n"
+    'ws ::= " "*\n'
+)
+"""The same list with a row whose commas all sit between its braces, followed
+only by noise that cannot spell one."""
+
+
+@pytest.mark.parametrize("region_scan", [True, False])
+def test_a_paired_owner_that_closes_its_arm_stays_protected(region_scan: bool) -> None:
+    """What a row holds between its delimiters is the nested region's, so
+    its commas stay hidden and the owner is excluded."""
+    grammar = compile_text(_CLOSED_AT_CLOSER, cache_key="tail-closed").grammar
+    assert owner_excludes(grammar, "row", ",", region_scan=region_scan)
+
+
+_REOPENING = (
+    "root ::= arr\n"
+    'arr ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" num ")" "," "(" num ")"\n'
+    "num ::= [0-9]+\n"
+)
+"""A paired arm that closes and reopens: the ``,`` between its two brackets
+stands at the pair's own depth, where the scan reads it."""
+
+
+@pytest.mark.parametrize("region_scan", [True, False])
+def test_a_paired_owner_spelling_the_mark_between_its_brackets_is_not_protected(
+    region_scan: bool,
+) -> None:
+    """Depth is walked over the whole arm, not read after its last closer."""
+    grammar = compile_text(_REOPENING, cache_key="tail-reopening").grammar
+    assert not owner_excludes(grammar, "pair", ",", region_scan=region_scan)
+
+
+@pytest.mark.parametrize("region_scan", [True, False])
+def test_an_optional_own_closer_inside_a_span_leaves_the_owner_unprotected(
+    region_scan: bool,
+) -> None:
+    """``(x),y)`` closes at the optional ``)``, so its ``,`` stands at the
+    pair's own depth: a delimiter that may or may not be there cannot be
+    counted, and the proof reads the whole arm."""
+    grammar = compile_text(
+        "root ::= arr\n"
+        'arr ::= "[" pair ("," pair)* "]"\n'
+        'pair ::= "(" word ")"? "," word ")"\n'
+        "word ::= [a-z]+\n",
+        cache_key="optional-own-closer",
+    ).grammar
+    assert not owner_excludes(grammar, "pair", ",", region_scan=region_scan)

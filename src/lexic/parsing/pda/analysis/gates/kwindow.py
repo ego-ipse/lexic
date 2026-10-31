@@ -29,8 +29,7 @@ from lexic.ir import (
     IrItem,
     IrQuantifier,
     IrRule,
-    IrRuleRef,
-    IrSelf,
+    references,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     Depth,
@@ -43,12 +42,6 @@ from lexic.parsing.pda.analysis.gates.windows import (
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
 
 __all__ = [
     "FOLLOW_LOOP_K",
@@ -107,24 +100,7 @@ def rule_references(rules: Mapping[str, IrRule], name: str) -> int:
     :param name: The rule name to count references to.
     :returns: The number of :class:`IrRuleRef` nodes naming ``name``.
     """
-    return sum(_refs_in(body, name) for body in rules.values())
-
-
-def _refs_in(node: object, name: str) -> int:
-    """References to ``name`` in one node's tree — IR records ARE tuples."""
-    if isinstance(node, IrRuleRef):
-        return int(str(node) == name)
-    if isinstance(node, str) or not isinstance(node, tuple):
-        return 0
-    return sum(_refs_in(child, name) for child in node)
-
-
-# ── the gate classification (arm-selection + loop take/skip) ───────────────
-#
-# One gate per decision — the arms of an alternation, the take/skip of a loop —
-# asked at whatever depths the caller supplies: the follow read one character
-# deep (:func:`follow_depths`) or ``k`` deep through the grammar's FOLLOW_k
-# windows (:func:`window_depths`, :func:`arm_final_loop_depths`).
+    return sum(ref == name for rule in rules.values() for ref in references(rule.body))
 
 
 def follow_depths(

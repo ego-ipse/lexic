@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 import lexic.parsing.earley.engine as engine_mod
+from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -49,6 +50,7 @@ from lexic.ir import (
 )
 from lexic.parsing import (
     EarleyParser,
+    ParseConfig,
     ParseTree,
     derivations,
     is_ambiguous,
@@ -71,8 +73,12 @@ from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tab
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.products import earley_model, model_product
 from tests.unit.lexic.conftest import DeciderSpy
-from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    decline_fast_builds,
+)
+from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar, norm
 
 # ── Grammar builders ──────────────────────────────────────────────────
 
@@ -706,8 +712,8 @@ def collapsed_digits_plus_tables(g: IrAst):
     plain = compile_tables(g)
     candidates = run_candidates(plain)
     runs = {
-        name: (RunTerm(charset, 1, RUN_STR), has_empty)
-        for name, (charset, has_empty, _unit_rid) in candidates.items()
+        name: (RunTerm.over(unit, RUN_STR), has_empty)
+        for name, (unit, has_empty, _unit_rid) in candidates.items()
     }
     return build_tables(g, runs)
 
@@ -749,3 +755,101 @@ def test_parse_first_with_collapsed_tables_falls_back_on_ambiguity(
         parse(sss_grammar, "aaa")
     tree = parse_first(sss_grammar, "aaa", tables=collapsed)
     assert isinstance(tree, ParseTree)
+
+
+def _first_production(monkeypatch: pytest.MonkeyPatch, declined: int) -> IrSelf:
+    """Which production of ``v ::= a | b`` (both ``"x"``) the char route's first
+    derivation goes through when the fast build declines the first
+    ``declined`` handles it is asked for."""
+    grammar = norm(
+        IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
+        IrRule("a", IrLiteral("x")),
+        IrRule("b", IrLiteral("x")),
+        start="v",
+    )
+    with monkeypatch.context() as patch:
+        decline_fast_builds(patch, declined)
+        tree = parse_first(grammar, "x")
+    child = tree.kids[0]
+    assert isinstance(child, ParseTree)
+    return child.symbol
+
+
+def test_the_char_route_reads_a_sibling_production_when_the_first_misses(
+    monkeypatch,
+):
+    """A many-production root is not one packed key: each production builds on
+    its own, so a miss on the first leaves the second as the derivation."""
+    assert _first_production(monkeypatch, 0) == IrRuleRef("a")
+    assert _first_production(monkeypatch, 1) == IrRuleRef("b")
+
+
+def test_the_char_route_streams_its_chart_when_no_production_builds(monkeypatch):
+    """No production builds fast: the decoded chart answers, in chart order."""
+    assert _first_production(monkeypatch, 99) == IrRuleRef("a")
+
+
+_TWIN_ARMS = 'root ::= viaone | viatwo\nviaone ::= "a"\nviatwo ::= "a"\n'
+"""Two arms over the same text, whose models differ: a meaning the char route
+must refuse without a resolver."""
+
+
+@pytest.mark.parametrize("declined", [0, 1, 2, 3, 99])
+def test_the_char_route_refuses_the_two_meanings_however_it_reads_them(
+    monkeypatch, declined
+):
+    """Without a resolver the two arms are refused on every path the reader can
+    take, however many fast builds miss — past three, the first reader has
+    fallen to the chart and the sibling's own build misses too, which once
+    skipped the sibling and let chart order pick in silence."""
+    grammar = compile_text(_TWIN_ARMS, cache_key="char-twin-arms")
+    product = model_product(grammar.codegen_grammar, grammar.product)
+    with monkeypatch.context() as patch:
+        decline_fast_builds(patch, declined)
+        with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+            earley_model(product.instance_grammar, "a", grammar.product, product.tables)
+
+
+KEEP_FIRST_CONFIG = ParseConfig(resolve=lambda first, _other: first)
+"""A resolver that keeps the derivation in hand."""
+
+_INNER_ARMS = 'root ::= e\ne ::= p | q\np ::= "n"\nq ::= "n"\n'
+"""An arm choice inside the root, not at it: flips, not sibling productions."""
+
+
+def _inner_arms(
+    monkeypatch: pytest.MonkeyPatch, config: ParseConfig, declined: int = 2
+) -> object:
+    """The inner arm choice's model with the first reader's fast builds forced
+    to miss — the run-collapsed read and the plain re-read — so the derivation
+    in hand is the chart's and no decided derivation exists; the comparison's
+    own builds read as usual, as they do past a cycle."""
+    grammar = compile_text(_INNER_ARMS, cache_key="char-inner-arms")
+    product = model_product(grammar.codegen_grammar, grammar.product)
+    with monkeypatch.context() as patch:
+        decline_fast_builds(patch, declined)
+        return earley_model(
+            product.instance_grammar, "n", grammar.product, product.tables, config
+        )
+
+
+def test_an_arm_choice_the_fast_build_cannot_read_still_refuses(monkeypatch):
+    """No decided derivation to flip: the arms are still compared one per arm,
+    and two meanings with no resolver are refused."""
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        _inner_arms(monkeypatch, ParseConfig())
+
+
+def test_an_arm_choice_the_fast_build_cannot_read_takes_the_resolver(monkeypatch):
+    """The same span settles under a resolver — the opt-out reaches it."""
+    keep = ParseConfig(resolve=lambda first, _other: first)
+    assert type(_inner_arms(monkeypatch, keep)).__name__ == "Root"
+
+
+@pytest.mark.parametrize("config", [ParseConfig(), KEEP_FIRST_CONFIG])
+def test_an_arm_choice_no_build_can_read_refuses_explicitly(monkeypatch, config):
+    """Every fast build misses — the first reader's and the comparison's own:
+    no complete second tree exists, so the span refuses as one that cannot be
+    compared, resolver or not, rather than let its first reading stand."""
+    with pytest.raises(UnsupportedConstructError, match="cannot be compared"):
+        _inner_arms(monkeypatch, config, declined=99)

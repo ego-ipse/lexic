@@ -25,8 +25,13 @@ import pytest
 
 from lexic.compile import compile_from_path, compile_text
 from lexic.parsing.parallel.discovery import regions
-from lexic.parsing.parallel.discovery.regions import find, par_find, scan_vocabulary
+from lexic.parsing.parallel.discovery.regions import (
+    find,
+    par_find,
+    scan_vocabulary,
+)
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import shared_closer_document, shared_closer_source
 from tools.benchmark.cases.grammars import BENCHES
 
 SKIPPING_GRAMMARS = ("json.gbnf", "json.abnf")
@@ -52,27 +57,6 @@ BRACKETS = (
 Authored here rather than borrowed: the ground-truth json grammars quote their
 strings and take the serial walk, so they cannot exercise this path at all.
 """
-
-
-OVERLAP = (
-    'root ::= "[" items "]"\n'
-    'items ::= item ("|" item)*\n'
-    'item ::= "(" inner "|"\n'
-    "inner ::= [a-z0-9]+\n"
-)
-"""A grammar whose SEPARATOR is also a CLOSER: ``|`` ends an item and divides
-the list.
-
-The first fixture cannot catch a sweep that visits a two-role character twice,
-because its roles are disjoint and so is every eligible bench grammar's. This
-one holds the property on purpose, and `test_the_overlap_fixture_really_overlaps`
-fails if it ever stops holding it.
-"""
-
-
-def overlap_document(items: int) -> str:
-    """A document of the overlap grammar — every ``|`` wears both roles."""
-    return "[" + "|".join(f"(w{i}|" for i in range(items)) + "]"
 
 
 def bracket_document(records: int) -> str:
@@ -187,38 +171,36 @@ def test_one_window_and_many_agree() -> None:
     assert par_find(fixture, text, 0, 1) == par_find(fixture, text, 0, 9)
 
 
-# ── a character that is BOTH a closer and a separator ─────────────────────
+# ── two pairs sharing one closer ──────────────────────────────────────────
 
-
-def test_the_overlap_fixture_really_overlaps() -> None:
-    """The fixture holds the property the sweep bug needs to show itself.
-
-    Without a character in both roles the windowed sweep and the serial sweep
-    cannot disagree, and every case below would pass on a broken sweep.
-    """
-    vocab = scan_vocabulary(compile_text(OVERLAP).codegen_grammar)
-    both = set(vocab.closers) & set(vocab.marks)
-    assert both, f"no character is both closer and separator: {vocab}"
-    assert windowed(compile_text(OVERLAP).codegen_grammar)
+SHARED_RUNS = "([(" * 20
+"""Sixty runs alternating between the two pairs that close on ``)``."""
 
 
 @pytest.mark.parametrize("windows", WINDOWS)
 @pytest.mark.parametrize("min_span", MIN_SPANS)
-def test_a_two_role_character_windows_identically(min_span: int, windows: int) -> None:
-    """A separator that is also a closer, every window count, both floors."""
-    fixture = compile_text(OVERLAP).codegen_grammar
-    serial, parallel = both_finds(fixture, overlap_document(80), min_span, windows)
+def test_a_shared_closer_windows_every_run(min_span: int, windows: int) -> None:
+    """Every ``(`` run and every ``[`` run closes, in the windows as in the
+    walk, and the root run closes after them all."""
+    fixture = compile_text(shared_closer_source("wrapped")).codegen_grammar
+    assert windowed(fixture), "the shared-closer fixture grew an opaque interior"
+    text = shared_closer_document("wrapped", [(opener, 30) for opener in SHARED_RUNS])
+    serial, parallel = both_finds(fixture, text, min_span, windows)
     assert parallel == serial
-    assert serial, "the overlap fixture found no regions"
+    rules = {"(": "a", "[": "b"}
+    assert [region.rule for region in serial] == [
+        *(rules[opener] for opener in SHARED_RUNS),
+        "root",
+    ]
 
 
 @pytest.mark.parametrize("windows", WINDOWS)
-@pytest.mark.parametrize("seed", range(8))
-def test_ragged_two_role_documents_window_identically(seed: int, windows: int) -> None:
-    """The fuzz, under the overlap grammar — imbalance plus a doubled role."""
-    fixture = compile_text(OVERLAP).codegen_grammar
+@pytest.mark.parametrize("seed", range(12))
+def test_ragged_shared_closer_soup_windows_identically(seed: int, windows: int):
+    """Fuzzed soup over both openers, their one closer and the marks."""
+    fixture = compile_text(shared_closer_source("wrapped")).codegen_grammar
     rng = random.Random(seed)
-    alphabet = ["[", "]", "(", "|", "a", "wq", " ", "\n"]
+    alphabet = ["(", "[", ")", "{", "}", ",", ";", "a", "bb"]
     text = "".join(rng.choice(alphabet) for _ in range(rng.randint(200, 600)))
     serial, parallel = both_finds(fixture, text, 0, windows)
     assert parallel == serial, f"seed {seed}, {windows} windows"

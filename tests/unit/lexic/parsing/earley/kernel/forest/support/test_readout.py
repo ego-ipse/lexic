@@ -16,7 +16,6 @@ from lexic.ir import (
     IrCharClass,
     IrChr,
     IrItem,
-    IrLiteral,
     IrNone,
     IrNoneType,
     IrQuantifier,
@@ -29,17 +28,25 @@ from lexic.parsing import derivations
 from lexic.parsing.earley.kernel.forest.chart import Chart
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, SppfNode
 from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_handles,
     accept_item,
     accept_items,
     accept_node,
     decode_item,
+    handle_node,
+    longest_start_completion,
     root_ambiguous,
     start_completion_ends,
+    start_completions,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_MASK
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    twin_arm_grammar,
+)
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     norm,
@@ -157,16 +164,6 @@ def test_decode_item_returns_earley_item_shape():
 # ── accept_items / root_ambiguous (L2 root arm-choice) ────────────────
 
 
-def twin_arm_grammar() -> IrAst:
-    """v ::= a | b, a/b both "x" — the start completes the whole input two ways."""
-    return norm(
-        IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
-        IrRule("a", IrLiteral("x")),
-        IrRule("b", IrLiteral("x")),
-        start="v",
-    )
-
-
 def test_accept_items_lists_every_accepting_production():
     """A twin-arm start yields two accepting items (one per production)."""
     kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
@@ -182,6 +179,20 @@ def test_accept_items_empty_on_no_parse():
     """accept_items() is empty when the input does not derive."""
     kernel = Kernel(compile_tables(twin_arm_grammar()), "z", record_links=True).run()
     assert accept_items(kernel) == []
+
+
+def test_accept_handles_pack_every_accepting_item_at_the_input_end():
+    """One handle per accepting production, in ``accept_items`` order."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    bits = kernel.tables.packing.bits
+    assert accept_handles(kernel) == [(it << bits) | 1 for it in accept_items(kernel)]
+    assert accept_handles(kernel)[0] == accept_handle(kernel)
+
+
+def test_handle_node_is_the_node_a_packed_handle_stands_for():
+    """The handle of the sole accepting item reads back as the accept node."""
+    kernel = Kernel(compile_tables(_digit_grammar()), "5", record_links=True).run()
+    assert handle_node(kernel, accept_handle(kernel)) == accept_node(kernel)
 
 
 def test_root_ambiguous_true_for_twin_arms():
@@ -201,20 +212,40 @@ def test_root_ambiguous_false_for_single_production():
 
 def test_start_completion_ends_lists_every_origin_zero_end(sss_grammar):
     """``s = s s / 'a'`` over 'aaa' completes from origin 0 at 1, 2 and 3."""
-    kern = Kernel(compile_tables(sss_grammar), "aaa")
-    kern.longest_start_completion()
+    kern = Kernel(compile_tables(sss_grammar), "aaa").run()
     assert start_completion_ends(kern) == (1, 2, 3)
 
 
 def test_start_completion_ends_single_on_unambiguous(sss_grammar):
     """A one-char window has the single end its one completion spans."""
-    kern = Kernel(compile_tables(sss_grammar), "a")
-    kern.longest_start_completion()
+    kern = Kernel(compile_tables(sss_grammar), "a").run()
     assert start_completion_ends(kern) == (1,)
 
 
 def test_start_completion_ends_empty_on_no_parse(sss_grammar):
     """No origin-0 completion anywhere → no ends."""
-    kern = Kernel(compile_tables(sss_grammar), "x")
-    kern.longest_start_completion()
+    kern = Kernel(compile_tables(sss_grammar), "x").run()
     assert not start_completion_ends(kern)
+
+
+# ── longest_start_completion — the island seam's span ─────────────────
+
+
+def test_longest_start_completion_is_the_latest_end(sss_grammar):
+    """``s = s s / 'a'`` over 'aaa' completes at 1, 2 and 3: the longest is 3,
+    with the item that completes there."""
+    kern = Kernel(compile_tables(sss_grammar), "aaa").run()
+    assert longest_start_completion(kern) == (start_completions(kern)[3], 3)
+
+
+def test_longest_start_completion_keeps_the_last_item_at_an_equal_end():
+    """Two productions complete at the same end: the last one found there is
+    kept, as the column holds them."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    assert longest_start_completion(kernel) == (accept_items(kernel)[-1], 1)
+
+
+def test_longest_start_completion_is_none_on_no_parse(sss_grammar):
+    """No origin-0 completion anywhere, no span."""
+    kern = Kernel(compile_tables(sss_grammar), "x").run()
+    assert longest_start_completion(kern) is None

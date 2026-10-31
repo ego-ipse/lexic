@@ -11,19 +11,20 @@ from __future__ import annotations
 
 from lexic.ir import (
     IrAst,
-    IrItem,
     IrLiteral,
+    IrNone,
+    IrNoneType,
     IrRule,
     IrRuleRef,
 )
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.scan import Scanner
-from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.parallel.discovery.shapes import RuleTable, rule_table
 from lexic.parsing.parallel.plan.cuts import sole_mark
 from lexic.parsing.parallel.plan.envelope import envelope_plans
 from lexic.parsing.parallel.plan.speculation import speculative_openings
 from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, spellings
-from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
+from lexic.parsing.parallel.roles.derive import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.safety import (
     bounds_units,
     mark_interiors,
@@ -35,33 +36,19 @@ from lexic.parsing.parallel.stitch.safety import (
 )
 
 
-def _unit_ref(item: IrItem) -> str | None:
-    """The unit rule an item references, when it is a plain unit reference."""
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
-        return str(atom)
-    return None
-
-
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The rule's only arm, when it has exactly one."""
-    arms = tuple(rule.body)
-    return tuple(arms[0]) if len(arms) == 1 else None
-
-
 def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
     """Whether the repeated rule is ``lead unit`` for this separator."""
-    items = _single_arm(rule)
-    if items is None or len(items) != 2 or _unit_ref(items[1]) != unit:
+    items = rule.sole_arm()
+    if isinstance(items, IrNoneType) or len(items) != 2 or items[1].unit_ref() != unit:
         return False
     lead_atom = items[0].atom
     if sep.lead:
-        return _unit_ref(items[0]) == sep.lead
+        return items[0].unit_ref() == sep.lead
     return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.mark
 
 
 def _wrapper_chain(
-    rule_map: dict[str, IrRule], start: str, target: str
+    rule_map: RuleTable, start: str, target: str
 ) -> tuple[str, ...] | None:
     """Head-reference route from ``start`` through empty-capable tails."""
     wrappers: list[str] = []
@@ -69,22 +56,23 @@ def _wrapper_chain(
     current = start
     while current != target:
         rule = rule_map.get(current)
-        items = _single_arm(rule) if rule is not None else None
-        child = _unit_ref(items[0]) if items else None
-        empty_tails = items is not None and all(
-            unbounded(item) and item.quantifier.lo == 0 for item in items[1:]
+        items = rule.sole_arm() if rule is not None else IrNone
+        if isinstance(items, IrNoneType) or not items:
+            return None
+        child = items[0].unit_ref()
+        empty_tails = all(
+            item.quantifier.unbounded() and item.quantifier.lo == 0
+            for item in items[1:]
         )
-        if child is None or not empty_tails or current in seen:
+        if isinstance(child, IrNoneType) or not empty_tails or current in seen:
             return None
         seen.add(current)
         wrappers.append(current)
-        current = child
+        current = str(child)
     return tuple(wrappers)
 
 
-def _plan_for(
-    grammar: IrAst, sep: Separator, rule_map: dict[str, IrRule]
-) -> SplitPlan | None:
+def _plan_for(grammar: IrAst, sep: Separator, rule_map: RuleTable) -> SplitPlan | None:
     """The plan one separator record admits, or ``None`` on a shape miss."""
     container = rule_map.get(sep.container)
     item_rule = rule_map.get(sep.item)
@@ -93,17 +81,24 @@ def _plan_for(
     wrappers = _wrapper_chain(rule_map, str(grammar.start), sep.container)
     if wrappers is None:
         return None
-    items = _single_arm(container)
-    if items is None or len(items) != 2:
+    items = container.sole_arm()
+    if isinstance(items, IrNoneType) or len(items) != 2:
         return None
-    unit = _unit_ref(items[0])
+    unit = items[0].unit_ref()
     repeated = items[1].atom
     repeats = isinstance(repeated, IrRuleRef) and str(repeated) == sep.item
-    if unit is None or not repeats or not _item_shape(item_rule, sep, unit):
+    if (
+        isinstance(unit, IrNoneType)
+        or not repeats
+        or not _item_shape(item_rule, sep, str(unit))
+    ):
         return None
     if sep.lead:
         lead_grammar, literal = IrAst(grammar.rules, sep.lead), ""
-        skip = lead_skip(_single_arm(rule_map[sep.lead]), rule_map, sep.mark)
+        lead_arm = rule_map[sep.lead].sole_arm()
+        skip = lead_skip(
+            None if isinstance(lead_arm, IrNoneType) else lead_arm, rule_map, sep.mark
+        )
     else:
         lead_grammar, literal = None, sep.mark
         skip = frozenset()
@@ -121,9 +116,7 @@ def _plan_for(
     )
 
 
-def _terminated_plans(
-    grammar: IrAst, rule_map: dict[str, IrRule]
-) -> tuple[SplitPlan, ...]:
+def _terminated_plans(grammar: IrAst, rule_map: RuleTable) -> tuple[SplitPlan, ...]:
     """The plans a ``start ::= unit+`` terminated repetition admits.
 
     The start rule's only arm must be one unbounded reference to a unit that
@@ -137,8 +130,12 @@ def _terminated_plans(
     start = rule_map.get(str(grammar.start))
     if start is None:
         return ()
-    items = _single_arm(start)
-    if items is None or len(items) != 1 or not unbounded(items[0]):
+    items = start.sole_arm()
+    if (
+        isinstance(items, IrNoneType)
+        or len(items) != 1
+        or not items[0].quantifier.unbounded()
+    ):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):
@@ -163,9 +160,7 @@ def _terminated_plans(
     )
 
 
-def _speculative_plans(
-    grammar: IrAst, rule_map: dict[str, IrRule]
-) -> tuple[SplitPlan, ...]:
+def _speculative_plans(grammar: IrAst, rule_map: RuleTable) -> tuple[SplitPlan, ...]:
     """The plan a ``start ::= unit+`` repetition admits by PROPOSAL.
 
     Read last, and only where every other route declined: this is the one plan
@@ -178,8 +173,12 @@ def _speculative_plans(
     the unit's opening alphabet goes in where a terminator's would.
     """
     start = rule_map.get(str(grammar.start))
-    items = _single_arm(start) if start is not None else None
-    if items is None or len(items) != 1 or not unbounded(items[0]):
+    items = start.sole_arm() if start is not None else IrNone
+    if (
+        isinstance(items, IrNoneType)
+        or len(items) != 1
+        or not items[0].quantifier.unbounded()
+    ):
         return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):
@@ -218,7 +217,7 @@ def split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
     """Every exact start-reachable plan, memoised per grammar identity."""
     entry = _PLANS.get(id(grammar))
     if entry is None:
-        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        rule_map = rule_table(grammar)
         terminated = _terminated_plans(grammar, rule_map)
         separated = tuple(
             plan

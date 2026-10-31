@@ -19,6 +19,7 @@ from typing import (
     ClassVar,
     Self,
     Sequence,
+    TypeIs,
     cast,
     dataclass_transform,
     final,
@@ -40,6 +41,18 @@ of its run, and an unset optional binds ``None``. Since a rebuild takes back
 exactly what ``children()`` handed out, the wider of the two is what it must
 accept, and it is declared here so every implementer says the same thing.
 """
+
+
+def is_plain_tuple[T](value: T | tuple[T, ...] | None) -> TypeIs[tuple[T, ...]]:
+    """Whether ``value`` is exactly a plain ``tuple`` — a model's run, or a
+    plain-tuple map key — and not a record.
+
+    Not ``isinstance``: every record and every :class:`IrTuple` is a tuple
+    subclass and none of them is plain, so the test is on the class itself.
+    The one place the repo spells it, but for :class:`IrMapping`'s miss path,
+    which keeps the test inline because the call costs there.
+    """
+    return value.__class__ is tuple
 
 
 class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):

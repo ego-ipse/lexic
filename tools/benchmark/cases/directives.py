@@ -34,6 +34,7 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "announced": (("header", "line"), ("nl",)),
     "arithmetic": (("number",), ()),
+    "paren-arithmetic": (("number",), ()),
     "backtrack": (("bind", "block"), ("nl",)),
     "csv": (("field",), ("nl",)),
     # Nothing here is noise: the blank line IS the paragraph boundary, so a
@@ -43,12 +44,22 @@ DIRECTIVES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # rows measure the same grammar, which is what makes them comparable here.
     "dense-earley": ((), ()),
     "island-earley": (("name", "text"), ()),
-    # The engine-reach rows carry no directives: each exists to pin WHICH
-    # engine its shape reaches, and a directive that changed a rule's shape
-    # could change that answer.
+    # The engine-reach rows, direct and relayed, carry no directives: each
+    # exists to pin WHICH engine its shape reaches, and a directive that
+    # changed a rule's shape could change that answer.
     "start-fallback": ((), ()),
+    # The value's loop IS the boundary the row prices, so `value` stays plain;
+    # names and words are runs, and the spaces around `=` are noise.
+    "two-mark": (("name", "word"), ("ws",)),
+    # The arm choice between pair shapes is the boundary; a number is a run.
+    "reopening": (("num",), ()),
+    "terminated-run": (("name", "value"), ()),
+    "captured-spaces": (("item",), ()),
     "interior-exact": ((), ()),
     "interior-climb": ((), ()),
+    "relay-fallback": ((), ()),
+    "relay-exact": ((), ()),
+    "relay-climb": ((), ()),
     "gbnf-meta": (
         (
             "cc-esc-other",

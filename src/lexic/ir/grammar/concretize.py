@@ -19,15 +19,8 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.grammar.nodes import (
-    IrAlphabet,
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrLiteral,
-    IrRange,
-    IrRule,
-)
+from lexic.ir.grammar.charclass import IrCharClass, IrRange
+from lexic.ir.grammar.nodes import IrAlphabet, IrAlternation, IrAst, IrLiteral, IrRule
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.spine import IrAtom, IrNoneType, IrSelf

@@ -100,6 +100,25 @@ def test_opening_spans_hand_the_mark_forward_and_lose_nothing() -> None:
     assert "".join(text[lo:hi] for lo, hi in spans) == text
 
 
+def test_an_opening_plans_pieces_are_the_gaps_between_its_cuts() -> None:
+    """Each piece of an opening plan runs from one cut to the next.
+
+    ``orchestrate._reselect`` relies on it: it is asked only for an opening
+    plan, and reads the floor on cut offsets, ``(candidate - lo, hi -
+    candidate)``. Those are the two pieces' own widths only while every piece
+    starts on its mark; a piece starting elsewhere would loosen that floor
+    without a word."""
+    plan = _plan(ANNOUNCED, "cuts-announced")
+    assert plan.opening
+    text = announced_doc(60)
+    marks = [at for at, char in enumerate(text) if char == "#" and at]
+    cuts = marks[5::9]
+    spans, _leads = cut_spans(plan, text, cuts)
+    bounds = [0, *cuts, len(text)]
+    assert len(cuts) >= 4
+    assert [hi - lo for lo, hi in spans] == [b - a for a, b in zip(bounds, bounds[1:])]
+
+
 # ── the floor, in both directions ─────────────────────────────────────────
 
 

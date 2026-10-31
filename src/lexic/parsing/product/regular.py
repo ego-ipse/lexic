@@ -56,11 +56,9 @@ from lexic.ir import (
     IrAlternation,
     IrItem,
     IrLiteral,
-    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
-    IrSelf,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -151,9 +149,7 @@ def closure_holds(
         return False
     if not _rule_is_deterministic(first, rule, tail):
         return False
-    return all(
-        references_hold(first, rules, arm_items(arm), tail, proved) for arm in rule.body
-    )
+    return all(references_hold(first, rules, arm, tail, proved) for arm in rule.body)
 
 
 def references_hold(
@@ -179,15 +175,10 @@ def references_hold(
             if not closure_holds(first, rules, str(atom), here, proved):
                 return False
         elif isinstance(atom, IrAlternation) and not all(
-            references_hold(first, rules, arm_items(arm), here, proved) for arm in atom
+            references_hold(first, rules, arm, here, proved) for arm in atom
         ):
             return False
     return True
-
-
-def arm_items(arm: Sequence[IrSelf]) -> list[IrItem]:
-    """The arm's items, in order."""
-    return [item for item in arm if isinstance(item, IrItem)]
 
 
 def _poisoned(prefixes: set[Pref]) -> bool:
@@ -214,7 +205,7 @@ def _leads(prefixes: set[Pref]) -> set[Pref]:
 
 def _rule_is_deterministic(first: KWindowFirst, rule: IrRule, tail: set[Pref]) -> bool:
     """Whether one rule's arms separate and none of its boundaries steals."""
-    arms = [arm_items(arm) for arm in rule.body]
+    arms = list(rule.body)
     if not _first_disjoint(first, arms, tail):
         return False
     return all(_arm_boundaries_hold(first, arm, tail) for arm in arms)
@@ -231,7 +222,7 @@ def _group_is_deterministic(
     enclosing arm's own remainder, so the munch obligation is asked of the
     text that actually follows it.
     """
-    arms = [arm_items(arm) for arm in group]
+    arms = list(group)
     if not _first_disjoint(first, arms, tail):
         if not _ordered_literals(arms, tail):
             return False
@@ -293,8 +284,7 @@ def _sole_literal(items: Sequence[IrItem]) -> "str | None":
     if len(items) != 1:
         return None
     atom, quantifier = items[0].atom, items[0].quantifier
-    hi = quantifier.hi
-    if isinstance(hi, IrNoneType) or (int(quantifier.lo), int(hi)) != (1, 1):
+    if not quantifier.once():
         return None
     if not isinstance(atom, IrLiteral) or not atom:
         return None
@@ -340,10 +330,9 @@ def group_holds(
 
 def _repeat_tail(first: KWindowFirst, item: IrItem, after: set[Pref]) -> set[Pref]:
     """What may follow ONE instance of ``item``: another of it, then ``after``."""
-    hi = item.quantifier.hi
-    if not isinstance(hi, IrNoneType) and int(hi) <= 1:
+    if not item.quantifier.repeats():
         return after
-    loop = IrItem(item.atom, IrQuantifier(0, hi))
+    loop = IrItem(item.atom, IrQuantifier(0, item.quantifier.hi))
     return extend_follow(first.arm_prefixes([loop], _WINDOW), after, _WINDOW)
 
 
@@ -355,9 +344,7 @@ def _decides_here(first: KWindowFirst, item: IrItem) -> bool:
     whether it is here at all, and that is true even at ``{1,1}``: a
     once-required reference to a rule that derives empty is still a decision.
     """
-    quantifier = item.quantifier
-    hi = quantifier.hi
-    if isinstance(hi, IrNoneType) or int(quantifier.lo) != int(hi):
+    if not item.quantifier.fixed():
         return True
     return _derives_empty(first.atom_prefixes(item.atom, _WINDOW))
 

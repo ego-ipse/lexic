@@ -28,14 +28,14 @@ from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst, IrItem, IrNoneType, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import Skip, as_skip, skip_delimited
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
+    RuleTable,
     derives_empty,
     emit_charset,
-    unbounded,
+    rule_table,
 )
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
@@ -69,17 +69,7 @@ class Envelope(NamedTuple):
         return not self.head and not self.tail
 
 
-def _unit_ref(item: IrItem) -> str | None:
-    """The unit rule an item references, when it is a plain unit reference."""
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
-        return str(atom)
-    return None
-
-
-def envelope_of(
-    container: IrRule, rules: dict[str, IrRule], item: str
-) -> Envelope | None:
+def envelope_of(container: IrRule, rules: RuleTable, item: str) -> Envelope | None:
     """Read a container's single arm as an envelope around ``item*``.
 
     Every item outside the core pair must be able to vanish: a head or tail
@@ -98,11 +88,11 @@ def envelope_of(
     if core is None:
         return None
     outside = [at for at in range(len(items)) if at not in (core, core + 1)]
-    if any(not derives_empty(items[at], rules, frozenset()) for at in outside):
+    if any(not derives_empty(items[at], rules) for at in outside):
         return None
     return Envelope(
         str(container.name),
-        str(_unit_ref(items[core])),
+        str(items[core].unit_ref()),
         item,
         core,
         tuple(at for at in outside if at < core),
@@ -115,7 +105,11 @@ def _core_at(items: tuple[IrItem, ...], item: str) -> int | None:
     for at in range(len(items) - 1):
         repeated = items[at + 1].atom
         names = isinstance(repeated, IrRuleRef) and str(repeated) == item
-        if _unit_ref(items[at]) is not None and names and unbounded(items[at + 1]):
+        if (
+            not isinstance(items[at].unit_ref(), IrNoneType)
+            and names
+            and items[at + 1].quantifier.unbounded()
+        ):
             return at
     return None
 
@@ -250,13 +244,13 @@ class EnvelopePlan(NamedTuple):
         return extend(text, at + 1, self.run)
 
 
-def _lead_items(rules: dict[str, IrRule], item: str) -> tuple[IrItem, ...]:
+def _lead_items(rules: RuleTable, item: str) -> tuple[IrItem, ...]:
     """The repeated item's items before its unit — its separator lead."""
     arms = tuple(rules[item].body)
     return tuple(arms[0])[:-1] if len(arms) == 1 else ()
 
 
-def repetition_of(rules: dict[str, IrRule], container: str) -> Envelope | None:
+def repetition_of(rules: RuleTable, container: str) -> Envelope | None:
     """The ``unit item*`` core a container's arm holds, envelope included.
 
     The repeated item must itself end with the same unit — ``rl-cont ::= c-wsp*
@@ -268,19 +262,21 @@ def repetition_of(rules: dict[str, IrRule], container: str) -> Envelope | None:
     items = tuple(arms[0]) if len(arms) == 1 else ()
     for at in range(len(items) - 1):
         repeated = items[at + 1].atom
-        if not unbounded(items[at + 1]) or not isinstance(repeated, IrRuleRef):
+        if not items[at + 1].quantifier.unbounded() or not isinstance(
+            repeated, IrRuleRef
+        ):
             continue
-        unit = _unit_ref(items[at])
+        unit = items[at].unit_ref()
         lead = _lead_items(rules, str(repeated))
         tail_arm = tuple(tuple(rules[str(repeated)].body)[0])
-        repeats = bool(lead) and _unit_ref(tail_arm[-1]) == unit
-        if unit is not None and repeats and rule is not None:
+        repeats = bool(lead) and tail_arm[-1].unit_ref() == unit
+        if not isinstance(unit, IrNoneType) and repeats and rule is not None:
             return envelope_of(rule, rules, str(repeated))
     return None
 
 
 def _run_of(
-    grammar: IrAst, rules: dict[str, IrRule], shape: Envelope
+    grammar: IrAst, rules: RuleTable, shape: Envelope
 ) -> tuple[LeadRun, CharSet]:
     """The lead's noise vocabulary, and what its mandatory item must spell.
 
@@ -296,7 +292,7 @@ def _run_of(
     for item in _lead_items(rules, shape.item):
         spelled = emit_charset(item, rules, frozenset(), hidden)
         noise = noise.union(spelled)
-        if not derives_empty(item, rules, frozenset()):
+        if not derives_empty(item, rules):
             required = required.union(spelled)
     chars = frozenset() if noise.negated else frozenset(noise.chars)
     return LeadRun(chars, skips, IrAst(grammar.rules, shape.item)), required
@@ -321,7 +317,7 @@ def envelope_plans(grammar: IrAst, container: str) -> tuple[EnvelopePlan, ...]:
     :param container: The rule whose arm holds the repetition.
     :returns: The certified plans, mark order stable; empty on a decline.
     """
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     shape = repetition_of(rules, container)
     if shape is None:
         return ()
@@ -351,7 +347,7 @@ def unit_witness(grammar: IrAst, unit: str) -> str | None:
     key = (id(grammar), unit)
     entry = _WITNESS.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in grammar.rules}
+        rules = rule_table(grammar)
         entry = (grammar, _smallest(rules, unit))
         _WITNESS[key] = entry
     return entry[1]
@@ -364,7 +360,7 @@ every seed at every depth cost 109 ms on a hundred-rule grammar to pick a
 string a few characters shorter."""
 
 
-def _smallest(rules: dict[str, IrRule], unit: str) -> str | None:
+def _smallest(rules: RuleTable, unit: str) -> str | None:
     """The shortest derivation of ``unit`` the first workable depth offers."""
     for depth in range(3):
         found = []

@@ -50,7 +50,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRuleRef,
@@ -70,11 +69,6 @@ __all__ = [
     "peek_loop_gate",
     "sem_first_table",
 ]
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
 
 
 class _SemCtx(IrLeaf[IrSelf, IrSelf]):
@@ -125,7 +119,7 @@ def _sf_group(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
     ctx = cast(_SemCtx, nc[0])
     out = CharSet.EMPTY
     for arm in n:
-        out = out.union(_seq_sem_first(_items(arm), ctx))
+        out = out.union(_seq_sem_first(arm, ctx))
     return out
 
 
@@ -165,7 +159,7 @@ def sem_first_table(analysis: Any) -> dict[str, CharSet]:
             ctx = _SemCtx(analysis, bool(rule.semantic), table)
             acc = CharSet.EMPTY
             for arm in rule.body:
-                acc = acc.union(_seq_sem_first(_items(arm), ctx))
+                acc = acc.union(_seq_sem_first(arm, ctx))
             if acc != table[name]:
                 table[name] = acc
                 changed = True
@@ -216,7 +210,7 @@ def _fd_group(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     fd = cast(_SemFeed, nc[0])
     changed = False
     for arm in n:
-        if _feed_sem(_items(arm), fd.eff, fd.ctx, fd.tgt):
+        if _feed_sem(arm, fd.eff, fd.ctx, fd.tgt):
             changed = True
     return changed
 
@@ -247,9 +241,8 @@ def _feed_sem(
     cont = tail
     for item in reversed(items):
         atom = item.atom
-        hi = item.quantifier.hi
         eff = cont
-        if isinstance(hi, IrNoneType) or int(hi) > 1:
+        if item.quantifier.repeats():
             eff = eff.union(_atom_sem_first(atom, ctx))
         fd = _SemFeed(eff, tgt, ctx)
         if cast(bool, _SEM_FEED.resolve(atom).eval(ctx.analysis, atom, (fd,))):
@@ -278,7 +271,7 @@ def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
         for name, rule in analysis.rules.items():
             ctx = _SemCtx(analysis, bool(rule.semantic), sem_first)
             for arm in rule.body:
-                if _feed_sem(_items(arm), tgt[name], ctx, tgt):
+                if _feed_sem(arm, tgt[name], ctx, tgt):
                     changed = True
     return tgt
 
@@ -386,7 +379,7 @@ def _rf_group(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
     rf = cast(ResidualFirst, d)
     out = CharSet.EMPTY
     for arm in n:
-        got = rf.seq(_items(arm))
+        got = rf.seq(arm)
         if got is None:
             return None
         chars, _open_end = got
@@ -437,7 +430,7 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
             for name, rule in analysis.rules.items():
                 acc: CharSet | None = CharSet.EMPTY
                 for arm in rule.body:
-                    got = self.seq(_items(arm))
+                    got = self.seq(arm)
                     if got is None:
                         acc = None
                         break
@@ -469,7 +462,7 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
                 return None
             out = out.union(sub)
             first = self.analysis.atom_first(item.atom)
-            transparent = first.subtract(self.w).is_empty()
+            transparent = first.within(self.w)
             if not (self.analysis.item_nullable(item) or transparent):
                 return out, False
         return out, True

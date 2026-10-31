@@ -38,10 +38,14 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
-from lexic.parsing.earley.kernel.tables.records import ADVANCE, ORIGIN_BITS
+from lexic.parsing.earley.kernel.tables.records import (
+    ADVANCE,
+    ORIGIN_BITS,
+    TermTables,
+)
 from lexic.parsing.earley.normalize import normalize
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
-from tests.unit.lexic.parsing.ir_fixtures import star
+from tests.unit.lexic.parsing.ir_fixtures import norm, star
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
 # ── Grammar helpers ───────────────────────────────────────────────────
@@ -303,3 +307,24 @@ def test_kernel_construction_accepts_input_under_capacity():
     text = "a" * 4096
     kernel = Kernel(tables, text)
     assert len(kernel.cols) == len(text) + 1
+
+
+def test_run_never_scans_a_column_a_literal_steps_over(monkeypatch):
+    """``"abc"`` lands three columns on: the two it consumes hold nothing, and
+    run() skips them rather than closing and scanning empty columns — the
+    scanner asks for the terms of ``a`` and ``d`` only."""
+    grammar = norm(
+        IrRule("root", IrSequence(IrItem(IrLiteral("abc")), IrItem(IrLiteral("d")))),
+        start="root",
+    )
+    asked: list[str] = []
+    real = TermTables.terms_for
+
+    def counted(self: TermTables, char: str) -> tuple[int, ...]:
+        asked.append(char)
+        return real(self, char)
+
+    monkeypatch.setattr(TermTables, "terms_for", counted)
+    kern = Kernel(compile_tables(grammar), "abcd").run()
+    assert accept_item(kern) >= 0
+    assert asked == ["a", "d"]

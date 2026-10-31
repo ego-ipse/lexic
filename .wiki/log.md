@@ -1,5 +1,257 @@
 # Log
 
+## An inline capture beside a region's run is laid back (2026-10-29)
+
+`parallel-parsing.md`'s stitch section: `RegionPlan.edges` holds each inline
+capture between the delimiters with the wrapper edges, read from the first
+piece before the run and the last after it, and the two conditions (it can
+vanish, its alphabet misses the run's) under which a capture binds.
+
+## A bracketed TERMINATED run divides (2026-10-29)
+
+`parallel-parsing.md`'s region-scan section: one reading
+(`roles.derive.run_terminators`) decides a terminated run for the scan and the
+plan alike, with a separated run taking precedence; the inclusive piece windows,
+the terminated plan, `terminates_once` as its proof, and the stitch that joins
+the pieces' runs.
+
+## A shift confined to a run (2026-10-29)
+
+`decisions.md` records R3: where a sequence's, a repetition's or two arms'
+boundary shifts only inside a run, EXTEND takes the rest's EXTEND, not the
+ALPHABET. It records the conditions, the proof, the TAILS solve and the
+re-ask that ends the build, and what it costs and buys. The licence entry
+drops its open gap: json's six units keep `"`. The shifting-item entry's pins
+now name `extend/test_lengthen.py`.
+
+## The record reconciled against what landed since main (2026-10-29)
+
+Eleven invariants established by the recent landings were not yet written down.
+- `invariants.md`: no delegate program holds a verdict site; a bench row priced
+  for a route stays on it.
+- `parallel-parsing.md`: an unlaid capture declines the plan; `holds_run` reads a
+  tail as a rule only when it is one; an opening plan's pieces are the gaps
+  between its cuts; the shared scanner's per-row check and its `REGION_ONLY`
+  declaration.
+- `testing.md`: the concurrency lane's decline witness; a guard goes after setup.
+- `transpilation.md`: a non-model class refuses by name.
+- `decisions.md`: the unsound-base gate rule, with its reason and the
+  reopening witness.
+- `tools/benchmark/README.md`: the same rule and the copy protocol's two
+  declared lists.
+Each names the test that pins it.
+
+## EXTEND and NON_INITIAL have their own group (2026-10-29)
+
+The two charset fixpoints moved out of `pda/analysis/predicates.py` into
+`pda/analysis/extend/`: `maps.py` (the `Extensions` maps and the atom bodies both
+tables share), `lengthen.py` (EXTEND, `rule_extensions`) and `inner.py`
+(NON_INITIAL). `decisions.md` and `parallel-parsing.md` name the new homes;
+`predicates.py` keeps the per-node predicates the fixpoints read.
+
+## `tracemalloc` runs without `PYTHON_TLBC=0` (2026-10-29)
+
+CPython 3.14.5's gh-148037 fix removes the tracer × thread-local-bytecode
+deadlock: on the box's 3.14.8 the lexic-free reproducer and a traced pool parse
+both exit with TLBC on. `testing.md` drops
+the flag from its rule and keeps it only for releases before 3.14.5.
+
+## One site walk for pairs and separators (2026-10-28)
+
+`parallel-parsing.md` records `roles.bracket_arms`/`repeated_bodies` as the one
+walk both derivations read, and each reader's filter (reader, `enclosing`,
+`nested`, lead).
+
+## What an item spells (2026-10-28)
+
+`parallel-parsing.md` records when `literal_char`/`literal_text` read an item
+as one literal: the one its fixed spelling holds amid text that varies, a
+choice included, and never one of several.
+
+## The engine reads an arm as its items (2026-10-28)
+
+`ir-shapes.md` records that no engine reader filters an `IrSequence`, and that
+`lift_optional_nullables` refuses an arm holding a non-item by name.
+
+## The fold takes several recursive arms (2026-10-28)
+
+`decisions.md` records how a several-armed fold knows which arm each iteration
+took, why one character must choose, and the bench's direct and relay rows.
+
+## One route reader, three readings (2026-10-28)
+
+`parallel-parsing.md` records that `read_route` serves every route under the
+FOUND, PREDICTED or WRAPPED reading, and what each guards.
+
+## A route step is a run where the binding builds one (2026-10-28)
+
+`parallel-parsing.md` records that a routed interior's descent labels each step
+by the item's `repeats()`, first step included, and that the route reads only
+that label.
+
+## A whole-extent interior ends where its tail begins (2026-10-28)
+
+`parallel-parsing.md` records that a whole-extent routed interior's run ends at
+its enclosing node's tail rather than its last mark; `decisions.md` restates the
+folded source's reason for its own extent arithmetic in those terms.
+
+## An island climbs on one chart (2026-10-28)
+
+`decisions.md` records why an island's window grows on one chart instead of
+re-parsing each width, and why that equals a fresh window of the final width.
+
+## A cyclic grammar's fast build takes only families that complete (2026-10-28)
+
+`decisions.md`'s fast-build cycle entry now records the completeness test below
+the key, which replaced avoiding only a child still being built, and why the
+meaning check reads the chains the build took.
+
+## The derivation stream ends a cycle's branch (2026-10-28)
+
+`decisions.md` records that the stream's open set holds only ancestors, that a
+cycle's branch ends instead of emitting a truncated node, that the cut is
+recorded so `is_ambiguous` and the strict parse still count the pumped
+derivation, and the structural completeness check that pins it.
+
+## A shared closer closes each of its pairs (2026-10-28)
+
+`parallel-parsing.md` records that a frame waits for its own pair's closer,
+so two pairs sharing one closer each close their own frame, and why `closes`
+holds the shared one-character objects.
+
+## No character plays two pair roles (2026-10-28)
+
+`parallel-parsing.md` records why `standing_pairs` drops a pair whose
+character also delimits another pair in the other role, and that the walk now
+sweeps its spelling (each character once); `invariants.md` why the windowed
+differential no longer carries a two-role fixture.
+
+## No closer is a mark (2026-10-28)
+
+`parallel-parsing.md` records why `scan_vocabulary` drops pair characters from
+the marks and why the walks carry no closer-as-mark branch; `invariants.md`
+names the two-role shape the windowed differential's fixture holds instead.
+
+## The tables say whether a fast build must watch for cycles (2026-10-28)
+
+`decisions.md` records `DecodeTables.cyclic` deciding where FastTree tracks
+re-entries, the pin unroll restored for tracked builds, and why the grammar
+decides rather than a check on the build loop.
+
+## The fast build builds a zero-width root (2026-10-28)
+
+`decisions.md` records `FastTree.build` returning its holder, and the
+chart-order reading a span keeps when the chart, not the build, read it.
+
+## The fast build stops at a cycle and builds only complete derivations (2026-10-28)
+
+`decisions.md` records the untracked try and its tracked rebuild, the avoid
+set and the explicit refusal, with why every tree they build is complete.
+
+## One Earley fill; the island's span is a readout (2026-10-27)
+
+`decisions.md` records `Kernel.run` skipping empty columns as the one fill, and
+`readout.longest_start_completion` replacing the kernel's second loop.
+
+## A span's flips share one parent index (2026-10-27)
+
+`decisions.md` records `parent_edges` walked once per span, with `dirty_cone`
+reading each flip's cone off it.
+
+## A span's first derivation is read in one place (2026-10-27)
+
+`decisions.md` records `fasttree.first_tree` / `streamed_first` / `FirstTree`
+as the char, token and island routes' one reader, `remembered` folding the
+build it is handed, and the sibling comparison reading a declined sibling off
+the chart.
+
+## The IR façade's lookup is the groups' own data (2026-10-27)
+
+`decisions.md` records the group markers' `SURFACE` data, the derived `_HOMES`,
+and why the `TYPE_CHECKING` block and `__all__` stay literal in the façade.
+
+## Nullability is the grammar's one exact fact (2026-10-27)
+
+`decisions.md` records why `IrAst.nullable()` replaces the five nullability
+computations and what moved. `ir-shapes.md` adds `vanishes` and the fixpoint.
+
+## An item's fixed text, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrItem.unit_literal()`, which eight twins of "a literal,
+exactly once" now read.
+
+## A quantifier answers its own shape (2026-10-27)
+
+`ir-shapes.md` records `IrQuantifier.once/optional/unbounded/repeats/fixed/upper`,
+which replace ten unit-quantifier constants and their spelled-out twins.
+
+## The rule-reference graph is asked in one place (2026-10-27)
+
+`decisions.md`: `lexic.ir.grammar.graph` — references, reach, reachable,
+reaching — replaces eleven walkers and seven closures.
+
+## Earley FIRST over term ids; a run's unit is an exact class (2026-10-27)
+
+`decisions.md` records `first_ids` as Earley's one FIRST, the seed gates read
+from it, run units as exact `IrCharClass`es of any width and polarity, and
+negated runs scanning by exclusion.
+
+## The character-set node has its own module (2026-10-27)
+
+`ir-shapes.md` records that `IrCharClass`, `IrRange` and `MAX_CODEPOINT` live
+in `ir/grammar/charclass.py`, out of `nodes.py`, with their interval algebra.
+
+## A bound field's document order is read, never assumed (2026-10-27)
+
+`decisions.md`: `RuleMap.in_slot_order()` and `ChildOrder.slots` are the
+document-order readers; templating's key/value pick and span collect read them.
+
+## The speculation licence reads the PDA's EXTEND (2026-10-27)
+
+`decisions.md` records why the exclusive-opening clause reads `rule_extensions`,
+built once per analysis for all four readers, and what that costs and fixes.
+
+## An arm of one unit reference, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrSequence.sole_ref()` and records that a repeated
+reference is never an arm's rule — the reduce fold's arm table read one as such.
+
+## "Is a run" is spelled once, in ir (2026-10-27)
+
+`ir-shapes.md` and `parallel-parsing.md`: `lexic.ir.is_plain_tuple` replaces the
+stitch's `is_run` and its inline twins; `IrMapping`'s miss path keeps its four
+inline tests, priced.
+
+## The region scan's pairs stand only where every read site delimits (2026-10-27)
+
+`decisions.md`'s pair entry covers both scans: `roles.standing_pairs` is the one
+fixpoint, and `interiors.stray_spellings` answers it for the region scan.
+
+## Arm facts read off the node (2026-10-27)
+
+`ir-shapes.md` records `IrItem.unit_ref()` and `IrRule.sole_arm()`: the
+parallel planners and the reduction read them there instead of keeping copies.
+
+## A region's plan is the plan of the arm its bracket opens (2026-10-27)
+
+`decisions.md` records why a bracket arm that shares its rule now divides: the
+region's opening character resolves the codegen rule its plan binds to.
+
+## A delimited rule hides only what lies inside its delimiters (2026-10-27)
+
+`decisions.md` records why the ownership proof no longer hides a paired or
+interior rule wholesale, and the wrong model hiding it produced.
+
+## A start rule's own bracket divides like any other (2026-10-27)
+
+`decisions.md` records why a region whose rule is the start rule now divides,
+its merged node laid over the shell's own model.
+
+## A pair stands only where every site of its characters delimits (2026-10-27)
+
+`decisions.md` records why `roles` drops a bracket pair whose opener or closer is
+also spelled at a site that delimits nothing, and what the census found.
+
 ## A one-root noise skip is its run pattern (2026-10-12)
 
 `decisions.md` records why `scan_gate_take` reads a one-root gate's noise with
@@ -2608,3 +2860,47 @@ warm and is counted (`replicas.warm_census`).
 
 `decisions.md`'s take-back entry in the present tense; a pin that a taken-back
 item a worker already started is never run twice.
+
+## A left-recursive run splits before its step characters (2026-10-28)
+
+`decisions.md`'s folded-source entry and `parallel-parsing.md`'s plan table: the
+run kind of the folded source, its NON_INITIAL condition, the re-worn base and
+the left-edge join.
+
+## A dead take side forces the stop in the lockstep (2026-10-28)
+
+`decisions.md`'s lockstep table now matches the code in both directions: a stop
+side dead without a guess is TAKE, and a take side dead without a guess,
+outside a side, is STOP_FORCED.
+
+## A sequence's EXTEND is bounded at its leftmost shifting item (2026-10-28)
+
+`decisions.md`: the sequence rule of EXTEND, its leftmost-divergence argument,
+the FIRST_2 window test and its surplus, and the licence entry's six remaining
+json witnesses.
+
+## A both-viable boundary is settled by a live set (2026-10-28)
+
+`decisions.md` adds the live-set entry and marks the lockstep, the guess rule
+and the rank's re-drive superseded; `invariants.md`'s nesting section now
+states the set's bounds and that nothing in a set guesses.
+
+## One complete clone walk; one entry shape per clone (2026-10-28)
+
+`invariants.md`: `all_clones` follows every clone-valued payload and landing
+target, so `mark_sub_roots` sees groups behind `OP_REF1`; `check_entry_shape`
+holds attempt, gated selection and leaf mutually exclusive, a dispatch clone
+exempt.
+
+## A bracketed run separated by a set of leads divides (2026-10-28)
+
+`parallel-parsing.md`'s region-scan section: per-pair lead sets read from the
+separator records, the own-marks filter and its free path, the per-owner,
+per-character safety with the bracket arm's `around` alphabet, and the joint
+lead read from the text.
+
+## A loop is decided where its run ends (2026-10-30)
+
+`decisions.md`'s stop-set entry: the four grants in cascade order, and the
+run-end decision — the closure kinds and their counterexamples, the context
+per clone, and its three refusals.

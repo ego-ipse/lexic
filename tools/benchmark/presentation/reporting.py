@@ -7,7 +7,7 @@ import sys
 from math import log10
 from typing import NamedTuple
 
-from tools.benchmark.bench import ENGINE, NOISE_ANCHOR, PRODUCT
+from tools.benchmark.bench import ENGINE, PRODUCT
 from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.engines.seats import SPECIALISTS
 from tools.benchmark.measurement.sampling import Parse, medians
@@ -122,8 +122,6 @@ class Block(NamedTuple):
     :ivar bench: The grammar and its documents.
     :ivar samples: Per-row timings, one list per round.
     :ivar refused: Rows that earned words instead of a number.
-    :ivar floor: The harness's own noise, as a percentage, or ``None`` when the
-        anchor seat did not measure in this run and there is no floor to state.
     :ivar documents: What each row actually parsed.
     :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
     :ivar shares: Per-row fraction of the timed region spent building the
@@ -139,7 +137,6 @@ class Block(NamedTuple):
     bench: Bench
     samples: dict[str, list[float]]
     refused: dict[str, str]
-    floor: float | None
     documents: dict[str, str]
     mt_notes: dict[str, str]
     shares: dict[str, float]
@@ -170,16 +167,6 @@ def report_block(block: Block, color: bool) -> None:
     for name, why in sorted(block.unmeasured.items()):
         label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'no number':>9}     {_paint(why[:92], _DIM, color)}")
-    if block.floor is None:
-        print(
-            f"  {'noise floor':<13}{'—':>8}     "
-            f"{NOISE_ANCHOR} did not measure here; the committed floor stands"
-        )
-    else:
-        print(
-            f"  {'noise floor':<13}{block.floor:8.2f}%    "
-            "smaller differences are not results"
-        )
     for name, reason in sorted(block.mt_notes.items()):
         print(
             f"  {(name + ' check'):<17}{'off':>4}     {reason} — this row ran "
@@ -240,7 +227,7 @@ def warmup_values(
     """Print one Java worker's cold parse and warmup state.
 
     An unsettled row says NO NUMBER, because that is what the block above it
-    printed: `_isolated_bench` drops such a row's samples and `report_block` marks
+    printed: `block_of` drops such a row's samples and `report_block` marks
     it `no number`. Calling the same row's figure "soft" here described a
     published-but-shaky number that does not exist, so one report gave two
     incompatible accounts of one row. The budget and the movement stay — they

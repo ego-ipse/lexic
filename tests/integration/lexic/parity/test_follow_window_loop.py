@@ -85,7 +85,7 @@ def test_the_class_is_decided_by_the_gate_and_not_by_an_attempt() -> None:
 
     assert not analysis.conflicts
     assert analysis.taxonomy.loop_gates
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 def test_the_null_arm_never_reaches_the_gate() -> None:
@@ -100,7 +100,7 @@ def test_the_null_arm_never_reaches_the_gate() -> None:
 
     assert not analysis.conflicts
     assert not analysis.taxonomy.loop_gates
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 @pytest.mark.parametrize("words", [1, 2, 5, 30])

@@ -30,7 +30,6 @@ from lexic.compile.reduction import (
     YieldNode,
     absent,
     as_node,
-    exactly_once,
     fold_tables,
 )
 from lexic.parsing.parallel.policy import AUTO, doc_workers
@@ -392,7 +391,7 @@ class ReduceFold:
                 continue
             if not isinstance(item.atom, IrLiteral):
                 continue
-            if not exactly_once(item.quantifier):
+            if not item.quantifier.once():
                 raise UnsupportedConstructError(
                     f"reduce: rule {rule!r} has an unbound inline literal "
                     "under literal=KEEP_RAW — its occurrence count is not "

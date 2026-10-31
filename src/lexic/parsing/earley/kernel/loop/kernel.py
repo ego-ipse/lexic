@@ -52,6 +52,19 @@ means the delegate declined, so the predictor falls through to normal
 prediction (the fail-soft safety net). See :meth:`Kernel._seed`."""
 
 
+def _check_capacity(tables: ParserTables, columns: int) -> None:
+    """Refuse a parse wider than the packed column capacity.
+
+    :raises UnsupportedConstructError: When ``columns`` reaches
+        ``tables.packing.advance``.
+    """
+    if columns >= tables.packing.advance:
+        raise UnsupportedConstructError(
+            f"parsing: input of {columns} chars exceeds the packed "
+            f"column capacity ({tables.packing.advance - 1})"
+        )
+
+
 class Kernel(IrLeaf[IrSelf, IrSelf]):
     """One Earley parse over compiled tables — chart, SPPF and driver in one.
 
@@ -115,11 +128,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :raises UnsupportedConstructError: If ``text`` exceeds the packed
             column capacity (``tables.packing.advance - 1`` chars).
         """
-        if len(text) >= tables.packing.advance:
-            raise UnsupportedConstructError(
-                f"parsing: input of {len(text)} chars exceeds the packed "
-                f"column capacity ({tables.packing.advance - 1})"
-            )
+        _check_capacity(tables, len(text))
         self.tables = tables
         self.text = text
         self.record_links = record_links
@@ -127,6 +136,34 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.st = KernelState(len(text) + 1)
         self.delegates = delegates or {}
         self.delegated = {}
+
+    # ── the columns ───────────────────────────────────────────────────
+
+    def open_columns(self, end: int) -> None:
+        """Every per-column lane, :attr:`cols` included, open to column ``end``.
+
+        :raises UnsupportedConstructError: When ``end`` is past the packed
+            column capacity.
+        """
+        _check_capacity(self.tables, end)
+        cols = self.cols
+        cols.extend([[] for _ in range(len(cols), end + 1)])
+        self.st.open_to(end)
+
+    def cut_columns(self, keep: int) -> tuple[list[list[int]], list[list]]:
+        """Every per-column lane, :attr:`cols` included, cut back to its first
+        ``keep`` columns.
+
+        :returns: What was cut, for :meth:`restore_columns`.
+        """
+        held = self.cols[keep:]
+        del self.cols[keep:]
+        return held, self.st.cut(keep)
+
+    def restore_columns(self, held: tuple[list[list[int]], list[list]]) -> None:
+        """Put back what :meth:`cut_columns` took."""
+        self.cols.extend(held[0])
+        self.st.restore(held[1])
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -137,13 +174,19 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         reader: native lookups, no wrapper, no marker check. A chart that
         factored gets a :class:`FamilyTable` that resolves promoted keys. The
         choice holds for the reader's lifetime because only recognition
-        promotes — Leo expansion appends to buckets but never promotes, and
-        ``ResumableKernel.extend`` refuses under ``record_links``.
+        promotes — Leo expansion appends to buckets but never promotes,
+        ``ResumableKernel.extend`` refuses under ``record_links``, and a growing
+        ``WindowKernel`` is read for families only once it has stopped growing.
         """
         return FamilyTable(self) if self.st.groups else self.st.links
 
     def run(self) -> Self:
         """Build the chart: close each column to a fixpoint, scan one char.
+
+        An empty column is skipped, never a stop: a multi-char literal, a run
+        terminal or a token lands past the columns it consumes, and those hold
+        nothing to close or scan — every item a column will ever hold arrives
+        from an earlier column's scan, so emptiness at its turn is final.
 
         :returns: ``self``, with :attr:`accept` resolved.
         """
@@ -151,9 +194,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if self.tables.start_id >= 0:
             self.st.predicted[0].add(self.tables.start_id)
             self._seed(0, self.tables.start_id)
+        cols = self.cols
         for i in range(n):
-            self._close(i)
-            self._scan(i)
+            if cols[i]:
+                self._close(i)
+                self._scan(i)
         self._close(n)
         return self
 
@@ -561,45 +606,6 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 links[key] = [entry]
             elif entry not in fam:
                 fam.append(entry)
-
-    # ── windowed prefix completion (islands) ──────────────────────────
-
-    def longest_start_completion(self) -> tuple[int, int] | None:
-        """Longest whole-prefix completion of the start rule (origin 0).
-
-        The islands seam (:mod:`lexic.parsing.pda.runtime.kernel.kernel`): seed the start
-        rule at column 0, drive the chart column by column over the window,
-        and after closing each reachable column record the widest completed
-        start item spanning ``[0, j]``. A later column overwrites an earlier
-        one, so the result is the *longest* completion; empty columns are
-        skipped rather than terminal, since a multi-char literal scan can land
-        past one. Additive to :meth:`run` — the main-loop fast path is
-        untouched; a fresh kernel calls this *instead of* :meth:`run` (with
-        ``record_links=True`` so :class:`FastTree` can decode the winner).
-
-        :returns: ``(accepting_item, end_column)`` for the longest origin-0
-            completion of the start rule, or ``None`` if it never completes.
-        """
-        tables = self.tables
-        if tables.start_id < 0:
-            return None
-        self.st.predicted[0].add(tables.start_id)
-        self._seed(0, tables.start_id)
-        accepts = tables.codes.accept_codes
-        bits, mask = tables.packing.bits, tables.packing.mask
-        best: tuple[int, int] | None = None
-        n = len(self.text)
-        for j in range(n + 1):
-            col = self.cols[j]
-            if not col:
-                continue
-            self._close(j)
-            for it in col:
-                if it >> bits in accepts and it & mask == 0:
-                    best = (it, j)
-            if j < n:
-                self._scan(j)
-        return best
 
     # ── Leo right-recursion ───────────────────────────────────────────
 

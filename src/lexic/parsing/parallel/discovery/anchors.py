@@ -35,6 +35,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.caches import adopt, memo
+from lexic.parsing.earley.kernel.tables.atoms import Spans
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
@@ -119,8 +120,11 @@ def _site_rows(grammar: IrAst) -> list[tuple[str, CharSet]]:
     return d.sites
 
 
-def _sites_by_char(rows: list[tuple[str, CharSet]]) -> dict[str, tuple[str, ...]]:
-    """Certified char → defining rules of its finite sites, definition order.
+def _sites_by_char(
+    rows: list[tuple[str, CharSet]],
+) -> tuple[dict[str, tuple[str, ...]], dict[str, int]]:
+    """Certified char → defining rules of its finite sites, definition order,
+    and → how many sites emit it.
 
     A character qualifies iff NO co-finite (negated / ANY) site can emit it:
     such a site is an opaque interior — a string body, a comment, a token
@@ -134,40 +138,41 @@ def _sites_by_char(rows: list[tuple[str, CharSet]]) -> dict[str, tuple[str, ...]
             candidates |= emits.chars
     opaque = [emits for _rule, emits in rows if emits.negated]
     out: dict[str, tuple[str, ...]] = {}
+    counts: dict[str, int] = {}
     for ch in sorted(candidates):
         if any(emits.has(ch) for emits in opaque):
             continue
         rules = [rule for rule, emits in rows if emits.has(ch)]
         out[ch] = tuple(dict.fromkeys(rules))
-    return out
+        counts[ch] = len(rules)
+    return out, counts
 
 
-def _run_chars(grammar: IrAst) -> set[str]:
-    """The union of the grammar's derived maximal-munch run charsets."""
+def _run_units(grammar: IrAst) -> list[IrCharClass]:
+    """The units of the grammar's derived maximal-munch runs, either polarity."""
     normalized = normalize(grammar)
     adopt(id(grammar), normalized)  # transient shape, but the table memo keys on it
     tables = compile_tables(normalized)
-    out: set[str] = set()
-    for charset, _has_empty, _unit_rid in run_candidates(tables).values():
-        out |= charset
-    return out
+    return [unit for unit, _has_empty, _unit_rid in run_candidates(tables).values()]
 
 
-_Entry = tuple[IrAst, frozenset[str], dict[str, tuple[str, ...]]]
+_Entry = tuple[IrAst, frozenset[str], dict[str, tuple[str, ...]], dict[str, int]]
 _ANCHORS: dict[int, _Entry] = memo({})
-"""Analysis memo — id(grammar) → (grammar, anchors, site map). The strong
-reference pins the id, so a recycled id can never alias a live entry."""
+"""Analysis memo — id(grammar) → (grammar, anchors, site map, site counts). The
+strong reference pins the id, so a recycled id can never alias a live entry."""
 
 
 def _analysis(grammar: IrAst) -> _Entry:
     """The memoised analysis entry for ``grammar``."""
     entry = _ANCHORS.get(id(grammar))
     if entry is None:
-        by_char = _sites_by_char(_site_rows(grammar))
+        by_char, counts = _sites_by_char(_site_rows(grammar))
         if by_char:
-            for ch in _run_chars(grammar):
-                by_char.pop(ch, None)
-        entry = (grammar, frozenset(by_char), by_char)
+            units = [Spans.of(unit) for unit in _run_units(grammar)]
+            for ch in [c for c in by_char if any(c in unit for unit in units)]:
+                del by_char[ch]
+                counts.pop(ch, None)
+        entry = (grammar, frozenset(by_char), by_char, counts)
         _ANCHORS[id(grammar)] = entry
     return entry
 
@@ -200,3 +205,13 @@ def anchor_sites(grammar: IrAst) -> dict[str, tuple[str, ...]]:
     :returns: anchor char → the defining rules of its sites.
     """
     return _analysis(grammar)[2]
+
+
+def anchor_site_counts(grammar: IrAst) -> dict[str, int]:
+    """Each anchor character's number of emitting sites — atom occurrences,
+    not rules: one rule spelling ``>`` twice counts two.
+
+    :param grammar: The grammar to analyse (same memo as :func:`anchors`).
+    :returns: anchor char → how many sites can emit it.
+    """
+    return _analysis(grammar)[3]

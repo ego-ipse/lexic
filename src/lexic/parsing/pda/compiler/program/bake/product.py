@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.bake.lowering import (
     FoldBuild,
     no_shape_build,
@@ -49,7 +49,9 @@ from lexic.parsing.pda.compiler.program.bake.lowering import (
 )
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
+    FoldArms,
     clear_build,
+    clone_arms,
     no_construction,
     no_fast_construction,
 )
@@ -66,6 +68,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_SPAN,
     M_TEXT,
     M_VALUE,
+    OP_GRP,
 )
 from lexic.parsing.product import (
     CaptureMode,
@@ -182,6 +185,8 @@ def bake_product_build[Carry](
         clone.plan = ()
         clone.fast = no_fast_construction
         clone.defaults = None
+        if fold.arms:
+            _bake_fold_arms(clone, fold)
         return
     construction = None if routine is None else routine.construction
     if routine is None or construction is None:
@@ -212,6 +217,43 @@ def bake_product_build[Carry](
         else shape_build(licence.record, clone.plan)
     )
     clone.defaults = dict(construction.defaults)
+
+
+def _bake_fold_arms[Carry](clone: FlatClone[Carry], fold: FoldBuild[Carry]) -> None:
+    """Make a several-armed fold's step group report one iteration per run.
+
+    The folded rule is ``(γ)(β1 | β2 …)*``, one arm of two items, and the second
+    item is the step group. Baked :data:`BUILD_FOLD` it collects its own captures
+    instead of passing them through, and completes as the
+    :class:`~lexic.parsing.pda.compiler.program.flatten.FoldIteration` of the arm
+    it ran (:class:`~lexic.parsing.pda.compiler.program.flatten.FoldArms`).
+    ``n_items`` ``-1`` is what the fold's completion tells a step group by; the
+    folded clone's own is ``0``, its iterations being records rather than a
+    flat run of values.
+
+    The group's arms are its FIRST selectors, in the order the grammar wrote the
+    βs: the shape admits several recursive arms only where one character chooses
+    between them, so nothing reorders or windows them.
+
+    :raises EngineInvariantError: When the step group is not that shape — the
+        shape proof and the clone compiler have drifted apart.
+    """
+    for arm in clone_arms(clone):
+        group = arm.payloads[1] if arm.n == 2 and arm.kinds[1] == OP_GRP else None
+        if (
+            not isinstance(group, FlatClone)
+            or group.wide_selectors is not None
+            or group.default is not None
+            or group.attempt is not None
+            or len(group.selectors) != len(fold.arms)
+        ):
+            raise EngineInvariantError(
+                f"fold {clone.name!r}: its steps are not chosen by one character"
+            )
+        steps = {flat: step for (_, _, flat), step in zip(group.selectors, fold.arms)}
+        group.mode = BUILD_FOLD
+        group.ctor = FoldArms(steps)
+        group.n_items = -1
 
 
 def _capture_layout[Carry](

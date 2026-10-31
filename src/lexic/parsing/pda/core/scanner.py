@@ -43,7 +43,7 @@ build) and ``flatten`` (runtime dispatch) both import it, never the reverse.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Mapping, NamedTuple
+from typing import Any, Mapping, NamedTuple
 
 from lexic.ir import (
     IrAlternation,
@@ -51,11 +51,11 @@ from lexic.ir import (
     IrItem,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrRule,
     IrRuleRef,
     IrSelf,
+    references,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -266,8 +266,8 @@ def compile_admission(
 
 def _hi(item: IrItem) -> int:
     """The item's upper bound as an int, :data:`_HI_UNBOUNDED` for unbounded."""
-    hi = item.quantifier.hi
-    return _HI_UNBOUNDED if isinstance(hi, IrNoneType) else int(hi)
+    hi = item.quantifier.upper()
+    return _HI_UNBOUNDED if hi is None else hi
 
 
 def _membership(atom: IrCharClass | IrNot) -> "tuple[frozenset[str], bool] | None":
@@ -341,30 +341,14 @@ def _compile_arms(
     return tuple(arms)
 
 
-def _visit_atom(atom: IrSelf, visit: Callable[[str], bool]) -> bool:
-    """Walk one atom for the closure — descending through an inline group.
-
-    A group carries no rule name, so it closes no cycle and adds no closure
-    member of its own; what it can hold is REFERENCES, and those must be
-    visited or the recognizer would compile against a rule it never built.
-    """
-    if isinstance(atom, IrAlternation):
-        return all(
-            _visit_atom(item.atom, visit)
-            for arm in atom
-            for item in arm
-            if isinstance(item, IrItem)
-        )
-    return not isinstance(atom, IrRuleRef) or visit(str(atom))
-
-
 def _closure(rules: Mapping[str, IrRule], roots: frozenset[str]) -> "list[str] | None":
     """The acyclic rule closure reachable from ``roots``, or ``None``.
 
     ``None`` when a reference leaves ``rules`` (undefined) or the closure is
     cyclic (a recursive recognizer could loop without consuming — opt out).
     Grey/black DFS: a name seen on the current stack is a back edge. An inline
-    group is descended into (:func:`_visit_atom`), never a refusal on its own.
+    group is descended into (:func:`~lexic.ir.grammar.graph.references`), never a
+    refusal on its own.
     """
     grey: set[str] = set()
     done: set[str] = set()
@@ -376,12 +360,8 @@ def _closure(rules: Mapping[str, IrRule], roots: frozenset[str]) -> "list[str] |
         if name in grey or name not in rules:
             return False
         grey.add(name)
-        for arm in rules[name].body:
-            for item in arm:
-                if not isinstance(item, IrItem):
-                    continue
-                if not _visit_atom(item.atom, visit):
-                    return False
+        if not all(visit(str(ref)) for ref in references(rules[name].body)):
+            return False
         grey.discard(name)
         done.add(name)
         order.append(name)

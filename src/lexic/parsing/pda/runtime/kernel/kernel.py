@@ -86,7 +86,6 @@ from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
     RouteLane,
-    RunScope,
     sole_admitted,
 )
 from lexic.parsing.pda.runtime.build import Frame
@@ -163,7 +162,7 @@ class PdaKernel[M](
         executor: ProductExecutor[M] | None = None,
         *,
         config: ParseConfig = DEFAULT_CONFIG,
-        scope: RunScope | None = None,
+        delegate: bool = False,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -176,15 +175,15 @@ class PdaKernel[M](
         :param config: The caller's resolver, answering an island that
             derives its text two ways that mean different things, and split
             decider. Per-parse state, so it rides on the cursor.
-        :param scope: The scope of the parse this one runs inside, whose
-            allowance it shares, or ``None`` for a parse of its own.
+        :param delegate: Whether this parse is a delegate's sub-run inside
+            another, rather than a parse of its own.
         """
         self.tables = tables
         self.text = text
         self.policy = IslandPolicy(config=config, executor=executor)
         self.pos = 0
         self.stack = []
-        self._caches = KernelCaches[M](scope)
+        self._caches = KernelCaches[M](delegate)
         # `None` for every program without route continuations — which is the
         # generated-model product permanently. A frame slot would have taxed
         # every product's every frame push; this taxes one attribute.
@@ -273,8 +272,8 @@ class PdaKernel[M](
         branch — and a
         frame boundary is exactly where ``self.pos`` and ``frame.i`` are
         both current, which is what makes the pause resumable at all. Used by
-        the lockstep boundary verdict, which advances two candidate
-        continuations in step instead of running each to end-of-input.
+        the live set, which advances a boundary's readings in step instead of
+        running each to end-of-input.
 
         The outer loop processes the top frame; the inner loop runs its items
         in order. A terminal item matches its whole quantifier loop inline (no

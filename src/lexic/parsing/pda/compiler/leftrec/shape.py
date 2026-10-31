@@ -2,7 +2,13 @@
 
 `A ::= A β1 | A β2 | γ1 | γ2` — DIRECT left recursion, with every recursive arm
 continuing past the reference and every base arm not starting with it — is the
-classical rewrite's precondition and the only shape read here. Anything else is
+classical rewrite's precondition and the only shape read here. With two or more
+recursive arms, one character chooses between them wherever the boundaries are
+settled (:func:`settled`): two βs whose FIRST sets meet put each other's alphabet,
+first characters included, into the pieces' EXTEND, which then meets the βs'
+FIRST and fails the proof. So the step group's arms are selected by the next
+character in the order the grammar wrote them, and that order is what each
+iteration's record of its arm names. Anything else is
 left alone and still islands: indirect recursion through another rule, a `β`
 that can vanish (the loop would spin), a bare `A` arm (a cycle), a quantified
 leading reference.
@@ -28,12 +34,12 @@ and is not a general inlining.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
 from lexic.ir import IrItem, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import arms_extension, rule_extensions
-from lexic.parsing.pda.compiler.specs import arm_items
+from lexic.parsing.pda.analysis.extend.lengthen import arms_extension, rule_extensions
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -64,7 +70,9 @@ class Fold(NamedTuple):
     steps: tuple[Recursive, ...]
 
 
-def through_hoist(items: list[IrItem], rules: dict[str, IrRule]) -> list[IrItem]:
+def through_hoist(
+    items: Sequence[IrItem], rules: Mapping[str, IrRule]
+) -> Sequence[IrItem]:
     """An arm, with a hoisted single-reference arm rule read through.
 
     Only an arm that consists ENTIRELY of one reference to a rule with exactly
@@ -77,23 +85,18 @@ def through_hoist(items: list[IrItem], rules: dict[str, IrRule]) -> list[IrItem]
     target = rules.get(str(items[0].atom))
     if target is None or len(target.body) != 1:
         return items
-    return arm_items(target.body[0])
+    return target.body[0]
 
 
-def _leads_with(items: list[IrItem], name: str) -> bool:
+def _leads_with(items: Sequence[IrItem], name: str) -> bool:
     """Whether the arm begins with exactly one reference to ``name``."""
     if not items or not isinstance(items[0].atom, IrRuleRef):
         return False
     quantifier = items[0].quantifier
-    return (
-        str(items[0].atom) == name
-        and int(quantifier.lo) == 1
-        and isinstance(quantifier.hi, int)
-        and int(quantifier.hi) == 1
-    )
+    return str(items[0].atom) == name and quantifier.once()
 
 
-def any_candidate(rules: dict[str, IrRule]) -> bool:
+def any_candidate(rules: Mapping[str, IrRule]) -> bool:
     """Whether ANY rule even leads an arm with a reference to itself.
 
     A cheap structural pre-test, so the fold costs nothing on a grammar it
@@ -107,7 +110,7 @@ def any_candidate(rules: dict[str, IrRule]) -> bool:
     """
     for name, rule in rules.items():
         for arm in rule.body:
-            items = through_hoist(arm_items(arm), rules)
+            items = through_hoist(arm, rules)
             if (
                 items
                 and isinstance(items[0].atom, IrRuleRef)
@@ -118,7 +121,7 @@ def any_candidate(rules: dict[str, IrRule]) -> bool:
 
 
 def foldable(
-    name: str, rule: IrRule, rules: dict[str, IrRule], analysis: GrammarAnalysis
+    name: str, rule: IrRule, rules: Mapping[str, IrRule], analysis: GrammarAnalysis
 ) -> Fold | None:
     """The rule's decomposition, or ``None`` when the fold cannot take it.
 
@@ -134,7 +137,7 @@ def foldable(
     base: list[int] = []
     steps: list[Recursive] = []
     for at, arm in enumerate(rule.body):
-        raw = arm_items(arm)
+        raw = arm
         items = through_hoist(raw, rules)
         hoisted = "" if items is raw else str(raw[0].atom)
         if not _leads_with(items, name):
@@ -176,7 +179,7 @@ def settled(rule: IrRule, fold: Fold, analysis: GrammarAnalysis) -> bool:
     it is left unfolded and islands, where Earley refuses what is ambiguous.
     """
     arms = tuple(rule.body)
-    bases = [arm_items(arms[at]) for at in fold.base]
+    bases = [arms[at] for at in fold.base]
     steps = [list(step.rest) for step in fold.steps]
     starts = CharSet.EMPTY
     for rest in steps:

@@ -25,10 +25,7 @@ from lexic.parsing.pda.core.charsets import CharSet
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
 from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
-    arm_items,
-    stop_set_notes,
-)
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import stop_set_notes
 
 _LOWER = IrCharClass(IrRange(IrChr(97), IrChr(122)))
 
@@ -44,7 +41,7 @@ def test_attempt_spec_orders_nullable_arms_last_and_is_deterministic():
         IrSequence(_item(IrLiteral("c"))),
     )
     analysis = _analysis(root, start="root")
-    arms = [arm_items(arm) for arm in root.body]
+    arms = list(root.body)
     first = attempt_spec(analysis, arms)
     second = attempt_spec(analysis, arms)
     assert first == second == AttemptSpec((0, 2, 1))
@@ -59,7 +56,7 @@ def test_attempt_spec_keeps_all_nullable_arms_in_authored_order():
         IrSequence(),
     )
     analysis = _analysis(root, start="root")
-    arms = [arm_items(arm) for arm in root.body]
+    arms = list(root.body)
     assert attempt_spec(analysis, arms).order == (1, 0, 2)
 
 
@@ -86,7 +83,7 @@ def test_attempt_group_files_the_licence_and_counts_notes_covered():
     follow = CharSet.from_chars("!")
     site = Site("root[0]grp", id(grp), follow)
 
-    attempt_group(analysis, [arm_items(arm) for arm in grp], site, notes, count=1)
+    attempt_group(analysis, list(grp), site, notes, count=1)
 
     assert notes.covered == 1
     windows, peek, attempt = analysis.taxonomy.grp_arm_gates[id(grp)]

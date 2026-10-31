@@ -4,14 +4,15 @@ reduction subtrees.
 ``elide_subtrees``'s collision-refusal and its role inside the full
 derivation pipeline are also pinned end to end in
 ``tests/unit/lexic/compile/test_reduction.py``; this file targets
-``reachable_rules`` and ``elide_subtrees`` directly.
+``elide_subtrees`` directly; the reachability it reads is
+``lexic.ir.grammar.graph.reachable``'s, pinned in ``test_graph.py``.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
+from lexic.compile.reduce.variant import elide_subtrees
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -36,22 +37,8 @@ def _grammar() -> IrAst:
     )
 
 
-def test_reachable_rules_includes_the_roots_and_their_transitive_refs():
-    grammar = _grammar()
-    assert reachable_rules(grammar, {"root"}) == frozenset({"root", "gap"})
-
-
-def test_reachable_rules_stops_at_a_nonexistent_root():
-    grammar = _grammar()
-    assert reachable_rules(grammar, {"missing"}) == frozenset()
-
-
-def test_reachable_rules_excludes_unreferenced_rules():
-    grammar = _grammar()
-    assert "other" not in reachable_rules(grammar, {"gap"})
-
-
 def test_elide_subtrees_with_no_roots_returns_the_grammar_unchanged():
+    """Nothing to elide: the grammar comes back as it was, with no aliases."""
     grammar = _grammar()
     expanded, aliases = elide_subtrees(grammar, frozenset())
     assert expanded == grammar
@@ -59,6 +46,7 @@ def test_elide_subtrees_with_no_roots_returns_the_grammar_unchanged():
 
 
 def test_elide_subtrees_adds_skip_twins_and_reports_their_source_aliases():
+    """A dropped root gets a ``-sk`` twin, aliased back to its source."""
     grammar = _grammar()
     expanded, aliases = elide_subtrees(grammar, frozenset({"gap"}))
     names = {str(rule.name) for rule in expanded.rules}
@@ -77,6 +65,7 @@ def test_elide_subtrees_leaves_unrelated_rules_untouched():
 
 
 def test_elide_subtrees_refuses_a_twin_name_collision():
+    """A twin name the grammar already defines refuses rather than overwrite."""
     grammar = IrAst(
         IrSeq(
             IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("gap"))))),

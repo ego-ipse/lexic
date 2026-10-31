@@ -28,7 +28,13 @@ from pathlib import Path
 from statistics import median
 from typing import NamedTuple
 
-from tools.benchmark.execution.isolation import Job, RowRequest, run_job, run_roster
+from tools.benchmark.execution.isolation import (
+    Job,
+    RowRequest,
+    run_departure,
+    run_job,
+    run_roster,
+)
 from tools.benchmark.judging.arithmetic import (
     MT_ROWS,
     Pairing,
@@ -36,6 +42,8 @@ from tools.benchmark.judging.arithmetic import (
     decide,
     log_interval,
     primary_reading,
+    slowest_first,
+    unsound,
 )
 from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
@@ -173,23 +181,28 @@ def _sided(one: Arm, other: Arm) -> tuple[Arm, Arm] | None:
     return None
 
 
+class StoppedSplitting(ValueError):
+    """The head declined a split its base engaged; :func:`opening` judges it."""
+
+
 def _strategy(one: Arm, other: Arm, row: str) -> None:
     """Guard the one strategy change that would flatter the head, report the rest.
 
     Asymmetric on purpose. A head that STOPS splitting a document its base
     split is doing less work and will look faster for it — that is a regression
-    wearing a speedup's clothes, and it fails. A head that STARTS splitting is
-    the improvement being measured; refusing it would discard the very reading
-    that shows it, so it is reported and the ratio stands.
+    wearing a speedup's clothes, and it fails unless the base's split was wrong
+    (:func:`opening`). A head that STARTS splitting is the improvement being
+    measured; refusing it would discard the very reading that shows it, so it
+    is reported and the ratio stands.
 
-    :raises ValueError: When the head no longer engages a split the base did.
+    :raises StoppedSplitting: When the head no longer engages a split the base did.
     """
     pair = _sided(one, other)
     if pair is None:
         return
     base, head = pair
     if base.observation.engaged and not head.observation.engaged:
-        raise ValueError(
+        raise StoppedSplitting(
             f"{row}: head no longer splits where base did — a head that stops "
             "splitting is doing less work, not the same work faster"
         )
@@ -370,6 +383,40 @@ exactly rather than stepped over.
 """
 
 
+def unsound_base(arms: Arms, grammar: str, row: str) -> tuple[int, int] | None:
+    """The first count from 2 to the row's where the base's split departs from its
+    own sequential model, and where — every count, one process each, because a
+    carving can be right at one count by where its cuts land; ``None`` if none."""
+    for cores in range(2, arms.cores + 1):
+        offset = run_departure(_job(arms.base, grammar, row, cores, f"split-{cores}"))
+        if offset is not None:
+            return cores, offset
+    return None
+
+
+def opening(
+    arms: Arms, grammar: str, row: str, pairs: int
+) -> tuple[Pairing, Verdict | None]:
+    """Every tier's start: a row's first ``pairs`` pairs, or, for a head that stopped
+    splitting a split :func:`unsound_base` finds departing, its untimed verdict."""
+    try:
+        return sample(arms, grammar, row, pairs, 0), None
+    except StoppedSplitting as stopped:
+        try:
+            found = unsound_base(arms, grammar, row)
+        except RuntimeError as failed:
+            raise StoppedSplitting(
+                f"{stopped} — base probe failed: {failed}"
+            ) from failed
+        if found is None:
+            raise StoppedSplitting(
+                f"{stopped} — and at no count from 2 to {arms.cores} does the "
+                "base's split depart from its own sequential model"
+            ) from stopped
+    clock = "wall" if row in MT_ROWS else "cpu"
+    return Pairing((), (), ()), unsound(f"{grammar}/{row}", clock, *found)
+
+
 def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
     """Sample a row until it settles inside the envelope, or the bound runs out.
 
@@ -383,7 +430,9 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
     """
     clock = "wall" if row in MT_ROWS else "cpu"
     label = f"{grammar}/{row}"
-    pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
+    pairing, settled = opening(arms, grammar, row, MIN_PAIRS)
+    if settled is not None:
+        return settled, pairing
     verdict = decide(label, pairing, clock)
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
         extra = sample(arms, grammar, row, BLOCK, len(pairing.candidate))
@@ -412,7 +461,7 @@ def report_table(verdicts: Sequence[Verdict]) -> None:
         f"{'row':{width}}  {'clock':>5}  {'ratio':>7}  {'ci low':>7}  "
         f"{'ci high':>7}  {'noise':>7}  {'pairs':>5}  status"
     )
-    for verdict in sorted(verdicts, key=lambda entry: -entry.ratio):
+    for verdict in slowest_first(verdicts):
         print(
             f"{verdict.row:{width}}  {verdict.clock:>5}  {verdict.ratio:7.4f}  "
             f"{verdict.low:7.4f}  {verdict.high:7.4f}  {verdict.envelope:7.4f}  "

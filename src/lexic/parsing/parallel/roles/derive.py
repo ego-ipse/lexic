@@ -8,7 +8,9 @@ shapes are derived from the grammar, never hardcoded per formulation:
   LAST anchor literal closes over a reference or group interior:
   ``"{" ws members "}" ws`` derives the pair ``{`` → ``}`` (trailing noise
   after the closer is fine; a closer is the last structural mark, not the
-  last item).
+  last item). Depth is counted over the WHOLE text, so the pair stands only
+  when every site spelling either character is a delimiter of such an arm: a
+  ``>`` that is also the tail of ``"=>"`` would close every bracket early.
 - **Separator** — the anchor literal every arm of a repeated body leads
   with: a rule referenced with an unbounded quantifier (the hoisted
   ``(sep unit)*`` shape) or an inline unbounded group. The lead resolves
@@ -24,6 +26,8 @@ a grammar whose boundary is already one character keeps the plan it had.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import (
@@ -32,17 +36,25 @@ from lexic.ir import (
     IrCharClass,
     IrItem,
     IrLiteral,
+    IrNoneType,
     IrRule,
     IrRuleRef,
 )
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.anchors import anchors
+from lexic.parsing.parallel.discovery.anchors import anchor_site_counts, anchors
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
-    UNIT,
+    RuleTable,
     exact_text,
     last_charset,
-    unbounded,
+    literal_char,
+    rule_table,
+)
+from lexic.parsing.parallel.roles.runs import (
+    RepeatedBody,
+    bracket_arms,
+    repeated_bodies,
+    run_owners,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -128,7 +140,7 @@ def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
 def _anchor_chars(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     """All finite anchor alternatives one unit-quantified item can emit."""
     atom = item.atom
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return frozenset()
     if isinstance(atom, IrLiteral):
         text = str(atom)
@@ -153,52 +165,17 @@ def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
     found = _anchor_chars(item, anchor_set)
     if found:
         return found
-    atom = item.atom
-    if item.quantifier != UNIT or not isinstance(atom, IrLiteral):
+    literal = item.unit_literal()
+    if not isinstance(literal, IrLiteral):
         return frozenset()
-    text = str(atom)
+    text = str(literal)
     wide = len(text) > 1 and set(text) <= anchor_set
     return frozenset({text}) if wide else frozenset()
 
 
-def _arm_pair(
-    items: tuple[IrItem, ...], anchor_set: frozenset[str]
-) -> tuple[str, str] | None:
-    """The arm's opener/closer pair, when it has the bracketing shape.
-
-    DELIMITING, not nesting, is the test. A pair serves two readers at once:
-    the scan counts depth with it, and
-    :func:`~...stitch.safety.owner_excludes` attributes what stands between
-    the delimiters to the nested region rather than to its owner. The second
-    reader needs no recursion — a flat ``"{" inner "}"`` owns its own commas
-    just as a nesting one does — and narrowing the derivation to constructs
-    that can hold another instance of themselves silently un-attributes them.
-    """
-    if len(items) < 3:
-        return None
-    opener = _anchor_char(items[0], anchor_set)
-    if opener is None:
-        return None
-    closer_at = next(
-        (
-            j
-            for j in range(len(items) - 1, 0, -1)
-            if _anchor_char(items[j], anchor_set) is not None
-        ),
-        0,
-    )
-    closer = _anchor_char(items[closer_at], anchor_set)
-    if closer is None or closer == opener:
-        return None
-    delimited = any(
-        isinstance(item.atom, (IrRuleRef, IrAlternation)) for item in items[1:closer_at]
-    )
-    return (opener, closer) if delimited else None
-
-
 def _lead_info(
     item: IrItem,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> tuple[set[str], str] | None:
@@ -213,7 +190,7 @@ def _lead_info(
     atom = item.atom
     resolvable = (
         isinstance(atom, IrRuleRef)
-        and item.quantifier == UNIT
+        and item.quantifier.once()
         and str(atom) in by_name
         and str(atom) not in seen
     )
@@ -226,7 +203,7 @@ def _lead_info(
 
 def _body_leads(
     body: IrAlternation,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str] = frozenset(),
 ) -> tuple[set[str], str] | None:
@@ -248,6 +225,107 @@ def _body_leads(
         names.add(found[1])
     lead = names.pop() if len(names) == 1 else ""
     return (chars, lead)
+
+
+_LEADS: dict[int, tuple[IrAst, dict[str, frozenset[str]]]] = memo({})
+
+
+def run_leads(
+    grammar: IrAst, pairs: Mapping[str, tuple[str, str]]
+) -> dict[str, frozenset[str]]:
+    """opener → its bracket's OWN run's lead SET
+    (:func:`~...roles.runs.run_owners`), read off :func:`roles`' records:
+    ``"(" expr ")"`` gets ``+-``, never its terms' ``*/``."""
+    entry = _LEADS.get(id(grammar))
+    if entry is None:
+        records = roles(grammar).records
+        rules = rule_table(grammar)
+        found: dict[str, frozenset[str]] = {}
+        for opener, (_closer, rule) in pairs.items():
+            arms = [
+                a for a in rules[rule].body if a and literal_char(a[0], rules) == opener
+            ]
+            owners = {o for arm in arms for o in run_owners(rule, tuple(arm), rules)}
+            marks = [r.mark for r in records if r.container in owners]
+            if len(own := {mark for mark in marks if len(mark) == 1}) > 1:
+                found[opener] = frozenset(own)
+        entry = _LEADS[id(grammar)] = (grammar, found)
+    return entry[1]
+
+
+_ENDS: dict[int, tuple[IrAst, dict[str, frozenset[str]]]] = memo({})
+"""Terminator memo — id(grammar) → (grammar, opener → its run's terminators),
+pinned like `_ROLES`."""
+
+
+class TerminatedRun(NamedTuple):
+    """A bracket arm's run, read as TERMINATED: ``"[" entry+ "]"`` with every
+    entry closed by ``;``.
+
+    :ivar at: The index of the one unbounded reference the arm holds.
+    :ivar unit: The rule it repeats.
+    :ivar marks: The unit's one-character terminators in this container.
+    """
+
+    at: int
+    unit: str
+    marks: frozenset[str]
+
+
+def run_terminators(
+    rule: str,
+    arm: tuple[IrItem, ...],
+    rules: RuleTable,
+    records: tuple[Terminator, ...],
+) -> TerminatedRun | None:
+    """The terminated run ``arm`` of ``rule`` holds, or ``None``.
+
+    The one reading the scan and the region plan share, so both call a run
+    terminated alike. A separated run wins: an arm whose run has an owner
+    (:func:`~...roles.runs.run_owners`) is never terminated. Otherwise the arm
+    must hold exactly one unbounded rule reference, whose unit has terminator
+    records for this container, each one character.
+    """
+    if run_owners(rule, arm, rules):
+        return None
+    runs = [
+        (at, str(item.atom))
+        for at, item in enumerate(arm)
+        if item.quantifier.unbounded() and isinstance(item.atom, IrRuleRef)
+    ]
+    if len(runs) != 1:
+        return None
+    at, unit = runs[0]
+    marks = {
+        mark
+        for record in records
+        if record.container == rule and record.unit == unit
+        for mark in record.mark
+    }
+    if not marks or any(len(mark) != 1 for mark in marks):
+        return None
+    return TerminatedRun(at, unit, frozenset(marks))
+
+
+def run_ends(
+    grammar: IrAst, pairs: Mapping[str, tuple[str, str]]
+) -> dict[str, frozenset[str]]:
+    """opener → the terminators of the run its bracket rule's sole arm holds
+    (:func:`run_terminators`)."""
+    entry = _ENDS.get(id(grammar))
+    if entry is None:
+        records = roles(grammar).terminators
+        rules = rule_table(grammar)
+        found: dict[str, frozenset[str]] = {}
+        for opener, (_closer, rule) in pairs.items():
+            arm = rules[rule].sole_arm()
+            if isinstance(arm, IrNoneType):
+                continue
+            ended = run_terminators(rule, arm, rules, records)
+            if ended is not None:
+                found[opener] = ended.marks
+        entry = _ENDS[id(grammar)] = (grammar, found)
+    return entry[1]
 
 
 _ROLES: dict[int, tuple[IrAst, Roles]] = memo({})
@@ -276,19 +354,14 @@ def roles(grammar: IrAst) -> Roles:
 
 
 def _derive_roles(grammar: IrAst) -> Roles:
-    """Walk every arm of every rule and classify its anchors, once."""
+    """Classify every arm's anchors: separators and terminators in one walk,
+    pairs in :func:`_pairs`'s own."""
     anchor_set = anchors(grammar)
-    by_name: dict[str, IrRule] = {str(rule.name): rule for rule in grammar.rules}
-    pairs: list[tuple[str, str]] = []
+    by_name = rule_table(grammar)
     records: list[Separator] = []
-    for rule in grammar.rules:
-        for arm in rule.body:
-            items = tuple(arm)
-            pair = _arm_pair(items, anchor_set)
-            if pair is not None and pair not in pairs:
-                pairs.append(pair)
-            for item in items:
-                _repeated_separators(str(rule.name), item, by_name, anchor_set, records)
+    for repeated in repeated_bodies(grammar, nested=False):
+        _repeated_separators(repeated, by_name, anchor_set, records)
+    pairs = _pairs(grammar, anchor_set)
     paired = {char for pair in pairs for char in pair}
     kept = tuple(record for record in records if not set(record.mark) & paired)
     ended = tuple(
@@ -296,7 +369,63 @@ def _derive_roles(grammar: IrAst) -> Roles:
         for record in _terminators(grammar, by_name, anchor_set)
         if (narrowed := _unpaired(record, paired)) is not None
     )
-    return Roles(tuple(pairs), kept, ended)
+    return Roles(pairs, kept, ended)
+
+
+def _pairs(grammar: IrAst, anchor_set: frozenset[str]) -> tuple[tuple[str, str], ...]:
+    """Every bracketing arm's pair whose characters no other site spells.
+
+    Each such arm contributes one opener and one closer site; a pair stands when
+    the arms of STANDING pairs account for every site of both characters
+    (:func:`~lexic.parsing.parallel.discovery.anchors.anchor_site_counts`).
+    """
+    read = partial(_anchor_char, anchor_set=anchor_set)
+    arms = [arm[:2] for arm in bracket_arms(grammar, read, enclosing=True)]
+    sites = anchor_site_counts(grammar)
+    strays = partial(_miscounted, arms, sites)
+    return tuple(standing_pairs(list(dict.fromkeys(arms)), strays))
+
+
+def _miscounted(
+    arms: list[tuple[str, str]],
+    sites: dict[str, int],
+    standing: list[tuple[str, str]],
+) -> frozenset[str]:
+    """The standing pairs' characters spelled at more sites than their arms."""
+    delimiting: dict[str, int] = {}
+    for char in (char for pair in arms if pair in standing for char in pair):
+        delimiting[char] = delimiting.get(char, 0) + 1
+    chars = {char for pair in standing for char in pair}
+    return frozenset(char for char in chars if delimiting[char] != sites.get(char, 0))
+
+
+def standing_pairs(
+    pairs: list[tuple[str, str]],
+    strays: Callable[[list[tuple[str, str]]], frozenset[str]],
+) -> list[tuple[str, str]]:
+    """The pairs a scan counting depth on every opener and closer reads exactly.
+
+    A scan counts depth on every occurrence it reads, so a pair stands only
+    while each site spelling either of its characters is a delimiter of a
+    standing pair's arm; ``strays`` names the characters that fail, given the
+    pairs standing. A character that opens one standing pair and closes
+    another fails as well: the count moves it by zero where the depth moves
+    by one, and the walk can only read it as one of the two. A fallen pair's
+    delimiters are stray sites like any other, so the check repeats until no
+    pair falls.
+
+    :param pairs: Candidate ``(opener, closer)`` pairs, in definition order.
+    :param strays: The characters some read site spells off a standing arm's
+        own delimiters, for the pairs standing.
+    :returns: The pairs that stand, in their given order.
+    """
+    while True:
+        crossed = {opener for opener, _ in pairs} & {closer for _, closer in pairs}
+        stray = strays(pairs) | crossed
+        kept = [pair for pair in pairs if not stray & set(pair)]
+        if len(kept) == len(pairs):
+            return kept
+        pairs = kept
 
 
 def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:
@@ -312,7 +441,7 @@ def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:
 
 
 def _terminators(
-    grammar: IrAst, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    grammar: IrAst, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> list[Terminator]:
     """Every unbounded reference whose target ends with an agreed anchor mark."""
     out: list[Terminator] = []
@@ -320,7 +449,7 @@ def _terminators(
         for arm in rule.body:
             for item in arm:
                 target = item.atom
-                if not unbounded(item) or not isinstance(target, IrRuleRef):
+                if not item.quantifier.unbounded() or not isinstance(target, IrRuleRef):
                     continue
                 unit = str(target)
                 if unit not in by_name:
@@ -333,7 +462,7 @@ def _terminators(
 
 
 def _edge_marks(
-    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    unit: IrRule, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> tuple[frozenset[str], ...]:
     """The terminator mark sets ``unit`` offers, narrowest first.
 
@@ -362,7 +491,7 @@ def _edge_marks(
 
 
 def _ending_alphabet(
-    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+    unit: IrRule, by_name: RuleTable, anchor_set: frozenset[str]
 ) -> frozenset[str]:
     """Every character ``unit`` can END with, when they are all anchors.
 
@@ -384,7 +513,7 @@ def _ending_alphabet(
 def _item_edge(
     item: IrItem,
     at: int,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> str | None:
@@ -400,7 +529,7 @@ def _item_edge(
     if char is not None:
         return char
     atom = item.atom
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return None
     if isinstance(atom, IrLiteral):
         text = str(atom)
@@ -419,7 +548,7 @@ def _item_edge(
 def _body_edge(
     body: IrAlternation,
     at: int,
-    by_name: dict[str, IrRule],
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> str | None:
@@ -437,34 +566,24 @@ def _body_edge(
 
 
 def _repeated_separators(
-    container: str,
-    item: IrItem,
-    by_name: dict[str, IrRule],
+    repeated: RepeatedBody,
+    by_name: RuleTable,
     anchor_set: frozenset[str],
     records: list[Separator],
 ) -> None:
-    """Collect the separator records an unbounded item contributes."""
-    if not unbounded(item):
-        return
-    atom = item.atom
-    if isinstance(atom, IrRuleRef) and str(atom) in by_name:
-        repeated, body = str(atom), by_name[str(atom)].body
-    elif isinstance(atom, IrAlternation):
-        repeated, body = "", atom
-    else:
-        return
-    found = _body_leads(body, by_name, anchor_set)
+    """Collect the separator records one repeated body contributes."""
+    found = _body_leads(repeated.body, by_name, anchor_set)
     if found is None:
         return
     chars, lead = found
     for mark in sorted(chars, key=lambda spelling: (len(spelling), spelling)):
-        record = Separator(mark, container, repeated, lead)
+        record = Separator(mark, repeated.container, repeated.item, lead)
         if record not in records:
             records.append(record)
 
 
 def agreed_tail(
-    body: IrAlternation, want: int, rule_map: dict[str, IrRule], path: frozenset[str]
+    body: IrAlternation, want: int, rule_map: RuleTable, path: frozenset[str]
 ) -> str:
     """The last ``want`` characters EVERY arm of ``body`` ends with, or ``""``.
 
@@ -479,7 +598,7 @@ def agreed_tail(
 def arm_tail(
     items: tuple[IrItem, ...],
     want: int,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> str:
     """The last ``want`` characters every derivation of one arm ends with.
@@ -504,7 +623,7 @@ def arm_tail(
 def _open_tail(
     items: tuple[IrItem, ...],
     want: int,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> str:
     """The tail of an arm whose final item has no fixed text of its own.
@@ -519,7 +638,7 @@ def _open_tail(
     atom = last.atom
     name = str(atom) if isinstance(atom, IrRuleRef) else ""
     target = rule_map.get(name) if name and name not in path else None
-    if target is not None and last.quantifier == UNIT:
+    if target is not None and last.quantifier.once():
         found = agreed_tail(target.body, want, rule_map, path | {name})
         if found:
             return found

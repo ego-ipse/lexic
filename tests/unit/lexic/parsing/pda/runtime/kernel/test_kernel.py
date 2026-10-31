@@ -41,7 +41,7 @@ from lexic.parsing import ParseConfig
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, all_clones, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import OP_LIT1, OP_V1, OP_VDISP, OP_VRUN
 from lexic.parsing.pda.runtime import matchers as matchers_module
 from lexic.parsing.pda.runtime.islands import IslandPolicy
@@ -49,7 +49,6 @@ from lexic.parsing.pda.runtime.kernel import execution as execution_module
 from lexic.parsing.pda.runtime.kernel import kernel as kernel_module
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
 from lexic.parsing.products import earley_model, model_product
-from tests.clone_walk import walk_program_clones
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -284,7 +283,7 @@ def test_a_framed_exactly_once_reference_calls_its_matcher_directly(
     product = model_product(compiled.codegen_grammar, compiled.product)
     root = next(
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.name == "root"
     )
     assert not root.leaf, "root must keep a frame for this pin to mean anything"
@@ -340,7 +339,7 @@ def test_an_entry_with_one_self_refusing_arm_skips_the_walk() -> None:
     product = model_product(compiled.codegen_grammar, compiled.product)
     root = next(
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.name == "root"
     )
     assert root.entry is not None
@@ -366,7 +365,7 @@ def test_a_walk_with_a_default_to_take_keeps_its_selectors() -> None:
     product = model_product(compiled.codegen_grammar, compiled.product)
     opt = next(
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.name == "opt"
     )
     assert opt.default is not None and len(opt.selectors) == 1
@@ -400,7 +399,7 @@ def test_an_entered_span_tabled_leaf_goes_straight_to_its_run(
     product = model_product(compiled.codegen_grammar, compiled.product)
     leaves = [
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.leaf and clone.runarm is not None and clone.name in ("event", "span")
     ]
     assert {clone.name for clone in leaves} == {"event", "span"}
@@ -445,7 +444,7 @@ def test_a_loop_over_span_tabled_landings_runs_inline(
     product = model_product(compiled.codegen_grammar, compiled.product)
     root = next(
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.name == "root"
     )
     assert OP_VDISP in {kind for arm in clone_arms(root) for kind in arm.kinds}
@@ -475,7 +474,7 @@ def test_a_leaf_with_one_self_refusing_arm_runs_it_without_the_walk() -> None:
     product = model_product(compiled.codegen_grammar, compiled.product)
     pair = next(
         clone
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         if clone.name == "pair"
     )
     assert pair.leaf and pair.entry is not None

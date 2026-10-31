@@ -23,15 +23,17 @@ from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
     Interior,
     hides,
-    interior_rules,
     interior_shapes,
     interiors,
 )
-from lexic.parsing.parallel.discovery.regions import pair_rules
-from lexic.parsing.parallel.discovery.scan import mark_overlap
+from lexic.parsing.parallel.discovery.scan import (
+    delimiting,
+    mark_overlap,
+    read_outside,
+)
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
-    UNIT,
+    RuleTable,
     arm_empty,
     arm_spells,
     derives_empty,
@@ -46,21 +48,27 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_text,
     rule_emits,
     rule_spells,
+    rule_table,
     sole_char,
 )
-from lexic.parsing.parallel.roles import roles
+from lexic.parsing.parallel.roles.derive import roles
 from lexic.parsing.pda.core.charsets import CharSet
 
 
-def _protected(grammar: IrAst, region_scan: bool) -> frozenset[str]:
-    """Rules hidden or depth-owned by the scan the caller actually uses."""
-    pairs = pair_rules(grammar)
-    if region_scan:
-        paired = {rule for _close, rule in pairs.values()}
-        return frozenset(paired) | interior_rules(grammar)
-    tracked = set(roles(grammar).pairs)
+def _protected(grammar: IrAst, region_scan: bool, mark: str) -> frozenset[str]:
+    """Rules hidden or depth-owned by the scan the caller actually uses: the
+    delimited rules that spell ``mark`` nowhere the scan reads them
+    (:func:`~...discovery.scan.read_outside`)."""
+    rules = rule_table(grammar)
+    seen = delimiting(grammar, region_scan)
     return frozenset(
-        rule for opener, (closer, rule) in pairs.items() if (opener, closer) in tracked
+        name
+        for name in seen.rules()
+        if name in rules
+        and not any(
+            arm_spells(part, mark, rules, frozenset(), frozenset({name}))
+            for part in read_outside(seen, rules[name], rules, len(mark) > 1)
+        )
     )
 
 
@@ -94,9 +102,9 @@ def owner_excludes(
     key = (id(grammar), owner, separator, region_scan)
     entry = _OWNER_PROOFS.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in grammar.rules}
+        rules = rule_table(grammar)
         target = rules.get(owner)
-        protected = _protected(grammar, region_scan)
+        protected = _protected(grammar, region_scan, separator)
         excludes = target is not None and (
             owner in protected
             or not rule_spells(target, separator, rules, protected, frozenset({owner}))
@@ -106,15 +114,7 @@ def owner_excludes(
     return entry[1]
 
 
-def _arm_target(items: tuple[IrItem, ...]) -> str:
-    """The rule an arm consists of, when it is one plain unit reference."""
-    atom = items[0].atom if len(items) == 1 else None
-    if isinstance(atom, IrRuleRef) and items[0].quantifier == UNIT:
-        return str(atom)
-    return ""
-
-
-def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bool:
+def _unit_anchored(rules: RuleTable, owner: str, region: Interior) -> bool:
     """Whether a unit that begins with ``region``'s delimiter must BE it.
 
     A scan that only tests for the delimiter where a unit begins reads an
@@ -127,11 +127,11 @@ def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bo
     if region.rule == owner:
         return True
     leading = [
-        tuple(arm)
+        arm
         for arm in unit.body
         if leads_with(tuple(arm), region.opening[0], rules, frozenset({owner}))
     ]
-    return len(leading) == 1 and _arm_target(leading[0]) == region.rule
+    return len(leading) == 1 and leading[0].sole_ref() == region.rule
 
 
 _MARK_REGIONS: dict[
@@ -172,7 +172,7 @@ def _derive_mark_interiors(
     """Certify the mark-hiding regions of one owner, once."""
     if roles(grammar).pairs:
         return ()
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     certified = interiors(grammar)
     return tuple(
         region
@@ -192,7 +192,7 @@ class Scope(NamedTuple):
         scan does. Keyed per ARM: one rule may delimit two ways.
     """
 
-    rules: dict[str, IrRule]
+    rules: RuleTable
     protected: frozenset[str]
     opaque: dict[tuple[str, int], int]
 
@@ -209,7 +209,7 @@ def _ends_once(rule: IrRule, mark: str, scope: Scope, path: frozenset[str]) -> b
     """Whether every arm spells ``mark`` once, as its final visible edge."""
     for at, arm in enumerate(rule.body):
         items = _visible(rule, at, tuple(arm), scope)
-        if not items or items[-1].quantifier != UNIT:
+        if not items or not items[-1].quantifier.once():
             return False
         if arm_spells(items[:-1], mark, scope.rules, scope.protected, path):
             return False
@@ -232,7 +232,7 @@ def _final_edge(
         return len(mark) == 1 or not joins(head, (last,), mark, scope.rules, path)
     if len(mark) != MARK_ARITY or exact_text(last, scope.rules, path) != mark[1:]:
         return False
-    if not head or arm_empty(head, scope.rules, frozenset()):
+    if not head or arm_empty(head, scope.rules):
         return False
     return sole_char(last_charset(head, scope.rules, path)) == mark[0]
 
@@ -279,20 +279,23 @@ def scan_agrees(view: IrAst, scanned: IrAst, owner: str, marks: frozenset[str]) 
     )
 
 
-_TERMINATOR_PROOFS: dict[tuple[int, str, str], tuple[IrAst, bool]] = memo({}, 0)
+_TERMINATOR_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = memo({}, 0)
 """Per-analysis-view proof that a unit owns no internal terminator marks."""
 
 
-def terminates_once(grammar: IrAst, owner: str, terminator: str) -> bool:
-    """Prove every VISIBLE ``terminator`` in ``owner`` is its final edge."""
-    key = (id(grammar), owner, terminator)
+def terminates_once(
+    grammar: IrAst, owner: str, terminator: str, *, region_scan: bool = False
+) -> bool:
+    """Prove every VISIBLE ``terminator`` in ``owner`` is its final edge — read
+    over the scan the caller uses, as :func:`owner_excludes` is."""
+    key = (id(grammar), owner, terminator, region_scan)
     entry = _TERMINATOR_PROOFS.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in grammar.rules}
+        rules = rule_table(grammar)
         target = rules.get(owner)
         scope = Scope(
             rules,
-            _protected(grammar, False),
+            _protected(grammar, region_scan, terminator),
             {
                 (region.rule, region.arm): region.resumes
                 for region in mark_interiors(grammar, owner, frozenset({terminator}))
@@ -337,11 +340,11 @@ def bounds_units(grammar: IrAst, owner: str, marks: frozenset[str]) -> bool:
     key = (id(grammar), owner, marks)
     entry = _BOUNDARY_SETS.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in grammar.rules}
+        rules = rule_table(grammar)
         target = rules.get(owner)
         single = bool(marks) and all(len(mark) == 1 for mark in marks)
         vanishes = target is None or any(
-            arm_empty(tuple(arm), rules, frozenset()) for arm in target.body
+            arm_empty(tuple(arm), rules) for arm in target.body
         )
         proven = (
             single
@@ -379,7 +382,7 @@ class Boundary(NamedTuple):
 
 
 def unit_prefix(
-    rules: dict[str, IrRule], unit: str, mark: str, skipped: frozenset[str]
+    rules: RuleTable, unit: str, mark: str, skipped: frozenset[str]
 ) -> Boundary | None:
     """The unit's mandatory announcing prefix, or ``None`` on a shape miss.
 
@@ -395,12 +398,12 @@ def unit_prefix(
     target = rules.get(unit)
     arms = tuple(target.body) if target is not None else ()
     items = tuple(arms[0]) if len(arms) == 1 else ()
-    if len(items) < 2 or derives_empty(items[0], rules, frozenset()):
+    if len(items) < 2 or derives_empty(items[0], rules):
         return None
     head = emit_charset(items[0], rules, frozenset(), skipped)
     noise = CharSet.EMPTY
     for at in range(1, len(items)):
-        if not derives_empty(items[at], rules, frozenset()):
+        if not derives_empty(items[at], rules):
             opens = first_charset((items[at],), rules, frozenset())
             return _prefix_of(head, noise, opens, at, mark)
         noise = noise.union(emit_charset(items[at], rules, frozenset(), skipped))
@@ -438,7 +441,7 @@ class Refutation(NamedTuple):
 def _reaches_literal(
     item: IrItem,
     proof: Refutation,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether a match confined to ``found.allowed`` can reach a literal here.
@@ -475,7 +478,7 @@ def _reaches_literal(
 def _guards(
     target: IrRule,
     proof: Refutation,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether entering ``target`` refuses a match confined to the prefix.
@@ -510,7 +513,7 @@ def _guards(
 def leads_once(
     target: IrRule,
     proof: Refutation,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether the mark is a LEADING edge every arm resumes past harmlessly.
@@ -556,7 +559,7 @@ def leads_once(
 def _after_lead_mark(
     items: tuple[IrItem, ...],
     mark: str,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     path: frozenset[str],
 ) -> CharSet | None:
     """FIRST of what follows a LEADING mark in one arm, or ``None``.
@@ -583,16 +586,14 @@ def _after_lead_mark(
 def _arm_carries(
     items: tuple[IrItem, ...],
     mark: str,
-    rules: dict[str, IrRule],
+    rules: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether any item of the arm can emit ``mark`` at all."""
     return any(emits(item, mark, rules, frozenset(), path) for item in items)
 
 
-def _body_opens(
-    target: IrRule, rules: dict[str, IrRule], path: frozenset[str]
-) -> CharSet:
+def _body_opens(target: IrRule, rules: RuleTable, path: frozenset[str]) -> CharSet:
     """Every character any arm of a rule can begin with."""
     found = CharSet.EMPTY
     for arm in target.body:
@@ -643,7 +644,7 @@ def _derive_boundary(grammar: IrAst, unit: str, mark: str) -> Boundary | None:
         # per-character alphabets. A spelling owes a second proof this one
         # does not make, so it declines rather than borrowing this one.
         return None
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     skipped = frozenset(
         region.rule
         for region in interior_shapes(grammar)

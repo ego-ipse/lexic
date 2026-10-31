@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from lexic.ir import IrAlternation, IrItem, IrLiteral, IrNoneType, IrRuleRef, IrSelf
+from lexic.ir import IrAlternation, IrItem, IrLiteral, IrRuleRef
 from lexic.parsing.pda.analysis.gates.noise import sem_follow_table
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import (
@@ -46,11 +46,6 @@ __all__ = [
 ]
 
 
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
 def noise_roots(analysis: Any) -> frozenset[str]:
     """The run-forming noise-rule names — the structured scanner's roots.
 
@@ -62,7 +57,7 @@ def noise_roots(analysis: Any) -> frozenset[str]:
     roots: set[str] = set()
     for rule in analysis.rules.values():
         for arm in rule.body:
-            for item in _items(arm):
+            for item in arm:
                 atom = item.atom
                 if not isinstance(atom, IrRuleRef) or int(item.quantifier.lo) != 0:
                     continue
@@ -87,7 +82,7 @@ def run_roots(analysis: Any) -> frozenset[str]:
     roots: set[str] = set()
     for rule in analysis.rules.values():
         for arm in rule.body:
-            for item in _items(arm):
+            for item in arm:
                 atom = item.atom
                 if not isinstance(atom, IrRuleRef) or int(item.quantifier.lo) != 0:
                     continue
@@ -138,12 +133,12 @@ def _leading_roots(
             return frozenset()
         out: set[str] = set()
         for arm in analysis.rules[name].body:
-            out |= _seq_leading_roots(analysis, all_roots, _items(arm), seen | {name})
+            out |= _seq_leading_roots(analysis, all_roots, arm, seen | {name})
         return frozenset(out)
     if isinstance(atom, IrAlternation):
         out = set()
         for arm in atom:
-            out |= _seq_leading_roots(analysis, all_roots, _items(arm), seen)
+            out |= _seq_leading_roots(analysis, all_roots, arm, seen)
         return frozenset(out)
     return frozenset()
 
@@ -177,12 +172,12 @@ def _content_first(
             return CharSet.EMPTY
         out = CharSet.EMPTY
         for arm in analysis.rules[name].body:
-            out = out.union(_seq_content(analysis, roots, _items(arm), seen | {name}))
+            out = out.union(_seq_content(analysis, roots, arm, seen | {name}))
         return out
     if isinstance(atom, IrAlternation):
         out = CharSet.EMPTY
         for arm in atom:
-            out = out.union(_seq_content(analysis, roots, _items(arm), seen))
+            out = out.union(_seq_content(analysis, roots, arm, seen))
         return out
     return analysis.atom_first(atom)
 
@@ -247,7 +242,7 @@ def _grow_post_noise(
     changed = False
     for name, rule in analysis.rules.items():
         for arm in rule.body:
-            its = _items(arm)
+            its = arm
             for i, item in enumerate(its):
                 atom = item.atom
                 if not isinstance(atom, IrRuleRef) or str(atom) not in follow:
@@ -255,8 +250,7 @@ def _grow_post_noise(
                 if skip is not None and id(item) == skip:
                     continue
                 cont = _follow_content(analysis, roots, its[i + 1 :], follow[name])
-                hi = item.quantifier.hi
-                if isinstance(hi, IrNoneType) or int(hi) > 1:
+                if item.quantifier.repeats():
                     cont = cont.union(
                         _content_first(analysis, roots, atom, frozenset())
                     )
@@ -429,13 +423,13 @@ def _scan_from(
     return ScanGate(SG_SCAN, rec, _root_idxs(rec, lead), (take.chars, take.negated))
 
 
-def _arm_nullable(analysis: Any, arm: Sequence[IrSelf]) -> bool:
+def _arm_nullable(analysis: Any, arm: Sequence[IrItem]) -> bool:
     """Whether every item of an alternation arm can consume nothing (empty arm)."""
-    return all(analysis.item_nullable(item) for item in _items(arm))
+    return all(analysis.item_nullable(item) for item in arm)
 
 
 def structured_arm_gate(
-    analysis: Any, arms: Sequence[Sequence[IrSelf]], label: str
+    analysis: Any, arms: Sequence[Sequence[IrItem]], label: str
 ) -> "ArmGate | None":
     """A folding-aware gate for an empty-arm alternation, or ``None``.
 
@@ -470,14 +464,14 @@ def structured_arm_gate(
 
 
 def _arm_gate_over(
-    analysis: Any, roots: frozenset[str], arms: Sequence[Sequence[IrSelf]], label: str
+    analysis: Any, roots: frozenset[str], arms: Sequence[Sequence[IrItem]], label: str
 ) -> "ArmGate | None":
     """:func:`structured_arm_gate`'s licence over ONE skip alphabet."""
     nullable = [i for i, arm in enumerate(arms) if _arm_nullable(analysis, arm)]
     if len(nullable) != 1:
         return None
     escape = nullable[0]
-    gated = [_items(arm) for i, arm in enumerate(arms) if i != escape]
+    gated = [arm for i, arm in enumerate(arms) if i != escape]
     if not gated:
         return None
     lead: frozenset[str] = frozenset()
@@ -546,11 +540,11 @@ def probe_candidate(
             if not rule.semantic:
                 continue
             for arm in rule.body:
-                shape = _header_shape(analysis, _items(arm), relaxed_mid)
+                shape = _header_shape(analysis, arm, relaxed_mid)
                 if shape is None:
                     continue
                 head, r_name, mid_root, lit = shape
-                if not overlap.subtract(analysis.first[r_name]).is_empty():
+                if not overlap.within(analysis.first[r_name]):
                     continue
                 pnf = _post_noise_follow(analysis, lead, skip=id(head))[r_name]
                 if pnf.has(lit[0]):
@@ -578,13 +572,10 @@ def _header_shape(
     if not arm_items:
         return None
     head = arm_items[0]
-    hi = head.quantifier.hi
     if (
         not isinstance(head.atom, IrRuleRef)
         or str(head.atom) not in analysis.rules
-        or int(head.quantifier.lo) != 1
-        or isinstance(hi, IrNoneType)
-        or int(hi) != 1
+        or not head.quantifier.once()
     ):
         return None
     mid: str | None = None

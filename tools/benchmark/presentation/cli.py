@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import random
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,7 +14,6 @@ from tools.benchmark.bench import (
     DEFAULT_ROUNDS,
     ENGINE,
     MT_ROWS,
-    NOISE_ANCHOR,
     SUMMARY,
     directive_digest,
 )
@@ -24,11 +22,22 @@ from tools.benchmark.engines.seats import candidates
 from tools.benchmark.execution.isolation import (
     ReportRow,
     RowRequest,
-    noise_floor,
-    run_report_row,
+    report_passes,
 )
 from tools.benchmark.measurement.contract import digest
 from tools.benchmark.measurement.sampling import medians
+from tools.benchmark.presentation.artifact import (
+    REFUSES,
+    UNMEASURED,
+    Artifact,
+    Cell,
+    Provenance,
+    Seat,
+    assemble,
+    floors,
+    reason,
+    spliced,
+)
 from tools.benchmark.presentation.reporting import (
     Block,
     cores_marker,
@@ -62,54 +71,6 @@ ENGINE_META = {
 """Display metadata per row, in the artifact's column order."""
 
 
-NOTE = (
-    "Cross-engine medians of isolated rounds. A run writes only the cells it "
-    "measured and leaves every other one exactly as it found it, so each "
-    "(grammar, seat) cell carries its own measurement date, round count, "
-    "worker request and input. A cell is a number, `refuses` (the seat cannot "
-    "take this language) or `unmeasured` (the seat could, but this run could "
-    "not obtain a figure it stands behind); the two are different facts and "
-    "`note` says which. `engines` is display metadata only. README rendering "
-    "reads this file and never triggers a run."
-)
-"""The artifact's own account of how it is written."""
-
-
-SCHEMA = 5
-"""The artifact's shape version — per-cell provenance, per-grammar noise."""
-
-REFUSES = "refuses"
-"""A cell whose seat cannot take this row's language — a fact about the SEAT.
-
-Published, and informative: it is the answer to "can this tool express this
-grammar", and the harness prefers it to a number for a different language.
-"""
-
-UNMEASURED = "unmeasured"
-"""A cell this run could not put a trustworthy number in — a fact about the RUN.
-
-Not a capability result and not interchangeable with :data:`REFUSES`. A JIT
-whose warm-up never settled can parse the grammar perfectly well; what is
-missing is a figure the harness will stand behind. Serialising that as
-`refuses` told every reader — the README included — that the tool had failed
-at the language, which is a claim about someone else's parser that we would be
-making up.
-"""
-
-type Cell = float | str
-"""One measured median, or :data:`REFUSES` / :data:`UNMEASURED`."""
-
-NOTE_LIMIT = 240
-"""How much of a nonnumeric cell's reason one record keeps.
-
-The reason is a sentence a reader acts on, and some tools answer with a dump:
-Lark's reduce/reduce verdict on `vyx` runs to 70 KB — most of this artifact
-again, for one cell — and every clause after the first restates the same
-collision for another terminal. The head IS the reason, so the record keeps
-that much and marks where it stopped.
-"""
-
-
 class Run(NamedTuple):
     """One invocation's measurement settings — the same for every cell it writes.
 
@@ -126,134 +87,6 @@ class Run(NamedTuple):
     rounds: int
     cores: int | None
     full: bool
-
-
-class Seat(NamedTuple):
-    """One seat's display metadata, and nothing about any run.
-
-    :ivar label: What the README calls this engine.
-    :ivar runtime: ``python`` or ``java`` — the README styles java differently.
-    """
-
-    label: str
-    runtime: str
-
-
-class Provenance(NamedTuple):
-    """The run that measured ONE cell — one grammar, one seat.
-
-    Per cell because that is the granularity a run may update: ``--only`` picks
-    grammars and ``--seats`` picks engines, so a column holds cells from
-    different days. Stored per column, one refresh restated every untouched
-    grammar in that column as though it had been taken with it.
-
-    :ivar measured: The ISO date this cell was taken.
-    :ivar rounds: Timed rounds behind it.
-    :ivar cores: The worker request an mt row rode; ``None`` for every seat
-        that runs on one thread.
-    :ivar scale: ``corpus`` or ``full`` — which of the case's two documents the
-        seat read. ``--full`` changes the work, so it changes the cell.
-    :ivar chars: That document's length, so a resized fixture is visible.
-    :ivar grammar_digest: Digest of the grammar SOURCE this cell was measured
-        under. A length says a fixture was resized; only a digest says it was
-        EDITED, and an edited grammar leaves every unrefreshed cell in the file
-        reading as a measurement of the current language.
-    :ivar document_digest: Digest of the exact input parsed, for the same
-        reason: a fixture rewritten to the same length is invisible to
-        :attr:`chars`.
-    :ivar directive_digest: Digest of the EXACT directive sets this seat was
-        built with (:func:`~tools.benchmark.bench.seat_directives`). The
-        declarations live in `cases/directives.py`, not in the grammar source,
-        so editing them changes what a `-lex` cell measured while leaving
-        :attr:`grammar_digest` and :attr:`document_digest` untouched. Per SEAT
-        rather than per row, because the marked and unmarked seats of one
-        grammar are built with different sets on purpose.
-    :ivar warmed: Parses spent bringing a JIT seat to steady state, or ``None``
-        for a seat with no warm-up. A published figure standing on 2,400 warm
-        parses and one standing on 24 are not the same claim, and the cell used
-        to say neither. An UNSETTLED warm-up keeps this field — the budget it
-        spent is the evidence — and takes :data:`UNMEASURED` as its value.
-    :ivar note: Why a nonnumeric cell holds no number, in the seat's own words,
-        bounded by :data:`NOTE_LIMIT`; ``None`` for a measured one. The reason
-        used to reach the console and stop there, which is what let a refusal
-        and a failed measurement serialise identically.
-    """
-
-    measured: str
-    rounds: int
-    cores: int | None
-    scale: str
-    chars: int
-    grammar_digest: str
-    document_digest: str
-    directive_digest: str
-    warmed: int | None
-    note: str | None
-
-
-class Artifact(NamedTuple):
-    """The committed cross-engine file, as the fields it actually has.
-
-    Named rather than carried as a JSON bag: the schema is fixed, and a
-    ``dict[str, Json]`` makes every write to it untypeable and every read a
-    narrowing.
-    """
-
-    noise_floor_percent: dict[str, float]
-    engines: dict[str, Seat]
-    provenance: dict[str, dict[str, Provenance]]
-    values: dict[str, dict[str, Cell]]
-    charstream_share: dict[str, dict[str, float]]
-
-    @classmethod
-    def load(cls, path: Path) -> Artifact:
-        """Read the artifact, or an empty one when the file is not there yet.
-
-        :param path: The artifact to read.
-        :returns: Its typed form.
-        :raises SystemExit: If the file states a different schema — a layout
-            that records provenance differently, read as this one, leaves the
-            cells nobody measured carrying this run's date.
-        """
-        if not path.exists():
-            return cls({}, {}, {}, {}, {})
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if raw.get("schema") != SCHEMA:
-            raise SystemExit(
-                f"{path} states schema {raw.get('schema')!r}; this bench writes "
-                f"schema {SCHEMA}. Re-measure the whole roster rather than "
-                f"splicing into a layout that records provenance differently."
-            )
-        return cls(
-            dict(raw["noise_floor_percent"]),
-            {name: Seat(**meta) for name, meta in raw["engines"].items()},
-            {
-                grammar: {seat: Provenance(**record) for seat, record in cells.items()}
-                for grammar, cells in raw["provenance"].items()
-            },
-            {grammar: dict(cells) for grammar, cells in raw["values"].items()},
-            {
-                grammar: dict(shares)
-                for grammar, shares in raw["charstream_share"].items()
-            },
-        )
-
-    def write(self, path: Path) -> None:
-        """Write the artifact back, header first and in field order."""
-        payload = {
-            "schema": SCHEMA,
-            "unit": "microseconds_per_character",
-            "note": NOTE,
-            "noise_floor_percent": self.noise_floor_percent,
-            "engines": {name: seat._asdict() for name, seat in self.engines.items()},
-            "provenance": {
-                grammar: {seat: record._asdict() for seat, record in cells.items()}
-                for grammar, cells in self.provenance.items()
-            },
-            "values": self.values,
-            "charstream_share": self.charstream_share,
-        }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _display(name: str) -> Seat:
@@ -301,44 +134,14 @@ def _provenance(
         directive_digest(bench, name),
         warmed,
         reason(note),
+        1,
+        None,
     )
 
 
-def reason(note: str | None) -> str | None:
-    """One cell's reason as a record keeps it — bounded, and marked where cut.
-
-    Public because a cell whose reason is re-derived outside a timing run is
-    recorded through this same function: two spellings of "the reason this cell
-    holds no number" would differ on exactly the cells nobody re-measures.
-
-    :param note: The seat's own words, or ``None`` for a measured cell.
-    :returns: The same reason within :data:`NOTE_LIMIT`, ``None`` unchanged.
-    """
-    if note is None or len(note) <= NOTE_LIMIT:
-        return note
-    return note[: NOTE_LIMIT - 1] + "…"
-
-
-def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
-    """``kept`` with ``fresh`` written over it, in the order it already had.
-
-    Insertion order is the artifact's own: a refreshed seat keeps the column
-    it had, and a new one is appended rather than reordering the file.
-    """
-    merged = dict(kept)
-    for name, value in fresh.items():
-        merged[name] = value
-    return merged
-
-
-def dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
-    """Splice this run's measured, refused or unmeasured cells into the artifact.
-
-    Never a rewrite: a filtered run measures a few seats of a few grammars and
-    must leave every other cell byte-identical — its number AND the record of
-    what produced it. Provenance is written for exactly the cells this run
-    measured, so refreshing one grammar cannot restate an untouched one in the
-    same column as a measurement of a different day, length or worker count.
+def pass_artifact(run: Run, blocks: Sequence[Block]) -> Artifact:
+    """One pass's cells as a one-process artifact — what each seat's process
+    in this pass measured, refused, or could not put a number to.
 
     Nothing measured is dropped: a seat the metadata table does not know gets a
     default label rather than silence, so a new seat cannot vanish from the
@@ -347,7 +150,7 @@ def dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
     because collapsing both to one word published a measurement failure as a
     claim about someone else's parser.
     """
-    artifact = Artifact.load(path)
+    artifact = Artifact({}, {}, {}, {}, {})
     for block in blocks:
         grammar = block.bench.name
         cells: dict[str, Cell] = {
@@ -356,29 +159,41 @@ def dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
         cells |= dict.fromkeys(block.refused, REFUSES)
         cells |= dict.fromkeys(block.unmeasured, UNMEASURED)
         reasons = block.refused | block.unmeasured
-        records = {
+        artifact.provenance[grammar] = {
             name: _provenance(
                 block.bench, name, run, (block.warmed.get(name), reasons.get(name))
             )
             for name in cells
         }
-        for name in cells:
-            artifact.engines[name] = _display(name)
-        artifact.provenance[grammar] = _spliced(
-            artifact.provenance.get(grammar, {}), records
-        )
-        artifact.values[grammar] = _spliced(artifact.values.get(grammar, {}), cells)
-        artifact.charstream_share[grammar] = _spliced(
-            artifact.charstream_share.get(grammar, {}),
-            {name: round(share, 4) for name, share in sorted(block.shares.items())},
-        )
-        # Per grammar, for the same reason the dates are per cell: a run that
-        # measured four grammars says nothing about the other eight's noise.
-        # `None` is a run that could not measure the ANCHOR seat, and the
-        # committed floor is then left alone rather than rewritten against
-        # whichever engine this `--seats` filter happened to admit.
-        if block.floor is not None:
-            artifact.noise_floor_percent[grammar] = round(block.floor, 2)
+        artifact.engines.update({name: _display(name) for name in cells})
+        artifact.values[grammar] = cells
+        artifact.charstream_share[grammar] = {
+            name: round(share, 4) for name, share in sorted(block.shares.items())
+        }
+    return artifact
+
+
+def dump_json(path: Path, measured: Artifact) -> None:
+    """Splice this run's assembled cells into the artifact.
+
+    Never a rewrite: a filtered run measures a few seats of a few grammars and
+    must leave every other cell byte-identical — its number AND the record of
+    what produced it. Provenance is written for exactly the cells this run
+    measured, so refreshing one grammar cannot restate an untouched one in the
+    same column as a measurement of a different day, length or worker count.
+    Each grammar's floor is then read off the file's own cells
+    (:func:`~tools.benchmark.presentation.artifact.floors`), so a filtered run
+    cannot state a grammar's floor from the few seats it happened to measure.
+    """
+    artifact = Artifact.load(path)
+    artifact.engines.update(measured.engines)
+    for grammar in measured.values:
+        for field in ("provenance", "values", "charstream_share"):
+            held = getattr(artifact, field)
+            held[grammar] = spliced(
+                held.get(grammar, {}), getattr(measured, field)[grammar]
+            )
+    artifact.noise_floor_percent.update(floors(artifact))
     artifact.write(path)
     print(f"wrote {path}")
 
@@ -430,23 +245,20 @@ def seat_filter(asked: Sequence[str] | None) -> frozenset[str] | None:
     return frozenset(asked)
 
 
-def isolated_bench(
-    bench: Bench, run: Run, seats: frozenset[str] | None = None
-) -> tuple[Block, dict[str, ReportRow]]:
-    """Time every row in its own process, one process at a time.
+PROCESSES = 3
+"""Isolated processes behind each report cell; the cell is its median process.
 
-    No cohort and no overlap: a worker that is merely "not yet timed" still
-    compiles grammars, runs fidelity parses and holds artefacts, and doing that
-    beside a timed parse contaminates cache, allocator and thermal state.
-    """
-    order = row_names(bench, run.cores, seats)
-    random.Random(f"lexic-bench:{bench.name}").shuffle(order)
-    results = {
-        name: run_report_row(
-            RowRequest(bench.name, name, run.rounds, run.cores, run.full), Path.cwd()
-        )
-        for name in order
-    }
+The target is about one slow published median every one to three refreshes. In
+three full runs of the README grammars on 2026-10-30, 8 of 216 lexic readings
+and 7 of 345 competitor readings lay 10% or more from their cell's median, an
+upper 95% rate of 6.6% and 3.8%: at three processes that expects about 0.9 and
+0.5 slow published medians per refresh at those bounds, 0.3 and 0.1 at the
+point estimates. Five processes would make every refresh about 45 minutes.
+"""
+
+
+def block_of(bench: Bench, run: Run, results: dict[str, ReportRow]) -> Block:
+    """One grammar's block from one process per seat."""
     refused = {
         name: result.refusal or "refused without a reason"
         for name, result in results.items()
@@ -478,13 +290,68 @@ def isolated_bench(
         if result.warmed is not None and (name in samples or name in unmeasured)
     }
     documents = {name: measured_input(bench, name, run.full)[1] for name in samples}
-    floor = _noise_floor(
-        RowRequest(bench.name, "", run.rounds, run.cores, run.full), samples
+    return Block(
+        bench, samples, refused, documents, mt_notes, shares, warmed, unmeasured
     )
-    block = Block(
-        bench, samples, refused, floor, documents, mt_notes, shares, warmed, unmeasured
-    )
-    return block, results
+
+
+def measure(
+    benches: Sequence[Bench], run: Run, seats: frozenset[str] | None, color: bool
+) -> Artifact:
+    """Every seat of every grammar in :data:`PROCESSES` passes, one process at
+    a time, each grammar's seats in its own shuffled order within a pass; then
+    each cell its median process (:func:`~...presentation.artifact.assemble`).
+
+    No cohort and no overlap: a worker that is merely "not yet timed" still
+    compiles grammars, runs fidelity parses and holds artefacts, and doing that
+    beside a timed parse contaminates cache, allocator and thermal state.
+    """
+    owners = []
+    for bench in benches:
+        order = row_names(bench, run.cores, seats)
+        random.Random(f"lexic-bench:{bench.name}").shuffle(order)
+        owners.extend((bench, name) for name in order)
+    requests = [
+        RowRequest(b.name, n, run.rounds, run.cores, run.full) for b, n in owners
+    ]
+    taken = report_passes(requests, Path.cwd(), PROCESSES)
+    passes = []
+    for index, rows in enumerate(taken.passes):
+        print(f"\n═══ pass {index + 1} of {PROCESSES}")
+        passes.append(pass_artifact(run, _shown(run, owners, rows, color)))
+    extras = {
+        (owners[k][0].name, owners[k][1]): pass_artifact(
+            run, _shown(run, [owners[k]], [row], color)
+        )
+        for k, row in taken.extras.items()
+    }
+    return assemble(passes, extras)
+
+
+def _shown(
+    run: Run,
+    owners: Sequence[tuple[Bench, str]],
+    rows: Sequence[ReportRow | None],
+    color: bool,
+) -> list[Block]:
+    """One pass's blocks, printed as they read, with each JIT's warm-up."""
+    grouped: dict[str, tuple[Bench, dict[str, ReportRow]]] = {}
+    for (bench, name), row in zip(owners, rows, strict=True):
+        if row is not None:
+            grouped.setdefault(bench.name, (bench, {}))[1][name] = row
+    blocks = []
+    for bench, results in grouped.values():
+        blocks.append(block_of(bench, run, results))
+        report_block(blocks[-1], color)
+        for name, result in results.items():
+            if result.warmed is not None:
+                warmup_values(
+                    name,
+                    result.warmed,
+                    result.cold_us_per_char,
+                    result.charstream_share,
+                )
+    return blocks
 
 
 def unsettled_rows(
@@ -520,19 +387,6 @@ def unsettled_rows(
         for name, result in results.items()
         if name in samples and result.warmed is not None and not result.warmed[1]
     }
-
-
-def _noise_floor(request: RowRequest, samples: dict[str, list[float]]) -> float | None:
-    """This block's same-engine control, always on :data:`NOISE_ANCHOR`.
-
-    :param request: The row request to re-issue against the anchor seat.
-    :param samples: What this block measured, by seat.
-    :returns: The floor, or ``None`` when the anchor did not measure here — a
-        floor is a statement about one seat, and there is none to make.
-    """
-    if NOISE_ANCHOR not in samples:
-        return None
-    return noise_floor(request._replace(engine=NOISE_ANCHOR), Path.cwd())
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -606,22 +460,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         + (f"  seats={', '.join(sorted(seats))}" if seats else "")
     )
     legend(color)
-    blocks: list[Block] = []
-    for bench in benches:
-        block, results = isolated_bench(bench, run, seats)
-        blocks.append(block)
-        report_block(block, color)
-        for name in row_names(bench, cores, seats):
-            result = results[name]
-            if result.warmed is not None:
-                warmup_values(
-                    name,
-                    result.warmed,
-                    result.cold_us_per_char,
-                    result.charstream_share,
-                )
+    assembled = measure(benches, run, seats, color)
+    for grammar, floor in assembled.noise_floor_percent.items():
+        print(
+            f"{grammar}: noise floor {floor:.2f}%, the median of its cells' process spreads"
+        )
     if args.json:
-        dump_json(args.json, run, blocks)
+        dump_json(args.json, assembled)
 
 
 if __name__ == "__main__":

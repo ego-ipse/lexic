@@ -200,11 +200,13 @@ class ChildOrder(NamedTuple):
     :ivar binds: The table the order was derived from — compared by identity.
     :ivar names: The bound field names, in item order.
     :ivar indices: Each one's position in the record's field tuple.
+    :ivar slots: Each bound field as ``(item slot, name, bind)``, in item order.
     """
 
     binds: dict[int, tuple[str, IrBind]]
     names: tuple[str, ...]
     indices: tuple[int, ...]
+    slots: tuple[tuple[int, str, IrBind], ...]
 
 
 class GrammarModel(IrNamedTuple):
@@ -212,8 +214,7 @@ class GrammarModel(IrNamedTuple):
 
     Each subclass carries ``__grammar__: ClassVar[IrRule]`` — its rule from
     the codegen grammar — and a binds table tying every bound field to a
-    positional item slot of that rule's sequence arm (``__binds__`` directly,
-    or resolved once from ``Annotated`` ``IrBind`` metadata).
+    positional item slot of that rule's sequence arm (``__binds__``).
 
     ``to_text()`` walks the arm's items in order: a bound slot emits its
     field's value, an unbound ``IrLiteral`` emits itself, anything else is
@@ -356,9 +357,13 @@ class GrammarModel(IrNamedTuple):
         binds = cls.bound_fields()
         order = cls.__dict__.get("_child_order_cache")
         if order is None or order.binds is not binds:
-            names = tuple(name for _slot, (name, _bind) in sorted(binds.items()))
+            slots = tuple(
+                (slot, name, bind) for slot, (name, bind) in sorted(binds.items())
+            )
+            names = tuple(name for _slot, name, _bind in slots)
             where = {name: index for index, name in enumerate(cls._fields)}
-            order = ChildOrder(binds, names, tuple(where[name] for name in names))
+            indices = tuple(where[name] for name in names)
+            order = ChildOrder(binds, names, indices, slots)
             cls._child_order_cache = order
         return order
 

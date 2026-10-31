@@ -24,12 +24,16 @@ specs it reads.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, Never, Protocol
+from typing import Any, NamedTuple, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
-from lexic.parsing.pda.compiler.program.bake.lowering import ShapeBuild, no_shape_build
+from lexic.parsing.pda.compiler.program.bake.lowering import (
+    FoldStep,
+    ShapeBuild,
+    no_shape_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -378,6 +382,45 @@ character are alphabets (digits, letters, a token's glyphs), and those fit.
 """
 
 
+class FoldIteration[Carry](NamedTuple):
+    """One iteration of a fold over several recursive arms: the arm it took,
+    and the values it captured, item by item.
+
+    :ivar step: The arm's iteration build.
+    :ivar sinks: The iteration's per-item values, as the step group's frame
+        collected them, or ``None`` where it captured nothing.
+    """
+
+    step: FoldStep[Carry]
+    sinks: list[list[Carry] | None] | None
+
+
+class FoldArms[Carry](NamedTuple):
+    """The construction a several-armed fold's step group completes with.
+
+    A fold over several recursive arms parses ``(γ)(β1 | β2 …)*``; the step
+    group is that alternation, and the frame running it holds the arm the next
+    character chose. Called with that arm and the frame's own captures, it
+    reports the arm's build and those captures as one :class:`FoldIteration`
+    into the folding frame's step sink, so the fold builds each iteration
+    through the arm that matched it.
+
+    A record rather than a bound function: a worker's private table copy
+    rebuilds records and their mappings field by field, and refuses a
+    ``functools.partial``, which it cannot see inside.
+
+    :ivar steps: Each step-group arm → its recursive arm's build.
+    """
+
+    steps: Mapping[FlatArm, FoldStep[Carry]]
+
+    def __call__(
+        self, arm: FlatArm, sinks: list[list[Carry] | None] | None
+    ) -> FoldIteration[Carry]:
+        """The iteration a completed step-group frame stands for."""
+        return FoldIteration(self.steps[arm], sinks)
+
+
 # ── post-flatten optimizer passes ──────────────────────────────────────────
 
 
@@ -405,8 +448,15 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
 
 
 def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
-    """Every clone reachable from ``roots``, groups and attempt entries'
-    sub-clones included (worklist walk).
+    """Every clone reachable from ``roots`` (worklist walk): through every
+    clone-valued arm payload, whatever its op code, and through every landing
+    target (:func:`landing_targets`: a dispatch clone's targets, an attempt
+    clone's entry sub-clones).
+
+    Whatever the op code: call specialisation rewrites an exactly-once group's
+    ``OP_GRP`` to ``OP_REF1`` and later codes, and a walk that followed
+    ``OP_GRP`` alone stopped seeing such a group once the program was
+    optimised — a sub-run root inside one would have stayed unmarked.
 
     :param roots: The clones to start from.
     :returns: Every reachable clone, each once.
@@ -420,12 +470,9 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
+        work.extend(landing_targets(clone))
         for arm in clone_arms(clone):
-            for kind, payload in zip(arm.kinds, arm.payloads):
-                if kind == OP_GRP:
-                    work.append(payload)
+            work.extend(p for p in arm.payloads if isinstance(p, FlatClone))
     return out
 
 
@@ -457,10 +504,52 @@ def mark_sub_roots(roots: list[FlatClone]) -> None:
         clone = work.pop()
         if not clone.sub_root:
             clone.sub_root = True
-            work.extend(_landing_targets(clone))
+            work.extend(landing_targets(clone))
 
 
-def _landing_targets(clone: FlatClone) -> list[FlatClone]:
+def check_entry_shape(clone: FlatClone) -> None:
+    """Refuse a clone whose entry is more than one shape.
+
+    A dispatch clone is chased, and the chase reads its own selection, so it
+    may carry a wide one (the gbnf self-grammar's ``cc-neg`` does): every other
+    shape is its target's. Any other clone is at most one of an attempt, a
+    gated selection (wide, or a struct gate) and a leaf.
+
+    :raises EngineInvariantError: Naming the clone and its shapes.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        return
+    shapes = [
+        name
+        for name, has in (
+            ("attempt", clone.attempt is not None),
+            ("gated", clone.wide_selectors is not None or clone.struct_arm is not None),
+            ("leaf", bool(clone.leaf)),
+        )
+        if has
+    ]
+    if len(shapes) > 1:
+        raise EngineInvariantError(
+            f"clone {clone.name!r} enters as {shapes}: at most one is one entry"
+        )
+
+
+def lands_on(clone: FlatClone, target: FlatClone) -> bool:
+    """Whether entering ``clone`` can push a frame of ``target``: ``clone``
+    itself, or a clone its landings reach (:func:`landing_targets`)."""
+    seen: set[int] = set()
+    work = [clone]
+    while work:
+        found = work.pop()
+        if found is target:
+            return True
+        if id(found) not in seen:
+            seen.add(id(found))
+            work.extend(landing_targets(found))
+    return False
+
+
+def landing_targets(clone: FlatClone) -> list[FlatClone]:
     """The clones entering ``clone`` can land on next: a dispatch clone's
     targets, or an attempt clone's entry sub-clones."""
     if clone.mode == BUILD_DISPATCH:

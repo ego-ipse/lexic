@@ -18,6 +18,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (
     IrAlternation,
+    IrAst,
     IrAtom,
     IrCharClass,
     IrChr,
@@ -28,10 +29,12 @@ from lexic.ir import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
+    IrStr,
 )
 from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, nullable_names
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.windows import windows_of
 from lexic.parsing.pda.core.charsets import CharSet
@@ -51,11 +54,6 @@ def lifted_analysis(stem: str) -> GrammarAnalysis:
     canonical = canonical_grammar(path.read_text(encoding="utf-8"), flavour)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     return GrammarAnalysis(lifted)
-
-
-def arm_items(arm: IrSequence) -> list[IrItem]:
-    """The :class:`IrItem` members of one sequence arm, in order."""
-    return [i for i in arm if isinstance(i, IrItem)]
 
 
 # ── the island / demotion parity gate (pinned to the PoC's M1 output) ──────
@@ -191,8 +189,8 @@ def test_ungatable_loops_carry_the_attempt_licence():
     assert not stop_sets
     assert {"nl-escape", "nl-force"} <= set(taxonomy.longest)
     assert set(taxonomy.attempts) == analysis.islands
-    assert taxonomy.attempt_loops
-    assert all(isinstance(key, int) for key in taxonomy.attempt_loops)
+    assert taxonomy.loops.attempt
+    assert all(isinstance(key, int) for key in taxonomy.loops.attempt)
 
 
 @pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
@@ -260,7 +258,7 @@ def test_demotes_chess_nonpawn_loop():
     assert "nonpawn" not in analysis.islands
     assert analysis.demoted["nonpawn"] == ["nonpawn[1]: loop k-window (demoted)"]
 
-    items = arm_items(analysis.rules["nonpawn"].body[0])
+    items = analysis.rules["nonpawn"].body[0]
     assert id(items[1]) in analysis.taxonomy.loop_gates
     gate = kwindow.loop_gate(
         items, 1, kwindow.follow_depths(analysis.rules, analysis.follow["nonpawn"])
@@ -277,7 +275,7 @@ def test_demotes_gbnf_self_cc_esc_arm():
     assert "cc-esc" not in analysis.islands
     assert analysis.demoted["cc-esc"] == ["cc-esc: arms k-window separable (demoted)"]
 
-    arms = [arm_items(arm) for arm in analysis.rules["cc-esc"].body]
+    arms = list(analysis.rules["cc-esc"].body)
     stored = analysis.taxonomy.arm_gates["cc-esc"]
     assert len(stored) == len(arms)
     gate = kwindow.arm_gate(
@@ -299,7 +297,7 @@ def test_json_p3_demotions_store_their_peek_specs(stem: str):
     assert len(sets) == len(analysis.rules["value"].body)
     for name in ("array-item2", "object-item2"):
         assert analysis.demoted[name] == [f"{name}[1]: loop noise-skip (demoted)"]
-        items = arm_items(analysis.rules[name].body[0])
+        items = analysis.rules[name].body[0]
         stored = analysis.taxonomy.pn_loop_gates[id(items[1])]
         assert stored == (w, CharSet.from_chars(","))
 
@@ -703,41 +701,47 @@ def test_json_ws_escape_is_noise_greedy_licensed(stem: str):
 # ── nullability (ported from test_fold, plus queries) ──────────────────────
 
 
-def test_nullable_names_empty_literal():
+def _nullable(*rules: IrRule) -> frozenset[str]:
+    """The nullable set the analysis reads, over a grammar of ``rules``."""
+    ast = IrAst(rules=IrSeq(*rules), start=IrStr(str(rules[-1].name)))
+    return GrammarAnalysis(ast).nullable
+
+
+def test_analysis_nullable_empty_literal():
     """A rule whose body is an empty literal is nullable."""
     rule = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
-    assert "empty" in nullable_names((rule,))
+    assert "empty" in _nullable(rule)
 
 
-def test_nullable_names_lo_zero_item():
+def test_analysis_nullable_lo_zero_item():
     """A rule whose sole item has quantifier lo=0 is nullable."""
     rule = IrRule(
         "zero_lo", IrAlternation(IrSequence(IrItem(IrLiteral("x"), IrQuantifier(0, 1))))
     )
-    assert "zero_lo" in nullable_names((rule,))
+    assert "zero_lo" in _nullable(rule)
 
 
-def test_nullable_names_alternation_arm():
+def test_analysis_nullable_alternation_arm():
     """A rule with one empty arm (among others) is nullable."""
     rule = IrRule(
         "alt", IrAlternation(IrSequence(), IrSequence(IrItem(IrLiteral("y"))))
     )
-    assert "alt" in nullable_names((rule,))
+    assert "alt" in _nullable(rule)
 
 
-def test_nullable_names_transitive_ref():
+def test_analysis_nullable_transitive_ref():
     """A rule that refs a nullable rule is transitively nullable (fixpoint)."""
     empty = IrRule("empty", IrAlternation(IrSequence(IrItem(IrLiteral("")))))
     transitive = IrRule(
         "transitive", IrAlternation(IrSequence(IrItem(IrRuleRef("empty"))))
     )
-    assert "transitive" in nullable_names((empty, transitive))
+    assert "transitive" in _nullable(empty, transitive)
 
 
-def test_nullable_names_excludes_non_nullable():
+def test_analysis_nullable_excludes_non_nullable():
     """A rule requiring a non-empty literal is not nullable."""
     rule = IrRule("solid", IrAlternation(IrSequence(IrItem(IrLiteral("z")))))
-    assert "solid" not in nullable_names((rule,))
+    assert "solid" not in _nullable(rule)
 
 
 def test_analysis_exposes_nullable_set():

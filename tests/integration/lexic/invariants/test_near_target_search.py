@@ -38,7 +38,7 @@ from lexic.parsing.parallel.plan.cuts import (
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from lexic.parsing.parallel.roles import Roles
+from lexic.parsing.parallel.roles.derive import Roles
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 
@@ -213,7 +213,7 @@ PAIRED = 'root ::= item ("," item)*\nitem ::= "(" word ")"\nword ::= [a-z]+\n'
 """A separated repetition whose items are a REAL bracket pair — so the depth
 counted at a stretch's start decides which commas stand at 0. (`item`'s
 interior is a rule reference, which is what makes `(` and `)` a depth-tracked
-pair; see `roles._arm_pair`'s ``delimited`` test.)"""
+pair; see `roles.runs.bracket_arms`' ``enclosing`` test.)"""
 
 
 def paired_document(units: int) -> str:
@@ -271,7 +271,7 @@ NO_DEPTH_ZERO = 'root ::= item ("," item)*\nitem ::= "(" word ")"\nword ::= [a-z
 
 `item`'s interior is a rule reference (`word`), which is what qualifies `(`
 and `)` as a genuine depth-tracked pair — an inline character class in the
-same spot would not (see `roles._arm_pair`'s ``delimited`` test). A document
+same spot would not (see `roles.runs.bracket_arms`' ``enclosing`` test). A document
 that opens one such pair and never closes it holds every comma at depth 1
 forever: real separator occurrences, at a depth the plan never keys on. That
 is distinct from `test_empty_sweep_gate.py`'s witness, whose separator SET is

@@ -33,6 +33,7 @@ from lexic.ir import (
     IrSpan,
     IrStr,
     IrTuple,
+    reaching,
     refs_in_order,
 )
 from lexic.model import GrammarModel
@@ -125,7 +126,7 @@ class MapShape(IrNamedTuple[str, str, str, str]):
                 f"templating: entry {entry!r} is not a rule of the grammar"
             )
         bound = {b.rule_name: b for b in compute_binding(grammar)}[entry]
-        fields = [name for name, b in bound.fields.items() if b.semantic]
+        fields = [name for name, b in bound.in_slot_order() if b.semantic]
         if len(fields) < 2:
             raise UnsupportedConstructError(
                 f"templating: entry {entry!r} binds {fields!r}, and a key/value "
@@ -200,24 +201,6 @@ class SpanPair(
     span_binding: ModelExecutable[SpanCarry]
     values: IrAst
     value_binding: ModelExecutable[GrammarModel]
-
-
-def _reaching(grammar: IrAst, entry: str) -> frozenset[str]:
-    """The rules from which ``entry`` is reachable — ``entry`` included."""
-    referrers: dict[str, set[str]] = {}
-    for named in grammar.rules:
-        refs: list[str] = []
-        refs_in_order(named.body, refs)
-        for target in refs:
-            referrers.setdefault(target, set()).add(named.name)
-    out = {entry}
-    queue = [entry]
-    while queue:
-        for source in referrers.get(queue.pop(), ()):
-            if source not in out:
-                out.add(source)
-                queue.append(source)
-    return frozenset(out)
 
 
 def _span_entry(
@@ -296,7 +279,7 @@ class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleMap]", frozenset])
         """``name``'s binding fields whose bound ref targets a reaching rule."""
         arm = next(r.body for r in self.grammar.rules if r.name == name)[0]
         out: dict[str, IrBind] = {}
-        for field, bind in self.binding[name].fields.items():
+        for field, bind in self.binding[name].in_slot_order():
             atom = arm[bind.item].atom
             if isinstance(atom, IrRuleRef) and str(atom) in self.reaching:
                 out[field] = bind
@@ -329,7 +312,7 @@ def _section_for(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -
     refs_in_order(
         next(r.body for r in grammar.rules if str(r.name) == value_rule), offered
     )
-    reaches = _reaching(grammar, entry)
+    reaches = reaching({str(r.name): r for r in grammar.rules}, entry)
     cycle = {name for name in offered if name in reaches} - {entry}
     if not cycle:
         raise UnsupportedConstructError(
@@ -373,24 +356,6 @@ def _value_ref(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -> 
     return refs[-1] if refs else entry
 
 
-def _reaching_from(grammar: IrAst, start: str) -> set[str]:
-    """Every rule reachable FROM ``start`` (the mirror of :func:`_reaching`)."""
-    edges: dict[str, list[str]] = {}
-    for rule in grammar.rules:
-        out: list[str] = []
-        refs_in_order(rule.body, out)
-        edges[str(rule.name)] = out
-    seen: set[str] = set()
-    stack = [start]
-    while stack:
-        name = stack.pop()
-        if name in seen or name not in edges:
-            continue
-        seen.add(name)
-        stack.extend(edges[name])
-    return seen
-
-
 def _resolve_shape(compiled: CompiledGrammar, shape: MapShape) -> _ShapeView:
     """Validate ``shape`` against ``compiled`` and resolve the working view.
 
@@ -412,7 +377,12 @@ def _resolve_shape(compiled: CompiledGrammar, shape: MapShape) -> _ShapeView:
             f"templating: clone-suffix collision on rules {collisions!r}"
         )
     binding = {b.rule_name: b for b in compute_binding(grammar)}
-    view = _ShapeView(grammar, shape, binding, _reaching(grammar, shape.entry))
+    view = _ShapeView(
+        grammar,
+        shape,
+        binding,
+        reaching({str(r.name): r for r in grammar.rules}, shape.entry),
+    )
     _check_entry(view)
     for role, name in (("start", grammar.start), ("section", shape.section)):
         if name not in view.reaching:
@@ -510,18 +480,18 @@ def _clone_rule(view: _ShapeView, name: str) -> AuthoredRule | None:
     if kind != "sequence":
         return None
     arm = next(r.body for r in view.grammar.rules if r.name == name)[0]
-    reaching = view.reaching_fields(name)
-    los = {field: int(arm[bind.item].quantifier.lo) for field, bind in reaching.items()}
+    fields = view.reaching_fields(name)
+    los = {field: int(arm[bind.item].quantifier.lo) for field, bind in fields.items()}
     captures = tuple(
         CaptureSpec(int(CAPTURE_FOR_BIND[bind.mode]), bind.item)
-        for bind in reaching.values()
+        for bind in fields.values()
     )
     optional = tuple(
         at
-        for at, (field, bind) in enumerate(reaching.items())
+        for at, (field, bind) in enumerate(fields.items())
         if bind.mode == "gtext" and los[field] == 0
     )
-    return AuthoredRule("collect", captures, tuple(reaching), len(arm), optional)
+    return AuthoredRule("collect", captures, tuple(fields), len(arm), optional)
 
 
 SPAN_SYMBOLS: dict[str, Callable[..., SpanCarry]] = {

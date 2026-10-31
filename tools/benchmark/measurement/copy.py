@@ -38,6 +38,7 @@ PROTOCOL_MODULES = (
     "cases/directives.py",
     "cases/engine_reach.py",
     "cases/grammars.py",
+    "cases/split_shapes.py",
     "diagnostics/split_ab.py",
     "engines/seats.py",
     "execution/isolation.py",
@@ -52,6 +53,7 @@ PROTOCOL_MODULES = (
     "measurement/language.py",
     "measurement/occupancy.py",
     "measurement/sampling.py",
+    "presentation/artifact.py",
     "presentation/cli.py",
     "presentation/reporting.py",
 )
@@ -81,6 +83,7 @@ SHARED_VOCABULARY = frozenset(
         "lexic.generate.generate",
         "lexic.grammars.ABNF_FLAVOUR",
         "lexic.grammars.GBNF_FLAVOUR",
+        "lexic.ir.IrAddress",
         "lexic.ir.IrAst",
         "lexic.ir.inline_refs",
         "lexic.model.GrammarModel",

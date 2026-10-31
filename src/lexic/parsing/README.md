@@ -45,8 +45,8 @@ its submodules (enforced by the layering test).
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
 | `parse_first(grammar, text, tables=None, decide=LEFTMOST_LONGEST)` | `ParseTree` | The *first* derivation — deterministic under ambiguity, keeping `decide`'s carving as `parse_model` does. Raises only on no-parse. |
 | `parse_forest(grammar, text)` | `SppfNode` \| `IrNone` | The shared packed parse forest root, or `IrNone` on no-parse. |
-| `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
-| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
+| `derivations(grammar, text)` | `IrSeq[ParseTree]` | Every cycle-free derivation (all of them on an acyclic grammar). |
+| `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2; a cut cycle counts.) |
 
 Also exported from the root: `ModelExecutable` and `ProductExecutor` (the
 binding and the completion it runs), `Resolver`, `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
@@ -187,9 +187,9 @@ column to a fixpoint, scan between columns.
   them. Same-column (empty-span) steps are rejected from the climb — the
   normal completer handles them — so columns strictly decrease and no cycle
   guard is needed.
-- **`longest_start_completion`** — a public windowed prefix-completion seam:
-  run a rule over a text window, return the longest completion. The PDA
-  island sub-parse (§13) drives it; additive, off the `run()` fast path.
+- **`longest_start_completion`** — the windowed prefix-completion readout:
+  `run()` a rule over a text window, then read the longest origin-0
+  completion off the finished chart. The PDA island sub-parse (§13) reads it.
 
 `FastTree` is the unambiguous fast path: an explicit-stack walk of the packed
 links building the single `ParseTree`; any multi-family key aborts to the
@@ -291,8 +291,9 @@ the island set is closed before the clone compiler runs. A stored gate spec
 the compiler cannot attach to the arms it sees (taxonomy↔compiler
 misalignment) is a **hard error**, not an island — drift is a bug. Every
 per-atom-type decision routes through an open `IrTypeMap` with a raising
-default (a genuine boundary error, not a downgrade); `nullable_names` here
-is the single source `fold.lift_optional_nullables` reads.
+default (a genuine boundary error, not a downgrade). Nullability is the
+grammar's own fact, `IrAst.nullable()`, read here and by
+`lift_optional_nullables`.
 
 ## 11. The clone compiler (`pda/clones.py`, `pda/flatten.py`)
 
@@ -339,7 +340,7 @@ completion; the completion owns user-facing diagnostics.
 A decision no gate family can license makes its rule an island: the ref is
 compiled as an `IslandRef` marker with a lazy per-island `ParserTables`
 cache, and the runtime runs a **windowed Earley sub-parse**
-(`longest_start_completion`, doubling window) over just that span, folds the
+(`run()` plus the `longest_start_completion` readout, doubling window) over just that span, folds the
 sub-tree, and splices the sub-product into the current capture. A
 **fail-island** (a semantic escape whose ref must fail to the full engine)
 raises `PdaFail` instead. `DelegateSource` cuts island cost from the inside:

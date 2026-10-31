@@ -6,11 +6,11 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.mapping import IrMap
+from lexic.ir.grammar.charclass import IrCharClass
 from lexic.ir.grammar.concretize import concretize, concretize_atom
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
     IrAst,
-    IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,

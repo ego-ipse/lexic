@@ -15,7 +15,7 @@ from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
-from lexic.parsing.pda.compiler.program.flatten import clone_arms
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, all_clones, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import GATE_SCAN
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
@@ -24,7 +24,6 @@ from lexic.parsing.products import (
     earley_model,
     pda_model,
 )
-from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.parsing_helpers import Shortest, decider_program, prod
 
 WITNESSES = {
@@ -140,8 +139,10 @@ run and peeking for the separator, which eats the second ``;``."""
 
 
 def _scans(tables: PdaTables) -> bool:
-    """Whether any item of the program is gated by a scan gate."""
-    clones = walk_program_clones(tables.program.start).values()
+    """Whether any item of the program is gated by a scan gate (none where the
+    start rule is islanded, and so no clone)."""
+    start = tables.program.start
+    clones = all_clones([start] if isinstance(start, FlatClone) else [])
     return any(
         GATE_SCAN in arm.gate_kinds[: arm.n] for c in clones for arm in clone_arms(c)
     )

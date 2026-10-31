@@ -188,14 +188,17 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         self.code_arm = tuple(aid for aid, _ in builder.codes)
         self.arm_rule = tuple(rid for _, rid, _ in builder.arms)
         self.arm_base = tuple(base for _, _, base in builder.arms)
+        nullable = builder.nullable_rules()
         self.rule_seed_gates = tuple(
             tuple(
                 (code << bits, self.next_sym[code], gate)
                 for code, gate in zip(dot0, gates)
             )
-            for dot0, gates in zip(builder.rule_dot0, builder.seed_gates())
+            for dot0, gates in zip(
+                builder.rule_dot0, builder.seed_gates(self.next_sym, nullable)
+            )
         )
-        self.nullable_completes = tuple(builder.nullable())
+        self.nullable_completes = tuple(builder.nullable(nullable))
         self.accept_codes = builder.accept_codes()
 
     @property
@@ -234,29 +237,44 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
     :ivar rule_ids: rule name → rule_id.
     :ivar rule_refs: rule_id → interned :class:`IrRuleRef` (for tree symbols).
     :ivar arm_seqs: arm_id → the arm's :class:`IrSequence`.
+    :ivar cyclic: Whether some rule derives itself over the same span
+        (``A ⇒+ A``) — a unit or nullable cycle such as ``s ::= t | "a"`` /
+        ``t ::= s``, or ``e ::= f | ""`` / ``f ::= e``. Only then can a decoded
+        tree hold a node inside itself, so only then must a tree build watch
+        for re-entering a node it is still building.
     :ivar code_droppable: code → whether the step completing there is a
         repetition's iteration beyond its minimum (:func:`code_droppables`),
         read when a forest reader chooses among a key's families.
     """
 
-    __slots__ = ("rule_names", "rule_ids", "rule_refs", "arm_seqs", "code_droppable")
+    __slots__ = (
+        "rule_names",
+        "rule_ids",
+        "rule_refs",
+        "arm_seqs",
+        "code_droppable",
+        "cyclic",
+    )
 
     rule_names: tuple[str, ...]
     rule_ids: dict[str, int]
     rule_refs: tuple[IrRuleRef, ...]
     arm_seqs: tuple[IrSequence, ...]
     code_droppable: tuple[bool, ...]
+    cyclic: bool
 
-    def __init__(self, builder: TableBuilder) -> None:
+    def __init__(self, builder: TableBuilder, codes: CodeTables) -> None:
         """Freeze the IR-space half of a finished builder.
 
         :param builder: The builder whose numbering to adopt.
+        :param codes: The code-space half, which the cycle fact is read off.
         """
         self.rule_names = tuple(builder.rule_ids)
         self.rule_ids = dict(builder.rule_ids)
         self.rule_refs = tuple(IrRuleRef(n) for n in self.rule_names)
         self.arm_seqs = tuple(seq for seq, _, _ in builder.arms)
         self.code_droppable = code_droppables(builder)
+        self.cyclic = _closes_a_loop(_same_span_steps(codes))
 
 
 class TermTables(IrLeaf[IrSelf, IrSelf]):
@@ -386,7 +404,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         :param bits: The packing tier for this table set.
         """
         self.codes = CodeTables(builder, bits)
-        self.decode = DecodeTables(builder)
+        self.decode = DecodeTables(builder, self.codes)
         self.terms = TermTables(builder)
         self.code_choice = code_choices(builder)
         self.start_id = builder.start_id()
@@ -424,3 +442,50 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         tree = ParseTree(self.decode.rule_refs[rid], IrSeq(*kids))
         self._empty_trees[rid] = tree
         return tree
+
+
+def _same_span_steps(codes: CodeTables) -> dict[int, set[int]]:
+    """rule_id → the rules it steps to over the same span: those sitting in one
+    of its arms whose every other position predicts a nullable rule.
+
+    An arm with two positions that cannot be empty steps nowhere; with one, it
+    steps only to that one (when it is a rule); with none, to each of its rules.
+    """
+    nullable = {rid for rid, done in enumerate(codes.nullable_completes) if done}
+    next_sym = codes.next_sym
+    steps: dict[int, set[int]] = {}
+    for arm, base in enumerate(codes.arm_base):
+        end = base
+        while next_sym[end] != 0:
+            end += 1
+        syms = next_sym[base:end]
+        solid = [sym for sym in syms if sym < 0 or sym - 1 not in nullable]
+        if len(solid) > 1:
+            continue
+        targets = solid if solid else syms
+        rules = {sym - 1 for sym in targets if sym > 0}
+        if rules:
+            steps.setdefault(codes.arm_rule[arm], set()).update(rules)
+    return steps
+
+
+def _closes_a_loop(steps: dict[int, set[int]]) -> bool:
+    """Whether the steps hold a cycle (an iterative grey/black walk)."""
+    state: dict[int, int] = {}  # 1 on the walk, 2 done
+    for root in steps:
+        if root in state:
+            continue
+        state[root] = 1
+        walk = [(root, iter(steps[root]))]
+        while walk:
+            rid, edges = walk[-1]
+            nxt = next(edges, None)
+            if nxt is None:
+                state[rid] = 2
+                walk.pop()
+            elif state.get(nxt) == 1:
+                return True
+            elif nxt not in state:
+                state[nxt] = 1
+                walk.append((nxt, iter(steps.get(nxt, ()))))
+    return False

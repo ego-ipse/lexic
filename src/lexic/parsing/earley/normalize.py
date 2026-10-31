@@ -49,7 +49,6 @@ from lexic.ir import (
     IrLeaf,
     IrMultiMap,
     IrNone,
-    IrNoneType,
     IrQuantifier,
     IrRule,
     IrRuleRef,
@@ -60,8 +59,6 @@ from lexic.ir import (
     IrTuple,
     IrTypeMap,
 )
-
-_ONE = IrQuantifier(1, 1)
 
 SYNTHETIC_PREFIX = "__"
 """Name prefix marking a rule minted by normalisation, not present in the source."""
@@ -180,8 +177,8 @@ class Expand(IrLeaf[IrSelf, IrSelf]):
         :param self_ref: An item referencing the rule being built (the recursion
             tail of the unbounded cases).
         """
-        lo, hi = quant.lo, quant.hi
-        if isinstance(hi, IrNoneType):
+        lo, hi = quant.lo, quant.upper()
+        if hi is None:
             if lo == 0:  # *  →  X = "" / unit X
                 return IrAlternation(IrSequence(), IrSequence(unit, self_ref))
             if lo == 1:  # +  →  X = unit / unit X
@@ -189,9 +186,9 @@ class Expand(IrLeaf[IrSelf, IrSelf]):
             # m* (m > 1): one mandatory copy, then (m-1)* via a sub-rule
             tail = IrItem(self.eval(d, unit, (IrQuantifier(lo - 1, IrNone),)))
             return IrAlternation(IrSequence(unit, tail))
-        if lo == 0 and hi == 1:  # ?  →  X = "" / unit
+        if quant.optional():  # ?  →  X = "" / unit
             return IrAlternation(IrSequence(), IrSequence(unit))
-        if lo == hi:  # exactly lo copies
+        if quant.fixed():  # exactly lo copies
             return IrAlternation(IrSequence(*((unit,) * lo)))
         # lo mandatory, then up to (hi - lo) optional via an opt-chain
         tail = IrItem(OPT_CHAIN.eval(d, unit, (IrInt(hi - lo),)))
@@ -245,10 +242,10 @@ class DesugarItem(IrLeaf[IrSelf, IrSelf]):
         """
         item = cast(IrItem, n)
         quant = item.quantifier
-        if quant == _ONE:
+        if quant.once():
             return item
-        hi = quant.hi
-        if quant.lo < 0 or (not isinstance(hi, IrNoneType) and hi < quant.lo):
+        hi = quant.upper()
+        if quant.lo < 0 or (hi is not None and hi < quant.lo):
             raise UnsupportedConstructError(
                 f"parsing: invalid quantifier bounds {(quant.lo, quant.hi)!r}"
             )

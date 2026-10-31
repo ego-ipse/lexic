@@ -16,18 +16,16 @@ split planner reach it without either importing the other.
 
 from __future__ import annotations
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
     IrAst,
     IrItem,
-    IrNoneType,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.pda.analysis.analysis import nullable_names
 
 __all__ = ["lift_optional_nullables"]
 
@@ -45,7 +43,26 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
     :returns: The lifted grammar (same rule order, same item positions).
     """
     rules = tuple(grammar.rules)
-    nullable = nullable_names(rules)
+    # The engine's first pass on every grammar the compile seam hands it, so the
+    # one place an arm is checked to hold only items: past here every reader
+    # takes an arm as its items (``IrSequence`` passes an unknown element
+    # through, for the emit side's rebuilds).
+    stray = next(
+        (
+            (rule, element)
+            for rule in rules
+            for arm in rule.body
+            for element in arm
+            if not isinstance(element, IrItem)
+        ),
+        None,
+    )
+    if stray is not None:
+        raise UnsupportedConstructError(
+            f"rule `{stray[0].name}`: unsupported construct "
+            f"`{type(stray[1]).__name__}` in an arm, where only items stand"
+        )
+    nullable = grammar.nullable()
 
     def lift_item(item: IrItem) -> IrItem:
         atom = item.atom
@@ -53,21 +70,16 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
         if (
             isinstance(atom, IrRuleRef)
             and str(atom) in nullable
-            and int(quantifier.lo) == 0
-            and not isinstance(quantifier.hi, IrNoneType)
-            and int(quantifier.hi) == 1
+            and quantifier.optional()
         ):
-            return IrItem(atom, IrQuantifier(1, 1))
+            return IrItem(atom)
         return item
 
     lifted = tuple(
         IrRule(
             rule.name,
             IrAlternation(
-                *(
-                    IrSequence(*(lift_item(i) for i in arm if isinstance(i, IrItem)))
-                    for arm in rule.body
-                )
+                *(IrSequence(*(lift_item(i) for i in arm)) for arm in rule.body)
             ),
             rule.semantic,
         )

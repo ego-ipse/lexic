@@ -11,7 +11,6 @@ import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
 from lexic.compile.artifact import derived_reduce_entry, sub_run
-from lexic.compile.reduce.variant import reachable_rules
 from lexic.compile.reduction import RunSpec, derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
@@ -34,6 +33,7 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
     Reducer,
+    reachable,
 )
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, ParseConfig
@@ -52,6 +52,9 @@ from lexic.parsing.products import (
     token_model,
 )
 from tests.reduce_helpers import reduce_text
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    decline_fast_builds,
+)
 from tests.unit.lexic.parsing.parsing_helpers import compiled
 
 # ── the Earley completions (route-forcing seam) ────────────────────────────
@@ -136,7 +139,8 @@ def test_reduce_variant_elides_noise_models_without_changing_source_product():
     assert elide
     roots = frozenset(f"{name}-sk" for name in elide)
     assert roots <= {str(rule.name) for rule in entry.variant.grammar.rules}
-    omitted = reachable_rules(entry.variant.codegen_grammar, roots)
+    grammar = entry.variant.codegen_grammar
+    omitted = reachable({str(r.name): r for r in grammar.rules}, roots)
     assert omitted
     assert omitted.isdisjoint(entry.variant.product.routines)
     assert elide <= artifact.product.routines.keys()
@@ -187,7 +191,8 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
         RunSpec(frozenset({"!"}), "element"),
     )
     variant = cast(Any, escape.parse).func.__self__
-    omitted = reachable_rules(variant.codegen_grammar, frozenset({"drop-sk"}))
+    grammar = variant.codegen_grammar
+    omitted = reachable({str(r.name): r for r in grammar.rules}, {"drop-sk"})
     assert omitted == {"drop-sk", "noise-sk"}
     assert omitted.isdisjoint(variant.product.routines)
     assert escape.fold.plan.aliases == {
@@ -350,6 +355,57 @@ def _token_vocabulary() -> Vocabulary:
         *(IrTuple(IrStr(t), IrChr(i)) for t, i in {"<a>": 0, "<b>": 1}.items())
     )
     return Vocabulary(IrTokenizer.from_vocab("tokens", encode))
+
+
+def _token_arm(
+    monkeypatch: pytest.MonkeyPatch,
+    declined: int,
+    config: ParseConfig = ParseConfig(resolve=lambda first, _other: first),
+) -> str:
+    """Which arm's model the token route builds for ``<a>`` when the fast build
+    declines the first ``declined`` handles it is asked for; by default a tie
+    keeps the derivation in hand."""
+    grammar = compile_text(
+        _TOKEN_ARM_CHOICE, vocabulary=_token_vocabulary(), cache_key="tok-declined"
+    )
+    tok = grammar.tokens.tokenizer
+    assert tok is not None, "this must exercise the token route"
+    bounds = {start: (tid, end - start) for start, end, tid in tok.boundaries("<a>")}
+    with monkeypatch.context() as patch:
+        decline_fast_builds(patch, declined)
+        model = token_model(
+            grammar.codegen_grammar,
+            "<a>",
+            grammar.product,
+            bounds,
+            config,
+        )
+    return type(model).__name__
+
+
+def test_the_token_route_reads_a_sibling_handle_when_the_first_misses(monkeypatch):
+    """Every accepting production is tried, as on the char route: the first
+    missing leaves the second production as the derivation in hand."""
+    assert _token_arm(monkeypatch, 0) == "Viaone"
+    assert _token_arm(monkeypatch, 1) == "Viatwo"
+
+
+def test_the_token_route_streams_its_own_chart_when_no_handle_builds(monkeypatch):
+    """No production builds fast: the token kernel's own chart is read, in
+    chart order, rather than the parse refused as underivable."""
+    assert _token_arm(monkeypatch, 99) == "Viaone"
+
+
+@pytest.mark.parametrize("declined", [0, 1, 2, 99])
+def test_the_token_route_refuses_the_two_meanings_however_it_reads_them(
+    monkeypatch, declined
+):
+    """Without a resolver the two arms are refused on every path the reader can
+    take: the first build, the sibling production (1), the chart with the
+    sibling still built (2), and the chart for both (99) — a sibling the fast
+    build declines is read off the chart, not skipped into a silent pick."""
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        _token_arm(monkeypatch, declined, ParseConfig())
 
 
 def test_the_token_route_refuses_an_arm_choice_like_the_char_route_does():

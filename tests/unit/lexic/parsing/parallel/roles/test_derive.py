@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.roles`` — derived anchor roles.
+"""Tests for ``lexic.parsing.parallel.roles.derive`` — derived anchor roles.
 
 The demonstrable shapes: a bracketing arm derives an opener/closer pair
 (trailing noise after the closer allowed), and a repeated body's leading
@@ -12,9 +12,18 @@ from __future__ import annotations
 import lexic.parsing
 from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrNoneType
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles import Terminator, agreed_tail
+from lexic.parsing.parallel.discovery.shapes import rule_table
+from lexic.parsing.parallel.roles.derive import (
+    TerminatedRun,
+    Terminator,
+    agreed_tail,
+    run_terminators,
+    standing_pairs,
+)
+from lexic.parsing.parallel.roles.runs import repeated_bodies
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 
@@ -225,3 +234,140 @@ def test_a_multi_character_separator_derives_as_one_mark():
     source = 'root ::= block (sep block)*\nsep ::= "\\n\\n"\nblock ::= [a-z]+\n'
     got = roles(compile_text(source).codegen_grammar)
     assert [record.mark for record in got.records] == ["\n\n"]
+
+
+def _arrows(operator: str) -> str:
+    """A bracket around a separated list of ``key <operator> value`` entries."""
+    return (
+        'root ::= "<" list ">"\n'
+        'list ::= entry ("," entry)*\n'
+        f'entry ::= key "{operator}" value\n'
+        "key ::= [a-z]+\n"
+        "value ::= [0-9]+\n"
+    )
+
+
+def test_a_closer_also_spelled_outside_a_pair_arm_derives_no_pair():
+    """Depth is counted one character at a time over the WHOLE text, so a pair
+    is only sound when every site spelling its characters delimits a pair
+    arm. ``>`` is also the tail of ``"=>"``, which brackets nothing."""
+    assert roles(parse_grammar(_arrows("=>"), GBNF_FLAVOUR)).pairs == ()
+
+
+def test_a_pair_whose_every_site_delimits_still_derives():
+    """The same bracket with ``:`` between key and value: ``<`` and ``>`` are
+    spelled only by the bracketing arm, so the pair stands."""
+    assert roles(parse_grammar(_arrows(":"), GBNF_FLAVOUR)).pairs == (("<", ">"),)
+
+
+def test_an_opener_spelled_inside_another_construct_derives_no_pair():
+    """The opener's stray site counts the same as the closer's: ``[`` is also
+    the second character of ``"<["``."""
+    grammar = (
+        "root ::= item+\n"
+        "item ::= cls | tok\n"
+        'cls ::= "[" word "]"\n'
+        'tok ::= "<[" word ">"\n'
+        "word ::= [a-z]+\n"
+    )
+    assert ("[", "]") not in roles(parse_grammar(grammar, GBNF_FLAVOUR)).pairs
+
+
+def test_a_fallen_pairs_delimiters_stop_vouching_for_another_pair():
+    """``range`` closes ``(`` with ``]``, and ``call``'s ``(`` is stray, so that
+    pair falls; its ``]`` is then a stray site of root's ``[``/``]`` too. The
+    scan counts every opener and closer on one counter: on ``[(1,2],a,b]`` the
+    range's ``]`` would close root's bracket and read ``,a`` at depth 0."""
+    grammar = (
+        'root ::= "[" items "]"\n'
+        'items ::= item ("," item)*\n'
+        "item ::= range | word\n"
+        'range ::= "(" num "," num "]"\n'
+        "word ::= [a-z]+ | call\n"
+        'call ::= name "(" word ")"\n'
+        "num ::= [0-9]+\n"
+        "name ::= [a-z]+\n"
+    )
+    assert roles(parse_grammar(grammar, GBNF_FLAVOUR)).pairs == ()
+
+
+def test_standing_pairs_asks_again_once_a_pair_falls():
+    """``(``/``)`` falls on its own stray; only then does ``]`` read as stray,
+    so the bracket pair falls on the second asking, not the first."""
+
+    def strays(standing: list[tuple[str, str]]) -> frozenset[str]:
+        return frozenset(")" if ("(", ")") in standing else "]")
+
+    assert standing_pairs([("(", ")"), ("[", "]")], strays) == []
+
+
+def test_standing_pairs_keeps_every_pair_no_stray_spells_in_order():
+    """Nothing stray: every pair stands, in the order given."""
+    pairs = [("[", "]"), ("(", ")")]
+    assert standing_pairs(pairs, lambda _standing: frozenset("x")) == pairs
+
+
+def test_standing_pairs_drops_both_pairs_a_character_closes_and_opens():
+    """``|`` closes ``<`` and opens ``>``'s pair: a count nets it to zero, so
+    both pairs fall even with no stray site, and the unrelated pair stands."""
+    pairs = [("<", "|"), ("|", ">"), ("[", "]")]
+    assert standing_pairs(pairs, lambda _standing: frozenset()) == [("[", "]")]
+
+
+# ── the shared site walk: each reader's own reach ─────────────────────────
+
+_CLASS_INTERIOR = 'root ::= unit ("," unit)*\nunit ::= "<" [a-z] ">" | [0-9]+\n'
+"""``<`` and ``>`` delimit a class, not a reference or group."""
+
+
+def test_a_pair_stands_for_roles_only_around_a_construct():
+    """roles asks ``enclosing``: a pair serves the owner-exclusion proof, which
+    attributes what stands between the delimiters to a nested region, so the
+    arm must hold a reference or group there. The region scan's reader keeps
+    the same arm (test_regions)."""
+    grammar = compile_text(_CLASS_INTERIOR).codegen_grammar
+    assert roles(grammar).pairs == ()
+
+
+def test_roles_reads_only_an_arms_own_repetition():
+    """A repetition nested inside a group is no separator of the arm holding
+    the group: the walk finds it with ``nested``, and roles does not ask."""
+    authored = parse_grammar(
+        'root ::= "[" ( item ("," item)* )? "]"\nitem ::= [a-z]+\n', GBNF_FLAVOUR
+    )
+    assert [r.item for r in repeated_bodies(authored, nested=True)] == [""]
+    assert not repeated_bodies(authored, nested=False)
+    assert roles(authored).records == ()
+
+
+def _terminated(source: str, rule: str = "root") -> TerminatedRun | None:
+    grammar = compile_text(
+        source, cache_key=f"terminated-{hash(source)}"
+    ).codegen_grammar
+    rules = rule_table(grammar)
+    arm = rules[rule].sole_arm()
+    assert not isinstance(arm, IrNoneType)
+    return run_terminators(rule, arm, rules, roles(grammar).terminators)
+
+
+def test_a_bracket_arm_holding_a_closed_unit_run_is_terminated():
+    """``"[" entry+ "]"`` with ``entry`` closed by ``;``: the one unbounded
+    reference, and its one-character terminator in this container."""
+    got = _terminated('root ::= "[" entry+ "]"\nentry ::= e ";"\ne ::= [a-z]+\n')
+    assert got == TerminatedRun(1, "entry", frozenset({";"}))
+
+
+def test_a_separated_run_wins_over_a_terminated_one():
+    """``more ::= "," entry`` makes the arm own a separated run, so the same
+    arm is never ALSO terminated: the scan and the plan read it as led."""
+    led = 'root ::= "[" entry more* "]"\nmore ::= "," entry\nentry ::= e ";"\ne ::= [a-z]+\n'
+    assert _terminated(led) is None
+
+
+def test_a_run_is_terminated_only_by_one_reference_and_single_characters():
+    """Two unbounded references, or a terminator two characters long, read as
+    no terminated run."""
+    two = 'root ::= "[" entry+ other* "]"\nentry ::= e ";"\nother ::= e "."\ne ::= [a-z]+\n'
+    wide = 'root ::= "[" entry+ "]"\nentry ::= e ";;"\ne ::= [a-z]+\n'
+    assert _terminated(two) is None
+    assert _terminated(wide) is None

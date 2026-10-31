@@ -16,12 +16,13 @@ doubling climb.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Iterator
 
-from lexic.ir import IrAlternation, IrItem, IrNoneType, IrRule, IrRuleRef
+from lexic.ir import IrAlternation, IrItem, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.conflicts import may_steal
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
     MORE,
@@ -32,7 +33,6 @@ from lexic.parsing.pda.analysis.gates.windows import (
 from lexic.parsing.pda.analysis.predicates import (
     Span,
     rule_alphabets,
-    rule_extensions,
     rule_spans,
     seq_span,
 )
@@ -41,17 +41,11 @@ from lexic.parsing.pda.compiler.eligibility import (
     extent_pattern,
     greedy_extent,
 )
-from lexic.parsing.pda.compiler.specs import LongestTake, arm_items, upper_bound
+from lexic.parsing.pda.compiler.specs import LongestTake
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 _EOF = CharSet.from_chars("")
-
-
-def _repeats(item: IrItem) -> bool:
-    """Whether ``item`` can occur more than once in a row."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
 
 
 WINDOW = 2
@@ -60,11 +54,11 @@ measured to settle a shorter end a space or newline ends (abnf-meta's rule
 continuation, ` /`) that one character cannot."""
 
 
-Groups = tuple[tuple[list[IrItem], int], ...]
+Groups = tuple[tuple[Sequence[IrItem], int], ...]
 """The inline groups a reference sits in, outermost first: each enclosing arm's
 items and the group item's index in it."""
 
-Site = tuple[str, list[IrItem], int, Groups]
+Site = tuple[str, Sequence[IrItem], int, Groups]
 """A reference to an island: its rule, its arm's items, its index, its groups."""
 
 
@@ -157,7 +151,7 @@ class IslandContinuations:
         for rule, items, at, groups in self._sites(name, site):
             tail = self._group_tail(analysis.follow[rule], groups)
             found = found.union(analysis.cont_at(items, at, tail))
-            if _repeats(items[at]):  # the next occurrence follows this one
+            if items[at].quantifier.repeats():  # the next occurrence follows this one
                 found = found.union(analysis.atom_first(items[at].atom))
         self._follows[key] = found
         return found
@@ -194,7 +188,7 @@ class IslandContinuations:
                 _group_windows(deep, deep.follow[rule], groups),
                 WINDOW,
             )
-            if _repeats(items[at]):
+            if items[at].quantifier.repeats():
                 rest = _after_repeats(deep.solver.rule_prefixes(name, WINDOW), rest)
             found |= rest
         # A window the full width deep may go on past it (FIRST-k stops walking
@@ -221,7 +215,7 @@ class IslandContinuations:
             if rule in self.islands:
                 continue
             for arm in body.body:
-                for items, at, groups in _references(name, arm_items(arm), ()):
+                for items, at, groups in _references(name, arm, ()):
                     place = self._places().get(id(items[at]), _ANYWHERE)
                     if where is None or _meets(where, place):
                         yield rule, items, at, groups
@@ -233,7 +227,7 @@ class IslandContinuations:
         analysis = self.analysis
         for items, at in groups:
             after = analysis.cont_at(items, at, tail)
-            if _repeats(items[at]):
+            if items[at].quantifier.repeats():
                 after = after.union(analysis.atom_first(items[at].atom))
             tail = after
         return tail
@@ -291,13 +285,13 @@ class IslandContinuations:
         holds all of ``extend``: a greedy match then stops only at a character
         nothing could lengthen it by. An empty arm ends in no run."""
         for arm in self.analysis.rules[name].body:
-            items = arm_items(arm)
+            items = arm
             if not items:
                 return False
             last = items[-1]
-            if upper_bound(last) is not None:
+            if last.quantifier.upper() is not None:
                 return False
-            if not extend.subtract(self.analysis.atom_first(last.atom)).is_empty():
+            if not extend.within(self.analysis.atom_first(last.atom)):
                 return False
         return True
 
@@ -309,8 +303,7 @@ class IslandContinuations:
         the cursor: the island would have to consume that character to get
         there, and it cannot. So the extent is bounded by that position, the
         window is exactly that wide, and ONE sub-parse at that width settles
-        the island — no 256-character floor, no doubling, no re-parse of the
-        same characters at five widths.
+        the island — no 256-character floor and no growth step per doubling.
 
         This does not weaken the two-ends refusal. A completion end BEFORE the
         bound is exactly the case that refusal already handles, and it is
@@ -355,12 +348,12 @@ def _in_groups(rules: dict[str, IrRule]) -> set[str]:
         list(item.atom)
         for rule in rules.values()
         for arm in rule.body
-        for item in arm_items(arm)
+        for item in arm
         if isinstance(item.atom, IrAlternation)
     ]
     while pending:
         for arm in pending.pop():
-            for item in arm_items(arm):
+            for item in arm:
                 if isinstance(item.atom, IrRuleRef):
                     found.add(str(item.atom))
                 elif isinstance(item.atom, IrAlternation):
@@ -384,7 +377,7 @@ def site_positions(rules: dict[str, IrRule], start: str) -> dict[int, Span]:
     refs = [
         (rule, items, at)
         for rule, body in rules.items()
-        for items in (arm_items(arm) for arm in body.body)
+        for items in body.body
         for at, item in enumerate(items)
         if isinstance(item.atom, IrRuleRef)
     ]
@@ -405,12 +398,14 @@ def site_positions(rules: dict[str, IrRule], start: str) -> dict[int, Span]:
     return sites
 
 
-def _place(here: Span, items: list[IrItem], at: int, spans: dict[str, Span]) -> Span:
+def _place(
+    here: Span, items: Sequence[IrItem], at: int, spans: dict[str, Span]
+) -> Span:
     """Where item ``at`` can begin, given where its arm begins: after what the
     earlier items can span, and, if it repeats, through its later
     occurrences too."""
     before = seq_span(items[:at], spans)
-    later = seq_span([items[at]], spans)[1] if _repeats(items[at]) else 0.0
+    later = seq_span([items[at]], spans)[1] if items[at].quantifier.repeats() else 0.0
     return (here[0] + before[0], here[1] + before[1] + later)
 
 
@@ -443,8 +438,8 @@ def _after_repeats(occurrence: set[Pref], rest: set[Pref]) -> set[Pref]:
 
 
 def _references(
-    name: str, items: list[IrItem], groups: Groups
-) -> Iterator[tuple[list[IrItem], int, Groups]]:
+    name: str, items: Sequence[IrItem], groups: Groups
+) -> Iterator[tuple[Sequence[IrItem], int, Groups]]:
     """Every reference to rule ``name`` in an arm, inline groups entered."""
     for at, item in enumerate(items):
         atom = item.atom
@@ -453,7 +448,7 @@ def _references(
         elif isinstance(atom, IrAlternation):
             inner = (*groups, (items, at))
             for arm in atom:
-                yield from _references(name, arm_items(arm), inner)
+                yield from _references(name, arm, inner)
 
 
 def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[Pref]:
@@ -464,7 +459,7 @@ def _group_windows(deep: FollowWindows, tail: set[Pref], groups: Groups) -> set[
         after = extend_follow(
             deep.solver.arm_prefixes(items[at + 1 :], WINDOW), tail, WINDOW
         )
-        if _repeats(items[at]):
+        if items[at].quantifier.repeats():
             group = items[at].atom
             assert isinstance(group, IrAlternation)
             after = _after_repeats(deep.solver.group_prefixes(group, WINDOW), after)

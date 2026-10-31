@@ -17,6 +17,7 @@ brittle fixture.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 
 import pytest
 
@@ -33,11 +34,14 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
+from lexic.model import GrammarModel
 from lexic.parsing import ParseConfig
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support.readout import longest_start_completion
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.resume import WindowKernel
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.predicates import rule_alphabets
 from lexic.parsing.pda.compiler.clones import compile_clones
@@ -61,10 +65,16 @@ from tests.paths import GROUND_TRUTH
 # ── island_run ────────────────────────────────────────────────────────
 
 
+def _window(tables, text: str) -> tuple[WindowKernel, tuple[int, int] | None]:
+    """One window over the whole of ``text``, and its longest completion."""
+    kern = island_run(tables, text, 0, len(text))
+    return kern, longest_start_completion(kern)
+
+
 def test_island_run_returns_kernel_item_and_end_on_match(digit_grammar: IrAst):
     """A matching window returns the kernel and (accepting_item, end)."""
     tables = compile_tables(digit_grammar)
-    kern, best = island_run(tables, "5")
+    kern, best = _window(tables, "5")
     assert isinstance(kern, Kernel)
     assert best is not None
     item, end = best
@@ -77,7 +87,7 @@ def test_island_run_returns_none_when_the_start_rule_never_completes(
 ):
     """A window the start rule can't match returns the kernel and no completion."""
     tables = compile_tables(digit_grammar)
-    kern, best = island_run(tables, "x")
+    kern, best = _window(tables, "x")
     assert isinstance(kern, Kernel)
     assert best is None
 
@@ -85,7 +95,7 @@ def test_island_run_returns_none_when_the_start_rule_never_completes(
 def test_island_run_finds_the_longest_origin_zero_completion(sss_grammar: IrAst):
     """``s = s s / 'a'`` over 'aaa' completes at end=3, not a shorter prefix."""
     tables = compile_tables(sss_grammar)
-    _, best = island_run(tables, "aaa")
+    _, best = _window(tables, "aaa")
     assert best is not None
     _, end = best
     assert end == 3
@@ -168,12 +178,9 @@ def test_island_parse_without_follow_keeps_plain_longest_match():
     assert end == 2
 
 
-def test_island_parse_grows_past_a_window_cut_multi_char_literal():
-    """A multi-char literal cut by the window files NO item at all, and it can
-    jump the shorter arm's completion column without ever filing one there —
-    the truncation is invisible anywhere but the edge zone. The growth
-    predicate must read liveness over the zone, or the island splices a
-    truncated longest match (the short arm's end, not the long arm's)."""
+def cut_literal_tables():
+    """``x ::= pre "b" | pre "bcd"`` with ``pre ::= "a" pre | "a"`` — a long arm
+    whose literal a window edge can fall inside."""
     pre = IrRule(
         "pre",
         IrAlternation(
@@ -188,7 +195,16 @@ def test_island_parse_grows_past_a_window_cut_multi_char_literal():
             IrSequence(IrItem(IrRuleRef("pre")), IrItem(IrLiteral("bcd"))),
         ),
     )
-    tables = compile_tables(IrAst(rules=IrSeq(x, pre), start="x"))
+    return compile_tables(IrAst(rules=IrSeq(x, pre), start="x"))
+
+
+def test_island_parse_grows_past_a_window_cut_multi_char_literal():
+    """A multi-char literal across the window's stop is read past it — the
+    window carries the longest literal's reach — so it lands beyond the stop,
+    the chart reaches past it, and the window grows. Read short, it would file
+    nothing and the island would splice a truncated longest match (the short
+    arm's end, not the long arm's)."""
+    tables = cut_literal_tables()
     text = "a" * (ISLAND_WINDOW - 2) + "bcd"
     tree, end, _value = island_parse(tables, text, 0, "x")
     assert isinstance(tree, ParseTree)
@@ -287,7 +303,7 @@ def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
 def test_island_derivation_returns_the_first_derivation(sss_grammar: IrAst):
     """Given an ambiguous completion's kernel/item/end, decodes one tree."""
     tables = compile_tables(sss_grammar)
-    kern, best = island_run(tables, "aaa")
+    kern, best = _window(tables, "aaa")
     assert best is not None
     item, end = best
     tree, _value = island_derivation(kern, item, end, "s")
@@ -348,8 +364,8 @@ def _vyx_span(seed: int):
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
     )
-    kern = Kernel(product.tables, text)
-    best = kern.longest_start_completion()
+    kern = Kernel(product.tables, text).run()
+    best = longest_start_completion(kern)
     assert best is not None
     return compiled, kern, best
 
@@ -437,7 +453,7 @@ def test_an_empty_derivation_against_a_real_none_value_refuses_as_ambiguous():
     the input for either derivation."""
     compiled = compile_text(SAME_BOUNDARY, cache_key="island-same-boundary")
     tables = compile_tables(compiled.codegen_grammar)
-    kern, best = island_run(tables, "a")
+    kern, best = _window(tables, "a")
     assert best is not None
     item, end = best
     executor = _CountingExecutor([EMPTY_RESULT, Completed(None)])
@@ -450,7 +466,7 @@ def test_two_derivations_both_meaning_none_settle_as_one_meaning(sss_grammar: Ir
     a present Python None is not an absence, and same_value must not refuse
     two derivations that agree on it."""
     tables = compile_tables(sss_grammar)
-    kern, best = island_run(tables, "aaa")
+    kern, best = _window(tables, "aaa")
     assert best is not None
     item, end = best
     executor = _CountingExecutor([Completed(None), Completed(None)])
@@ -493,23 +509,35 @@ not take indirect recursion, so this still reaches the island seam, which is
 what these tests are about."""
 
 
+def _watched_widths(parse: Callable[[], object]) -> list[int]:
+    """Every window width an island opens or grows to while ``parse`` runs."""
+    widths: list[int] = []
+    real_run, real_grow = islands.island_run, WindowKernel.grow
+
+    def opened(tables, text, pos, width, delegates=None):
+        """Record the first width, then open the window."""
+        widths.append(width)
+        return real_run(tables, text, pos, width, delegates)
+
+    def grown(self: WindowKernel, stop: int) -> None:
+        """Record the next width, then grow the window to it."""
+        widths.append(stop)
+        real_grow(self, stop)
+
+    islands.island_run = opened
+    WindowKernel.grow = grown
+    try:
+        parse()
+    finally:
+        islands.island_run = real_run
+        WindowKernel.grow = real_grow
+    return widths
+
+
 def _windows(source: str, text: str, key: str) -> list[int]:
     """Every island window width the production seam opens for one parse."""
     compiled = compile_text(source, cache_key=key)
-    widths: list[int] = []
-    real = islands.island_run
-
-    def watched(tables, window_text, delegates):
-        """Record the width, then run the window."""
-        widths.append(len(window_text))
-        return real(tables, window_text, delegates)
-
-    islands.island_run = watched
-    try:
-        compiled.parse(text, cores=1)
-    finally:
-        islands.island_run = real
-    return widths
+    return _watched_widths(lambda: compiled.parse(text, cores=1))
 
 
 def test_an_island_that_cannot_settle_answers_at_the_first_window():
@@ -571,21 +599,12 @@ def test_the_climb_still_grows_when_nothing_refuses():
         )
     )
     text = "a" * (ISLAND_WINDOW * 2)
-    widths: list[int] = []
-    real = islands.island_run
+    got: list[int] = []
+    widths = _watched_widths(
+        lambda: got.append(island_parse(tables, text, 0, "x", IslandPolicy())[1])
+    )
 
-    def watched(inner_tables, window_text, delegates):
-        """Record the width, then run the window."""
-        widths.append(len(window_text))
-        return real(inner_tables, window_text, delegates)
-
-    islands.island_run = watched
-    try:
-        _tree, end, _value = island_parse(tables, text, 0, "x", IslandPolicy())
-    finally:
-        islands.island_run = real
-
-    assert end == len(text)
+    assert got == [len(text)]
     assert widths == [ISLAND_WINDOW, ISLAND_WINDOW * 2], widths
 
 
@@ -628,20 +647,10 @@ def test_an_island_whose_alphabet_misses_its_continuation_parses_once():
         'step ::= expr\nterm ::= [a-z]\nop ::= "+"\nnl ::= "\\n"\n',
         cache_key="exact-window",
     )
-    widths: list[int] = []
-    real = islands.island_run
+    models: list[GrammarModel] = []
+    widths = _watched_widths(lambda: models.append(compiled.parse(text, cores=1)))
 
-    def spy(tables, window_text, delegates):
-        widths.append(len(window_text))
-        return real(tables, window_text, delegates)
-
-    islands.island_run = spy
-    try:
-        model = compiled.parse(text, cores=1)
-    finally:
-        islands.island_run = real
-
-    assert model.to_text() == text
+    assert [model.to_text() for model in models] == [text]
     # two lines, one sub-parse each, each exactly as wide as its own line's
     # expression — never the 256-character floor, never a doubling
     assert widths == [5, 3], widths

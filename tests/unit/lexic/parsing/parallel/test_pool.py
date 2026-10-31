@@ -858,8 +858,22 @@ def test_a_phase_with_an_item_for_every_worker_takes_nothing_back() -> None:
     assert current_thread().name not in threads and len(threads) == 9
 
 
-def test_without_beside_the_calling_thread_takes_nothing_back() -> None:
-    """A phase with no calling-thread share leaves every item to the pool."""
+def test_without_beside_an_item_no_worker_started_is_taken_back() -> None:
+    """A phase with no calling-thread share takes back as one with a share
+    does: an item still queued while the phase leaves a worker's place unused
+    runs on the calling thread, which would otherwise only wait."""
+    gate, started = Event(), Event()
+    ran: dict[int, tuple[str, bool]] = {}
+
+    got = _one_free_worker(_held_worker(gate, started, ran), [0, 1], None)
+
+    assert got == [0, 2]
+    assert ran[1] == (current_thread().name, True)
+
+
+def test_without_beside_a_full_phase_takes_nothing_back() -> None:
+    """With as many items as workers, or more, a phase without a share still
+    leaves every item to the pool."""
     threads: list[str] = []
 
     with WorkPool(1) as pool:

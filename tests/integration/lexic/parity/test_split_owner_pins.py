@@ -33,6 +33,7 @@ from tools.benchmark.cases.grammars import BENCHES
 # row -> (owner, mark) the planner derives today; None where it derives no plan
 OWNERS: dict[str, tuple[str, str] | None] = {
     "arithmetic": ("term", "+"),
+    "paren-arithmetic": ("term", "+"),
     "csv": ("row", "\n"),
     "json": None,
     "gbnf-meta": ("rule", "\t"),
@@ -53,19 +54,32 @@ OWNERS: dict[str, tuple[str, str] | None] = {
     # `test_folded_spine_split`; here it is `None` because that is what the
     # PLANNER derives, which is what this table is about.
     "island-earley": None,
-    # The three engine-reach rows derive no plan and no folded source either.
-    # Their reason is now distinct from island-earley's and worth naming: the
-    # fold TAKES each of them, but the recursive arm's remainder is a bare
-    # literal (`A ::= A "a" | "a"`), so there is no separator RULE — nothing to
-    # spell a mark, and nothing to re-parse a removed one under.
+    # The three direct engine-reach rows derive no plan either, and split
+    # through the folded source as RUNS: the recursive arms' remainders are
+    # bare literals (`A ::= A "a" | A "b" | "a"`), with no separator rule, so
+    # the cut falls before any character that begins a step
+    # (`test_folded_run_split`). `None` here for the same reason as above.
     "start-fallback": None,
     "interior-exact": None,
     "interior-climb": None,
+    # The envelope's two marks: codepoint order hands back the tab, though a
+    # document may carry only the newline (I14's shape, authored generically).
+    "two-mark": ("rule", "\t"),
+    # No plan: a comma both separates pairs and sits inside a long pair.
+    "reopening": None,
+    "terminated-run": None,
+    "captured-spaces": None,
+    "relay-fallback": None,
+    "relay-exact": None,
+    "relay-climb": None,
 }
 
 # row -> whether a parse at four workers divides the document at all
 SPLITS: dict[str, bool] = {
     "arithmetic": True,
+    # Its one paren group holds the whole expression, so the top-level plan
+    # finds no cut and the region path divides the group on `+` and `-`.
+    "paren-arithmetic": True,
     "csv": True,
     "json": True,
     "gbnf-meta": True,
@@ -90,14 +104,29 @@ SPLITS: dict[str, bool] = {
     # `term (addop term)*`, and the source reads that shape analysis to find
     # the spine. The separator is ` + ` / ` - `, owned by `term`.
     "island-earley": True,
-    # These three never divide, and their reason is NOT island-earley's. The
-    # fold takes each of them too, but `A ::= A "a" | "a"` has no separator
-    # rule between its terms, so the source declines before any boundary proof
-    # is asked — measured at four workers on the full sample: zero
-    # piece-parses, not one.
-    "start-fallback": False,
-    "interior-exact": False,
-    "interior-climb": False,
+    # These three divide through the folded source too, as RUNS of bare steps:
+    # no separator rule leads a step, so the cut falls before any character
+    # that begins one, which the grammar proves nothing else can hold past its
+    # first position.
+    "start-fallback": True,
+    "interior-exact": True,
+    "interior-climb": True,
+    # The envelope divides at its marks; its newline boundaries run in workers.
+    "two-mark": True,
+    # Declines in the open: the region split is asked and finds no provable cut.
+    "reopening": False,
+    # The run is inside the brackets, past every top-level plan; the region
+    # split cuts after each terminator.
+    "terminated-run": True,
+    # One paren group, its spaces captured beside the run: the region split
+    # lays them back from the first and last pieces.
+    "captured-spaces": True,
+    # The relay rows never divide: the fold does not read through `more`, so
+    # there is no folded spine to cut — measured at four workers on the full
+    # sample: zero piece-parses, not one.
+    "relay-fallback": False,
+    "relay-exact": False,
+    "relay-climb": False,
 }
 
 _SITES = (orchestrate, interior, tasks, replicas)

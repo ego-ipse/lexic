@@ -27,7 +27,6 @@ from lexic.parsing.pda.runtime.build import (
 __all__ = [
     "NESTING_DEPTH",
     "NO_ROUTE",
-    "PARSE_NESTING",
     "RunScope",
     "Audit",
     "Floor",
@@ -39,6 +38,7 @@ __all__ = [
     "KernelCaches",
     "admits",
     "composes",
+    "forks_deep",
     "frames_copy",
     "sole_admitted",
 ]
@@ -144,69 +144,56 @@ def composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
-PARSE_NESTING = 256
-"""How many nested verdicts one parse may ask over all its retries, delegate
-sub-runs' included: each costs a drive to the end of the input, and past it a
-forked verdict goes to the gated engine as without a retry. The most any of
-4,181 documents asked is 117 (decision families, ground truth, 200 generated
-vyx documents, the roster)."""
-
-
 class RunScope:
-    """Where one kernel's run stands in its parse: the nested verdicts its
-    retry may still ask, the parse's allowance — shared with the delegate
-    sub-runs the parse starts — and whether its text and root are the
-    document's.
+    """Where one kernel's run stands in its parse — whether its text and root
+    are the document's — and what its live sets already know.
 
-    :ivar retry: How many nested verdicts the retry being asked may still run;
-        ``0`` outside a retry (no boundary inside a side forks).
-    :ivar root: The parse's own scope, whose ``left`` is the allowance.
-    :ivar left: What is left of the allowance; a delegate's is never read.
+    :ivar delegate: Whether the run is a delegate's sub-run inside a parse,
+        whose root may end anywhere in the island's window.
     :ivar cut: Whether the run reads a truncated text, whose end is not the
         document's.
+    :ivar ranks: Whether a live set of this run has needed a rank, so later
+        sets keep ledgers from the start.
+    :ivar answers: The answers a decided live set left for the boundaries the
+        live drive meets next, last first, each with the boundary it answers
+        (:func:`~...verdicts.liveset.planned`).
     """
 
-    __slots__ = ("cut", "left", "retry", "root")
+    __slots__ = ("answers", "cut", "delegate", "ranks")
 
+    answers: list[tuple[tuple[Any, ...], int]]
     cut: bool
-    left: int
-    retry: int
-    root: RunScope
+    delegate: bool
+    ranks: bool
 
-    def __init__(self, root: RunScope | None = None) -> None:
-        """A kernel outside any retry, drawing on ``root``'s allowance — a
-        fresh one (:data:`PARSE_NESTING`) for a parse of its own."""
+    def __init__(self, delegate: bool = False) -> None:
+        """A run over the whole text, its sets knowing nothing yet."""
+        self.answers = []
         self.cut = False
-        self.left = PARSE_NESTING if root is None else 0
-        self.retry = 0
-        self.root = self if root is None else root
+        self.delegate = delegate
+        self.ranks = False
 
     def whole(self) -> bool:
         """Whether the text is the whole document and the stack's root its
         root: not a delegate's run, whose root may end anywhere in a window,
         nor a run over a truncated text. Only then may a stop side be refuted
         against the text (:func:`~...matchers.stop_side_dead`)."""
-        return self.root is self and not self.cut
+        return not (self.delegate or self.cut)
 
-    def open(self, most: int) -> bool:
-        """Start a retry with up to ``most`` of the allowance; whether any was
-        left."""
-        root = self.root
-        self.retry = min(most, root.left)
-        root.left -= self.retry
-        return self.retry > 0
+    def answered(self, stack: list[Frame[Any]], pos: int, ways: int) -> int:
+        """The way a decided set already chose at this boundary, or ``-1``.
 
-    def close(self) -> None:
-        """End the retry, giving back what it did not ask."""
-        self.root.left += self.retry
-        self.retry = 0
-
-    def take(self) -> bool:
-        """Spend one of the retry's nested verdicts, if it has one left."""
-        if not self.retry:
-            return False
-        self.retry -= 1
-        return True
+        The next planned answer is the one for the boundary the live drive
+        meets next; a boundary that is not it drops the plan.
+        """
+        answers = self.answers
+        if not answers:
+            return -1
+        planned, kept = answers.pop()
+        if planned == (*control_signature(stack, pos), ways):
+            return kept
+        answers.clear()
+        return -1
 
 
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
@@ -215,24 +202,15 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar deleg: Island name → its wrapped interior delegate table.
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
-    :ivar probing: How many probes are live. Non-zero means a boundary is
-        resolved GREEDILY by class rather than by forking again, unless a
-        forked verdict asked again nests a verdict there (``scope``). A
-        counter rather than a flag because :meth:`_advance` counts its own
-        drive too, and the nesting depth is read off it.
+    :ivar probing: How many side drives are live. Non-zero means a
+        both-viable boundary splits the reading being driven rather than
+        deciding (:class:`~...verdicts.liveset.Split`). A counter rather than
+        a flag because each :meth:`_advance` counts its own drive.
     :ivar audits: The audit runs in flight, innermost last — one record per
         audited entry run, pushed around it, read only by a fork inside one.
-    :ivar uncertain: Set when a probe's drive resolved a both-viable
-        boundary GREEDILY (forks nest one level, and only by convergence —
-        the exponential chain of a rules-list grammar probing every later
-        line is cut to one linear drive); the probe's outcome is then a
-        SAMPLED path, and the outer verdict treats it conservatively — an
-        uncertain outcome on a decisive side reads as a fork, which is a
-        fallback, never a wrong commit.
     :ivar side: The side being driven, or ``None`` outside a side's drive —
         what a fork inside it copies its unsettled sub-runs and root from.
-    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`)
-        — its retry's nested verdicts, the allowance, whether it is whole.
+    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`).
     """
 
     __slots__ = (
@@ -242,7 +220,6 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         "probing",
         "scope",
         "side",
-        "uncertain",
     )
 
     audits: list[Audit]
@@ -251,30 +228,36 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     probing: int
     scope: RunScope
     side: Side | None
-    uncertain: bool
 
-    def __init__(self, scope: RunScope | None = None) -> None:
-        """Seed the memos empty, the probe depth zero, certainty clean, and the
-        run's scope — one inside ``scope``'s parse when a parse runs this
-        kernel inside it."""
+    def __init__(self, delegate: bool = False) -> None:
+        """Seed the memos empty, the probe depth zero, and the run's scope —
+        a delegate's sub-run when a parse runs this kernel inside it."""
         self.audits = []
         self.deleg = {}
         self.intern = {}
-        self.scope = RunScope(None if scope is None else scope.root)
         self.probing = 0
+        self.scope = RunScope(delegate)
         self.side = None
-        self.uncertain = False
 
 
 NESTING_DEPTH = 16
-"""How many forks deep a stack copy may already be, and so how many sides deep
-a retried verdict nests one of its own (:meth:`~...verdicts.Verdicts._nests`).
+"""How many forks deep a stack copy may already be — how many splits a live
+set's reading may come through (:class:`~...verdicts.liveset.Split`).
 
-A STACK bound, not a cost one: the retry's budget of nested verdicts bounds the
-cost, while each level costs some twelve interpreter frames, so sixteen stay
-far inside the recursion limit. Measured on the decision families: four
-levels keep every rejection the engine made unnested, and none past six
-settles anything more."""
+A STACK bound, not a cost one: the set's own bounds bound the cost, while a
+copy's build reads its prefix back through every level, so sixteen stay far
+inside the recursion limit. A split past it is a bound the set names."""
+
+
+def forks_deep(stack: list[Frame[Any]]) -> int:
+    """How many forks deep ``stack``'s copies already are, read off its ROOT
+    frame: never popped before the drive reaches end of input, where the top
+    frame is fresh and would prove nothing."""
+    depth, origin = 0, stack[0].inherited if stack else None
+    while origin is not None:
+        depth += 1
+        origin = origin.inherited
+    return depth
 
 
 def frames_copy[Carry](
@@ -313,15 +296,10 @@ def frames_copy[Carry](
     :param remap: Filled with each original container's copy, by ``id``, for
         a caller that must find the copies of lists it holds off the stack.
     """
-    # The ROOT frame, because it is never popped before the drive reaches end
-    # of input; the top frame is fresh and would prove nothing. Raised rather
-    # than asserted because `-O` strips asserts and a nested fork builds a
+    # Raised rather than asserted because `-O` strips asserts and a nested fork builds a
     # SHORT model silently; the class says why it is outside the LexicError
     # family. See `invariants.md`.
-    depth, origin = 0, stack[0].inherited if stack else None
-    while origin is not None:
-        depth += 1
-        origin = origin.inherited
+    depth = forks_deep(stack)
     if depth > NESTING_DEPTH:
         raise EngineInvariantError(
             f"frames_copy: a fork {depth + 1} deep — forks nest "

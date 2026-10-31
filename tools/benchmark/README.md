@@ -28,12 +28,26 @@ corrected arm against an uncorrected one measures the harness rather than Lexic.
 `measurement/copy.py` installs it and rewrites the one name the rename moved; each
 copy keeps only its native reference and neither `src` tree is touched.
 
+Two declared lists keep a copied arm importable on the base. A module that a
+copied protocol module imports, and that the base may lack, joins
+`PROTOCOL_MODULES`; `test_copy.py::test_a_copied_module_imports_nothing_the_base_checkout_lacks`
+checks that against the merge base, and needs a `main` ref in the checkout to
+find one. A `lexic` name that a protocol module imports joins
+`SHARED_VOCABULARY` once the base is confirmed to export it;
+`test_copy.py::test_a_protocol_module_imports_only_declared_shared_vocabulary`
+refuses an undeclared one.
+
 ## What a number here costs
 
 - **One process per observation, start to exit.** No preparation cohort. A
   worker that is merely "not yet timed" still compiles grammars, runs fidelity
   parses and holds artefacts, and doing that beside a timed parse contaminates
   cache, allocator and thermal state.
+- **A report cell is the median of three processes**, taken in passes across
+  the whole run, so two processes of one cell have every other cell between
+  them. The cell is the median process's reading, copied whole, and records
+  its processes and their spread. A grammar's noise floor is the median of its
+  cells' spreads — noise measured where a cell varies, across processes.
 - **The collector stays enabled** during every timed pass, and the contract
   records that it did. Production does not disable it.
 - **Both clocks, always.** Sequential rows are judged on process CPU; threaded
@@ -73,6 +87,24 @@ all. One row in twelve could not be separated from the noise it was made of,
 which under the old rule failed the whole run on code that had not changed.
 Unresolved rows print in full — ratio, clock, interval, envelope, pair count —
 and the summary says how many there were and that they did not block.
+
+**A head that stops splitting where its base split is refused**, because doing
+less work reads as a speedup. The one exception is a base whose split was wrong.
+`compare.opening`, the start of every tier, asks the base checkout where its
+split departs from its own sequential model, at each worker count from 2 to the
+row's: one fresh process per count, sequential parse first, stopping at the
+first departure. A departure records the row untimed as "base split unsound:
+head declines a wrong split (at N workers, from offset X)". It is not failed and
+not timed, and it is listed last in every table. Every count, not only the
+row's, because a carving can be right at one count by where its cuts land. The
+refusal stands when the split builds the sequential model at every count, when
+the base's sequential parse refuses the document, and when a probe dies.
+Pinned in `tests/unit/tools/benchmark/test_departure.py`:
+`test_a_head_declining_a_split_wrong_below_the_row_s_count_is_unsound_untimed`,
+`test_a_head_declining_a_split_right_at_every_count_is_still_refused`,
+`test_a_sequential_parse_that_refuses_proves_no_departure`,
+`test_a_probe_that_dies_keeps_the_refusal_never_reads_unsound` and
+`test_the_quick_tier_records_a_wrong_base_split_as_the_gate_does`.
 
 On the remote the gate runs as one `compare.py` job per grammar, each
 uploading its `--json` verdicts; `aggregate.py` reads them back, applies the

@@ -9,7 +9,7 @@ raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 
 from __future__ import annotations
 
-__all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
+__all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy"]
 
 
 from typing import NamedTuple, Sequence, cast
@@ -19,7 +19,6 @@ from lexic.ir import (
     IrAtom,
     IrItem,
     IrLeaf,
-    IrNoneType,
     IrRule,
     IrSelf,
 )
@@ -47,6 +46,9 @@ from lexic.parsing.pda.analysis.cursors import (
     Scope,
     Site,
 )
+from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
+from lexic.parsing.pda.analysis.extend.maps import Extensions
+from lexic.parsing.pda.analysis.gates.ends.sites import RunIndex, run_decides
 from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K, stop_exit_settles
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
@@ -58,12 +60,8 @@ from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
     HARD,
-    NULLABLE,
     STOPSET_ATOM,
-    Extensions,
     item_nullable,
-    nullable_names,
-    rule_extensions,
     seq_nullable,
 )
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec, Taxonomy
@@ -74,30 +72,14 @@ _EOF: CharSet = CharSet.from_chars("")
 sentinel in a positive :class:`CharSet`."""
 
 
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
-
-
-def _hi(item: IrItem) -> int | None:
-    """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
-    hi = item.quantifier.hi
-    return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-# ── the analysis ──────────────────────────────────────────────────────────
-
-
-# Taxonomy (and its _GateStore) moved to lexic.parsing.pda.analysis.taxonomy by pure
-# motion (C0302 headroom, Task 6.6); re-exported above for the public surface.
-
-
 class Follows(NamedTuple):
     """An analysis' FOLLOW views: the soft, hard and structural CharSet
-    fixpoints, and the FOLLOW\\ :sub:`k` window sets built on demand.
+    fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
 
     :ivar deep: The window sets built so far, by width — filled by
         :meth:`windows`, never by a caller.
+    :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
+    :ivar runs: The run-site index once asked for — filled by ``run_sites``.
     """
 
     soft: dict[str, CharSet]
@@ -106,6 +88,8 @@ class Follows(NamedTuple):
     rules: dict[str, IrRule]
     start: str
     deep: dict[int, FollowWindows]
+    extended: list[Extensions]
+    runs: list[RunIndex]
 
     def windows(self, k: int) -> FollowWindows:
         """FOLLOW\\ :sub:`k` as window sets, built once per width.
@@ -164,7 +148,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         self.rules = {str(r.name): r for r in grammar.rules}
         self.start = str(grammar.start)
-        self.nullable = nullable_names(list(grammar.rules))
+        self.nullable = grammar.nullable()
         self.first = self._first_sets()
         self.hard = self._hard_sets()
         self.follows = Follows(
@@ -174,6 +158,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self.rules,
             self.start,
             {},
+            [],
+            [],
         )
         self.taxonomy = Taxonomy(delegated)
         self._classify(grants)
@@ -222,7 +208,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
         :raises UnsupportedConstructError: On an unregistered atom type.
         """
-        return cast(bool, NULLABLE.resolve(atom).eval(self, atom, ()))
+        return atom.vanishes(self.nullable)
 
     def item_nullable(self, item: IrItem) -> bool:
         """Whether ``item`` can consume nothing (``lo == 0`` or nullable atom)."""
@@ -255,7 +241,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 acc = CharSet.EMPTY
                 for arm in rule.body:
-                    acc = acc.union(self.seq_first(_items(arm)))
+                    acc = acc.union(self.seq_first(arm))
                 if acc != self.first[name]:
                     self.first[name] = acc
                     changed = True
@@ -306,7 +292,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             first = self.atom_first(item.atom)
             if not self.item_nullable(item):
                 return cont.union(first)
-            hi = _hi(item)
+            hi = item.quantifier.upper()
             if hi is not None and hi <= 1:
                 cont = cont.union(first)
             else:
@@ -322,7 +308,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 acc = CharSet.EMPTY
                 for arm in rule.body:
-                    acc = acc.union(self.seq_hard(_items(arm)))
+                    acc = acc.union(self.seq_hard(arm))
                 if acc != self.hard[name]:
                     self.hard[name] = acc
                     changed = True
@@ -341,7 +327,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         :returns: ``"stopset"`` for a non-greedy single-char loop, else
             ``"island"``.
         """
-        if _hi(item) is None and self._stopset_eligible(item.atom):
+        if item.quantifier.upper() is None and self._stopset_eligible(item.atom):
             return "stopset"
         return "island"
 
@@ -374,7 +360,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             changed = False
             for name, rule in self.rules.items():
                 for arm in rule.body:
-                    if self.feed_seq(_items(arm), tgt[name], name, pass_):
+                    if self.feed_seq(arm, tgt[name], name, pass_):
                         changed = True
         return tgt
 
@@ -401,7 +387,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         cont = tail
         for item in reversed(items):
             atom = item.atom
-            hi = _hi(item)
+            hi = item.quantifier.upper()
             eff = cont
             if (hi is None or hi > 1) and pass_.loopback:
                 # Loopback is a MAY-follow. Treating it as hard makes a repeated
@@ -434,7 +420,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         position), so its decision points are never analysed for gates.
         """
         left = left_recursive_names(self)
-        extents: list[Extensions] = []  # built once, and only if a stop-set asks
         for name, rule in self.rules.items():
             if name in left:
                 self.taxonomy.conflicts[name] = [
@@ -451,12 +436,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 ),
                 body=True,
             )
-            arms = [_items(arm) for arm in rule.body]
+            arms = list(rule.body)
             self.arm_conflicts(arms, Site(name, name, self.follow[name]), notes)
             body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
-            self._settle(name, notes, extents)
+            self._settle(name, notes)
             fail = notes.f1 and self.rules[name].semantic
             if notes.hard:
                 self.taxonomy.conflicts[name] = notes.hard
@@ -469,7 +454,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if notes.policy:
                 self.taxonomy.policy_ends.add(name)
 
-    def _settle(self, name: str, notes: Notes, extents: list[Extensions]) -> None:
+    def _settle(self, name: str, notes: Notes) -> None:
         """Grant each stop-set :meth:`_stop_set` deferred only where its first
         exit is invisible; file the rest hard, so the rule islands.
 
@@ -482,9 +467,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         if not notes.stop_sets:
             return
-        if not extents:
-            extents.append(rule_extensions(self))
-        extends = extents[0].found[name]
+        extends = rule_extensions(self).found[name]
         invisible = text_only(self.rules[name]) and not extends.overlaps(
             self.follow[name]
         )
@@ -602,7 +585,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         item = items[k]
         atom = item.atom
         lo = int(item.quantifier.lo)
-        hi = _hi(item)
+        hi = item.quantifier.upper()
         if hi is not None and hi <= lo:
             return
         if self.atom_nullable(atom) and (hi is None or hi - lo > 1):
@@ -623,7 +606,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                         f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)",
                         NOISE_GREEDY,
                     )
-                else:
+                elif not run_decides(self, (items, k), scope, notes, True):
                     notes.hard.append(
                         f"{scope.rule}[{k}]: loop stop-set escapes soft FOLLOW"
                     )
@@ -634,33 +617,28 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def _stop_set(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
-        """Grant item ``k``'s stop-set where its first exit is the split answer;
-        defer the rest to :meth:`_settle`.
-
-        With no exit character in reach, no clone subtracts anything: the loop
-        runs to the longest take. Otherwise the exit must be the only way on,
-        two characters deep (:func:`~.gates.kwindow.stop_exit_settles`). That
-        proof reads the end of the input, so a delegate's analysis, whose end
-        is not the document's, withholds it.
+        """Grant item ``k``'s stop-set where its exit is the split answer: the
+        only way on two deep (``stop_exit_settles``, withheld from a delegate),
+        else where its run ends (``run_decides``), else with no exit in reach
+        the longest take. Defer the rest to :meth:`_settle`.
         """
         note = f"{scope.rule}[{k}]: loop stop-set applied"
         first = self.atom_first(items[k].atom)
         hard = self.hard_cont_at(items, k, scope.hard_tail)
         exits = first.subtract(first.subtract(hard))
-        if exits.is_empty():
-            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
-        elif (
-            scope.body
+        if (
+            not exits.is_empty()
+            and scope.body
             and not self.taxonomy.delegated
             and stop_exit_settles(
-                self.follows.windows(FOLLOW_LOOP_K),
-                items,
-                k,
-                scope.rule,
-                exits,
+                self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
             )
         ):
             notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
+        elif run_decides(self, (items, k), scope, notes, not exits.is_empty()):
+            return
+        elif exits.is_empty():
+            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
         else:
             notes.stop_sets.append(note)
 

@@ -24,13 +24,15 @@ from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import RuleRoutine
 
 
-def test_clone_key_is_name_then_tail():
-    """A clone key is ``(name, tail)`` positionally and by field."""
+def test_clone_key_is_name_then_tail_then_runs():
+    """A clone key is ``(name, tail, runs)`` positionally and by field; a rule
+    no run-end decision sees carries no context, and keys as before."""
     tail = CharSet.from_chars("ab")
     key = CloneKey("rule", tail)
     assert key.name == "rule"
     assert key.tail == tail
-    assert tuple(key) == ("rule", tail)
+    assert key.runs == ()
+    assert tuple(key) == ("rule", tail, ())
 
 
 def test_island_ref_defaults_to_non_fail():

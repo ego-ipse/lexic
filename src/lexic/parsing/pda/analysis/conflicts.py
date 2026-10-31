@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from typing import Any, Sequence
 
 from lexic.ir import (
-    IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -17,6 +16,7 @@ from lexic.ir import (
     IrNot,
     IrRule,
     IrRuleRef,
+    has_reference,
 )
 from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
@@ -45,7 +45,7 @@ def file_attempt_loop(
     the decider grants it; otherwise the note stands and the rule islands."""
     if ATTEMPT not in notes.grants:
         return
-    analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(items, k, scope)
+    analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
     notes.covered += 1
 
 
@@ -143,14 +143,7 @@ def sub_conflict(
 def text_only(rule: IrRule) -> bool:
     """Whether no rule reference appears anywhere in ``rule``'s body, inline
     groups included — its model is then its matched text."""
-    pending = [_arm_items(arm) for arm in rule.body]
-    while pending:
-        for item in pending.pop():
-            if isinstance(item.atom, IrRuleRef):
-                return False
-            if isinstance(item.atom, IrAlternation):
-                pending.extend(_arm_items(arm) for arm in item.atom)
-    return True
+    return not has_reference(rule.body)
 
 
 def may_steal(analysis: Any, rule: IrRule) -> bool:
@@ -162,7 +155,7 @@ def may_steal(analysis: Any, rule: IrRule) -> bool:
     return (
         not analysis.taxonomy.delegated
         and text_only(rule)
-        and any(len(_arm_items(arm)) > 1 for arm in rule.body)
+        and any(len(arm) > 1 for arm in rule.body)
         and not greedy_exact(analysis, rule)
     )
 
@@ -181,7 +174,7 @@ def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     matcher's multi-item path, and a one-item arm takes the one-item path,
     which is left as it is.
     """
-    arms = [_arm_items(arm) for arm in rule.body]
+    arms = list(rule.body)
     if any(len(arm) < 2 for arm in arms):
         return False
     firsts = [{((analysis.seq_first(arm),), END)} for arm in arms]
@@ -193,27 +186,20 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
     for j, item in enumerate(items):
         if not isinstance(item.atom, (IrLiteral, IrCharClass, IrNot)):
             return False
-        if j + 1 == len(items) or _fixed(item):
+        if j + 1 == len(items) or item.quantifier.fixed():
             continue
         rest, first = items[j + 1 :], analysis.atom_first(item.atom)
         if not first.overlaps(analysis.seq_first(rest)):
             continue
         last = rest[-1]
-        absorbs = len(rest) == 1 and int(last.quantifier.lo) == 0 and not _fixed(last)
-        if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
+        absorbs = (
+            len(rest) == 1
+            and int(last.quantifier.lo) == 0
+            and not last.quantifier.fixed()
+        )
+        if not absorbs or not first.within(analysis.atom_first(last.atom)):
             return False
     return True
-
-
-def _arm_items(arm: Sequence[object]) -> list[IrItem]:
-    """The :class:`IrItem` members of an arm, in order."""
-    return [item for item in arm if isinstance(item, IrItem)]
-
-
-def _fixed(item: IrItem) -> bool:
-    """Whether the item occurs a fixed number of times."""
-    hi = item.quantifier.hi
-    return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)
 
 
 def same_ref_extent_split(

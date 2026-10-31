@@ -19,7 +19,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlternation, IrRule, IrRuleRef
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import build_recognizer
-from lexic.parsing.product.regular import arm_items, closure_holds, prove_regular
+from lexic.parsing.product.regular import closure_holds, prove_regular
 
 RELATION = (
     "root ::= expr op expr\n"
@@ -200,8 +200,7 @@ def test_neutralising_the_reference_walk_revives_both_referenced_shapes(monkeypa
                 if not closure_holds(first, rules, str(atom), tail, proved):
                     return False
             elif isinstance(atom, IrAlternation) and not all(
-                _old_question(first, rules, arm_items(arm), tail, proved)
-                for arm in atom
+                _old_question(first, rules, arm, tail, proved) for arm in atom
             ):
                 return False
         return True

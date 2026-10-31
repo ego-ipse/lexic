@@ -222,8 +222,8 @@ class Frame[Carry]:
         prefix: list[Carry] = []
         frame: Frame[Carry] | None = self
         while frame is not None:
-            sinks = frame.sinks
-            slot = sinks[at] if sinks is not None and at < len(sinks) else None
+            sinks = frame.sinks or ()
+            slot = sinks[at] if at < len(sinks) else None
             if slot:
                 prefix[:0] = slot
             frame = frame.inherited

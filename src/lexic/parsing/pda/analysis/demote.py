@@ -156,7 +156,7 @@ def demote_loop(
     # it reproduces is leftmost-longest's, proven for that order alone.
     if analysis.taxonomy.delegated or SPLIT_GREEDY not in notes.grants:
         return False
-    greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
+    greedy = greedy_loop_gate(analysis, scope.rule, items, k)
     if greedy is not None:
         analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
         notes.picks_extent(

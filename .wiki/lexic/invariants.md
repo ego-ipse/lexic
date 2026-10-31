@@ -69,10 +69,10 @@ ragged documents, since `find` is a SCAN and must agree on malformed input too.
 Two properties the differential must keep or it proves nothing. A grammar whose
 vocabulary carries an opaque interior is REFUSED the windows, so comparing one
 only shows that the refusal returns the serial answer — the windowed path is
-exercised through grammars asserted to be skip-free. And a character carrying
-two roles, a separator that is also a closer, is what distinguishes the sweep
-alphabet from the classification spelling; a fixture holding that property is
-required, and asserted to hold it.
+exercised through grammars asserted to be skip-free. No grammar derives a
+character carrying two roles: no closer is a mark, and no character opens one
+standing pair and closes another. So the walk sweeps its own spelling, and
+the differential carries no two-role fixture.
 
 ## The parser's per-character loop is pinned by its bytecode
 
@@ -113,28 +113,65 @@ These live in `resources/ground_truth/`. All integration and property tests run 
 
 `arithmetic`, `c`, `chess`, `japanese`, `json`, `json_arr`, `json_ws`, `list` (`.gbnf`), plus `arithmetic`/`json` `.abnf` siblings used for cross-flavour compile parity.
 
-## Forks nest three deep at most, and only when a forked verdict is asked again
+## A reading splits at most NESTING_DEPTH times, and nothing in a set guesses
 
 A fork's frames carry `inherited`, and `adopt_inherited` prepends the values of
 the whole chain (`Frame.inherited_prefix`, oldest first), so a fork of a fork
 builds with every origin's values and writes to none of them.
 
-A boundary inside a side resolves greedily by class, a guess, except while a
-forked verdict is asked again (`_retried`): then the boundary gets a verdict of
-its own (`_nested_verdict`), as does an island's extent inside a side, up to
-`NESTING_DEPTH` sides deep and within `_NESTING_BUDGET` nested verdicts per
-retry. Past either it stays a guess, and a nested verdict that is itself
-undecidable does too. The retries of one parse, its delegate sub-runs'
-included, draw on one allowance (`PARSE_NESTING`, held by `RunScope`), so a
-document costs at most that many drives to the end; past it a fork goes to the
-gated engine as it would without a retry. `frames_copy` raises past `NESTING_DEPTH` forks, so the
-bound is checked rather than carried. A nested side settles the sub-runs its
-outer side still has to (`_inherited_floors`); an entry its own drive started
+A both-viable boundary inside a live set's reading never resolves greedily: the
+reading splits (`liveset.Split`), its children built where it stood, and an
+island's extent or an attempt's ends inside a reading split it the same way.
+So a reading that dies is dead on every path, and two that meet share their
+future. A set holds at most `SET_MAX` readings over `SET_STEPS` steps, and a
+reading splits at most `NESTING_DEPTH` times (`forks_deep`, read before the
+split); past any of them the set raises a `ProbeFork` that names the bound, and
+the gated engine answers. `frames_copy` raises past `NESTING_DEPTH` forks, so
+the bound is checked rather than carried. A split's child settles the sub-runs
+its reading still has to (`_inherited_floors`); an entry its own drive started
 at the bottom owns its root.
 
-A retried drive spends the budget, so it cannot be reproduced by driving again:
-a side built while `nesting` is set keeps its ledger, and the rank reads the
-sides at hand.
+A meeting ranks the readings at the split where they parted, on ledgers kept
+from that split through every split since (`Level.done` freezes each frame as
+it completes); a split whose frames both rolled back is passed over for the
+next one both took.
+
+## One clone walk, and it is complete
+
+`all_clones` is the one walk over a compiled program's clones: it follows every
+clone-valued arm payload, whatever its op code, and every landing target
+(dispatch targets, attempt entries). It used to follow `OP_GRP` only, and call
+specialisation rewrites an exactly-once group to `OP_REF1`, so after
+optimisation such a group went unwalked. No root was missed (every such group
+held stop-gated loops), but `mark_sub_roots` reads this walk, so a group
+carrying an attempt-gated item would have kept `sub_root` unset. A test pins
+the walk equal to a reflective walk over every clone-valued slot, on every
+bench row.
+
+A clone also enters as at most one shape, checked by `check_entry_shape` after
+`mark_entry`: an attempt, a gated selection (wide or a struct gate), or a leaf.
+A dispatch clone is exempt, because the chase reads its own selection; the gbnf
+self-grammar's `cc-neg` is a dispatch clone with a wide selection.
+
+## No delegate program holds a verdict site
+
+A delegate runs an island's interior as a document prefix (`prefix_run`), where
+"did this side complete" would read a delegate's early completion as a death.
+That never matters, because no delegate can fork: the delegated analysis files
+every conflicted rule as an island, and delegation drops islands and whatever
+reaches one. `test_delegate_compile.py::test_no_delegate_program_holds_a_verdict_site`
+walks every roster grammar's delegates, and an attempting interior's, whole
+through `all_clones` and finds no verdict site; `test_an_interior_that_attempts_is_never_delegated_beside_one_that_is`
+pins the drop.
+
+## A bench row priced for a route stays on that route
+
+`two-mark` and `reopening` exist to price the live set.
+`parity/test_live_set_rows.py::test_the_row_asks_the_live_set_on_the_predictive_route`
+parses each row's corpus on `lexic-pda`, `lexic-lex` and `lexic-lex-ns`, and
+fails unless a live set is asked and no parse reaches the gated engine whole. A
+change that sent either shape back to whole-document Earley would leave the row
+timing another route under the same name; this is what refuses it.
 
 ## What these invariants mean in practice
 

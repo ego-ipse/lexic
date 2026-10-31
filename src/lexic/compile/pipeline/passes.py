@@ -29,7 +29,7 @@ from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
 from lexic.compile.pipeline.naming import has_ruleref
-from lexic.compile.pipeline.rulemap import classify_rule, unit_ref_arm
+from lexic.compile.pipeline.rulemap import classify_rule
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     Field,
@@ -51,7 +51,6 @@ from lexic.ir import (
     IrSequence,
     IrTypeMap,
 )
-from lexic.parsing import nullable_names
 
 
 class _Retarget(IrNode[IrSelf, IrSelf]):
@@ -136,7 +135,7 @@ def _hoist_item(d: IrNode, item: IrItem, _nc: object) -> IrItem:
     """
     if not isinstance(d, _HoistTransformer):
         raise TypeError(f"Expected _HoistTransformer, got {type(d).__name__}")
-    if item.quantifier == IrQuantifier(1, 1):
+    if item.quantifier.once():
         return item
     extracted = _EXTRACT_BODY.apply(item.atom)
     if extracted is IrNone:
@@ -203,7 +202,7 @@ def _hoist_rule_arms(rule: IrRule, taken: set[str]) -> list[IrRule]:
             arms.append(arm)  # empty arm stays — zero kids discriminate it
             continue
         arm_index += 1
-        if not isinstance(unit_ref_arm(arm), IrNoneType):
+        if not isinstance(arm.sole_ref(), IrNoneType):
             arms.append(arm)
             continue
         name = f"{rule.name}-arm{arm_index}"
@@ -274,7 +273,7 @@ def relax_non_semantic(ast: IrAst) -> IrAst:
     :param ast: The grammar carrying ``semantic=False`` flags on noise rules.
     :returns: The relaxed grammar; unchanged when no nullable rule is flagged.
     """
-    targets = ast.non_semantic & nullable_names(ast.rules)
+    targets = ast.non_semantic & ast.nullable()
     if not targets:
         return ast
     rules = [

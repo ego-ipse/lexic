@@ -20,12 +20,11 @@ from typing import NamedTuple, Protocol
 from lexic.parsing.parallel.policy import clears_floor
 
 
-class Span(Protocol):
-    """A divisible span: an opener and a closer around separated items.
+class Bracketed(Protocol):
+    """Where a span stands: the two characters bracketing it.
 
     :ivar opener: Offset of the character opening it.
     :ivar closer: Offset of the character closing it.
-    :ivar marks: Offsets of the separators directly inside it.
     """
 
     @property
@@ -38,9 +37,22 @@ class Span(Protocol):
         """Offset of the character closing it."""
         raise NotImplementedError
 
+
+class Span(Bracketed, Protocol):
+    """A divisible span: an opener and a closer around separated items.
+
+    :ivar marks: Offsets of the separators directly inside it.
+    :ivar ends: Whether those marks END items rather than lead them.
+    """
+
     @property
     def marks(self) -> tuple[int, ...]:
         """Offsets of the separators directly inside it."""
+        raise NotImplementedError
+
+    @property
+    def ends(self) -> bool:
+        """Whether its marks end items (a piece keeps the one it is cut after)."""
         raise NotImplementedError
 
     @property
@@ -70,14 +82,14 @@ class Division[S: Span](NamedTuple):
         ]
 
 
-class _Nest[S: Span](NamedTuple):
+class _Nest[S: Bracketed](NamedTuple):
     """Each region's direct children, and the regions no other region holds."""
 
     children: dict[S, list[S]]
     top: list[S]
 
 
-def _nest[S: Span](found: list[S]) -> _Nest[S]:
+def _nest[S: Bracketed](found: list[S]) -> _Nest[S]:
     """Nesting by one ordered pass: brackets nest, so a region's parent is the
     innermost earlier region still open at its opener."""
     children: dict[S, list[S]] = {}
@@ -235,7 +247,7 @@ def _first(test: Callable[[int], bool], lo: int, hi: int) -> int:
     return lo
 
 
-def render[S: Span](
+def render[S: Bracketed](
     text: str, window: tuple[int, int], regions: list[S], keep: list[str]
 ) -> str:
     """``text`` over ``window`` with each region's interior replaced.
@@ -349,7 +361,12 @@ def _pieces[S: Span](
     out: list[Unit] = []
     for piece in range(last + 1):
         inner = held.get((index, piece), [])
-        window = (bounds[piece], bounds[piece + 1] - (1 if piece < last else 0))
+        # A cut drops the mark between two pieces, which the stitch rebuilds with
+        # the tail it leads; a terminated run's mark ENDS the piece and stays.
+        window = (
+            bounds[piece],
+            bounds[piece + 1] - (0 if region.ends or piece == last else 1),
+        )
         body = stubs.rendered(window, inner)
         kept, items = [k for k, _i in inner], [i for _k, i in inner]
         out.append(Unit(index, open_char + body + close_char, kept, items))

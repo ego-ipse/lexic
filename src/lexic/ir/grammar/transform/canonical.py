@@ -37,15 +37,14 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.build import IrAction
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrBottomUp
+from lexic.ir.grammar.charclass import IrCharClass
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
     IrAlternation,
     IrAst,
-    IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSequence,
@@ -54,10 +53,7 @@ from lexic.ir.grammar.operators import IrNot
 from lexic.ir.grammar.transform.order import order_by_refs
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import glyph
-from lexic.ir.spine.spine import IrLambda, IrSelf
-
-_UNIT = IrQuantifier(1, 1)
-
+from lexic.ir.spine.spine import IrLambda, IrNone, IrSelf
 
 # ── char-class normal form + single-member literal (rewrites 1, 8) ─────
 
@@ -114,7 +110,7 @@ def _arm_intervals(arm: IrSequence) -> list[tuple[int, int]] | None:
     if len(arm) != 1:
         return None
     item = arm[0]
-    if item.quantifier != _UNIT:
+    if not item.quantifier.once():
         return None
     atom = item.atom
     if isinstance(atom, IrCharClass):
@@ -175,7 +171,7 @@ def _single_arm_group(item: IrItem) -> IrSequence | None:
     :returns: The inner ``IrSequence`` when ``item`` is a ``(1,1)`` group with
         one arm, else ``None``.
     """
-    if item.quantifier != _UNIT:
+    if not item.quantifier.once():
         return None
     atom = item.atom
     if isinstance(atom, IrAlternation) and len(atom) == 1:
@@ -196,7 +192,7 @@ def _collapse_quantified_group(item: IrItem) -> IrItem:
     atom = item.atom
     if isinstance(atom, IrAlternation) and len(atom) == 1:
         arm = atom[0]
-        if len(arm) == 1 and arm[0].quantifier == _UNIT:
+        if len(arm) == 1 and arm[0].quantifier.once():
             return IrItem(arm[0].atom, item.quantifier)
     return item
 
@@ -206,17 +202,14 @@ def _is_empty_literal(item: IrItem) -> bool:
     return isinstance(item.atom, IrLiteral) and len(item.atom) == 0
 
 
-def _is_plain_literal(item: IrItem) -> bool:
-    """True if ``item`` is an unquantified literal (mergeable in a run)."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier == _UNIT
-
-
 def _merge_literal_runs(items: list[IrItem]) -> list[IrItem]:
     """Fold runs of adjacent unquantified literals into single literals (rewrite 3)."""
     out: list[IrItem] = []
     for item in items:
-        if out and _is_plain_literal(out[-1]) and _is_plain_literal(item):
-            out[-1] = IrItem(IrLiteral(str(out[-1].atom) + str(item.atom)))
+        prev = out[-1].unit_literal() if out else IrNone
+        literal = item.unit_literal()
+        if isinstance(prev, IrLiteral) and isinstance(literal, IrLiteral):
+            out[-1] = IrItem(IrLiteral(str(prev) + str(literal)))
         else:
             out.append(item)
     return out

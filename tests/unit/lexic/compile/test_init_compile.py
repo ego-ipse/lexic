@@ -50,7 +50,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.pda.compiler.specs import CloneKey, IslandRef
 from lexic.parsing.product.tree import ProductExecutor
 from lexic.parsing.products import earley_model
 from tests.paths import GRAMMARS, GROUND_TRUTH
@@ -695,13 +695,25 @@ def test_compiledgrammar_parse_start_island_completes_on_earley():
     start (its ``start_key`` is an ``IslandRef``); ``cg.parse`` still parses
     correctly, completing on the Earley engine per parse — no ``None`` channel.
     The start island is LEFT-RECURSIVE — the island class no attempt order can
-    settle (the digit-prefix overlap shape now legitimately attempts) — with TWO
-    recursive arms, which the left-recursion fold refuses, so it stays one."""
-    text = 'root ::= root "a" | root "c" | "b"\n'
+    settle (the digit-prefix overlap shape now legitimately attempts) — through
+    the relay ``more``: the left-recursion fold takes DIRECT recursion only, so
+    a fold that learned to read through a relay rule would break this witness."""
+    text = 'root ::= more "a" | more "c" | "b"\nmore ::= root\n'
     cg = compile_text(text, flavour="gbnf")
     assert isinstance(prod(cg).pda.start_key, IslandRef)
     assert cg.parse("baca").to_text() == "baca"
     assert cg.parse("b").to_text() == "b"
+
+
+def test_a_direct_two_armed_start_rule_folds_instead():
+    """The same language written directly is no island: the fold takes both
+    recursive arms, so the start is a clone and the model is Earley's."""
+    text = 'root ::= root "a" | root "c" | "b"\n'
+    cg = compile_text(text, flavour="gbnf")
+    p = prod(cg)
+    assert isinstance(p.pda.start_key, CloneKey)
+    expected = earley_model(p.instance_grammar, "baca", cg.product, p.tables)
+    assert cg.parse("baca") == expected
 
 
 # ── flavour_reducer: the single home for the Reducer narrowing check ──────

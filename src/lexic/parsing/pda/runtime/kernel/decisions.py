@@ -9,7 +9,7 @@ carries no slots of its own — every attribute it reads is declared by the kern
 
 What a both-viable boundary resolves to — take, stop-forced or fork, asked
 as the forest gate asks it, on completed VALUES — is
-:mod:`~lexic.parsing.pda.runtime.kernel.verdicts`'s, whose host class this one
+:mod:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts`'s, whose host class this one
 extends.
 """
 
@@ -35,7 +35,7 @@ from lexic.parsing.pda.runtime.build import (
     Frame,
 )
 from lexic.parsing.pda.runtime.islands import IslandEnds
-from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
 __all__ = ["Attempting", "claim"]
@@ -120,7 +120,11 @@ class Attempting[Carry](Verdicts[Carry]):
             if two.root is not arm.payloads[i] or two.pos != pos:
                 raise
             got = self._iteration_ends(two, arm, i, pos)
-        return self._attempt_settle(frame, arm, i, pos, got)
+        step = self._attempt_settle(frame, arm, i, pos, got)
+        # Inside a reading the drive's limit is read only between frames: a
+        # settled iteration reports as a push, so a reading stops where it is
+        # sent instead of running its loop out.
+        return -1 if self._caches.probing else step
 
     def _attempt_settle(
         self,
@@ -258,11 +262,12 @@ class Attempting[Carry](Verdicts[Carry]):
         and no side can be built where no item of the top frame owns ``out``,
         where the run is not over the whole document (a delegate's sub-run,
         whose root may end anywhere in the island's window, or a truncated
-        text: :meth:`RunScope.whole`), or inside a side where :meth:`_nests`
-        allows no verdict.
+        text: :meth:`RunScope.whole`). Inside a reading of a live set the
+        choice is not made here: the reading splits, one child per end.
 
         :raises ProbeFork: In each of those cases, and when the verdict forks:
             the gated engine answers.
+        :raises Split: Inside a reading, with one side per end.
         """
         pos = self.pos
         picks = {won[0]: won[1]}
@@ -273,9 +278,16 @@ class Attempting[Carry](Verdicts[Carry]):
         k = self._descent_item(out)
         kept = None
         if k >= 0 and self._caches.scope.whole():
-            if not self._caches.probing or self._nests():
-                ordered = [(end - pos, picks[end]) for end in sorted(picks)]
-                kept = self._kept_pick(ordered, partial(self._extent_side, k))
+            ordered = [(end - pos, picks[end]) for end in sorted(picks)]
+            if self._caches.probing:
+                raise self._split(
+                    [
+                        self._extent_side(k, end, values, self._recording())
+                        for end, values in ordered
+                    ],
+                    pos,
+                )
+            kept = self._kept_pick(ordered, partial(self._extent_side, k))
         if kept is None:
             raise ProbeFork(
                 f"attempt at {pos}: arm choice spans {sorted(picks)} "

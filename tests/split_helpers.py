@@ -13,6 +13,7 @@ a stale second answer behind.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from threading import Barrier, Event, Thread
 
 from lexic.compile import CompiledGrammar
@@ -98,6 +99,142 @@ def lead_rule_document(pairs: int) -> str:
     return ", ".join(f"key{'x' * (index % 7)}:{index}" for index in range(pairs))
 
 
+CLOSER_SEPARATOR_UNREAD = {
+    "unreachable": (
+        'root ::= "<" item ("." item)* ","\nunused ::= item ("," item)*\n'
+        "item ::= [a-z]+\n"
+    ),
+    "inside-a-skipped-string": (
+        'root ::= "<" part ("." part)* ","\npart ::= item | quoted\n'
+        'quoted ::= "\\"" item ("," item)* "\\""\nitem ::= [a-z]+\n'
+    ),
+}
+"""A pair closing on ``,`` whose grammar ALSO spells ``,`` as a separator,
+only where the scan never reads it: in a rule nothing reaches, or inside the
+string the walk skips whole. One copy: the region scan's vocabulary pins and
+the split's faithfulness pins read the same two shapes."""
+
+
+def closer_separator_document(shape: str, parts: int) -> str:
+    """A ``CLOSER_SEPARATOR_UNREAD[shape]`` document of ``parts`` dotted parts;
+    every third is a string holding a ``,`` where the shape has strings."""
+    quoted = shape != "unreachable"
+    return (
+        "<"
+        + ".".join(
+            '"a,b"' if quoted and index % 3 == 0 else "ab" for index in range(parts)
+        )
+        + ","
+    )
+
+
+TWO_ROLE_PAIRS = (
+    'root ::= part ("," part)*\n'
+    "part ::= angle | bar | word\n"
+    'angle ::= "<" word "|"\n'
+    'bar ::= "|" word ("," word)* ">"\n'
+    "word ::= [a-z0-9]+\n"
+)
+"""``|`` closes ``angle`` and opens ``bar``: one character in two pair roles.
+A depth count would net it to zero and read a ``bar``'s own commas as top-level
+marks, and a walk can read it only one way, so neither pair stands
+(:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`). One copy: the scan, the
+region walk and the split read the same shape."""
+
+
+def two_role_document(words: int) -> str:
+    """``words`` words, a ``bar`` of ``words`` words, and ``words`` words again."""
+    run = ",".join(f"w{index}" for index in range(words))
+    return run + ",|" + ",".join(f"x{index}" for index in range(words)) + ">," + run
+
+
+TWO_ROLE_SHAPES = {
+    "list": (
+        'root ::= "[" part ("," part)* "]"',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" word (";" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "top": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" word (";" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "nest": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" part ("." part)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "tail": (
+        'root ::= part ("," part)*',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle word | bar | word",
+    ),
+    "tail-list": (
+        'root ::= "[" part ("," part)* "]"',
+        'angle ::= "<" word ("." word)* "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= angle word | bar | word",
+    ),
+    "lines": (
+        'root ::= line+\nline ::= part ("," part)* "\\n"',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" word ("," word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "lines-nl-in-bar": (
+        'root ::= line+\nline ::= part (" " part)* "\\n"',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" word ("\\n" word)* ">"',
+        "part ::= angle | bar | word",
+    ),
+    "semis": (
+        'root ::= part (";" part)*',
+        'angle ::= "<" word "|"',
+        'bar ::= "|" part (";" part)* ">"',
+        "part ::= word | angle | bar",
+    ),
+}
+"""Shapes around ``|`` closing ``angle`` and opening ``bar``: the two pairs in a
+list, at the top level, nested, juxtaposed with a word, line-terminated, and
+sharing the top level's separator."""
+
+
+def two_role_source(shape: str) -> str:
+    """The grammar text of one ``TWO_ROLE_SHAPES`` entry."""
+    return "\n".join(TWO_ROLE_SHAPES[shape]) + "\nword ::= [a-z0-9]+\n"
+
+
+SHARED_CLOSER = {
+    "top": 'root ::= part ("," part)*',
+    "wrapped": 'root ::= "{" part ("," part)* "}"',
+}
+"""Two standing pairs closing on one character: ``a`` opens on ``(`` and ``b``
+on ``[``, and both close on ``)``. One copy: the region walk, the windowed find
+and the split read the same shapes."""
+
+
+def shared_closer_source(shape: str) -> str:
+    """The grammar text of one ``SHARED_CLOSER`` shape."""
+    return (
+        SHARED_CLOSER[shape]
+        + '\npart ::= a | b\na ::= "(" w (";" w)* ")"\n'
+        + 'b ::= "[" w (";" w)* ")"\nw ::= [a-z0-9]+\n'
+    )
+
+
+def shared_closer_document(shape: str, runs: Sequence[tuple[str, int]]) -> str:
+    """One part per ``(opener, words)`` in ``runs``, comma-separated."""
+    body = ",".join(
+        opener + ";".join(f"w{index}" for index in range(words)) + ")"
+        for opener, words in runs
+    )
+    return "{" + body + "}" if shape == "wrapped" else body
+
+
 SETTLE = 5.0
 """Seconds a thread's exit signal is given before a case fails."""
 
@@ -129,17 +266,24 @@ def hold_workers(pool: WorkPool, count: int, release: Event) -> Thread:
 
     The holding phase runs on a thread of its own, so the caller's next phase
     finds only the rest of the pool free; returned once every held worker is
-    running, for the caller to join after setting ``release``.
+    running, for the caller to join after setting ``release``. Its own share
+    waits until every hold has started, so the holding thread finds nothing
+    left to take back and every hold stays on a worker.
     """
     running = Barrier(count + 1)
+    held = Event()
 
     def hold(_slot: int) -> None:
         running.wait(timeout=30)
         release.wait(timeout=30)
 
-    holder = Thread(target=pool.map, args=(hold, list(range(count))))
+    def started(_submit) -> None:
+        running.wait(timeout=30)
+        held.set()
+
+    holder = Thread(target=pool.map, args=(hold, list(range(count)), started))
     holder.start()
-    running.wait(timeout=30)
+    held.wait(timeout=30)
     return holder
 
 
@@ -152,3 +296,16 @@ class FiledDuringRead(dict):
         for key in super().__iter__():
             self[("~filed meanwhile", len(self))] = None
             yield key
+
+
+PAREN_SUM = (
+    "root ::= expr\n"
+    "expr ::= term (addop term)*\n"
+    "term ::= factor (mulop factor)*\n"
+    'factor ::= [0-9]+ | "(" expr ")"\n'
+    'addop ::= "+" | "-"\n'
+    'mulop ::= "*" | "/"\n'
+)
+"""A run separated by a SET of leads inside a bracket: the paren pair's run is
+``term (addop term)*``, led by ``+`` or ``-``, and each term carries ``*`` and
+``/`` of its own. One copy, for the suites that pin the region route over it."""

@@ -17,17 +17,21 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNone, IrStr
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree, FirstTree, first_tree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support import ambiguity
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
     MeaningBuilder,
     MeaningPair,
+    MeaningRun,
     ParseConfig,
     ambiguity_points,
     chosen_meaning,
     different_meaning,
+    dirty_cone,
+    parent_edges,
+    remembered,
     same_value,
 )
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
@@ -96,9 +100,9 @@ def _builder(build) -> MeaningBuilder:
 def _settled(text: str, build, name: str, grammar: str = SAME_BOUNDARY) -> MeaningPair:
     """What the span means, under one interpretation of its derivations."""
     kernel, handle = kernel_and_handle(text, grammar, name)
-    tree = FastTree(kernel, {}, LEFTMOST_LONGEST).build(handle)
-    assert isinstance(tree, ParseTree)
-    return different_meaning(kernel, handle, _builder(build), tree, LEFTMOST_LONGEST)
+    first = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert first is not None
+    return different_meaning(kernel, first, _builder(build), LEFTMOST_LONGEST)
 
 
 def test_no_witness_when_every_grouping_builds_the_same_value():
@@ -145,9 +149,9 @@ def test_every_other_arm_is_asked_not_only_the_first(monkeypatch):
     real = ambiguity.replayed
     calls: list[int] = []
 
-    def first_fails(run, point, family, memo):
+    def first_fails(run, point, family, memo, parents):
         calls.append(family)
-        return None if len(calls) == 1 else real(run, point, family, memo)
+        return None if len(calls) == 1 else real(run, point, family, memo, parents)
 
     monkeypatch.setattr(ambiguity, "replayed", first_fails)
     pair = _settled("n", repr, "meaning-three-arms", THREE_ARMS)
@@ -187,3 +191,90 @@ def test_the_default_config_refuses_and_keeps_the_leftmost_longest_carving():
     assert DEFAULT_CONFIG.decide is LEFTMOST_LONGEST
     assert ParseConfig(resolve=lambda one, _other: one).decide is LEFTMOST_LONGEST
     assert DEFAULT_CONFIG == ParseConfig()
+
+
+def _refuse_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make any fast build during the test an error."""
+
+    def no_build(_self: FastTree, _handle: int) -> ParseTree:
+        raise AssertionError("remembered built a derivation")
+
+    monkeypatch.setattr(FastTree, "build", no_build)
+
+
+def test_remembered_folds_the_first_build_and_builds_nothing(monkeypatch):
+    """The baseline is the derivation the caller built, its memo that build's:
+    remembering it costs no second build."""
+    kernel, handle = kernel_and_handle("n", SAME_BOUNDARY, "remembered-memo")
+    first = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert first is not None
+    run = MeaningRun(kernel, handle, _builder(repr), LEFTMOST_LONGEST)
+    _refuse_builds(monkeypatch)
+    base, memo = remembered(run, first)
+    assert base.tree is first.tree
+    assert base.value == repr(first.tree)
+    assert memo.nodes == first.memo
+    assert memo.nodes is not first.memo
+
+
+def test_remembered_folds_a_streamed_tree_fresh_with_an_empty_memo(monkeypatch):
+    """A derivation read off the chart keeps no handles, so there is nothing to
+    seed from: it folds fresh and the memo stays empty."""
+    kernel, handle = kernel_and_handle("n", SAME_BOUNDARY, "remembered-stream")
+    built = first_tree(kernel, (handle,), LEFTMOST_LONGEST)
+    assert built is not None
+    streamed = FirstTree(handle, built.tree, {})
+    run = MeaningRun(kernel, handle, _builder(repr), LEFTMOST_LONGEST)
+    _refuse_builds(monkeypatch)
+    base, memo = remembered(run, streamed)
+    assert (base.tree, base.value) == (built.tree, repr(built.tree))
+    assert (memo.nodes, memo.values) == ({}, {})
+
+
+def test_dirty_cone_is_the_flipped_point_and_every_handle_above_it():
+    """Read backwards over the parent index: the point, its parents, theirs."""
+    parents = {3: [2], 2: [1], 4: [1]}
+    assert dirty_cone(parents, 1, 3) == frozenset({3, 2, 1})
+    assert dirty_cone(parents, 1, 4) == frozenset({4, 1})
+
+
+def test_dirty_cone_is_empty_for_a_point_outside_the_root():
+    """Nothing about this root changes when a point it never reaches flips."""
+    assert dirty_cone({3: [2]}, 1, 9) == frozenset()
+
+
+def test_parent_edges_put_every_ambiguity_point_under_the_root():
+    """Each point of an ambiguous span is reached from its root, so its cone
+    climbs back to it."""
+    kernel, handle = kernel_and_handle("n+n+n", AMBIGUOUS_EXPR, "parents-expr")
+    parents = parent_edges(kernel, handle)
+    points = ambiguity_points(kernel, handle)
+    assert points
+    for point in points:
+        assert handle in dirty_cone(parents, handle, point)
+
+
+def test_a_span_walks_its_parent_index_once_however_many_points_it_flips(
+    monkeypatch,
+):
+    """Every flip of one span reads its cone off one walk of the link table —
+    a walk per flip was the cost the shared index removes."""
+    walks: list[int] = []
+    real = ambiguity.parent_edges
+
+    def counted(kernel, root):
+        walks.append(root)
+        return real(kernel, root)
+
+    flips: list[int] = []
+    replay = ambiguity.replayed
+
+    def counted_replay(run, point, family, memo, parents):
+        flips.append(point)
+        return replay(run, point, family, memo, parents)
+
+    monkeypatch.setattr(ambiguity, "parent_edges", counted)
+    monkeypatch.setattr(ambiguity, "replayed", counted_replay)
+    _settled("n", lambda tree: "same", "parents-once", THREE_ARMS)
+    assert len(flips) == 2
+    assert len(walks) == 1

@@ -56,6 +56,8 @@ from lexic.ir import (
     IrTuple,
     Reducer,
     inline_refs,
+    reach,
+    references,
 )
 from lexic.model import GrammarModel
 
@@ -133,63 +135,13 @@ def _dropped(reducer: Reducer, rule: str) -> bool:
     return reducer.noise.resolve(IrRuleRef(rule)) is DROP
 
 
-def _collect_refs(node: Any, out: set[str]) -> None:
-    """Accumulate every rule name referenced under ``node``."""
-    if isinstance(node, IrRuleRef):
-        out.add(str(node))
-        return
-    for child in node.children():
-        _collect_refs(child, out)
-
-
-def _reach_map(grammar: IrAst) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Per rule: its direct references, and its full reachable closure."""
-    refs: dict[str, set[str]] = {}
-    for rule in grammar.rules:
-        refs[str(rule.name)] = set()
-        _collect_refs(rule.body, refs[str(rule.name)])
-    reach: dict[str, set[str]] = {}
-    for name in refs:
-        _reachable(refs, reach, name, frozenset())
-    return refs, reach
-
-
-def _reachable(
-    refs: dict[str, set[str]], reach: dict[str, set[str]], name: str, seen: frozenset
-) -> set[str]:
-    """The transitive reference closure of one rule, memoised into ``reach``."""
-    if name in reach:
-        return reach[name]
-    out = set(refs.get(name, ()))
-    for ref in list(out):
-        if ref not in seen:
-            out |= _reachable(refs, reach, ref, seen | {name})
-    reach[name] = out
-    return out
-
-
-def _unbounded(quantifier: IrQuantifier) -> bool:
-    """Whether the quantifier has no upper bound (``hi`` is ``IrNone``)."""
-    return isinstance(quantifier.hi, IrNoneType)
-
-
-def _exactly_once(quantifier: IrQuantifier) -> bool:
-    """Whether the quantifier is the plain single occurrence."""
-    hi = quantifier.hi
-    if isinstance(hi, IrNoneType):
-        return False
-    return int(quantifier.lo) == 1 and int(hi) == 1
-
-
 def _single_literal(rule: IrRule) -> str | None:
     """The rule's whole language when it is one plain literal, else ``None``."""
     arms = [tuple(arm) for arm in rule.body]
     if len(arms) != 1 or len(arms[0]) != 1:
         return None
-    item = arms[0][0]
-    if not isinstance(item.atom, IrLiteral) or not _exactly_once(item.quantifier):
-        return None
-    return str(item.atom)
+    literal = arms[0][0].unit_literal()
+    return str(literal) if isinstance(literal, IrLiteral) else None
 
 
 def _channel_free(body: Any) -> bool:
@@ -209,15 +161,15 @@ class _Analysis(NamedTuple):
 
     rules: dict[str, IrRule]
     refs: dict[str, set[str]]
-    reach: dict[str, set[str]]
+    reach: dict[str, frozenset[str]]
     equiv: dict[str, bool]
 
 
 def _analyze(grammar: IrAst, reducer: Reducer) -> _Analysis:
     """Build the analysis: rule tables and the text-equivalence verdicts."""
     rules = {str(rule.name): rule for rule in grammar.rules}
-    refs, reach = _reach_map(grammar)
-    analysis = _Analysis(rules, refs, reach, {})
+    refs = {name: set(map(str, references(rule.body))) for name, rule in rules.items()}
+    analysis = _Analysis(rules, refs, reach(rules), {})
     for name in rules:
         _text_equiv(analysis, reducer, name)
     return analysis
@@ -293,7 +245,7 @@ def _arm_ref(arm: IrSequence) -> str | None:
     items = tuple(arm)
     if len(items) != 1 or not isinstance(items[0].atom, IrRuleRef):
         return None
-    if not _exactly_once(items[0].quantifier):
+    if not items[0].quantifier.once():
         return None
     return str(items[0].atom)
 
@@ -361,7 +313,7 @@ def _run_replacement(
     allowed: frozenset[str] | None,
 ) -> IrItem | None:
     """A run item's replacement ref (registering its :class:`RunSpec`), or ``None``."""
-    if not isinstance(item.atom, IrRuleRef) or not _unbounded(item.quantifier):
+    if not isinstance(item.atom, IrRuleRef) or not item.quantifier.unbounded():
         return None
     element = str(item.atom)
     if int(item.quantifier.lo) != 0 or _dropped(reducer, element):
@@ -489,8 +441,7 @@ def sub_grammar(
     :returns: The sub-grammar AST and its synthetic group-rule names.
     """
     rules = {str(rule.name): rule for rule in grammar.rules}
-    _refs, reach = _reach_map(grammar)
-    closure = sorted({element} | reach[element])
+    closure = sorted({element} | reach(rules)[element])
     named, synthetic = _name_groups(
         [_run_rule(run_name, element), *(rules[n] for n in closure)]
     )
@@ -545,15 +496,10 @@ class _YieldNode(NamedTuple):
         return self.fold.yield_text(self.model)
 
 
-def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
-    """The rule's items when its body is exactly one arm, else ``None``."""
-    arms = [tuple(arm) for arm in rule.body]
-    return arms[0] if len(arms) == 1 else None
-
-
 def _slot_map(rule: IrRule) -> dict[int, tuple[str, bool]]:
     """A single-arm rule's item slot → (referenced rule, required)."""
-    items = _single_arm(rule) or ()
+    arm = rule.sole_arm()
+    items = () if isinstance(arm, IrNoneType) else arm
     return {
         k: (str(item.atom), int(item.quantifier.lo) >= 1)
         for k, item in enumerate(items)
@@ -563,8 +509,7 @@ def _slot_map(rule: IrRule) -> dict[int, tuple[str, bool]]:
 
 def _opaque_span(rule: IrRule, reducer: Reducer, raw: bool) -> bool:
     """Whether a span-collapsed rule's fused channel cannot be rebuilt from it."""
-    refs: set[str] = set()
-    _collect_refs(rule.body, refs)
+    refs = set(map(str, references(rule.body)))
     if raw:
         return bool(refs)
     return any(not _dropped(reducer, ref) for ref in refs)
@@ -578,14 +523,18 @@ def _absent(value: Any) -> bool:
 
 
 def _alt_refs(rule: IrRule) -> tuple[str, ...] | None:
-    """The rule's arm refs when EVERY non-empty arm is a single plain ref."""
-    arms = [tuple(arm) for arm in rule.body]
+    """The rule's arm refs when EVERY non-empty arm is one unit reference.
+
+    A quantified reference is not an arm's rule: ``p ::= ("<" w ">")*`` holds a
+    run of its hoisted group, which splices into ``p`` rather than folding
+    through it as an arm.
+    """
     refs = [
-        str(arm[0].atom)
-        for arm in arms
-        if len(arm) == 1 and isinstance(arm[0].atom, IrRuleRef)
+        str(ref)
+        for arm in rule.body
+        if not isinstance(ref := arm.sole_ref(), IrNoneType)
     ]
-    if refs and len(refs) == len([arm for arm in arms if arm]):
+    if refs and len(refs) == len([arm for arm in rule.body if arm]):
         return tuple(refs)
     return None
 
@@ -627,10 +576,7 @@ def _binding_views(
     """The binding-derived views: class → rule, fields per rule, text rules."""
     names = {b.class_name: b.rule_name for b in moments.binding}
     rule_of = {cls: names[cn] for cn, cls in moments.classes.items() if cn in names}
-    fields_of = {
-        b.rule_name: tuple(sorted(b.fields.items(), key=lambda p: p[1].item))
-        for b in moments.binding
-    }
+    fields_of = {b.rule_name: b.in_slot_order() for b in moments.binding}
     text_rules = frozenset(
         b.rule_name for b in moments.binding if str(b.kind) == "value_str"
     )
@@ -666,7 +612,7 @@ def _fold_tables(
         arm_items={
             str(r.name): items
             for r in codegen.rules
-            if (items := _single_arm(r)) is not None
+            if not isinstance(items := r.sole_arm(), IrNoneType)
         },
         empty_arms=frozenset(
             str(r.name) for r in codegen.rules if any(not tuple(a) for a in r.body)
@@ -690,6 +636,5 @@ def _fold_tables(
 
 absent = _absent
 as_node = _as_node
-exactly_once = _exactly_once
 fold_tables = _fold_tables
 YieldNode = _YieldNode

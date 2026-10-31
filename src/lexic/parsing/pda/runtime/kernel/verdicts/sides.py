@@ -1,7 +1,7 @@
 """Boundary sides — the stacks a verdict is asked on, and the sub-runs they settle.
 
-Shed from :mod:`~lexic.parsing.pda.runtime.kernel.verdicts` by the file-size rule
-as a host class :class:`~lexic.parsing.pda.runtime.kernel.verdicts.Verdicts`
+Shed from :mod:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts` by the file-size rule
+as a host class :class:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts.Verdicts`
 inherits: a side is a structural copy of the live stack with one decision taken,
 driven one copied frame at a time, recording where each completes (its ledger)
 and settling each attempt sub-run it stands inside as that sub-run's live caller
@@ -140,8 +140,6 @@ class Sides[Carry]:
         :raises ProbeFork: When the stack does not say how to settle one of
             those sub-runs.
         """
-        # A retry's drive spends a nesting budget, so it cannot be driven again
-        record = record or bool(self._caches.scope.retry)
         remap: dict[int, list[Any]] = {}
         forked = frames_copy(self.stack, record, remap)
         root: list[Carry] = forked[0].out
@@ -251,28 +249,20 @@ class Sides[Carry]:
         ]
         return found[0] if len(found) == 1 else -1
 
-    def _advance(
-        self, side: Side, limit: int, shared: bool = False
-    ) -> tuple[Side | None, bool]:
+    def _advance(self, side: Side, limit: int) -> Side | None:
         """Drive one side to ``limit`` (``-1`` = to the end); ``None`` if it dies.
 
-        Swapped in and out under one discipline, and counted as probing so
-        nested boundaries resolve greedily rather than recursing. Whether that
-        greedy resolution SAMPLED a both-viable boundary comes back beside the
-        side (``uncertain``): the verdicts read it, since a death or a
-        convergence reached through a guess proves nothing. A side drives one
-        original frame at a time (:meth:`_drive_floors`).
-
-        :param shared: The drive is the remainder two converged sides share,
-            where a refusal is undecidable rather than a death.
-        :returns: ``(side | None, uncertain)``.
+        Swapped in and out under one discipline, and counted as probing so a
+        both-viable boundary inside it splits the reading it is
+        (:class:`~.liveset.Split`) rather than deciding: a split passes every
+        handler here, and the ``finally`` restores the live stack. A side
+        drives one original frame at a time (:meth:`_drive_floors`).
         """
         caches = self._caches
         saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
         self.stack, self.pos, self._routes = side[0], side[1], side[2]
         caches.probing += 1
-        saved_unc, saved_side = caches.uncertain, caches.side
-        caches.uncertain = False
+        saved_side = caches.side
         caches.side = side
         try:
             floors = side[4]
@@ -294,42 +284,16 @@ class Sides[Carry]:
                 side[5],
                 side[6],
                 side[7],
-            ), caches.uncertain
+            )
         except ProbeFork:
             raise  # undecidable is not death: it is the gated engine's
-        except LexicError as refusal:
-            if shared:  # the common remainder, run once for both sides
-                raise ProbeFork(
-                    f"lockstep: refusal on the shared remainder: {refusal}", self.pos
-                ) from None
-            return None, caches.uncertain
-        except PdaFail:
-            return None, caches.uncertain
+        except PdaFail, LexicError:
+            return None
         finally:
             caches.probing -= 1
-            caches.uncertain, caches.side = saved_unc, saved_side
+            caches.side = saved_side
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
-
-    def _probe(
-        self,
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        taken: tuple[int, list[Carry]] | None,
-    ) -> tuple[Side | None, bool]:
-        """One side of a boundary, run to end of input — :meth:`_side` driven
-        by :meth:`_advance`; the live stack is never touched.
-
-        :param taken: ``None`` for the stop side; the iteration's
-            ``(end, values)`` for the take side.
-        :returns: ``(side | None, uncertain)`` — the side, if it completed, and
-            whether its drive greedily sampled any both-viable boundary on the
-            way (the caller's conservatism).
-        :raises ProbeFork: An undecidable boundary — the caller bails
-            (undecidable never reads as "this side failed").
-        """
-        return self._advance(self._side(arm, i, pos, taken), -1)
 
     def _drive_floors(
         self, floors: list[Floor], ledger: list[int] | None, limit: int

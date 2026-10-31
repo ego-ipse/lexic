@@ -241,7 +241,7 @@ class _Grown(IrNamedTuple[type, type, IrSelf]):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("source",)
-    head: type
+    head: type[GrammarModel]
     item: type
     source: IrSelf = IrNone
 
@@ -486,7 +486,7 @@ def _as_field(mode: str, value: object) -> object:
     return tuple(value) if mode == "models" and isinstance(value, tuple) else value
 
 
-def _slot_binds(cls: type) -> list[tuple[str, str]]:
+def _slot_binds(cls: type[GrammarModel]) -> list[tuple[str, str]]:
     """A model class's ``(field name, bind mode)`` in ITEM SLOT order — the
     channel's order.
 
@@ -496,22 +496,30 @@ def _slot_binds(cls: type) -> list[tuple[str, str]]:
     :param cls: The target model class.
     :returns: Field names and modes ordered by their bound item slots.
     """
-    binds = getattr(cls, "__binds__", {})
-    return [(name, bind.mode) for _slot, (name, bind) in sorted(binds.items())]
+    return [(name, bind.mode) for _slot, name, bind in cls.child_order().slots]
 
 
-def _by_rule(compiled: CompiledGrammar) -> dict[str, type]:
+def _by_rule(compiled: CompiledGrammar) -> dict[str, type[GrammarModel]]:
     """Each synthesized class under its own rule's name.
 
     :param compiled: The artifact whose classes to index.
     :returns: Folded rule name → class; every class carries its rule.
+    :raises UnsupportedConstructError: On a class that is not a model — every
+        synthesized class is one, so this is a broken artefact, never a skip.
     """
-    return {
-        fold_name(str(cls.__grammar__.name)): cls for cls in compiled.classes.values()
-    }
+    out: dict[str, type[GrammarModel]] = {}
+    for cls in compiled.classes.values():
+        if not issubclass(cls, GrammarModel):
+            raise UnsupportedConstructError(
+                f"transpile: {cls.__name__} is not a model class"
+            )
+        out[fold_name(str(cls.__grammar__.name))] = cls
+    return out
 
 
-def _list_shape(cls: type, targets: dict[str, type]) -> type | None:
+def _list_shape(
+    cls: type[GrammarModel], targets: dict[str, type[GrammarModel]]
+) -> type[GrammarModel] | None:
     """The item class of a hoisted list rule, or ``None`` for a plain one.
 
     A list rule is codegen's own artifact — ``x ::= y (sep y)*`` hoists to
@@ -524,22 +532,24 @@ def _list_shape(cls: type, targets: dict[str, type]) -> type | None:
     :param targets: The target's rule-name index, for the item class.
     :returns: The item class to grow with, or ``None``.
     """
-    binds = sorted(cls.__binds__.items())
-    if len(binds) != 2 or binds[1][1][1].mode != "models":
+    slots = cls.child_order().slots
+    if len(slots) != 2 or slots[1][2].mode != "models":
         return None
     arm = next((a for a in cls.__grammar__.body if a), None)
     if arm is None:
         return None
-    atom = arm[binds[1][0]].atom
+    atom = arm[slots[1][0]].atom
     if not isinstance(atom, IrRuleRef):
         return None
     item = targets.get(fold_name(str(atom)))
-    if item is None or len(item.__binds__) != 1:
+    if item is None or len(item.bound_fields()) != 1:
         return None
     return item
 
 
-def _baked_make(targets: dict[str, type], _d: IrSelf, n: IrSelf, _nc) -> IrSelf:
+def _baked_make(
+    targets: dict[str, type[GrammarModel]], _d: IrSelf, n: IrSelf, _nc
+) -> IrSelf:
     """One :class:`Make`, resolved — the bake walk's only body.
 
     Runs under the bake's own bottom-up walk, so ``n`` is the ``Make`` with
@@ -569,7 +579,7 @@ class _Construct(IrNamedTuple[type, IrSelf]):
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("args",)
-    target: type
+    target: type[GrammarModel]
     args: IrSelf = IrNone
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
@@ -608,7 +618,7 @@ class _TypeTest(IrNamedTuple[type]):
         return IrInt(1 if isinstance(n, self.target) else 0)
 
 
-def _baked_is(targets: dict[str, type], n: IrSelf) -> IrSelf:
+def _baked_is(targets: dict[str, type[GrammarModel]], n: IrSelf) -> IrSelf:
     """One :class:`Is`, resolved against the target's rule-name index.
 
     :raises UnsupportedConstructError: When the rule is not the target's.
@@ -637,8 +647,9 @@ def transpile(
         untouched; a semantic one reaching the product without a row fails
         the completeness gate.
     :returns: The transpiler — bake once, :meth:`Transpiler.run` many.
-    :raises UnsupportedConstructError: On a row naming no source rule, or a
-        ``Make`` naming no target rule.
+    :raises UnsupportedConstructError: On a row naming no source rule, a
+        ``Make`` naming no target rule, or an artefact holding a class that is
+        not a model.
     """
     sources = _by_rule(source)
     targets = _by_rule(target)

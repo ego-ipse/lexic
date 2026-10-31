@@ -23,13 +23,15 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrNoneType, IrTuple
-from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.ir import IrNoneType
+from lexic.parsing.earley.kernel.forest.fasttree import (
+    FastTree,
+    FirstTree,
+    first_tree,
+    streamed_first,
+)
 from lexic.parsing.earley.kernel.forest.forest import (
-    DERIVATION_STREAM,
     ParseTree,
-    SppfNode,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     DEFAULT_CONFIG,
@@ -38,14 +40,15 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
-    decode_item,
+    handle_node,
+    longest_start_completion,
     start_completion_ends,
     start_completions,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
-from lexic.parsing.earley.kernel.tables.decider import Decider
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.resume import WindowKernel
 from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.compiler.program.gating import (
     continuation_windows,
@@ -67,7 +70,7 @@ __all__ = [
 
 ISLAND_WINDOW = 256
 """Initial character window for an island Earley sub-parse; doubles on demand
-while the chart is still live at the window edge and input remains."""
+while the chart reaches past the window's stop and input remains."""
 
 
 def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
@@ -96,39 +99,6 @@ def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
         raise PdaFail(
             f"island {name!r} at {pos}: the product refused the completion", pos
         ) from exc
-
-
-_DERIV_PARSER = EarleyParser()
-"""The shared façade dispatcher the island derivation-stream fallback threads
-through :data:`~lexic.parsing.earley.kernel.forest.forest.DERIVATION_STREAM`'s
-``eval`` (stateless)."""
-
-
-def _may_extend(kern: Kernel) -> bool:
-    """Whether more input could lengthen the island — chart liveness at the edge.
-
-    ``longest_start_completion`` scans the whole window, so every completion
-    inside it is already known: more input can only add a completion that
-    consumes PAST the window edge, and any derivation doing so leaves an item
-    the chart can see near it — either one filed at the edge column itself, or
-    a scanner whose multi-char literal the window cut, which files nothing and
-    sits at most the longest literal short of it. A dead edge zone is therefore
-    a *sighted* refusal: no extension of the input can change the answer, with
-    or without a completion in hand.
-
-    Every other scan kind is visible at the edge itself: a char class advances
-    one column at a time, a run terminal cut by the window lands ON the edge,
-    and a delegate either lands in the chart or declines into normal seeding.
-    Probing anywhere short of the edge is not sound — a multi-char literal can
-    jump a probed column without ever filing an item in it.
-
-    :param kern: The finished windowed kernel.
-    :returns: ``True`` when input beyond the window may still be consumable.
-    """
-    edge = len(kern.text)
-    reach = max(kern.tables.terms.lens, default=1)
-    seen = kern.st.seen
-    return any(seen[col] for col in range(max(0, edge - max(reach, 1) + 1), edge + 1))
 
 
 class IslandPolicy[M](NamedTuple):
@@ -246,8 +216,8 @@ def island_parse(
 ) -> tuple[ParseTree, int, CompletionResult[Any] | None]:
     """Longest completion of island ``name`` over a doubling window from ``pos``.
 
-    Grows the window while the chart is still live at its edge and input
-    remains (the ambiguous-longest-match risk), then decodes the winning
+    Grows the window while the chart reaches past its stop and input remains
+    (the ambiguous-longest-match risk), then decodes the winning
     completion to a :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`.
 
     Longest-match is only a DEFINED answer while no shorter completion could
@@ -271,8 +241,9 @@ def island_parse(
         completion reaches past the first one — see
         :meth:`~lexic.parsing.pda.compiler.continuation.IslandContinuations.bounds`
         — and one sub-parse at that width settles it. ``None`` climbs from
-        :data:`ISLAND_WINDOW` by doubling, re-parsing the same characters at
-        every width.
+        :data:`ISLAND_WINDOW` by doubling, growing one chart
+        (:class:`~lexic.parsing.earley.resume.WindowKernel`) so each width scans
+        only the characters it adds.
     :returns: ``(tree, end, value)`` — the derivation, its consumed length,
         and the completed value when the settle step already built one
         (``None`` when it did not, and the caller completes the tree itself).
@@ -285,14 +256,16 @@ def island_parse(
     remaining = len(text) - pos
     exact = policy.window is not None
     window = ISLAND_WINDOW if policy.window is None else policy.window
+    kern = island_run(tables, text, pos, min(window, remaining), policy.delegates)
     alts: list[int] = []
     while True:
-        kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
+        best = longest_start_completion(kern)
         if best is not None:
             alts = _unsettled_ends(kern, best[1], text, pos, policy)
-        if exact or window >= remaining or not _may_extend(kern):
+        if exact or window >= remaining or not kern.live:
             break
         window *= 2
+        kern.grow(min(window, remaining))
     if best is None:
         raise PdaFail(f"island {name!r}: no match at {pos}", pos)
     if alts:
@@ -368,7 +341,8 @@ def _decoded(
     """
     item, end = best
     handle = (item << kern.tables.packing.bits) | end
-    tree = FastTree(kern, None, policy.config.decide).build(handle)
+    build = FastTree(kern, None, policy.config.decide)
+    tree = build.build(handle)
     if not isinstance(tree, ParseTree):
         # The fast path declining is NOT ambiguity — it also declines when a key
         # packs more than one family or the root has many productions.
@@ -378,18 +352,19 @@ def _decoded(
     # a tree for a completion whose arms mean different things. It is not an
     # oracle — `different_meaning` asks that question separately, and the
     # model path asks it too.
-    settled, value = _settle_two_meanings(kern, handle, tree, name, policy)
+    first = FirstTree(handle, tree, build.memo)
+    settled, value = _settle_two_meanings(kern, first, name, policy)
     return settled, end, value
 
 
 def _settle_two_meanings(
-    kern: Kernel, handle: int, tree: ParseTree, name: str, policy: IslandPolicy
+    kern: Kernel, first: FirstTree, name: str, policy: IslandPolicy
 ) -> tuple[ParseTree, CompletionResult[Any] | None]:
     """The derivation to keep when this completion may mean a second thing.
 
     :param kern: The island's Earley kernel.
-    :param handle: The packed accepting item and end.
-    :param tree: The derivation already in hand.
+    :param first: The derivation already in hand, its handle and its build's
+        memo.
     :param name: The island rule name (for the failure message).
     :param policy: Carries the product completion that answers the question,
         and the caller's resolver.
@@ -401,6 +376,7 @@ def _settle_two_meanings(
         resolver was supplied.
     """
     executor = policy.executor
+    tree = first.tree
     if executor is None:
         return tree, None
     # The value-once route, and the OCCURRENCE completion within it. Value-once
@@ -412,9 +388,8 @@ def _settle_two_meanings(
     # the fold could not express and a resolver should not be asked to guess.
     pair = different_meaning(
         kern,
-        handle,
+        first,
         MeaningBuilder(executor.splice, executor.splice_replay),
-        tree,
         policy.config.decide,
     )
     if pair.witness is None:
@@ -438,20 +413,24 @@ def _settle_two_meanings(
 
 def island_run(
     tables: ParserTables,
-    window: str,
+    text: str,
+    pos: int,
+    width: int,
     delegates: dict[int, Delegate] | None = None,
-) -> tuple[Kernel, tuple[int, int] | None]:
-    """Run the island start rule over ``window``, longest origin-0 completion.
+) -> WindowKernel:
+    """Run the island start rule over a window of ``width`` characters at
+    ``pos`` — the chart a wider window grows (:meth:`WindowKernel.grow`).
 
     :param tables: The island rule's compiled tables.
-    :param window: The candidate window text.
+    :param text: The full input.
+    :param pos: Where the window opens.
+    :param width: The window's width.
     :param delegates: The island-interior delegate table, or ``None``.
-    :returns: The kernel — its chart is the growth predicate's evidence even
-        on a miss — and ``(accepting_item, end)`` for the longest completion,
-        ``None`` when the rule never completes in the window.
+    :returns: The windowed kernel; its chart is the growth evidence even on a
+        miss, and :func:`longest_start_completion` reads its longest origin-0
+        completion.
     """
-    kern = Kernel(tables, window, delegates=delegates)
-    return kern, kern.longest_start_completion()
+    return WindowKernel(tables, text, pos, width, delegates).run()
 
 
 def island_derivation(
@@ -491,29 +470,22 @@ def island_derivation(
         different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end
+    decide = policy.config.decide
     if policy.executor is None:
-        return _one_derivation(kern, handle, name, None, policy.config.decide), None
-    tree = _one_derivation(kern, handle, name, {}, policy.config.decide)
-    return _settle_two_meanings(kern, handle, tree, name, policy)
+        bail = FastTree(kern, None, decide).build(handle)
+        if isinstance(bail, ParseTree):
+            return bail, None
+        return _streamed(kern, handle, name).tree, None
+    first = first_tree(kern, (handle,), decide) or _streamed(kern, handle, name)
+    return _settle_two_meanings(kern, first, name, policy)
 
 
-def _one_derivation(
-    kern: Kernel,
-    handle: int,
-    name: str,
-    choices: dict[int, int] | None,
-    decide: Decider,
-) -> ParseTree:
-    """The derivation ``choices`` names, or the fast path's when it is ``None``."""
-    tree = FastTree(kern, choices, decide).build(handle)
-    if isinstance(tree, ParseTree):
-        return tree
-    node = SppfNode(
-        decode_item(kern.tables, handle >> kern.tables.packing.bits),
-        handle & kern.tables.packing.mask,
-    )
-    stream = DERIVATION_STREAM.eval(_DERIV_PARSER, node, IrTuple(to_chart(kern)))
-    got = next(iter(stream), None)
-    if not isinstance(got, ParseTree):
+def _streamed(kern: Kernel, handle: int, name: str) -> FirstTree:
+    """The decoded island chart's first derivation of ``handle``.
+
+    :raises PdaFail: When the chart derives none.
+    """
+    first = streamed_first(handle_node(kern, handle), to_chart(kern), handle)
+    if first is None:
         raise PdaFail(f"island {name!r}: no derivation")
-    return got
+    return first
