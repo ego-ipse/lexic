@@ -830,19 +830,16 @@ def test_a_warm_whose_barrier_cannot_fill_is_counted_and_copies_nothing(
     """A worker busy elsewhere breaks the warm's barrier: the warm is skipped,
     counted as broken, and no worker copies the pair."""
     grammar, binding = _pair("warm-broken")
-    started, let_go = threading.Event(), threading.Event()
-
-    def hold(_slot: int) -> None:
-        started.set()
-        let_go.wait(timeout=1.0)
+    let_go = threading.Event()
 
     monkeypatch.setattr(replica_module, "WARM_WAIT", 0.05)
     with WorkPool(2) as pool:
         _pool_views(pool, _Recorder(), threading.Barrier(2), (grammar, binding))
         replica_module.settle_first_meetings(pool, binding)
-        holder = threading.Thread(target=pool.map, args=(hold, [0]))
-        holder.start()
-        started.wait(timeout=30)
+        # A WORKER holds the slot: a bare one-item phase on a two-worker pool
+        # leaves its own calling thread free to take the hold back and run it,
+        # and then no worker is busy and the warm's barrier fills.
+        holder = hold_workers(pool, 1, let_go)
         before = replica_module.warm_census()
         replica_module.warm_due(pool.lend(), binding)
         let_go.set()
