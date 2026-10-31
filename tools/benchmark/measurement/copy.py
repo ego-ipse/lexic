@@ -53,6 +53,7 @@ PROTOCOL_MODULES = (
     "measurement/language.py",
     "measurement/occupancy.py",
     "measurement/sampling.py",
+    "presentation/artifact.py",
     "presentation/cli.py",
     "presentation/reporting.py",
 )

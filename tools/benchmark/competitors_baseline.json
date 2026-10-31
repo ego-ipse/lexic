@@ -1,20 +1,20 @@
 {
-  "schema": 5,
+  "schema": 6,
   "unit": "microseconds_per_character",
-  "note": "Cross-engine medians of isolated rounds. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. A cell is a number, `refuses` (the seat cannot take this language) or `unmeasured` (the seat could, but this run could not obtain a figure it stands behind); the two are different facts and `note` says which. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
+  "note": "Cross-engine medians of isolated rounds, each cell the median of several isolated processes (`processes`, with their spread in `spread_percent`), and each grammar's noise floor the median of its cells' spreads. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. A cell is a number, `refuses` (the seat cannot take this language) or `unmeasured` (the seat could, but this run could not obtain a figure it stands behind); the two are different facts and `note` says which. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
   "noise_floor_percent": {
-    "arithmetic": 0.69,
-    "csv": 1.52,
-    "json": 1.23,
-    "gbnf-meta": 1.15,
-    "abnf-meta": 1.35,
-    "vyx": 0.65,
-    "markdown": 1.59,
-    "nested": 0.34,
-    "lexruns": 0.51,
-    "backtrack": 0.82,
-    "mixedends": 1.44,
-    "announced": 1.17
+    "arithmetic": 4.6,
+    "csv": 2.8,
+    "json": 2.84,
+    "gbnf-meta": 3.34,
+    "abnf-meta": 2.71,
+    "vyx": 5.72,
+    "markdown": 6.53,
+    "nested": 3.15,
+    "lexruns": 2.01,
+    "backtrack": 2.88,
+    "mixedends": 2.35,
+    "announced": 2.05
   },
   "engines": {
     "lexic-mt": {
@@ -106,7 +106,9 @@
         "document_digest": "cba0ce2b955275ff",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 48.9
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -118,7 +120,9 @@
         "document_digest": "cba0ce2b955275ff",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.09
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -130,7 +134,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.36
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -142,7 +148,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.63
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -154,7 +162,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.5
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -166,7 +176,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.92
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -178,7 +190,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.25
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -190,7 +204,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.1
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -202,7 +218,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 14.69
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -214,7 +232,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 18.11
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -226,7 +246,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.64
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -238,7 +260,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.31
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -250,7 +274,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.23
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -262,7 +288,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.58
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -274,7 +302,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.6
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -286,7 +316,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 16.17
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -298,7 +330,9 @@
         "document_digest": "6333636176e12772",
         "directive_digest": "5557b1668e67e3b8",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.25
       }
     },
     "csv": {
@@ -312,7 +346,9 @@
         "document_digest": "aa46e78875268605",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.52
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -324,7 +360,9 @@
         "document_digest": "aa46e78875268605",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.48
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -336,7 +374,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "da5381295ae0e149",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.26
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -348,7 +388,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 72.21
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -360,7 +402,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.79
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -372,7 +416,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.66
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -384,7 +430,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.73
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -396,7 +444,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.62
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -408,7 +458,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.8
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -420,7 +472,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.62
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -432,7 +486,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.5
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -444,7 +500,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.13
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -456,7 +514,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.24
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -468,7 +528,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.73
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -480,7 +542,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.19
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -492,7 +556,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 10.03
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -504,7 +570,9 @@
         "document_digest": "e3692cdad884e414",
         "directive_digest": "db2e02e8b0364498",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.68
       }
     },
     "json": {
@@ -518,7 +586,9 @@
         "document_digest": "0c8ab5a3982df172",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.13
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -530,7 +600,9 @@
         "document_digest": "0c8ab5a3982df172",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.38
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -542,7 +614,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "45f315cccee0fabf",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 6.69
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -554,7 +628,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.31
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -566,7 +642,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.97
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -578,7 +656,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.84
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -590,7 +670,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.98
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -602,7 +684,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.53
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -614,7 +698,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.55
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -626,7 +712,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.31
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -638,7 +726,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.3
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -650,7 +740,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.2
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -662,7 +754,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.5
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -674,7 +768,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.47
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -686,7 +782,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.93
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -698,7 +796,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.02
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -710,7 +810,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "4ca515b29ec02e44",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.88
       },
       "stdlib-json": {
         "measured": "2026-10-30",
@@ -722,7 +824,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.84
       },
       "msgspec": {
         "measured": "2026-10-30",
@@ -734,7 +838,9 @@
         "document_digest": "b8cf2bebd7e25b63",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.99
       }
     },
     "gbnf-meta": {
@@ -748,7 +854,9 @@
         "document_digest": "616e46d6ba8ceb32",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.38
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -760,7 +868,9 @@
         "document_digest": "616e46d6ba8ceb32",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.68
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -772,7 +882,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.61
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -784,7 +896,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.5
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -796,7 +910,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.31
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -808,7 +924,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.03
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -820,7 +938,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('B21', 'v') at line 7, column 18. Expected one of: * B32 * B10 * B9 * B19"
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('B21', 'v') at line 7, column 18. Expected one of: * B32 * B10 * B9 * B19",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -832,7 +952,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('RULENAME_', 'value') at line 7, column 18. Expected one of: * B10 * B9 * B32 * B19"
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('RULENAME_', 'value') at line 7, column 18. Expected one of: * B10 * B9 * B32 * B19",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -844,7 +966,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.78
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -856,7 +980,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 10.33
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -868,7 +994,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17)."
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17).",
+        "processes": 3,
+        "spread_percent": null
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -880,7 +1008,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17)."
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17).",
+        "processes": 3,
+        "spread_percent": null
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -892,7 +1022,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the corpus \u2014 ParseException: Expected end of text, found ':' (at char 244), (line:9, col:17)"
+        "note": "refuses the corpus \u2014 ParseException: Expected end of text, found ':' (at char 244), (line:9, col:17)",
+        "processes": 3,
+        "spread_percent": null
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -904,7 +1036,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.02
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -916,7 +1050,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.97
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -928,7 +1064,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 15.81
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -940,7 +1078,9 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.01
       }
     },
     "abnf-meta": {
@@ -954,7 +1094,9 @@
         "document_digest": "eee866faeda7b610",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.68
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -966,7 +1108,9 @@
         "document_digest": "eee866faeda7b610",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.43
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -978,7 +1122,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "b396903cf8069d31",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.74
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -990,7 +1136,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.56
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -1002,7 +1150,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.49
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -1014,7 +1164,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.65
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -1026,7 +1178,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "GrammarError: Reduce/Reduce collision in Terminal('B2') between the following rules: - <c_wsp : c_nl wsp> - <__blank_star_4 : wsp> Reduce/Reduce collision in Terminal('B0') between the following rules: - <c_wsp : c_nl wsp> - <__blank_star_\u2026"
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B2') between the following rules: - <c_wsp : c_nl wsp> - <__blank_star_4 : wsp> Reduce/Reduce collision in Terminal('B0') between the following rules: - <c_wsp : c_nl wsp> - <__blank_star_\u2026",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -1038,7 +1192,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": "GrammarError: Reduce/Reduce collision in Terminal('WSP_') between the following rules: - <__blank_star_4 : WSP_> - <_c_wsp : _c_nl WSP_> Reduce/Reduce collision in Terminal('CRLF_') between the following rules: - <__blank_star_4 : WSP_> - \u2026"
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('WSP_') between the following rules: - <__blank_star_4 : WSP_> - <_c_wsp : _c_nl WSP_> Reduce/Reduce collision in Terminal('CRLF_') between the following rules: - <__blank_star_4 : WSP_> - \u2026",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -1050,7 +1206,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.73
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -1062,7 +1220,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": "GrammarError: (\"Dynamic Earley doesn't allow zero-width regexps\", TerminalDef('CSBODY_', '(?:[ -!#-~]+)?'))"
+        "note": "GrammarError: (\"Dynamic Earley doesn't allow zero-width regexps\", TerminalDef('CSBODY_', '(?:[ -!#-~]+)?'))",
+        "processes": 3,
+        "spread_percent": null
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -1074,7 +1234,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4)."
+        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4).",
+        "processes": 3,
+        "spread_percent": null
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -1086,7 +1248,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4)."
+        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4).",
+        "processes": 3,
+        "spread_percent": null
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -1098,7 +1262,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.74
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -1110,7 +1276,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.39
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -1122,7 +1290,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.27
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -1134,7 +1304,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.92
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -1146,7 +1318,9 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.07
       }
     },
     "vyx": {
@@ -1160,7 +1334,9 @@
         "document_digest": "0ff20faac135716f",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 21.94
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -1172,7 +1348,9 @@
         "document_digest": "0ff20faac135716f",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 10.19
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -1184,7 +1362,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.36
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -1196,7 +1376,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.51
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -1208,7 +1390,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.24
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -1220,7 +1404,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 10.67
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -1232,7 +1418,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "GrammarError: Reduce/Reduce collision in Terminal('B40') between the following rules: - <__key_plus_11 : B39> - <sw_first : B39> Reduce/Reduce collision in Terminal('B37') between the following rules: - <__key_plus_11 : B39> - <sw_first : \u2026"
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B40') between the following rules: - <__key_plus_11 : B39> - <sw_first : B39> Reduce/Reduce collision in Terminal('B37') between the following rules: - <__key_plus_11 : B39> - <sw_first : \u2026",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -1244,7 +1432,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": "GrammarError: Reduce/Reduce collision in Terminal('B30') between the following rules: - <__nl_escape_star_11 : B4> - <__nl_escape_plus_10 : __nl_escape_plus_10 B4> Reduce/Reduce collision in Terminal('B29') between the following rules: - <\u2026"
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B30') between the following rules: - <__nl_escape_star_11 : B4> - <__nl_escape_plus_10 : __nl_escape_plus_10 B4> Reduce/Reduce collision in Terminal('B29') between the following rules: - <\u2026",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -1256,7 +1446,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 9.98
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -1268,7 +1460,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.89
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -1280,7 +1474,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9)."
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9).",
+        "processes": 3,
+        "spread_percent": null
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -1292,7 +1488,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9)."
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9).",
+        "processes": 3,
+        "spread_percent": null
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -1304,7 +1502,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 ParseException: Expected end of text, found ' ' (at char 8), (line:1, col:9)"
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 ParseException: Expected end of text, found ' ' (at char 8), (line:1, col:9)",
+        "processes": 3,
+        "spread_percent": null
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -1316,7 +1516,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.55
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -1328,7 +1530,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.64
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -1340,7 +1544,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 12.33
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -1352,7 +1558,9 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.09
       }
     },
     "markdown": {
@@ -1366,7 +1574,9 @@
         "document_digest": "3111e13be85035e6",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 33.95
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -1378,7 +1588,9 @@
         "document_digest": "3111e13be85035e6",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 30.51
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -1390,7 +1602,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "1e2230010f25e464",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.44
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -1402,7 +1616,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.51
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -1414,7 +1630,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.43
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -1426,7 +1644,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 11.0
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -1438,7 +1658,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.2
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -1450,7 +1672,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('FENCELINE_', '\\n') at line 2, column 1. Expected one of: * B4 * B0 * B5 * B14 * B13 * B11 * BLANK_ * RULE_ * B10 * B15 * $END * B6 * B9 * B8 * B2"
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('FENCELINE_', '\\n') at line 2, column 1. Expected one of: * B4 * B0 * B5 * B14 * B13 * B11 * BLANK_ * RULE_ * B10 * B15 * $END * B6 * B9 * B8 * B2",
+        "processes": 3,
+        "spread_percent": null
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -1462,7 +1686,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.62
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -1474,7 +1700,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.68
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -1486,7 +1714,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1)."
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1).",
+        "processes": 3,
+        "spread_percent": null
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -1498,7 +1728,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1)."
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1).",
+        "processes": 3,
+        "spread_percent": null
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -1510,7 +1742,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.34
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -1522,7 +1756,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.9
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -1534,7 +1770,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.33
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -1546,7 +1784,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 12.28
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -1558,7 +1798,9 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 16.38
       }
     },
     "nested": {
@@ -1572,7 +1814,9 @@
         "document_digest": "479c5c9ff25914d3",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.03
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -1584,7 +1828,9 @@
         "document_digest": "479c5c9ff25914d3",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.45
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -1596,7 +1842,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.19
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -1608,7 +1856,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.4
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -1620,7 +1870,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.98
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -1632,7 +1884,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.77
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -1644,7 +1898,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.54
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -1656,7 +1912,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.66
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -1668,7 +1926,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 6.53
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -1680,7 +1940,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.13
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -1692,7 +1954,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.33
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -1704,7 +1968,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.95
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -1716,7 +1982,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": "refuses the corpus \u2014 RecursionError: maximum recursion depth exceeded"
+        "note": "refuses the corpus \u2014 RecursionError: maximum recursion depth exceeded",
+        "processes": 3,
+        "spread_percent": null
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -1728,7 +1996,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.27
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -1740,7 +2010,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.44
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -1752,7 +2024,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 14.78
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -1764,7 +2038,9 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 15.87
       }
     },
     "lexruns": {
@@ -1778,7 +2054,9 @@
         "document_digest": "b99b2fc9af08bfec",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 27.82
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -1790,7 +2068,9 @@
         "document_digest": "b99b2fc9af08bfec",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.78
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -1802,7 +2082,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "3205ade45f3f83b0",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.12
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -1814,7 +2096,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.01
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -1826,7 +2110,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.81
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -1838,7 +2124,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.84
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -1850,7 +2138,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.72
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -1862,7 +2152,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.91
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -1874,7 +2166,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.29
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -1886,7 +2180,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.5
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -1898,7 +2194,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.78
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -1910,7 +2208,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.88
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -1922,7 +2222,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.95
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -1934,7 +2236,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.91
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -1946,7 +2250,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.2
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -1958,7 +2264,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 4,
+        "spread_percent": 3.44
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -1970,7 +2278,9 @@
         "document_digest": "2a67aa5163095528",
         "directive_digest": "97a018f58bb8a407",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.7
       }
     },
     "backtrack": {
@@ -1984,7 +2294,9 @@
         "document_digest": "ad2ee8b68cd61e12",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.57
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -1996,7 +2308,9 @@
         "document_digest": "ad2ee8b68cd61e12",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.63
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -2008,7 +2322,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "cd81333196d09d3d",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 6.37
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -2020,7 +2336,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.66
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -2032,7 +2350,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.88
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -2044,7 +2364,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.6
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -2056,7 +2378,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.39
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -2068,7 +2392,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.43
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -2080,7 +2406,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.6
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -2092,7 +2420,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.35
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -2104,7 +2434,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.31
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -2116,7 +2448,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.94
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -2128,7 +2462,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.53
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -2140,7 +2476,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.31
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -2152,7 +2490,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.98
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -2164,7 +2504,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.12
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -2176,7 +2518,9 @@
         "document_digest": "9a6cb680d4f41bbf",
         "directive_digest": "5c8b3d600f44ece7",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 10.86
       }
     },
     "mixedends": {
@@ -2190,7 +2534,9 @@
         "document_digest": "4d03678841591814",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.43
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -2202,7 +2548,9 @@
         "document_digest": "4d03678841591814",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.93
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -2214,7 +2562,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "d26ef6434d5bc4e6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.12
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -2226,7 +2576,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.87
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -2238,7 +2590,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.47
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -2250,7 +2604,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.35
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -2262,7 +2618,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.52
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -2274,7 +2632,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.94
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -2286,7 +2646,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.11
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -2298,7 +2660,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.24
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -2310,7 +2674,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.81
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -2322,7 +2688,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.58
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -2334,7 +2702,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.31
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -2346,7 +2716,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.55
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -2358,7 +2730,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.84
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -2370,7 +2744,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 7.89
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -2382,7 +2758,9 @@
         "document_digest": "c5874d29231f2a23",
         "directive_digest": "c75762cfea16e4bc",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.49
       }
     },
     "announced": {
@@ -2396,7 +2774,9 @@
         "document_digest": "3a034ebecb13ceb6",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.48
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-10-30",
@@ -2408,7 +2788,9 @@
         "document_digest": "3a034ebecb13ceb6",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 5.2
       },
       "lexic-lex": {
         "measured": "2026-10-30",
@@ -2420,7 +2802,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "0b5035fe662f96c2",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.05
       },
       "lexic-lex-ns": {
         "measured": "2026-10-30",
@@ -2432,7 +2816,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.05
       },
       "lexic-pda": {
         "measured": "2026-10-30",
@@ -2444,7 +2830,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.8
       },
       "lexic-earley": {
         "measured": "2026-10-30",
@@ -2456,7 +2844,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.96
       },
       "lark-lalr": {
         "measured": "2026-10-30",
@@ -2468,7 +2858,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 4.05
       },
       "lark-lalr-lex": {
         "measured": "2026-10-30",
@@ -2480,7 +2872,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.03
       },
       "lark-earley": {
         "measured": "2026-10-30",
@@ -2492,7 +2886,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.07
       },
       "lark-earley-lex": {
         "measured": "2026-10-30",
@@ -2504,7 +2900,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 1.04
       },
       "parsimonious": {
         "measured": "2026-10-30",
@@ -2516,7 +2914,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 2.85
       },
       "parsimonious-lex": {
         "measured": "2026-10-30",
@@ -2528,7 +2928,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.46
       },
       "pyparsing": {
         "measured": "2026-10-30",
@@ -2540,7 +2942,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.37
       },
       "antlr-py": {
         "measured": "2026-10-30",
@@ -2552,7 +2956,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 3.77
       },
       "antlr-py-lex": {
         "measured": "2026-10-30",
@@ -2564,7 +2970,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": null,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 0.74
       },
       "antlr": {
         "measured": "2026-10-30",
@@ -2576,7 +2984,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 16.86
       },
       "antlr-lex": {
         "measured": "2026-10-30",
@@ -2588,7 +2998,9 @@
         "document_digest": "a58b7d49bf07b1bd",
         "directive_digest": "df981ab220edc269",
         "warmed": 2400,
-        "note": null
+        "note": null,
+        "processes": 3,
+        "spread_percent": 22.03
       }
     }
   },

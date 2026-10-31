@@ -191,13 +191,9 @@ def _report_row(payload: Mapping[str, Json]) -> ReportRow:
     )
 
 
-def run_report_row(
-    request: RowRequest, root: Path, *, noise: bool = False
-) -> ReportRow:
+def run_report_row(request: RowRequest, root: Path) -> ReportRow:
     """Measure one presentation row in a fresh process that owns the machine."""
     command = [*_command(request), "--report"]
-    if noise:
-        command.append("--noise")
     completed = subprocess.run(
         command,
         capture_output=True,
@@ -219,22 +215,53 @@ def run_report_row(
     return _report_row(json.loads(lines[-1]))
 
 
-def noise_floor(request: RowRequest, root: Path) -> float:
-    """The report's same-engine control, in its own fresh process."""
-    command = [*_command(request), "--report", "--noise"]
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(root),
-        env=_environment(request, root),
-    )
-    if completed.returncode:
-        detail = completed.stderr.strip() or completed.stdout.strip()
-        raise RuntimeError(f"benchmark noise floor failed: {detail}")
-    lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    return float(json.loads(lines[-1])["noise_floor"])
+class Passes(NamedTuple):
+    """Every report process a run took, by pass, and the extra ones.
+
+    :ivar passes: Pass k's rows, one per request that ran in it (``None``
+        where the request was already final).
+    :ivar extras: Request index → the one more process a request with an
+        unsettled reading took.
+    """
+
+    passes: list[list[ReportRow | None]]
+    extras: dict[int, ReportRow]
+
+
+def final(row: ReportRow) -> bool:
+    """A refusal or an empty row answers from its first process."""
+    return row.refusal is not None or not row.samples
+
+
+def unsettled(row: ReportRow) -> bool:
+    """Whether a JIT row's warm-up stopped before it settled."""
+    return bool(row.samples) and row.warmed is not None and not row.warmed[1]
+
+
+def report_passes(requests: Sequence[RowRequest], root: Path, count: int) -> Passes:
+    """Run every request ``count`` times, one process at a time, in passes.
+
+    Pass k runs process k of every request, in the order given, so two
+    processes of one cell have every other cell of the run between them and a
+    disturbance as long as a grammar cannot reach several of them. A request
+    final at its first process runs once. A request with an unsettled reading
+    then takes exactly one more process, alone.
+    """
+    first = [run_report_row(request, root) for request in requests]
+    passes: list[list[ReportRow | None]] = [list(first)]
+    for _ in range(count - 1):
+        passes.append(
+            [
+                None if final(row) else run_report_row(request, root)
+                for request, row in zip(requests, first, strict=True)
+            ]
+        )
+    extras = {
+        k: run_report_row(request, root)
+        for k, request in enumerate(requests)
+        if any(row is not None and unsettled(row) for row in (p[k] for p in passes))
+    }
+    return Passes(passes, extras)
 
 
 def _path_environment(root: Path) -> dict[str, str]:

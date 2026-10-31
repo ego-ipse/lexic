@@ -22,7 +22,7 @@ from tools.benchmark import regression
 from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import PROTOCOL, read_contract
-from tools.benchmark.presentation.cli import REFUSES, UNMEASURED, Artifact
+from tools.benchmark.presentation.artifact import REFUSES, UNMEASURED, Artifact
 
 
 def _bench(name: str = "json") -> Bench:

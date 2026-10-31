@@ -43,6 +43,11 @@ refuses an undeclared one.
   worker that is merely "not yet timed" still compiles grammars, runs fidelity
   parses and holds artefacts, and doing that beside a timed parse contaminates
   cache, allocator and thermal state.
+- **A report cell is the median of three processes**, taken in passes across
+  the whole run, so two processes of one cell have every other cell between
+  them. The cell is the median process's reading, copied whole, and records
+  its processes and their spread. A grammar's noise floor is the median of its
+  cells' spreads — noise measured where a cell varies, across processes.
 - **The collector stays enabled** during every timed pass, and the contract
   records that it did. Production does not disable it.
 - **Both clocks, always.** Sequential rows are judged on process CPU; threaded

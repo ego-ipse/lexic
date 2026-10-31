@@ -34,7 +34,7 @@ from tools.benchmark.measurement.occupancy import (
     declined_reason,
     split_departure,
 )
-from tools.benchmark.measurement.sampling import interleaved, noise_spread
+from tools.benchmark.measurement.sampling import interleaved
 
 
 def _bench(grammar: str) -> Bench:
@@ -153,21 +153,6 @@ def departure_payload(
         getattr(built.parse, "close", lambda: None)()
 
 
-def _noise_payload(
-    bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
-) -> dict[str, Json]:
-    """Measure the same-engine control for one exact row."""
-    built = one_engine(bench, engine, cores, full)
-    if built.parse is None:
-        raise ValueError(
-            f"benchmark row {bench.name}/{engine} refused: {built.refusal}"
-        )
-    try:
-        return {"noise_floor": noise_spread(built.parse, built.document, rounds)}
-    finally:
-        getattr(built.parse, "close", lambda: None)()
-
-
 def main(argv: Sequence[str] | None = None) -> None:
     """Write one machine-readable row result to standard output."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -176,16 +161,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--rounds", type=int, required=True)
     parser.add_argument("--cores", type=int)
     parser.add_argument("--full", action="store_true")
-    parser.add_argument("--noise", action="store_true")
     parser.add_argument("--report", action="store_true")
     parser.add_argument("--departs", action="store_true")
     args = parser.parse_args(argv)
     if args.engine not in PRODUCT:
         parser.error(f"unknown benchmark row {args.engine!r}")
     bench = _bench(args.grammar)
-    if args.noise:
-        build = _noise_payload
-    elif args.report:
+    if args.report:
         build = report_payload
     elif args.departs:
         build = departure_payload

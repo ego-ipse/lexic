@@ -39,7 +39,7 @@ from tools.benchmark.measurement.contract import (
     digest,
     read_contract,
 )
-from tools.benchmark.presentation.cli import (
+from tools.benchmark.presentation.artifact import (
     REFUSES,
     UNMEASURED,
     Artifact,
