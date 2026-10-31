@@ -48,6 +48,7 @@ from lexic.parsing.pda.analysis.cursors import (
 )
 from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.analysis.extend.maps import Extensions
+from lexic.parsing.pda.analysis.gates.ends.sites import RunIndex, run_decides
 from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K, stop_exit_settles
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
@@ -78,6 +79,7 @@ class Follows(NamedTuple):
     :ivar deep: The window sets built so far, by width — filled by
         :meth:`windows`, never by a caller.
     :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
+    :ivar runs: The run-site index once asked for — filled by ``run_sites``.
     """
 
     soft: dict[str, CharSet]
@@ -87,6 +89,7 @@ class Follows(NamedTuple):
     start: str
     deep: dict[int, FollowWindows]
     extended: list[Extensions]
+    runs: list[RunIndex]
 
     def windows(self, k: int) -> FollowWindows:
         """FOLLOW\\ :sub:`k` as window sets, built once per width.
@@ -155,6 +158,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self.rules,
             self.start,
             {},
+            [],
             [],
         )
         self.taxonomy = Taxonomy(delegated)
@@ -602,7 +606,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                         f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)",
                         NOISE_GREEDY,
                     )
-                else:
+                elif not run_decides(self, (items, k), scope, notes, True):
                     notes.hard.append(
                         f"{scope.rule}[{k}]: loop stop-set escapes soft FOLLOW"
                     )
@@ -613,33 +617,28 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def _stop_set(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
-        """Grant item ``k``'s stop-set where its first exit is the split answer;
-        defer the rest to :meth:`_settle`.
-
-        With no exit character in reach, no clone subtracts anything: the loop
-        runs to the longest take. Otherwise the exit must be the only way on,
-        two characters deep (:func:`~.gates.kwindow.stop_exit_settles`). That
-        proof reads the end of the input, so a delegate's analysis, whose end
-        is not the document's, withholds it.
+        """Grant item ``k``'s stop-set where its exit is the split answer: the
+        only way on two deep (``stop_exit_settles``, withheld from a delegate),
+        else where its run ends (``run_decides``), else with no exit in reach
+        the longest take. Defer the rest to :meth:`_settle`.
         """
         note = f"{scope.rule}[{k}]: loop stop-set applied"
         first = self.atom_first(items[k].atom)
         hard = self.hard_cont_at(items, k, scope.hard_tail)
         exits = first.subtract(first.subtract(hard))
-        if exits.is_empty():
-            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
-        elif (
-            scope.body
+        if (
+            not exits.is_empty()
+            and scope.body
             and not self.taxonomy.delegated
             and stop_exit_settles(
-                self.follows.windows(FOLLOW_LOOP_K),
-                items,
-                k,
-                scope.rule,
-                exits,
+                self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
             )
         ):
             notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
+        elif run_decides(self, (items, k), scope, notes, not exits.is_empty()):
+            return
+        elif exits.is_empty():
+            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
         else:
             notes.stop_sets.append(note)
 

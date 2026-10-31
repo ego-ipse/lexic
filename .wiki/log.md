@@ -2898,3 +2898,9 @@ exempt.
 separator records, the own-marks filter and its free path, the per-owner,
 per-character safety with the bracket arm's `around` alphabet, and the joint
 lead read from the text.
+
+## A loop is decided where its run ends (2026-10-30)
+
+`decisions.md`'s stop-set entry: the four grants in cascade order, and the
+run-end decision — the closure kinds and their counterexamples, the context
+per clone, and its three refusals.

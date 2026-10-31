@@ -344,6 +344,11 @@ src/lexic/
           inner.py                 NON_INITIAL — every character a string can carry past its first
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
+          ends/               Where a run ends — a one-class loop decided at its run's end, per context
+            __init__.py       the group's package marker
+            contexts.py       Run contexts — what the clone compiler threads for a decided loop
+            leads.py          Leads — where a class's run can end, read off what follows it, and whether that is closed
+            sites.py          Run sites — every context a run's end is read in, and the cascade step it decides
           greedy.py           The split-greedy licence — a loop the split rule settles, not lookahead
           kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
           leftrec.py          Left-recursion detection — the predictive-descent impossibility check

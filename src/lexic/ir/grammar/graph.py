@@ -6,6 +6,10 @@ occurrences, and every question about that graph is asked of the one walk
 and in what order, which rules a root reaches, and which rules reach an entry.
 A rule lies on a reference cycle exactly when its :func:`reach` holds itself.
 
+:func:`callees` takes that walk once per rule, for a caller that asks the graph
+again and again; :func:`components` reads it for the order a fixpoint over the
+rules wants — each strongly connected component after every one it references.
+
 Cycle membership is not left recursion. ``r ::= "a" r | "b"`` is on a cycle and
 is not left-recursive; the nullable-prefix left-corner question belongs to the
 PDA analysis, which keeps it.
@@ -13,7 +17,7 @@ PDA analysis, which keeps it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
 
 from lexic.ir.grammar.nodes import IrRule, IrRuleRef
 from lexic.ir.spine.spine import IrSelf
@@ -111,3 +115,77 @@ def reaching(rules: Mapping[str, IrRule], entry: str) -> frozenset[str]:
                 found.add(source)
                 pending.append(source)
     return frozenset(found)
+
+
+def callees(rules: Mapping[str, IrRule]) -> dict[str, tuple[str, ...]]:
+    """Each rule → the defined rules its body names, in first-occurrence order.
+
+    :param rules: The rule table.
+    :returns: Rule name → its callees; an undefined name is dropped.
+    """
+    out: dict[str, tuple[str, ...]] = {}
+    for name, rule in rules.items():
+        named: list[str] = []
+        refs_in_order(rule.body, named)
+        out[name] = tuple(target for target in named if target in rules)
+    return out
+
+
+def components(
+    graph: Mapping[str, Sequence[str]], root: str, done: Container[str] = ()
+) -> list[tuple[str, ...]]:
+    """The strongly connected components of the rules ``root`` reaches, callees
+    first — every component after each one it references.
+
+    Tarjan's walk on an explicit stack, so a long chain costs no Python frames.
+
+    :param graph: Rule name → its callees (:func:`callees`).
+    :param root: Where to start; a rule in ``done`` yields nothing.
+    :param done: Rules already settled — neither walked into nor yielded.
+    :returns: The components, each sorted by name.
+    """
+    if root in done:
+        return []
+    index = {root: 0}
+    low = {root: 0}
+    stack = [root]
+    held = {root}
+    out: list[tuple[str, ...]] = []
+    work: list[tuple[str, Iterator[str]]] = [(root, iter(graph[root]))]
+    while work:
+        name, targets = work[-1]
+        target = next(targets, None)
+        if target is None:
+            work.pop()
+            if work:
+                low[work[-1][0]] = min(low[work[-1][0]], low[name])
+            if low[name] == index[name]:
+                out.append(_close(stack, held, name))
+        elif target in done:
+            continue
+        elif target not in index:
+            index[target] = low[target] = len(index)
+            stack.append(target)
+            held.add(target)
+            work.append((target, iter(graph[target])))
+        elif target in held:
+            low[name] = min(low[name], index[target])
+    return out
+
+
+def _close(stack: list[str], held: set[str], root: str) -> tuple[str, ...]:
+    """Pop the component ``root`` roots off the walk's stack."""
+    component: list[str] = []
+    while not component or component[-1] != root:
+        component.append(stack.pop())
+        held.discard(component[-1])
+    return tuple(sorted(component))
+
+
+def cyclic(graph: Mapping[str, Sequence[str]], component: Sequence[str]) -> bool:
+    """Whether a component is a cycle — more than one rule, or one naming itself.
+
+    :param graph: Rule name → its callees (:func:`callees`).
+    :param component: One of :func:`components`' components.
+    """
+    return len(component) > 1 or component[0] in graph[component[0]]

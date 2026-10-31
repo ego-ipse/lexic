@@ -584,7 +584,7 @@ def test_the_licence_leaves_the_attempt_gate_unused() -> None:
     """The point of the gate is that the loop stops being decided by running it."""
     analysis = _compiled_analysis(CLASS, "flg-class")
 
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 # ── the withholds ──────────────────────────────────────────────────────
@@ -600,7 +600,7 @@ def test_a_loop_a_stop_set_already_decides_never_reaches_the_gate() -> None:
 
     assert not analysis.conflicts
     assert not analysis.taxonomy.loop_gates
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 def test_a_rule_referenced_twice_is_refused() -> None:
@@ -760,7 +760,7 @@ def test_such_a_grammar_carries_no_island(source: str) -> None:
     analysis = _compiled_analysis(source + "\n", f"kw-pair-{hash(source)}")
 
     assert not analysis.islands
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 def test_a_repeated_atom_under_the_optional_still_takes() -> None:

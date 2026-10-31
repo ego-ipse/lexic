@@ -189,8 +189,8 @@ def test_ungatable_loops_carry_the_attempt_licence():
     assert not stop_sets
     assert {"nl-escape", "nl-force"} <= set(taxonomy.longest)
     assert set(taxonomy.attempts) == analysis.islands
-    assert taxonomy.attempt_loops
-    assert all(isinstance(key, int) for key in taxonomy.attempt_loops)
+    assert taxonomy.loops.attempt
+    assert all(isinstance(key, int) for key in taxonomy.loops.attempt)
 
 
 @pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))

@@ -245,7 +245,7 @@ def test_an_interior_that_attempts_is_never_delegated_beside_one_that_is() -> No
         for name, rule in whole.rules.items()
         for arm in rule.body
         for item in arm
-        if id(item) in whole.taxonomy.attempt_loops
+        if id(item) in whole.taxonomy.loops.attempt
     }
     assert {"sec", "lst"} <= attempting, attempting
     delegated = {

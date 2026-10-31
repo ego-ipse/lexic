@@ -1177,14 +1177,10 @@ sequential seats.
 A stop-set loop leaves at the first character its continuation can start with:
 the SHORTEST take. The split answer is the longest take that completes. The
 analysis (`analysis/analysis.py`, `_stop_set` then `_settle`) grants a stop-set
-under one of three conditions and files every other one hard, so its rule
-islands and Earley answers:
+under one of four conditions, tried in this order, and files every other one
+hard, so its rule islands and Earley answers:
 
-1. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
-   so no clone subtracts anything and the loop takes every character it can.
-   An overlap reached only through a soft follower, such as the loopback of
-   `item+`, is this case.
-2. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
+1. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
    continues both ways: with `c` an exit character, no window `(c, d)` of the
    continuation also fits a take of `c`. Then at most one of the two completes,
    and the PDA's exit is the answer or a failure that bails. Each reference site
@@ -1199,16 +1195,63 @@ islands and Earley answers:
    as "the input may end here": a rule only gets an end window if the input
    can really end after it. A delegate's analysis withholds this grant,
    because its end is not the document's.
-3. **The carving is invisible** (`_settle`). The rule's model is its text (no
+2. **It is decided where its run ends** (`gates/sites.run_decides`, below).
+3. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
+   so no clone subtracts anything and the loop takes every character it can.
+4. **The carving is invisible** (`_settle`). The rule's model is its text (no
    reference anywhere in its body, groups included), and its end is fixed:
    EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
    same model.
 
-`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the three conditions
+`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the conditions
 refuse costs Earley time where a real grammar's run can hold its closer.
 Vyx's `nl-escape` and `nl-force` are the case: the third character separates
 the exit from the take there, and `FOLLOW_LOOP_K` is 2 by measurement, not by
 budget. So those runs island rather than widen the window.
+
+### A loop decided where its run ends
+
+An unbounded loop over one class `C` meets the rest of the parse at the end of
+its maximal `C`-run, at a character `t` outside `C`. A follower reached only
+through a soft edge — `entry+`'s loopback after a tail's `"," e`, where the
+next entry is `e ";"` again — may need part of the run before `t`: taking it
+whole leaves the next entry nothing, the predictive parse fails, and the whole
+document falls back to Earley, at quadratic cost. If every follower needs at least `j` of the
+run before `t`, the leftmost answer leaves exactly `j` — **but only where the
+prefixes followers accept before `t` are closed under keeping their last `j`
+characters, with the same text accepted after `t`.**
+
+`gates/leads.py` tracks that closure as a kind per ending character: FIXED
+(every derivation reaches `t` at one length), FULL (and accepts every
+`C`-string of it), FREE (every `C`-string of length `j` or more), or MIXED —
+`t` reached at two lengths, or after a restricted prefix of varying length.
+MIXED is unknown, and no gate stops for it: `[0-9] [a-z]* ";"` on `q5ab;`
+needs `5ab` where its minimum would leave `b`, and `[a-z] ";" "!" | [a-z] [a-z]
+";" "?"` on `qab;?` needs `ab`. Passages (how a construct is crossed on `C`
+alone) carry the same kinds, since they shift a later `t`.
+
+The lead is read per context: `gates/sites.py` walks every reference chain a
+loop can see past its rule's end and solves the contexts each rule is reached
+in. A clone key carries the context (`CloneKey.runs`) only for the rules a
+decided loop can see, so every other key, and every program with no closed
+`t`, is as before. The gate (`compiler/contexts.py`) is a k-window whose
+width is the grammar's own — one more than the largest closed `j` — and a
+context no follower needs the run in keeps the plain whole-run stop-set.
+
+Three refusals keep a loop on its route:
+
+- **A context is unknown.** An island interior's end is not the document's;
+  anything may follow it, `t` at once included.
+- **Contexts keep multiplying.** A recursion that consumes `C` after itself
+  needs one more of the run per level; past `CONTEXT_CAP` contexts for one
+  rule the class is refused with a note — a refusal, not a depth.
+- **The loop's own arm still needs text after it** (`[a-z]* [a-z]`): it keeps
+  the route its rule had.
+
+A loop whose route was an island or a fail-island (a deferred stop-set, an
+escape into soft FOLLOW) is decided only where no context is unknown and no
+ending character is MIXED; one that ran longest is decided wherever some
+closed `t` needs the run, and keeps the whole run for every other `t`.
 
 ## Earley keeps the decider's carving, and judges only that derivation
 

@@ -45,7 +45,7 @@ def file_attempt_loop(
     the decider grants it; otherwise the note stands and the rule islands."""
     if ATTEMPT not in notes.grants:
         return
-    analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(items, k, scope)
+    analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
     notes.covered += 1
 
 

@@ -1,10 +1,13 @@
 """Tests for ir/grammar/graph.py — the rule-reference graph: references, the
-first-occurrence name list, reachability both ways, and cycle membership
-as reaching oneself."""
+first-occurrence name list, reachability both ways, cycle membership as
+reaching oneself, and the callee map and its components, callees first."""
 
 from __future__ import annotations
 
 from lexic.ir.grammar.graph import (
+    callees,
+    components,
+    cyclic,
     has_reference,
     reach,
     reachable,
@@ -129,3 +132,48 @@ def test_a_right_recursive_rule_is_on_a_cycle():
         IrSequence(IrItem(IrLiteral("b"))),
     )
     assert "r" in reach(table(IrRule("r", body)))["r"]
+
+
+# ── callees, components and cyclic ─────────────────────────────────────────
+
+
+def test_callees_lists_each_defined_callee_once_in_first_occurrence_order():
+    """``root`` names ``b`` then ``a`` then ``b`` again and ``ghost``: each
+    defined callee once, in the order the body first names it."""
+    rules = table(rule("root", "b", "a", "b", "ghost"), rule("a"), rule("b"))
+    assert callees(rules) == {"root": ("b", "a"), "a": (), "b": ()}
+
+
+def test_components_close_each_cycle_after_the_components_it_references():
+    """``root`` → ``a`` ⇄ ``b``, ``b`` → ``c``: ``c`` closes first, then the
+    ``a``/``b`` cycle, then ``root`` — every component after its callees."""
+    graph = callees(
+        table(rule("root", "a"), rule("a", "b"), rule("b", "a", "c"), rule("c"))
+    )
+    assert components(graph, "root") == [("c",), ("a", "b"), ("root",)]
+
+
+def test_components_neither_walk_into_nor_yield_settled_rules():
+    """A settled callee is not part of any component; a settled root gives none."""
+    graph = callees(
+        table(rule("root", "a"), rule("a", "b"), rule("b", "a", "c"), rule("c"))
+    )
+    assert components(graph, "root", {"c"}) == [("a", "b"), ("root",)]
+    assert not components(graph, "root", {"root"})
+
+
+def test_components_walk_a_long_chain_without_python_frames():
+    """Five thousand rules in a chain: an explicit stack, not recursion."""
+    names = [f"r{i}" for i in range(5000)]
+    rules = table(*(rule(name, *names[i + 1 : i + 2]) for i, name in enumerate(names)))
+    order = components(callees(rules), "r0")
+    assert order[0] == ("r4999",) and order[-1] == ("r0",)
+    assert len(order) == 5000
+
+
+def test_cyclic_is_more_than_one_rule_or_one_naming_itself():
+    """``a``/``b`` is a cycle, ``r`` naming itself is one, ``c`` is not."""
+    graph = callees(table(rule("a", "b"), rule("b", "a"), rule("r", "r"), rule("c")))
+    assert cyclic(graph, ("a", "b"))
+    assert cyclic(graph, ("r",))
+    assert not cyclic(graph, ("c",))

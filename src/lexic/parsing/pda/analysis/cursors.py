@@ -76,7 +76,7 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     :ivar soft: Stop-set / window demotion notes.
     :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
     :ivar covered: How many of :attr:`hard` an attempt licence covers (the
-        ungatable-loop notes filed into ``Taxonomy.attempt_loops``); a rule
+        ungatable-loop notes filed into ``Taxonomy.loops.attempt``); a rule
         whose every hard note is covered or a body-arm overlap is attemptable.
     :ivar policy: Set when a decision picks an EXTENT by policy (a greedy or
         stop-set exit) rather than by what the text holds.

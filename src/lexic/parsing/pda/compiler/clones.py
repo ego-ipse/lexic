@@ -63,6 +63,7 @@ from lexic.parsing.caches import adopt
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.gates.ends.contexts import Decided, RunContexts
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.eligibility import (
@@ -283,9 +284,11 @@ def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     windows, peeks, attempt = tax.grp_arm_gates.get(id(n), (None, None, None))
     order = attempt[0].order if attempt is not None else None
     follow = attempt[1].union(eff) if attempt is not None else None
+    compiler.runs.push()
     arms, default, _ = compiler.compile_arms(
         cast(IrAlternation, n), eff, ArmGates(windows, peeks), order
     )
+    compiler.runs.pop()
     return ItemSpec(GRP, GroupSpec(arms, default, follow), ctx.lo, ctx.hi, ctx.gate)
 
 
@@ -327,16 +330,16 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         "pending",
         "continuations",
         "folds",
-        "draining",
+        "runs",
     )
 
     analysis: GrammarAnalysis
     routines: Mapping[str, RuleRoutine]
     clones: dict[CloneKey, CloneSpec]
-    pending: list[CloneKey]
-    draining: bool
+    pending: list[CloneKey] | None
     continuations: IslandContinuations
     folds: dict[str, FoldBuild]
+    runs: RunContexts
 
     def __init__(
         self,
@@ -347,10 +350,10 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.analysis = analysis
         self.routines = {} if routines is None else routines
         self.clones = {}
-        self.pending = []
-        self.draining = False
+        self.pending = None
         self.continuations = IslandContinuations(analysis, self.islands)
         self.folds = {}
+        self.runs = RunContexts(analysis)
 
     @property
     def islands(self) -> frozenset[str]:
@@ -381,20 +384,23 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         nested call (an :data:`_ATOM_SPEC` body reaching a fresh ref mid-body)
         only enqueues, so a long rule chain compiles at constant Python stack
         depth instead of one frame set per rule. On return every queued clone
-        is complete (the callers' contract is unchanged). ``name`` is never an
-        island — callers check first.
+        is complete (the callers' contract is unchanged); the queue exists only
+        while it drains. ``name`` is never an island — callers check first.
         """
-        key = CloneKey(name, tail)
+        nested = self.pending is not None
+        key = CloneKey(name, tail, self.runs.key(name, nested))
+        queue = self.pending if self.pending is not None else []
         if key not in self.clones:
             self.clones[key] = _PENDING
-            self.pending.append(key)
-        if not self.draining:
-            self.draining = True
-            try:
-                while self.pending:
-                    self._compile_clone(self.pending.pop())
-            finally:
-                self.draining = False
+            queue.append(key)
+        if nested:
+            return key
+        self.pending = queue
+        try:
+            while queue:
+                self._compile_clone(queue.pop())
+        finally:
+            self.pending = None
         return key
 
     def _clone_shape(
@@ -445,6 +451,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         """
         name = key.name
         rule = self.analysis.rules[name]
+        self.runs.begin(key.runs)
         longest = self.continuations.longest_take(key.name, key.tail)
         tail = key.tail if longest is None or longest.steals else _EOF
         arms, default, struct, follow = self._clone_shape(name, rule, tail)
@@ -550,6 +557,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         item = items[idx]
         atom = item.atom
         ctx = _ItemCtx(item, cont, self._loop_gate(items, idx, cont))
+        self.runs.at(items, idx)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
     def _loop_gate(self, items: Sequence[IrItem], idx: int, cont: CharSet) -> LoopGate:
@@ -588,7 +596,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 # A ScanGate is runtime-ready as it stands (P3 structured / P5);
                 # a greedy spec is the split rule's licence, wrapped here.
                 return ready if isinstance(ready, ScanGate) else GreedyGate(*ready)
-            licence = analysis.taxonomy.attempt_loops.get(id(item))
+            licence = analysis.taxonomy.loops.attempt.get(id(item))
             if licence is not None:
                 # The attempt licence: FIRST admits an iteration ATTEMPT —
                 # the runtime runs it as a sub-run and a failure closes the
@@ -599,7 +607,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 # soft continuation guards the boundary where taking and
                 # stopping are BOTH viable — an arm choice in loop clothing.
                 return AttemptGate(first, licence)
-        return StopGate(first.subtract(cont))
+        decided = self.runs.gate(items, idx)
+        if decided is None:
+            decided = Decided(first.subtract(cont), None)
+        return (
+            StopGate(decided.run)
+            if decided.windows is None
+            else KTupleGate(decided.windows)
+        )
 
 
 # ── the artifact ───────────────────────────────────────────────────────────

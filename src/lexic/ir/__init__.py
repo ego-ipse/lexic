@@ -95,6 +95,9 @@ if TYPE_CHECKING:
     )
     from lexic.ir.grammar.charclass import MAX_CODEPOINT, IrCharClass, IrRange
     from lexic.ir.grammar.graph import (
+        callees,
+        components,
+        cyclic,
         has_reference,
         reach,
         reachable,
@@ -456,10 +459,13 @@ __all__ = [
     "KeepReduced",
     "align_names",
     "as_doc",
+    "callees",
     "canonicalize",
     "census",
+    "components",
     "concretize",
     "concretize_atom",
+    "cyclic",
     "field_children",
     "fold_name",
     "has_reference",

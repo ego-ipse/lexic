@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import NamedTuple, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.analysis.gates.ends.leads import RunContext
 from lexic.parsing.pda.analysis.gates.windows import Pref
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, Pattern, ScanGate
@@ -61,10 +62,13 @@ class CloneKey(NamedTuple):
 
     :ivar name: The rule name.
     :ivar tail: The hard continuation the clone's loop stop-sets are exact for.
+    :ivar runs: What follows this occurrence, for the run classes whose loops
+        below it decide where their runs end; empty for every other rule.
     """
 
     name: str
     tail: CharSet
+    runs: RunContext = ()
 
 
 class IslandRef(NamedTuple):
