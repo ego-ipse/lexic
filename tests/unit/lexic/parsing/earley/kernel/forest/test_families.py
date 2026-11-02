@@ -22,7 +22,7 @@ from lexic.parsing.earley.kernel.loop.state import PROMOTED
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from tests.earley_families import before_group, bucket_differences, paired
+from tests.earley_families import before_group, bucket_differences, facing, paired
 
 LATE = ('root ::= e\ne ::= e "+" e | e "*" e | "n"\n', "n+n*n+n*n+n*n*n+n")
 """Keys at one ``(rule, end)`` promote at different times, so a key's first
@@ -44,6 +44,15 @@ FLAT = ('root ::= item+\nitem ::= [a-z] nl\nnl ::= "\\n"\n', "a\nb\nc\n")
 
 DELEGATED = ('root ::= p item\np ::= "0"*\nitem ::= [a-z0]+ ";"\n', "000ab;")
 """`p` lets one waiter face `item` from several origins, all ending at the `;`."""
+
+KEPT_BESIDE_GROUPS = (
+    'root ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" e ")" "," "(" e ")" | "(" e ")"\n'
+    'e ::= e "+" e | "n"\n',
+    "[(n+n+n),(n+n),(n+n+n),(n)]",
+)
+"""`e` factors into groups while the nullable repetition helper's keys get
+several families each: every adjacent two pairs could also read as one."""
 
 
 def tables(source: str, text: str):
@@ -174,6 +183,54 @@ def test_a_key_facing_a_delegated_rule_keeps_every_family():
     assert mixed, "no key mixes delegated and ordinary families — nothing tested"
     for key in mixed:
         assert kern.st.links[key][0] is not PROMOTED, key
+    assert not bucket_differences(base, kern)
+
+
+def kept_rules(kern: Kernel) -> set[int]:
+    """The rules whose keys this kernel keeps unfactored: nullable or delegated."""
+    codes = kern.tables.codes
+    return {
+        rid
+        for rid, done in enumerate(codes.nullable_completes)
+        if done or rid in kern.delegates
+    }
+
+
+def test_a_kept_rule_never_gets_a_group():
+    """A chart that factors still files a kept rule's families in their buckets.
+
+    The tier is the completed rule's, decided once per completion: a kept rule's
+    keys never promote and no group is ever opened for it, even on a chart where
+    other rules' groups exist.
+    """
+    base, kern = paired(tables(*KEPT_BESIDE_GROUPS), KEPT_BESIDE_GROUPS[1])
+    kept = kept_rules(kern)
+    assert kern.st.groups, "nothing factored — the test proves nothing"
+    several = [
+        key
+        for key, bucket in base.st.links.items()
+        if len(bucket) > 1 and facing(kern, key) in kept
+    ]
+    assert several, "no kept key got a second family — nothing tested"
+    assert not [rid for rid, _end in kern.st.groups if rid in kept]
+    for key in several:
+        assert kern.st.links[key][0] is not PROMOTED, key
+    assert not bucket_differences(base, kern)
+
+
+def test_a_delegated_rule_never_gets_a_group_in_the_kernel_that_delegates_it():
+    """The keep is per kernel: `item` is not nullable, and only delegation keeps it."""
+    tabs = tables(*DELEGATED)
+    item = tabs.decode.rule_ids["item"]
+    assert not tabs.codes.nullable_completes[item], "item is nullable — pick another"
+    base, kern = paired(tabs, DELEGATED[1], delegating(tabs))
+    several = [
+        key
+        for key, bucket in base.st.links.items()
+        if len(bucket) > 1 and facing(kern, key) == item
+    ]
+    assert several, "no key facing item got a second family — nothing tested"
+    assert not [rid for rid, _end in kern.st.groups if rid == item]
     assert not bucket_differences(base, kern)
 
 

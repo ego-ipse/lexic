@@ -390,7 +390,8 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         c = self.tables.codes
         bits = self.tables.packing.bits
         origin = it & self.tables.packing.mask
-        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> bits]])
+        rid = c.arm_rule[c.code_arm[it >> bits]]
+        wl = self.st.waiting[origin].get(rid)
         if not wl:
             return
         if (
@@ -405,75 +406,77 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
         if self.record_links:
-            self._index_completion(i, it, wl, origin)
+            self._index_completion(i, (it << bits) | i, wl, origin, rid)
 
-    def _index_completion(self, i: int, it: int, wl: list[int], origin: int) -> None:
+    def _index_completion(
+        self, i: int, child: int, wl: list[int], origin: int, rid: int
+    ) -> None:
         """File one completion's families — the first directly, the rest not.
 
         `wl` is the waiter list `_complete` already holds, so this is the same
-        second iteration over one list the engine has always had.
+        second iteration over one list the engine has always had. Every waiter
+        in it faces ``rid``, so the whole completion is one tier, decided at its
+        first occupied bucket and held for the rest of the list.
 
         A fresh key costs what the old recorder paid: one link, one `get`, one
-        insert. The group lookup waits behind ``if st.groups`` — empty on every
-        chart that never promotes — and everything a promotion needs waits
-        behind an OCCUPIED bucket, which a chart of fanout one never meets. A
-        PROMOTED bucket allocates nothing: the family tuple is built only
-        where a bucket still records families, so the factored chart does not
-        pay one per waiter per completion.
+        insert, and decides nothing. A key facing a NULLABLE rule, or one this
+        kernel delegates, keeps every family in its bucket and is never
+        factored: `_nullable_advance` or `_complete_delegated` also files at it,
+        interleaved with ordinary families in event order, and only the bucket
+        records that interleaving. Its occupied bucket gets the old recorder's
+        dedup and append, and never reads ``bucket[0]``. For a factoring rule
+        the group lookup waits behind ``if st.groups`` — empty on every chart
+        that never promotes — and a PROMOTED bucket allocates nothing: the
+        family tuple is built only where a bucket still records families.
+
+        :param child: The completed item's handle, ``(it << bits) | i``.
         """
         links = self.st.links
-        pk = self.tables.packing
-        bits, advance = pk.bits, pk.advance
-        child = (it << bits) | i
-        group = self._join_group(i, it) if self.st.groups else None
+        bits, advance = self.tables.packing.bits, self.tables.packing.advance
+        group = self._join_group(i, child >> bits, rid) if self.st.groups else None
+        keeps = None
         for w in wl:
             key = ((w + advance) << bits) | i
             bucket = links.get(key)
             if bucket is None:
                 links[key] = [(w, origin, child)]
-            elif bucket[0] is not PROMOTED:
+                continue
+            if keeps is None:
+                keeps = (
+                    self.tables.codes.nullable_completes[rid] != ()
+                    or rid in self.delegates
+                )
+            if keeps:
                 entry: KLink = (w, origin, child)
                 if entry not in bucket:
-                    group = self._promote(i, it, entry, bucket, group)
+                    bucket.append(entry)
+                continue
+            if bucket[0] is PROMOTED:
+                continue
+            entry = (w, origin, child)
+            if entry not in bucket:
+                group = self._promote(i, child >> bits, rid, bucket, group)
 
-    def _join_group(self, i: int, it: int) -> list[int] | None:
-        """Record completion ``it`` in its ``(rule, i)`` group, if one exists."""
-        c = self.tables.codes
-        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
+    def _join_group(self, i: int, it: int, rid: int) -> list[int] | None:
+        """Record completion ``it`` in its ``(rid, i)`` group, if one exists."""
         group = self.st.groups.get((rid, i))
         if group is not None:
             group.append(it)
         return group
 
     def _promote(
-        self,
-        i: int,
-        it: int,
-        entry: KLink,
-        bucket: list[KLink],
-        group: list[int] | None,
-    ) -> list[int] | None:
-        """A key's second distinct family: hand its record to the shared group.
+        self, i: int, it: int, rid: int, bucket: list[KLink], group: list[int] | None
+    ) -> list[int]:
+        """A factoring key's second distinct family: hand its record to the group.
 
-        A key facing a NULLABLE rule, or one the island delegates, is never
-        factored and keeps every family as the old recorder did: those keys
-        also receive families from `_nullable_advance` or `_complete_delegated`,
-        interleaved with ordinary ones in event order, and only the bucket
-        records that interleaving.
-
-        Otherwise the bucket becomes ``[PROMOTED, first]``. Its first family
-        stays because the group may not hold it — it can predate the group —
-        and it needs no position: every other family the key reads from the
-        group was filed after it.
+        The bucket becomes ``[PROMOTED, first]``. Its first family stays because
+        the group may not hold it — it can predate the group — and it needs no
+        position: every other family the key reads from the group was filed
+        after it.
 
         :returns: the group, created here on the first promotion at its
-            ``(rule, end)``; ``None`` if this key is not one to factor.
+            ``(rid, i)``.
         """
-        c = self.tables.codes
-        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
-        if c.nullable_completes[rid] or rid in self.delegates:
-            bucket.append(entry)
-            return group
         if group is None:
             group = self.st.groups[(rid, i)] = [it]
         bucket.insert(0, PROMOTED)
