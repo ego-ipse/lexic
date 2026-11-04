@@ -35,6 +35,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     GATE_ATTEMPT,
+    GATE_KWIN,
     GATE_STOP,
     HI_UNBOUNDED,
     OP_AVDISP,
@@ -542,10 +543,45 @@ def test_a_nullable_run_matches_as_one_pattern_where_its_loop_would_end():
             assert run_span_once(doc, ws, [], at) == looped
 
 
+def _window_run(windows) -> FlatArm:
+    """A nullable one-class run over ``[ab-]`` gated by ``windows``."""
+    run = FlatArm.__new__(FlatArm)
+    run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab-"), False),)
+    run.los, run.his = (0,), (HI_UNBOUNDED,)
+    run.gate_kinds, run.gate_data = (GATE_KWIN,), (windows,)
+    return run
+
+
+def test_a_two_deep_window_run_is_one_pattern():
+    """A stop set decided two deep (:func:`~...kwindow.stop_exit_gate`) keeps
+    its one-call match: the pattern takes what the window loop takes, and the
+    arm's first-character set answers an empty run as the loop does — a dash
+    only where the next character lets it be taken."""
+    ab, dash = (frozenset("ab"), False), (frozenset("-"), False)
+    loop = _window_run(((ab,), (dash, ab)))
+    arm = run_pattern(loop)
+    assert arm is not None and arm.kinds == (OP_RUNPAT,)
+    chars, negated = arm.gate_data[0]
+    assert not negated and chars == frozenset("ab-")
+    for doc in ("", "a", "ab-a", "a-", "-a", "--a", "a-b-", "b--"):
+        for at in range(len(doc) + 1):
+            looped = match_cc(doc, loop, 0, at)
+            taken = doc[at : at + 1] in chars and doc[at : at + 1] != ""
+            matched = arm.payloads[0].match(doc, at).end() if taken else at
+            assert matched == looped, (doc, at)
+
+
+def test_a_window_run_three_deep_keeps_its_loop():
+    """Past two positions a window is no run's character."""
+    ab, dash = (frozenset("ab"), False), (frozenset("-"), False)
+    loop = _window_run(((dash, ab, ab),))
+    assert run_pattern(loop) is loop
+
+
 def test_a_run_that_can_refuse_keeps_its_loop():
     """A mandatory iteration's miss is a refusal in the loop's own words, and
-    a gate other than a stop set decides more than membership: both keep the
-    run arm as it is."""
+    a gate other than a stop set or a two-deep window decides more than
+    membership: both keep the run arm as it is."""
     run = FlatArm.__new__(FlatArm)
     run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab"), False),)
     run.los, run.his = (1,), (HI_UNBOUNDED,)

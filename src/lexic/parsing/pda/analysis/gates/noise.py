@@ -18,6 +18,12 @@ attribution**:
 - :func:`sem_follow_table` — the soft-FOLLOW fixpoint re-run over those
   semantic firsts, seeded empty (end-of-input is not semantic content).
 
+The same two fixpoints run with a second attribution, **rigid**: the chars a
+follower can start that it cannot give back — any terminal but an optional or
+repeated single-character class, semantic or not. A noise run that over-eats one of those has
+taken a token's first character (``sep ::= "\\n" "-"`` after ``ws ::= [ \\n]*``),
+not re-split noise: :func:`noise_split_safe` asks both.
+
 It also homes the **P3 noise-skip** analysis half (Task 6.4): the
 grammar-derived skippable alphabet :func:`noise_alphabet` (``W`` — the union
 of FIRST over *nullable non-semantic* rules: json whitespace, ABNF
@@ -57,9 +63,11 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.pda.analysis.gates.windows import END, separable
+from lexic.parsing.pda.analysis.predicates import STOPSET_ATOM
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
+    "noise_split_safe",
     "sem_follow_table",
     "stopset_escapes_soft_follow",
     "noise_greedy_licensed",
@@ -77,24 +85,36 @@ class _SemCtx(IrLeaf[IrSelf, IrSelf]):
     :ivar analysis: The grammar-analysis oracle (rules/atom_first/item_nullable).
     :ivar semantic: Whether the enclosing rule is ``semantic=True``.
     :ivar table: The growing per-rule semantic-FIRST table.
+    :ivar rigid: The rigid attribution instead: every terminal counts, a rule
+        contributes its own rigid FIRST, and an optional or repeated
+        single-character class nothing (:func:`_item_sem_first`).
     """
 
-    __slots__ = ("analysis", "semantic", "table")
+    __slots__ = ("analysis", "semantic", "table", "rigid")
 
     analysis: Any
     semantic: bool
     table: dict[str, CharSet]
+    rigid: bool
 
-    def __init__(self, analysis: Any, semantic: bool, table: dict[str, CharSet]):
+    def __init__(
+        self,
+        analysis: Any,
+        semantic: bool,
+        table: dict[str, CharSet],
+        rigid: bool = False,
+    ):
         self.analysis = analysis
         self.semantic = semantic
         self.table = table
+        self.rigid = rigid
 
 
 def _sf_terminal(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
-    """A terminal's chars are semantic content iff the enclosing rule is."""
+    """A terminal's chars are semantic content iff the enclosing rule is; a
+    terminal is always rigid."""
     ctx = cast(_SemCtx, nc[0])
-    return ctx.analysis.atom_first(n) if ctx.semantic else CharSet.EMPTY
+    return ctx.analysis.atom_first(n) if ctx.semantic or ctx.rigid else CharSet.EMPTY
 
 
 def _sf_ruleref(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
@@ -108,6 +128,8 @@ def _sf_ruleref(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
     rules = ctx.analysis.rules
     if name not in rules:
         return CharSet.ANY
+    if ctx.rigid:
+        return ctx.table[name]
     if not rules[name].semantic:
         return CharSet.EMPTY
     return ctx.table[name]
@@ -139,24 +161,40 @@ def _atom_sem_first(atom: IrSelf, ctx: _SemCtx) -> CharSet:
     return cast(CharSet, _SEM_FIRST.resolve(atom).eval(ctx.analysis, atom, (ctx,)))
 
 
+def _item_sem_first(item: IrItem, ctx: _SemCtx) -> CharSet:
+    """One item's contribution: its atom's, except that under the rigid
+    attribution an optional or repeated single-character class gives its
+    character back — the run it is shortens — so it contributes nothing."""
+    atom = item.atom
+    analysis = ctx.analysis
+    if (
+        ctx.rigid
+        and analysis.item_nullable(item)
+        and cast(bool, STOPSET_ATOM.resolve(atom).eval(analysis, atom, ()))
+    ):
+        return CharSet.EMPTY
+    return _atom_sem_first(atom, ctx)
+
+
 def _seq_sem_first(items: Sequence[IrItem], ctx: _SemCtx) -> CharSet:
     """Semantic FIRST of an item sequence — union until the first non-nullable."""
     out = CharSet.EMPTY
     for item in items:
-        out = out.union(_atom_sem_first(item.atom, ctx))
+        out = out.union(_item_sem_first(item, ctx))
         if not ctx.analysis.item_nullable(item):
             break
     return out
 
 
-def sem_first_table(analysis: Any) -> dict[str, CharSet]:
-    """The per-rule semantic-FIRST fixpoint (chaotic iteration to stability)."""
+def sem_first_table(analysis: Any, rigid: bool = False) -> dict[str, CharSet]:
+    """The per-rule semantic-FIRST fixpoint (chaotic iteration to stability),
+    or the rigid one (:class:`_SemCtx`)."""
     table: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
     while changed:
         changed = False
         for name, rule in analysis.rules.items():
-            ctx = _SemCtx(analysis, bool(rule.semantic), table)
+            ctx = _SemCtx(analysis, bool(rule.semantic), table, rigid)
             acc = CharSet.EMPTY
             for arm in rule.body:
                 acc = acc.union(_seq_sem_first(arm, ctx))
@@ -243,16 +281,16 @@ def _feed_sem(
         atom = item.atom
         eff = cont
         if item.quantifier.repeats():
-            eff = eff.union(_atom_sem_first(atom, ctx))
+            eff = eff.union(_item_sem_first(item, ctx))
         fd = _SemFeed(eff, tgt, ctx)
         if cast(bool, _SEM_FEED.resolve(atom).eval(ctx.analysis, atom, (fd,))):
             changed = True
-        first = _atom_sem_first(atom, ctx)
+        first = _item_sem_first(item, ctx)
         cont = cont.union(first) if ctx.analysis.item_nullable(item) else first
     return changed
 
 
-def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
+def sem_follow_table(analysis: Any, rigid: bool = False) -> dict[str, CharSet]:
     """Rule name → the chars that can follow it as *semantic* content.
 
     The P6 licence oracle: a non-semantic rule's greedy over-eat is
@@ -261,18 +299,23 @@ def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
 
     :param analysis: The grammar analysis (``rules`` / ``atom_first`` /
         ``item_nullable`` oracle — ``Any``-typed to keep this module a leaf).
-    :returns: The semantic-FOLLOW table.
+    :param rigid: The rigid attribution's table instead (:class:`_SemCtx`).
+    :returns: The semantic-FOLLOW table, built once per analysis and attribution.
     """
-    sem_first = sem_first_table(analysis)
+    built = analysis.follows.noise.get(rigid)
+    if built is not None:
+        return built
+    sem_first = sem_first_table(analysis, rigid)
     tgt: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
     while changed:
         changed = False
         for name, rule in analysis.rules.items():
-            ctx = _SemCtx(analysis, bool(rule.semantic), sem_first)
+            ctx = _SemCtx(analysis, bool(rule.semantic), sem_first, rigid)
             for arm in rule.body:
                 if _feed_sem(arm, tgt[name], ctx, tgt):
                     changed = True
+    analysis.follows.noise[rigid] = tgt
     return tgt
 
 
@@ -327,7 +370,18 @@ def noise_greedy_licensed(
         return False
     gap = analysis.cont_at(items, k, scope.tail).subtract(scope.hard_tail)
     eatable = gap.subtract(gap.subtract(first))
-    return not sem_follow_table(analysis)[scope.rule].overlaps(eatable)
+    return noise_split_safe(analysis, scope.rule, eatable)
+
+
+def noise_split_safe(analysis: Any, rule: str, eatable: CharSet) -> bool:
+    """Whether a noise run at the end of ``rule`` may take any of ``eatable``
+    from what follows: none of them can follow as semantic content, and none
+    can start a follower that cannot give it back (the rigid table) — so the
+    bytes only move between noise fields that both stay whole."""
+    return not (
+        sem_follow_table(analysis)[rule].overlaps(eatable)
+        or sem_follow_table(analysis, True)[rule].overlaps(eatable)
+    )
 
 
 # ── P3: the noise-skip substrate ────────────────────────────────────────────

@@ -49,7 +49,12 @@ from lexic.parsing.pda.analysis.cursors import (
 from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.analysis.extend.maps import Extensions
 from lexic.parsing.pda.analysis.gates.ends.sites import RunIndex, run_decides
-from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K, stop_exit_settles
+from lexic.parsing.pda.analysis.gates.kwindow import (
+    FOLLOW_LOOP_K,
+    lone_iterations,
+    stop_exit_gate,
+    stop_exit_settles,
+)
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
     noise_greedy_licensed,
@@ -80,6 +85,8 @@ class Follows(NamedTuple):
         :meth:`windows`, never by a caller.
     :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
     :ivar runs: The run-site index once asked for — filled by ``run_sites``.
+    :ivar noise: The semantic and rigid FOLLOW tables, by ``rigid`` — filled
+        by ``sem_follow_table`` alone.
     """
 
     soft: dict[str, CharSet]
@@ -90,6 +97,7 @@ class Follows(NamedTuple):
     deep: dict[int, FollowWindows]
     extended: list[Extensions]
     runs: list[RunIndex]
+    noise: dict[bool, dict[str, CharSet]]
 
     def windows(self, k: int) -> FollowWindows:
         """FOLLOW\\ :sub:`k` as window sets, built once per width.
@@ -160,6 +168,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             {},
             [],
             [],
+            {},
         )
         self.taxonomy = Taxonomy(delegated)
         self._classify(grants)
@@ -618,23 +627,33 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
     ) -> None:
         """Grant item ``k``'s stop-set where its exit is the split answer: the
-        only way on two deep (``stop_exit_settles``, withheld from a delegate),
+        only way on two deep (``stop_exit_gate``, withheld from a delegate),
         else where its run ends (``run_decides``), else with no exit in reach
         the longest take. Defer the rest to :meth:`_settle`.
+
+        Decided two deep, the loop is gated by those two characters at an exit
+        (:func:`~.gates.kwindow.stop_exit_gate`): a stop set alone would stop at
+        every exit, and the take a later character needs would die there.
         """
         note = f"{scope.rule}[{k}]: loop stop-set applied"
         first = self.atom_first(items[k].atom)
         hard = self.hard_cont_at(items, k, scope.hard_tail)
         exits = first.subtract(first.subtract(hard))
-        if (
-            not exits.is_empty()
-            and scope.body
-            and not self.taxonomy.delegated
-            and stop_exit_settles(
-                self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
+        gate = (
+            stop_exit_gate(
+                self.follows.windows(FOLLOW_LOOP_K),
+                (items, k),
+                scope.rule,
+                first,
+                exits,
             )
-        ):
+            if not exits.is_empty() and scope.body and not self.taxonomy.delegated
+            else None
+        )
+        if gate is not None:
             notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
+            if STOP_SET in notes.grants:
+                demote.store_loop_gate(self, items[k], gate)
         elif run_decides(self, (items, k), scope, notes, not exits.is_empty()):
             return
         elif exits.is_empty():
@@ -651,8 +670,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         are audited. A rest-of-arm boundary that two characters already decide
         is left out (:func:`~.gates.kwindow.stop_exit_settles`): no text
         continues both ways, so at most one side completes, and an iteration
-        that parsed is the take. That proof reads the end of the input, so a
-        delegate's analysis withholds it.
+        that parsed reads two characters of the take. One that is a single
+        exit character reads only one, so those stay audited
+        (:func:`~.gates.kwindow.lone_iterations`). That proof reads the end of
+        the input, so a delegate's analysis withholds it.
         """
         cont = self.cont_at(items, k, scope.structural_tail)
         rest = items[k + 1 :]
@@ -662,10 +683,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return cont
         first = self.atom_first(items[k].atom)
         exits = first.subtract(first.subtract(self.seq_first(rest)))
-        if stop_exit_settles(
-            self.follows.windows(FOLLOW_LOOP_K), items, k, scope.rule, exits
-        ):
-            return CharSet.EMPTY
+        windows = self.follows.windows(FOLLOW_LOOP_K)
+        if stop_exit_settles(windows, items, k, scope.rule, exits):
+            lone = lone_iterations(windows, items[k].atom)
+            return cont.subtract(cont.subtract(lone))
         return cont
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:

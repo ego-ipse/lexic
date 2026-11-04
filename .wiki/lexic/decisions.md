@@ -509,7 +509,7 @@ fold-refusal reroute stays as the last line of defence.
 
 ## 2026-07-11 — P6/P3 noise levers: attribution over hardcoding; peeks are fail-soft (Task 6.4)
 
-**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it.
+**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it. The greedy licence (`noise_greedy_licensed`, through `noise_split_safe`) carries a fourth: no eatable char may start a follower that cannot give it back — the same fixpoints under a *rigid* attribution, where every terminal counts and an optional or repeated single-character class counts nothing, since the run it is shortens. Without it a noise run eats the first character of a required noise token (`ws ::= [ \n]*` before `sep ::= "\n" "-"`), and a reading that dies of it is pruned as certain. The exact-match gate (`_match_gate`) keeps the semantic clause alone: it takes only a complete unit, so a follower is at risk only if its own text is one.
 
 **Decision 2 — W is grammar-derived, not per-flavour.** The P3 skippable alphabet is ⋃FIRST over **nullable** non-semantic rules: nullability is what separates a noise *run* (ws, filler) from a required-but-dropped token marker (dquote, defined) — exactly the ⚠ 6.0 constraint, with W itself derived. Gives json whitespace, ABNF ws+`;`, GBNF ws+`#` (matching the SIM's hand-pinned sets).
 
@@ -1180,16 +1180,26 @@ analysis (`analysis/analysis.py`, `_stop_set` then `_settle`) grants a stop-set
 under one of four conditions, tried in this order, and files every other one
 hard, so its rule islands and Earley answers:
 
-1. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
+1. **The exit is decided two deep** (`gates/kwindow.stop_exit_gate`). No text
    continues both ways: with `c` an exit character, no window `(c, d)` of the
    continuation also fits a take of `c`. Then at most one of the two completes,
-   and the PDA's exit is the answer or a failure that bails. Each reference site
-   of the rule is judged alone, through `FollowWindows.site_windows`: the other
+   and the two characters say which, so the loop is gated by them: at an exit
+   it takes iff `(c, d)` fits a take window, elsewhere it takes as the stop set
+   does. A stop set alone would stop at every exit, and the take a later
+   character needs would die there; inside a live set's reading that death is a
+   prune, and the reading kept is the wrong one. Each reference site is proved
+   alone, through `FollowWindows.site_windows` (`stop_exit_settles`): the other
    carving differs only in where this loop ends, so it keeps the enclosing arm
-   and continues through the same site. Unioning the sites loses arithmetic's
-   `ws`, whose take at the end of `e` would be continued by the letter after
-   `= ws` at another site. A take and a stop that both end the input right
-   after `c` are refused as a guard. That is never realised, since `c` is a
+   and continues through the same site. The gate is one per item across every
+   clone, so the sites' windows must also separate as a union. Arithmetic's
+   `ws` does not — its take at the end of `e` is continued by the letter after
+   `= ws` at another site — and is decided where its run ends (2) instead. A
+   nullable one-class run keeps its one-call match: a two-deep window is a
+   regex lookahead (`gating.window_source`). The audit set an attempt loop keeps
+   reads the same proof (`beyond_at`): where it holds, an iteration that parsed
+   read both characters, except one that is a single exit character
+   (`kwindow.lone_iterations`), which stays audited. A take and a stop that
+   both end the input right after `c` are refused as a guard. That is never realised, since `c` is a
    hard continuation character of the clone that exits. It costs nothing
    because the FOLLOW_k fixpoint treats an empty tail as its bottom rather than
    as "the input may end here": a rule only gets an end window if the input

@@ -374,6 +374,11 @@ def sem_follow_clear(
     the rule as *semantic* content (:func:`~lexic.parsing.pda.analysis.gates.noise
     .sem_follow_table`). Then any over-take only re-splits adjacent noise: same
     bytes, unchanged reduction.
+
+    The greedy licence's rigid clause (:func:`~lexic.parsing.pda.analysis.gates
+    .noise.noise_split_safe`) is not asked: the exact match takes only a
+    complete unit, so a follower it could eat is one whose whole text is a
+    complete unit, not one that merely starts with a unit's character.
     """
     if not scope.body:
         return False

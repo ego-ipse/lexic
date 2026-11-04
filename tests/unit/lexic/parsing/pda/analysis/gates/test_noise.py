@@ -27,6 +27,7 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.noise import (
     ResidualFirst,
     noise_alphabet,
+    noise_split_safe,
     peek_arm_gate,
     peek_loop_gate,
     sem_first_table,
@@ -175,6 +176,68 @@ def test_json_ws_sem_follow_has_no_whitespace():
         assert not follow["ws"].has(ch)
     assert follow["ws"].has(",")  # semantic followers are all still there
     assert follow["ws"].has("}")
+
+
+# ── rigid FOLLOW: a follower that cannot give a character back ──────────────
+
+
+def _separated(sep_noise: bool) -> GrammarAnalysis:
+    """``root ::= x ws sep? "q"``: a noise run, then ``sep ::= "\\n" "-"``,
+    marked noise or not, that an optional group holds."""
+    nl = IrLiteral("\n")
+    x = IrRule("x", IrAlternation(IrSequence(item(IrLiteral("x")))))
+    ws = noise_rule("ws", IrSequence(item(IrCharClass(IrChr(32), IrChr(10)), 0, None)))
+    sep = IrRule(
+        "sep",
+        IrAlternation(IrSequence(item(nl), item(IrLiteral("-")))),
+        semantic=not sep_noise,
+    )
+    root = IrRule(
+        "root",
+        IrAlternation(
+            IrSequence(
+                item(IrRuleRef("x")),
+                item(IrRuleRef("ws")),
+                item(IrRuleRef("sep"), lo=0, hi=1),
+                item(IrLiteral("q")),
+            )
+        ),
+    )
+    return make_analysis(root, x, ws, sep, start="root")
+
+
+def test_a_noise_token_after_a_run_is_rigid_follow() -> None:
+    """``sep`` is noise, so its newline is no semantic content — but a run
+    that eats it leaves ``sep`` unable to start: the newline is rigid FOLLOW,
+    and the over-eat is not a re-split of noise."""
+    analysis = _separated(sep_noise=True)
+    assert not sem_follow_table(analysis)["ws"].has("\n")
+    assert sem_follow_table(analysis, True)["ws"].has("\n")
+    assert not noise_split_safe(analysis, "ws", CharSet.from_chars("\n"))
+    assert noise_split_safe(analysis, "ws", CharSet.from_chars(" "))
+
+
+def test_an_optional_single_character_run_gives_its_character_back() -> None:
+    """json's ``ws`` is followed by rules that open with another ``ws``: that
+    run's whitespace is not rigid — it shortens — so the greedy run stays
+    licensed, and the punctuation after it is what stays rigid."""
+    analysis = _ground_truth_analysis("json.gbnf")
+    rigid = sem_follow_table(analysis, True)["ws"]
+    for ch in " \t\n\r":
+        assert not rigid.has(ch)
+    assert rigid.has(",") and rigid.has("]")
+    assert noise_split_safe(analysis, "ws", CharSet.from_chars(" ", "\t", "\n", "\r"))
+
+
+def test_each_follow_table_is_built_once_per_analysis() -> None:
+    """Both tables are whole-grammar fixpoints every licence asks: built once
+    per analysis and attribution, and the two attributions kept apart."""
+    analysis = _separated(sep_noise=True)
+    semantic = sem_follow_table(analysis)
+    rigid = sem_follow_table(analysis, True)
+    assert sem_follow_table(analysis) is semantic
+    assert sem_follow_table(analysis, True) is rigid
+    assert semantic is not rigid
 
 
 # ── P3: noise_alphabet / ResidualFirst / peek gates ─────────────────────────

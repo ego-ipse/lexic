@@ -26,12 +26,14 @@ from collections.abc import Callable
 from typing import Iterable, Iterator, Mapping, Sequence
 
 from lexic.ir import (
+    IrAtom,
     IrItem,
     IrQuantifier,
     IrRule,
     references,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
+    END,
     Depth,
     FollowWindows,
     KWindowFirst,
@@ -50,9 +52,11 @@ __all__ = [
     "arm_gate",
     "arm_windows",
     "follow_depths",
+    "lone_iterations",
     "loop_gate",
     "window_depths",
     "rule_references",
+    "stop_exit_gate",
     "stop_exit_settles",
 ]
 
@@ -263,8 +267,8 @@ def stop_exit_settles(
     The loop at item ``idx`` of rule ``label``'s arm leaves at the first
     character of ``exits``. Taking that character instead is an iteration the
     rest of the text must still complete. Where no text can continue both ways
-    for its next two characters, at most one of them completes: the exit, or
-    a failure that bails. So the exit is the split answer.
+    for its next two characters, at most one of them completes, so the two
+    characters decide which (:func:`stop_exit_gate` is that decision).
 
     Checked at each reference site of ``label`` alone, never across them. The
     other carving differs from the one taken only in where this loop ends, so
@@ -281,14 +285,89 @@ def stop_exit_settles(
     :param exits: The characters the loop can exit at.
     :returns: ``True`` when no site lets both continue.
     """
+    return all(
+        not _colliding(take, stop, exits)
+        for take, stop in _exit_sides(windows, items, idx, label)
+    )
+
+
+def stop_exit_gate(
+    windows: FollowWindows,
+    at: tuple[Sequence[IrItem], int],
+    label: str,
+    first: CharSet,
+    exits: CharSet,
+) -> tuple[tuple[CharSet, ...], ...] | None:
+    """The two-character gate a settled stop-set exit is decided by, or
+    ``None`` where :func:`stop_exit_settles` does not hold for one gate.
+
+    At an exit character the loop takes iff the next two characters fit a
+    take window; elsewhere in its FIRST it takes as the stop set does. A take
+    window that ENDs short is the end of the input there, so it gains an EOF
+    position. One gate serves every reference site, so the take windows of
+    all of them must miss the stop windows of all of them: a site's own proof
+    says nothing about a window another site contributes.
+
+    :param at: The rule arm holding the loop, and the looping item's index.
+    :param first: The looping item's FIRST.
+    :returns: The gate's windows — the run's non-exit FIRST as one position,
+        then each take window narrowed to its exits.
+    """
+    items, idx = at
+    sides = list(_exit_sides(windows, items, idx, label))
+    taken = {pref for take, _stop in sides for pref in take}
+    stopped = {pref for _take, stop in sides for pref in stop}
+    if not sides or _colliding(taken, stopped, exits):
+        return None
+    return _gate_windows(taken, first, exits)
+
+
+def _gate_windows(
+    taken: set[Pref], first: CharSet, exits: CharSet
+) -> tuple[tuple[CharSet, ...], ...]:
+    """The run's non-exit FIRST as one position, then each take window
+    narrowed to its exits; one that ENDs short gains an EOF position."""
+    gate: set[tuple[CharSet, ...]] = {(first.subtract(exits),)}
+    eof = CharSet.from_chars("")
+    for chars, tag in taken:
+        lead = chars[0].subtract(chars[0].subtract(exits)) if chars else exits
+        if not chars or lead.is_empty():
+            continue
+        short = tag == END and len(chars) < FOLLOW_LOOP_K
+        gate.add((lead, *chars[1:], eof) if short else (lead, *chars[1:]))
+    return windows_of({(window, END) for window in gate})
+
+
+def lone_iterations(windows: FollowWindows, atom: IrAtom) -> CharSet:
+    """The characters that are one whole iteration of ``atom`` on their own.
+
+    The two-deep proof reads an iteration's first two characters. An
+    iteration one character long has only its first: the second is past it,
+    and says nothing about whether the iteration was the take.
+    """
+    lone = CharSet.EMPTY
+    once = IrItem(atom, IrQuantifier(1, 1))
+    for chars, tag in windows.solver.arm_prefixes([once], FOLLOW_LOOP_K):
+        if tag == END and len(chars) == 1:
+            lone = lone.union(chars[0])
+    return lone
+
+
+def _exit_sides(
+    windows: FollowWindows, items: Sequence[IrItem], idx: int, label: str
+) -> Iterator[tuple[set[Pref], set[Pref]]]:
+    """Each reference site's take and stop windows at a stop-set's exit, two
+    characters deep: the loop taking one more iteration, and the rest of the
+    arm, each END-extended by that site's FOLLOW."""
     k = FOLLOW_LOOP_K
     rest = list(items[idx + 1 :])
     item = IrItem(items[idx].atom, IrQuantifier(1, items[idx].quantifier.hi))
     taken = windows.solver.arm_prefixes([item, *rest], k)
     stopped = windows.solver.arm_prefixes(rest, k)
     for site in windows.site_windows(label):
-        take = extend_follow(taken, site, k)
-        stop = extend_follow(stopped, site, k)
-        if any(collide(t, s, exits, eof=True) for t in take for s in stop):
-            return False
-    return True
+        yield extend_follow(taken, site, k), extend_follow(stopped, site, k)
+
+
+def _colliding(take: set[Pref], stop: set[Pref], exits: CharSet) -> bool:
+    """Whether some text at an exit fits both a take and a stop window."""
+    return any(collide(t, s, exits, eof=True) for t in take for s in stop)
