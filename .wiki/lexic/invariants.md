@@ -153,6 +153,21 @@ with its fix reverted. A side's floor never steals, pinned on two documents
 that otherwise go to the gated engine. A program that cannot nest that deep drives every
 sub-run plainly, and one that can drives every one counted: a pin each way.
 
+## A reading's death after a policy grant is certain, for the grants it covers
+
+A live set prunes a reading that dies, so every death inside one has to be
+certain. Two grants commit by policy and are held to that. A stop set decided
+two characters deep is gated by those two characters: at an exit it takes only
+where the take goes on. A greedy noise run never eats the first character of a
+follower that cannot give it back. Pinned by
+`parity/test_stop_set.py::test_a_policy_grant_inside_a_reading_answers_as_earley`
+(a two-deep exit before a reference, a word before its tail, and a noise run
+before a required noise token, each behind an optional tag whose live set
+weighs them) and the arithmetic blank-line pins in `parity/test_stop_set.py`
+and `parity/test_pda_fallback.py`. A loop that runs through a character only a
+repetition's loopback admits next is not covered yet: a reading can still
+die of that take while its stop would have lived.
+
 ## One clone walk, and it is complete
 
 `all_clones` is the one walk over a compiled program's clones: it follows every

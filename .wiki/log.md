@@ -1,5 +1,22 @@
 # Log
 
+## A completion's memo holds each value as it is (2026-11-04)
+
+`decisions.md` records that the product completion's memo keeps each node's
+value as it is, with `EMPTY_RESULT` for none, and why a wrapper per node is
+refused: the tracked objects it adds move a free-threaded seat across a
+collector pass. `invariants.md` records that a reading's death is certain
+after a two-deep stop set or a greedy noise run, with its pins.
+
+## A policy grant decides what a reading's death depends on (2026-11-04)
+
+`decisions.md`'s stop-set entry: a two-deep exit is gated by its two
+characters, as one gate whose sites must separate as a union (arithmetic's
+`ws` moves to the run-end decision), a two-deep window keeps a nullable run's
+one-call match, and the attempt audit set keeps its lone-iteration exits. The
+P6 entry: the greedy noise licence's rigid clause, and why the exact-match
+gate does not need it.
+
 ## A sub-run nested past the in-place depth suspends (2026-11-03)
 
 `decisions.md` records how the predictive parse drives attempt sub-runs in
@@ -2915,13 +2932,3 @@ lead read from the text.
 `decisions.md`'s stop-set entry: the four grants in cascade order, and the
 run-end decision — the closure kinds and their counterexamples, the context
 per clone, and its three refusals.
-
-## A policy grant decides what a reading's death depends on (2026-11-04)
-
-`decisions.md`'s stop-set entry: a two-deep exit is gated by its two
-characters, as one gate whose sites must separate as a union (arithmetic's
-`ws` moves to the run-end decision), a two-deep window keeps a nullable run's
-one-call match, and the attempt audit set keeps its lone-iteration exits. The
-P6 entry: the greedy noise licence's rigid clause, and why the exact-match
-gate does not need it.
-

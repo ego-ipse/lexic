@@ -548,6 +548,21 @@ fold-refusal reroute stays as the last line of defence.
 
 ---
 
+## A completion's memo holds each value as it is
+
+**Decision:** the product completion's memo (`parsing/product/tree.py`,
+`ResultMemo`) keeps each tree node's completed value as it is, with
+`EMPTY_RESULT` standing for a node that completes to no value. `Completed`
+wraps only the one result a caller receives, and a ONE capture reads its
+slot's value directly, without a one-item list.
+
+**Why:** the memo is filled once per tree node. A `Completed` per node, and a
+list per ONE capture, are tracked objects the free-threaded collector counts:
+on a 9.6 k-character document they are about 28.8 k wrappers and as many lists,
+against a peak of about 230 k tracked objects. That is enough to move a
+long-document seat from two collector passes a round to three, which reads as
+a wall-clock slowdown with no change in the parse.
+
 ## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3) — SUPERSEDED 2026-09-04
 
 **Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.
@@ -1417,10 +1432,10 @@ inside as their callers would"*). There is no second settle path.
 The floor settle therefore does everything the live caller does: a miss asks
 the rule's island where its root steals (`_stolen_at`) — at a live floor only:
 a side's miss is that reading's death, and the sub-run misses only when every
-reading does, so its live caller asks then; asked at the side, the island
-answered for the sub-run beside the reading that took the other way, and the
-two met where the decider cannot separate them, sending a document the parse
-answered to the gated engine. An island's ends raised
+reading does, so its live caller asks then; asked at a side, the island
+would answer for the sub-run beside the reading that took the other way, and
+the two would meet where the decider cannot separate them, sending a document
+the parse answers to the gated engine. An island's ends raised
 for the sub-run are claimed for it (`claim_ends`) and taken by the
 iteration they are the whole outcome of, and an audit resumed at a floor keeps
 the rivals found before it (the audit record carries them).
@@ -1456,12 +1471,12 @@ side's drive (a level of its own) settles what suspends inside it without a
 save on every advance.
 
 **Why:** a right recursion through an attempt (`root ::= x root | x`) nests one
-sub-run per unit, five Python frames or more each, so about two hundred units
-crashed with
-`RecursionError` on the predictive engine. Past the depth a unit costs no frame.
-A count on every sub-run measured about 1% on vyx's predictive seats, and even
-a per-sub-run test of a clone flag was 0.18% of vyx's instructions; chosen per
-program, vyx runs within 0.02% of the instructions it ran before.
+sub-run per unit, five Python frames or more each, so without a floor about two
+hundred units would exceed the recursion limit on the predictive engine. Past
+the depth a unit costs no frame. A count on every sub-run costs about 1% on
+vyx's predictive seats, and even a per-sub-run test of a clone flag 0.18% of
+vyx's instructions; chosen per program, vyx runs within 0.02% of the
+instructions it runs without the floors.
 
 ## A text extent has one answerer, and a declined proof checks every match
 
