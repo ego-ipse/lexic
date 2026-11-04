@@ -18,7 +18,7 @@ decided once and the same way, whichever engine is asking.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from operator import ne
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -352,15 +352,48 @@ def same_value(one: object, other: object) -> bool:
     A type that declined to define equality has declined to answer, and the
     conservative reading of "cannot tell" is no observable difference, hence no
     refusal.
+
+    Walked with a stack of container pairs, not by recursion: a right
+    recursion builds a value as deep as its document. Each pair's leaves are
+    compared where it is read, so only containers are pushed.
     """
     if type(one) is not type(other):
         return False
-    if isinstance(one, (tuple, list)) and isinstance(other, (tuple, list)):
-        return len(one) == len(other) and all(map(same_value, one, other))
+    if not isinstance(one, _NESTED):
+        return _same_leaf(one, other)
+    pending = [(one, other)]
+    while pending:
+        pairs = _children(*pending.pop())
+        if pairs is None:
+            return False
+        for child, twin in pairs:
+            if type(child) is not type(twin):
+                return False
+            if isinstance(child, _NESTED):
+                pending.append((child, twin))
+            elif not _same_leaf(child, twin):
+                return False
+    return True
+
+
+_NESTED = (tuple, list, dict)
+"""The containers :func:`same_value` compares child by child."""
+
+
+def _children(one: object, other: object) -> Iterable[tuple[object, object]] | None:
+    """Two containers of one type as their child pairs, in order; ``None``
+    when their lengths or keys differ."""
     if isinstance(one, dict) and isinstance(other, dict):
-        return one.keys() == other.keys() and all(
-            same_value(one[k], other[k]) for k in one
-        )
+        if one.keys() != other.keys():
+            return None
+        return [(one[k], other[k]) for k in one]
+    if isinstance(one, (tuple, list)) and isinstance(other, (tuple, list)):
+        return zip(one, other) if len(one) == len(other) else None
+    return None
+
+
+def _same_leaf(one: object, other: object) -> bool:
+    """:func:`same_value` on two values of one type that hold no children."""
     if type(one).__eq__ is object.__eq__:
         return True
     # `x != x` is true only of a value that is not equal to itself — NaN.

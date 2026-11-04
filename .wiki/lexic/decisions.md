@@ -1391,6 +1391,68 @@ through a sub-run's root without settling it as the caller would is a different
 parse, and a verdict asked on it answers a different question; the ranked
 verdict compares sides' values, so they must be the values the parse builds.
 
+## A sub-run nested past the in-place depth suspends, and is settled at its floor
+
+**Decision:** an attempt sub-run is driven where its Python caller stands only
+while fewer than the parse's in-place depth stand on the Python stack
+(`in_place_depth`: an eighth of the recursion limit, over the frames one level
+costs). The one at the depth drives by settling (`Floors._catch`): every
+sub-run started inside it leaves its frames pushed and raises `Suspended`, a
+`BaseException` no `PdaFail` handler catches. Each caller it passes names
+itself on the floor's record (`Suspended.called_by`), and the catching drive
+settles the floor as that caller would, through the same `_drive_floors` a side
+settles its floors with (*"A boundary's side settles the sub-runs it stands
+inside as their callers would"*). There is no second settle path.
+
+The floor settle therefore does everything the live caller does: a miss asks
+the rule's island where its root steals (`_stolen_at`) — at a live floor only:
+a side's miss is that reading's death, and the sub-run misses only when every
+reading does, so its live caller asks then; asked at the side, the island
+answered for the sub-run beside the reading that took the other way, and the
+two met where the decider cannot separate them, sending a document the parse
+answered to the gated engine. An island's ends raised
+for the sub-run are claimed for it (`claim_ends`) and taken by the
+iteration they are the whole outcome of, and an audit resumed at a floor keeps
+the rivals found before it (the audit record carries them).
+
+Ends a floor's own steal raises are claimed by `_stolen_back`; ends that reach
+a floor from its drive are not claimed there, and are raised on. An island
+asked straight into a sub-run's holder raises its ends as the sub-run is
+entered, where the live call claims them before the sub-run can suspend: in
+every grammar the parity searches reach, at an in-place depth of 0 and
+unbounded, the floor's claim met none. **The condition:** a sub-run whose root
+is a framed transparent clone with an island item straight in its arm would
+raise its ends from the floor's drive, into the holder. If anyone builds that
+shape, the claim comes back in `Floors._missed_at`, for live floors only, with
+that document as its pin. A context that
+restores state in a `finally` — a side's `_advance`, `_spans_exactly`'s
+truncated text, `prefix_run` — clears `RunScope.catching`, so what suspends
+inside it is settled inside it.
+
+`same_value` walks a stack of container pairs rather than recursing: a right
+recursion builds a value as deep as its document, and the audit compares two.
+
+**Only a program that can nest past the depth counts, and the kernel says so
+once.** Lowering sets `PdaProgram.nests` (`can_nest`) where an attempt edge
+lies on a cycle of the clone graph, or where one chain holds more than
+`NESTING_CHAIN` (the default in-place depth). Such a program parses on
+`NestingKernel`, whose `_sub_drive` counts; every other on `PdaKernel`, whose
+`_sub_drive` is an alias of `_drive`, so its sub-runs run exactly the plain
+drive and pay nothing per sub-run. No bench program's chain is longer than
+ten, and none has such a cycle. A `Suspended` handler stands last in each
+`except` chain, so a miss never tests for it. The catcher is
+per drive: `RunScope.catching` holds the probing level it drives at, so a
+side's drive (a level of its own) settles what suspends inside it without a
+save on every advance.
+
+**Why:** a right recursion through an attempt (`root ::= x root | x`) nests one
+sub-run per unit, five Python frames or more each, so about two hundred units
+crashed with
+`RecursionError` on the predictive engine. Past the depth a unit costs no frame.
+A count on every sub-run measured about 1% on vyx's predictive seats, and even
+a per-sub-run test of a clone flag was 0.18% of vyx's instructions; chosen per
+program, vyx runs within 0.02% of the instructions it ran before.
+
 ## A text extent has one answerer, and a declined proof checks every match
 
 **Decision:** a text-only rule's extent is answered in one order. Where

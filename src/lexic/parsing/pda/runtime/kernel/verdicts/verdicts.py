@@ -28,6 +28,7 @@ from lexic.parsing.pda.runtime.admission import (
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import PENDING, UNSEEN
 from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
     FORKED,
     STOP_FORCED,
@@ -35,8 +36,6 @@ from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
     LiveSet,
 )
 from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
-    PENDING,
-    UNSEEN,
     descending,
     iterating,
     once,

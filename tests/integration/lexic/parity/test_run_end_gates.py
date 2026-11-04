@@ -142,18 +142,17 @@ def test_a_loop_its_own_arm_still_needs_text_after_keeps_its_island() -> None:
     assert str(compiled.parse(text).dump()) == _earley(compiled, text)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=RecursionError,
-    reason="deep right recursion exhausts the stack, on either engine",
-)
 def test_a_right_recursive_spelling_at_document_scale() -> None:
-    """``root ::= entry root | entry`` over 4 KiB: the same outcome as without
-    the run-end gate — a recursion as deep as the document."""
+    """``root ::= entry root | entry`` over 4 KiB: a recursion as deep as the
+    document, which the predictive parse settles past its in-place depth
+    without a Python frame per unit, and Earley's model at a smaller scale."""
     compiled = compile_text(
         "root ::= entry root | entry\n" + _ENTRY.split("\n", 1)[1] + "e ::= [a-z]+\n"
     )
-    compiled.parse(UNIT * (4 * 1024 // len(UNIT)))
+    text = UNIT * (4 * 1024 // len(UNIT))
+    assert compiled.parse(text).to_text() == text
+    small = UNIT * 8
+    assert str(compiled.parse(small).dump()) == _earley(compiled, small)
 
 
 def test_vyx_keeps_every_route_it_had() -> None:

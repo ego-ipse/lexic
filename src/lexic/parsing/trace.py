@@ -51,7 +51,11 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.pda.runtime.kernel.kernel import (
+    NestingKernel,
+    PdaKernel,
+    kernel_for,
+)
 from lexic.parsing.product import ProductExecutor
 
 __all__ = [
@@ -64,6 +68,7 @@ __all__ = [
     "Trace",
     "TraceEvent",
     "WatchedKernel",
+    "WatchedNestingKernel",
     "WatchedRun",
     "watch",
 ]
@@ -305,6 +310,13 @@ class WatchedKernel[M](PdaKernel[M]):
             self._scanned = scanned
 
 
+class WatchedNestingKernel[M](WatchedKernel[M], NestingKernel[M]):
+    """The watched kernel of a program whose sub-runs nest past the in-place
+    depth: the account :class:`WatchedKernel` keeps, of the counted drive."""
+
+    __slots__ = ()
+
+
 def _gate_of(clone: FlatClone) -> str:
     """Which gate this clone's entry consults, in words, or ``""`` for none.
 
@@ -353,7 +365,8 @@ def watch[M](
         an exception: the predictive machine failing is what the compile seam
         retries on the gated engine, and it is the run most worth watching.
     """
-    kernel = WatchedKernel(tables, text, executor, config=config)
+    watched = kernel_for(tables, WatchedKernel, WatchedNestingKernel)
+    kernel = watched(tables, text, executor, config=config)
     kernel.cap = cap
     derived = kernel.watched_run()
     return WatchedRun(Trace(*kernel.events), cap, kernel.capped, derived)

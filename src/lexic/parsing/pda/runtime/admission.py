@@ -53,7 +53,14 @@ type Floor = tuple[
     list[Any],
     list[Any],
     Frame | None,
-    tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None,
+    tuple[
+        FlatClone,
+        list[Any],
+        int,
+        tuple[int, list[Any]] | None,
+        list[tuple[int, list[Any]]] | None,
+    ]
+    | None,
 ]
 """One attempt sub-run a boundary side was forked inside, as the side settles it.
 
@@ -62,12 +69,17 @@ frame; where it began; the side's list its root reports into; the live list's
 prefix those values follow; and its caller — ``loop``, the side's frame whose
 attempted iteration it is, or ``entry``, the attempt clone, the side's list
 the winner splices into, the entry's index and — for an entry the attempt is
-AUDITING — the winner's ``(end, values)``. Exactly one caller is set."""
+AUDITING — the winner's ``(end, values)`` and the rivals found so far. Exactly
+one caller is set. The live drive keeps the same record for a sub-run it
+suspended (:class:`~...core.errors.Suspended`)."""
 
-type Audit = tuple[int, Any, int, int, tuple[int, list[Any]]]
+type Audit = tuple[
+    int, Any, int, int, tuple[int, list[Any]], list[tuple[int, list[Any]]] | None
+]
 """One audit run in flight, as a fork inside it needs it: ``(depth, clone,
-entry, pos, won)`` — the depth its sub-run roots at, the attempt clone, the
-entry it runs, the attempt position and the winner's ``(end, values)``."""
+entry, pos, won, rivals)`` — the depth its sub-run roots at, the attempt clone,
+the entry it runs, the attempt position, the winner's ``(end, values)`` and
+the rivals found before this entry."""
 
 type Side = tuple[
     list[Any],
@@ -157,20 +169,35 @@ class RunScope:
     :ivar answers: The answers a decided live set left for the boundaries the
         live drive meets next, last first, each with the boundary it answers
         (:func:`~...verdicts.liveset.planned`).
+    :ivar nested: How many attempt sub-runs stand on the Python stack.
+    :ivar bound: How many may before one drives the rest by settling them
+        (``Attempting._attempt_run``) — the parse's in-place depth, set by
+        the kernel.
+    :ivar catching: Which drive a sub-run settling the suspended ones stands
+        in — one past the probing level it drives at, ``0`` for none: once
+        one does, every sub-run past it in the same drive suspends. A side's
+        drive is a level of its own, and a context that puts state back
+        clears it.
     """
 
-    __slots__ = ("answers", "cut", "delegate", "ranks")
+    __slots__ = ("answers", "bound", "catching", "cut", "delegate", "nested", "ranks")
 
     answers: list[tuple[tuple[Any, ...], int]]
+    bound: int
+    catching: int
     cut: bool
     delegate: bool
+    nested: int
     ranks: bool
 
     def __init__(self, delegate: bool = False) -> None:
         """A run over the whole text, its sets knowing nothing yet."""
         self.answers = []
+        self.bound = 0
+        self.catching = 0
         self.cut = False
         self.delegate = delegate
+        self.nested = 0
         self.ranks = False
 
     def whole(self) -> bool:

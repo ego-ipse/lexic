@@ -54,7 +54,8 @@ from lexic.parsing.pda.runtime.admission import (
     value_shape,
 )
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel.verdicts.sides import PENDING, UNSEEN, Sides
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import PENDING, UNSEEN
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import Sides
 
 __all__ = [
     "FORKED",

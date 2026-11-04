@@ -26,6 +26,7 @@ from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.pda.runtime.kernel.verdicts import sides
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import Floors
 from lexic.parsing.pda.runtime.kernel.verdicts.liveset import LiveSet, Split
 from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
     Sides,
@@ -371,7 +372,7 @@ def test_a_failure_above_a_floor_fails_the_sub_run_not_the_side(monkeypatch) -> 
     kern = live_kernel("")
     kern.stack = [Frame(flat_arm(1), [], flat_clone(), 0)]
     floor = (1, 0, [], [], None, None)
-    settled: list[bool] = []
+    settled: list[object] = []
     drives = iter([PdaFail("dead above the floor", 0)])
 
     def drive(self, floor_depth: int = 0, _limit: int = -1) -> None:
@@ -380,15 +381,15 @@ def test_a_failure_above_a_floor_fails_the_sub_run_not_the_side(monkeypatch) -> 
             raise failure
         del self.stack[floor_depth:]
 
-    def settle(self, settling, derived: bool) -> None:
-        settled.append(derived)
+    def settle(self, settling, got) -> None:
+        settled.append(got)
         del self.stack[settling[0] :]
 
     monkeypatch.setattr(PdaKernel, "_drive", drive)
-    monkeypatch.setattr(Sides, "_settle_floor", settle)
+    monkeypatch.setattr(Floors, "_settle_floor", settle)
     ledger = [-1, -1]
-    vars(Sides)["_drive_floors"](kern, [floor], ledger, -1)
-    assert settled == [False]
+    vars(Floors)["_drive_floors"](kern, [floor], ledger, -1)
+    assert settled == [None], "a miss: no outcome, and no island to ask"
     assert kern.stack == []
     assert ledger == [0, -2]  # the frame's own end; the failed sub-run unseen
 
@@ -467,6 +468,7 @@ def test_the_recovery_restates_what_the_live_parse_did(monkeypatch) -> None:
 
     monkeypatch.setattr(PdaKernel, "_enter", enter)
     monkeypatch.setattr(PdaKernel, "_drive", drive)
+    monkeypatch.setattr(PdaKernel, "_sub_drive", drive)  # its alias, for sub-runs
     monkeypatch.setattr(Attempting, "attempt_iteration", iteration)
     for bench in BENCHES:
         if bench.name in ("gbnf-meta", "abnf-meta", "vyx", "markdown"):

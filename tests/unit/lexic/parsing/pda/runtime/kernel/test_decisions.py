@@ -68,6 +68,9 @@ class _IslandUndecidable(Attempting[str]):
     def _drive(self, floor: int = 0, limit: int = -1) -> None:
         raise AssertionError("an island iteration drives nothing")
 
+    def _sub_drive(self, floor: int) -> None:
+        raise AssertionError("an island iteration drives no sub-run")
+
     def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
         return []
 
@@ -123,6 +126,7 @@ def test_a_program_that_cannot_fork_marks_no_sub_run(monkeypatch) -> None:
 
     monkeypatch.setattr(KernelCaches, "__init__", init)
     monkeypatch.setattr(PdaKernel, "_drive", drive)
+    monkeypatch.setattr(PdaKernel, "_sub_drive", drive)  # its alias, for sub-runs
     bench = next(b for b in BENCHES if b.name == "markdown")
     bench.compiled.parse(bench.corpus, cores=1)
     assert seen["frames"] and not seen["marked"] and not seen["records"], seen

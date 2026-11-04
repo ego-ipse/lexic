@@ -66,6 +66,7 @@ __all__ = [
     "island_run",
     "island_value",
     "IslandEnds",
+    "claim_ends",
 ]
 
 ISLAND_WINDOW = 256
@@ -312,6 +313,15 @@ class IslandEnds(ProbeFork):
         self.ends = ends
         self.sink: list[Any] | None = None
         self.root: Any = None
+
+
+def claim_ends(fork: ProbeFork, holder: list[Any] | None, sub: Any) -> None:
+    """Mark ``fork``, when it is an island's ends, the whole outcome of the
+    attempt sub-run of ``sub`` if it was asked straight into that run's
+    ``holder`` (``None``: asked for the run itself); any other refusal is no
+    sub-run's outcome."""
+    if isinstance(fork, IslandEnds) and (holder is None or fork.sink is holder):
+        fork.root = sub
 
 
 def _two_ends(name: str, pos: int, shorter: int, longer: int) -> ProbeFork:

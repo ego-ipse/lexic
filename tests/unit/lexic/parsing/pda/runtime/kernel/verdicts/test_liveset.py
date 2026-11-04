@@ -18,6 +18,7 @@ from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
 from lexic.parsing.pda.runtime.kernel.verdicts import liveset, sides
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import UNSEEN
 from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
     FORKED,
     STOP_FORCED,
@@ -26,7 +27,7 @@ from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
     LiveSet,
     Strand,
 )
-from lexic.parsing.pda.runtime.kernel.verdicts.sides import UNSEEN, Sides
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import Sides
 from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from tests import parity_helpers
 from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (

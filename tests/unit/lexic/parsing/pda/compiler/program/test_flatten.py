@@ -21,14 +21,17 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.exceptions import EngineInvariantError
 from lexic.ir import BIND_MODES
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.flatten import (
+    NESTING_CHAIN,
     FlatArm,
     FlatClone,
     PdaProgram,
     all_clones,
+    attempt_subs,
     check_entry_shape,
     lands_on,
     mark_sub_roots,
@@ -176,10 +179,10 @@ def test_an_inline_group_clone_has_an_empty_name():
     assert group.name == ""
 
 
-def test_pdaprogram_declares_start_delegates_and_grants_slots():
+def test_pdaprogram_declares_start_delegates_grants_and_nests_slots():
     """PdaProgram carries the entry clone (or island opt-out), the delegate
-    source, and the licences it was compiled under."""
-    assert PdaProgram.__slots__ == ("start", "delegates", "grants")
+    source, the licences it was compiled under, and whether its sub-runs nest."""
+    assert PdaProgram.__slots__ == ("start", "delegates", "grants", "nests")
 
 
 def test_pdaprogram_init_binds_start_verbatim():
@@ -328,3 +331,47 @@ def test_the_gbnf_self_grammars_cc_neg_is_a_dispatch_clone_with_a_wide_selection
     )
     for clone in cc_neg:
         check_entry_shape(clone)
+
+
+def _nests(source: str) -> bool:
+    """Whether ``source``'s compiled program counts its sub-runs, once it has
+    attempt sub-clones to count."""
+    program = compile_text(source).pda_tables().program
+    assert any(attempt_subs(clone) for clone in all_clones([program.start]))
+    return program.nests
+
+
+def _chain(levels: int) -> str:
+    """A grammar whose attempt sub-runs nest ``levels`` deep, with no cycle:
+    each level's two arms run the next level before they differ."""
+    rules = [f'r{k} ::= x r{k + 1} ";" | x r{k + 1} "."' for k in range(levels - 1)]
+    rules.append(f'r{levels - 1} ::= x ";" | x "."')
+    return "\n".join([*rules, 'x ::= "a" [b-z]+', ""])
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'root ::= x root | x\nx ::= "a" [b-z]+ ";"\n',
+        'root ::= x | x root\nx ::= "a" [b-z]+ ";"\n',
+    ],
+    ids=["recursive-first", "recursive-last"],
+)
+def test_a_right_recursion_through_an_attempt_nests(source: str) -> None:
+    """An attempt edge on a cycle: a document can nest its sub-runs without
+    bound, so the program counts its sub-runs."""
+    assert _nests(source)
+
+
+@pytest.mark.parametrize("levels", [NESTING_CHAIN, NESTING_CHAIN + 1])
+def test_a_chain_nests_only_past_the_default_depth(levels: int) -> None:
+    """With no cycle, the deepest chain decides: one as long as the default
+    in-place depth is driven uncounted, one longer counts."""
+    assert _nests(_chain(levels)) == (levels > NESTING_CHAIN)
+
+
+@pytest.mark.parametrize("bench", BENCHES, ids=[b.name for b in BENCHES])
+def test_no_bench_program_counts_its_sub_runs(bench) -> None:
+    """No bench row's program can nest its sub-runs past the default depth, so
+    none pays for the count: the cost premise of gating it."""
+    assert not bench.compiled.pda_tables().program.nests

@@ -5,7 +5,8 @@ as a host class :class:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts.Verd
 inherits: a side is a structural copy of the live stack with one decision taken,
 driven one copied frame at a time, recording where each completes (its ledger)
 and settling each attempt sub-run it stands inside as that sub-run's live caller
-would (:meth:`Sides._settle_floor`).
+would (:meth:`~lexic.parsing.pda.runtime.kernel.verdicts.floors.Floors._settle_floor`);
+a miss there is the side's death, not the sub-run's.
 """
 
 from __future__ import annotations
@@ -41,27 +42,24 @@ from lexic.parsing.pda.runtime.build import (
     Frame,
 )
 from lexic.parsing.pda.runtime.islands import IslandPolicy
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import (
+    PENDING,
+    Floors,
+)
 
 __all__ = [
-    "PENDING",
     "Sides",
-    "UNSEEN",
     "auditing",
     "descending",
     "entered",
     "iterating",
     "landing",
     "once",
-    "pending",
     "recorded",
 ]
 
-PENDING, UNSEEN = -1, -2
-"""A side's ledger entry for a copied frame still on its stack, and for one
-whose completion the ledger cannot read — a sub-run settled there."""
 
-
-class Sides[Carry]:
+class Sides[Carry](Floors[Carry]):
     """Side construction and floors, hosted for :class:`Verdicts` to inherit.
 
     Declares the kernel surface it reads and the driver and attempt methods a
@@ -78,52 +76,8 @@ class Sides[Carry]:
     _caches: KernelCaches[Carry]
     _routes: RouteLane | None
 
-    def _drive(self, floor: int = 0, limit: int = -1) -> None:
-        """Provided by the kernel — drain the frame stack down to ``floor``."""
-        raise NotImplementedError
-
     def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
-        raise NotImplementedError
-
-    def attempt(
-        self,
-        clone: FlatClone[Carry],
-        out: list[Carry],
-        ran: int = -1,
-        got: tuple[int, list[Carry]] | None = None,
-    ) -> None:
-        """Provided by ``Attempting`` — run an attempt clone's entries."""
-        raise NotImplementedError
-
-    def _attempt_settle(
-        self,
-        frame: Frame[Carry],
-        arm: FlatArm,
-        i: int,
-        pos: int,
-        got: tuple[int, list[Carry]] | None,
-    ) -> int:
-        """Provided by ``Attempting`` — commit an iteration or close the loop."""
-        raise NotImplementedError
-
-    def _attempt_audit(
-        self,
-        clone: FlatClone[Carry],
-        first: int,
-        won: tuple[int, list[Carry]],
-        got: tuple[int, list[Carry]] | None = None,
-    ) -> list[tuple[int, list[Carry]]] | None:
-        """Provided by ``Attempting`` — audit an attempt's winner."""
-        raise NotImplementedError
-
-    def _settle_arm(
-        self,
-        won: tuple[int, list[Carry]],
-        rivals: list[tuple[int, list[Carry]]] | None,
-        out: list[Carry],
-    ) -> None:
-        """Provided by ``Attempting`` — commit an audited attempt."""
         raise NotImplementedError
 
     def _forked(self, record: bool = False) -> Side:
@@ -295,96 +249,6 @@ class Sides[Carry]:
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
 
-    def _drive_floors(
-        self, floors: list[Floor], ledger: list[int] | None, limit: int
-    ) -> None:
-        """Drive the swapped-in side, settling each sub-run it drains back to,
-        and, where it keeps a ledger, recording where each copied frame
-        completes.
-
-        The live parse leaves an attempt sub-run to the Python call that
-        started it; a side has no such call, so it drives to the sub-run's floor
-        and settles there as that call would (:meth:`_settle_floor`). A side
-        with a ledger stops at each copied depth in turn instead — the deepest
-        still pending first — and the ledger at a floor holds where what the
-        call settled on ends, where that is readable. A failure above a floor
-        fails that sub-run, never the side, and a settle that fails in turn
-        fails the next floor out. With no stop left it drives on and returns;
-        :meth:`_advance` decides completion.
-
-        :raises PdaFail: The side dies.
-        """
-        failed = False
-        depth = _next_stop(floors, ledger, pending(ledger) if ledger else 0)
-        while True:
-            try:
-                if failed:
-                    failed = False
-                    depth = self._settle_failed(floors, ledger)
-                self._drive(max(depth, 0), limit)
-                if depth < 0 or len(self.stack) > depth:
-                    return  # past the last stop, or paused at the limit
-                depth = self._reached(depth, floors, ledger)
-            except ProbeFork:
-                raise
-            except PdaFail, LexicError:
-                if not floors:
-                    raise
-                failed = True
-
-    def _reached(
-        self, depth: int, floors: list[Floor], ledger: list[int] | None
-    ) -> int:
-        """The side drained to ``depth``: recorded, the sub-run there settled,
-        and the next stop returned."""
-        if ledger is not None:
-            ledger[depth] = self.pos
-        if floors and floors[-1][0] == depth:
-            settled = self._settle_floor(floors.pop(), True)
-            if ledger is not None:
-                ledger[depth] = self.pos if settled else UNSEEN
-        return _next_stop(floors, ledger, depth)
-
-    def _settle_failed(self, floors: list[Floor], ledger: list[int] | None) -> int:
-        """The innermost sub-run failed above its floor: settled as its caller
-        settles a failure, its frames' completions unreadable, and the next
-        stop returned."""
-        floor = floors.pop()
-        depth = floor[0]
-        if ledger is not None:
-            ledger[depth:] = [UNSEEN] * (len(ledger) - depth)
-        if self._settle_floor(floor, False) and ledger is not None:
-            ledger[depth] = self.pos
-        return _next_stop(floors, ledger, depth)
-
-    def _settle_floor(self, floor: Floor, derived: bool) -> bool:
-        """Settle one sub-run as its live caller would: the attempted
-        iteration's commit or close, the attempt's next entry, or the audit's.
-
-        :param derived: Whether the sub-run reached its floor; its values are
-            the live prefix its root reported before the fork, then the side's.
-        :returns: Whether what now stands at the floor's depth ends where the
-            cursor is, for the ledger: a committed iteration, the entry's own
-            run winning, or the winner an audit commits — not a closed loop,
-            nor an entry another one replaced.
-        """
-        depth, start, holder, live, loop, entry = floor
-        end = self.pos
-        got = (end, [*live, *holder]) if derived else None
-        del self.stack[depth:]
-        self.pos = start
-        if loop is not None:
-            self._attempt_settle(loop, loop.arm, loop.i, start, got)
-            return self.pos != start
-        if entry is not None and entry[3] is not None:
-            rivals = self._attempt_audit(entry[0], entry[2] + 1, entry[3], got)
-            self._settle_arm(entry[3], rivals, entry[1])
-            return True
-        if entry is not None:
-            self.attempt(entry[0], entry[1], entry[2], got)
-            return derived and self.pos == end
-        return False
-
     def _side_floors(
         self, forked: list[Frame[Carry]]
     ) -> tuple[list[Carry], list[Floor]]:
@@ -419,7 +283,7 @@ class Sides[Carry]:
                     raise ProbeFork(f"probe side: an unowned sub-run at {pos}", pos)
                 root = []
                 found: list[Floor] = [
-                    (0, pos, holder, live, None, (owner[0], root, owner[1], None))
+                    (0, pos, holder, live, None, (owner[0], root, owner[1], None, None))
                 ]
             floors += found if audit is None else auditing(found, audit)
         return root, floors
@@ -451,7 +315,7 @@ class Sides[Carry]:
         for depth, start, holder, live, loop, entry in outer[4]:
             copy, before = carried(holder)
             if entry is not None:
-                entry = (entry[0], carried(entry[1])[0], entry[2], entry[3])
+                entry = (entry[0], carried(entry[1])[0], *entry[2:])
             mine = None if loop is None else forked[depth - 1]
             floors.append((depth, start, copy, [*live, *before], mine, entry))
         return carried(outer[3])[0], floors
@@ -509,7 +373,7 @@ class Sides[Carry]:
                             holder,
                             live,
                             None,
-                            (owner[0], loop, owner[1], None),
+                            (owner[0], loop, owner[1], None, None),
                         ),
                     ]
                 )
@@ -525,33 +389,13 @@ class Sides[Carry]:
                             holder,
                             live,
                             None,
-                            (owner[0], out, owner[1], None),
+                            (owner[0], out, owner[1], None, None),
                         )
                     ]
                 )
         if len(readings) != 1:
             raise ProbeFork(f"probe side: an unowned sub-run at {start}", start)
         return readings[0]
-
-
-def _next_stop(floors: list[Floor], ledger: list[int] | None, depth: int) -> int:
-    """Where a side's drive stops next, having just stopped at ``depth``: one
-    copied frame further out where it keeps a ledger, else the innermost
-    sub-run's floor; ``-1`` for none."""
-    if ledger is not None:
-        return depth - 1
-    return floors[-1][0] if floors else -1
-
-
-def pending(ledger: list[int]) -> int:
-    """How many of a side's copied frames are still on its stack: they
-    complete deepest first, so they are the ledger's pending prefix."""
-    count = 0
-    for end in ledger:
-        if end != PENDING:
-            break
-        count += 1
-    return count
 
 
 def once(frame: Frame, k: int) -> bool:
@@ -599,11 +443,13 @@ def auditing(found: list[Floor], audit: Audit) -> list[Floor]:
 
     :raises ProbeFork: When the stack's entry is not the one the audit runs.
     """
-    *outer, (depth, start, holder, live, loop, entry) = found
-    _depth, clone, idx, _pos, won = audit
+    *outer, innermost = found
+    entry, clone, idx = innermost[5], audit[1], audit[2]
     if entry is None or entry[0] is not clone or entry[2] != idx:
+        start = innermost[1]
         raise ProbeFork(f"probe side: an unowned audit at {start}", start)
-    return [*outer, (depth, start, holder, live, loop, (clone, entry[1], idx, won))]
+    audited = (clone, entry[1], idx, audit[4], audit[5])
+    return [*outer, (*innermost[:5], audited)]
 
 
 def landing(clone: Any, text: str, pos: int) -> FlatClone | None:

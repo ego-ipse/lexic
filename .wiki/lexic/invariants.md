@@ -136,6 +136,23 @@ from that split through every split since (`Level.done` freezes each frame as
 it completes); a split whose frames both rolled back is passed over for the
 next one both took.
 
+## Sub-run depth costs no Python frame past the in-place depth, and changes no answer
+
+Past `in_place_depth` an attempt sub-run of a program that can nest that deep
+(`PdaProgram.nests`, parsed on `NestingKernel`) suspends and is settled at its
+floor, so the predictive parse's Python stack stops growing at any document
+depth:
+`parity/test_deep_attempts.py` parses right recursions through an attempt at
+ten times the recursion limit and one through an audit past it, and measures
+the deepest drive equal at twice and five times the depth. The depth is not part of
+any answer. An in-place depth of 0 (every sub-run past the first suspended)
+builds what an unbounded one builds, on every spelling there, and a floor
+settles each miss, island end and audit as its caller would: one pin each for
+the steal, the claim of an island's ends and an audit's rivals, each failing
+with its fix reverted. A side's floor never steals, pinned on two documents
+that otherwise go to the gated engine. A program that cannot nest that deep drives every
+sub-run plainly, and one that can drives every one counted: a pin each way.
+
 ## One clone walk, and it is complete
 
 `all_clones` is the one walk over a compiled program's clones: it follows every

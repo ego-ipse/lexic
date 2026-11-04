@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
-from lexic.ir import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf, components
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.pda.compiler.program.bake.lowering import (
     FoldStep,
@@ -318,25 +318,32 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
     :ivar grants: The licence kinds the program was compiled under: a decider
         must grant them all for the program to run its parse
         (:meth:`~lexic.parsing.earley.kernel.tables.decider.Decider.grants_all`).
+    :ivar nests: Whether its attempt sub-runs can nest past the in-place depth
+        (:func:`can_nest`): the parse then counts them, and drives one past
+        the depth by settling it at its floor. Read once, to choose the kernel.
     """
 
-    __slots__ = ("start", "delegates", "grants")
+    __slots__ = ("start", "delegates", "grants", "nests")
 
     start: Any  # FlatClone | IslandRef — the island marker lives in pda_tables
     delegates: Any  # DelegateSource | None — the delegate_compile leaf
     grants: frozenset[str]
+    nests: bool
 
     def __init__(
         self,
         start: Any,
         delegates: Any = None,
         grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+        nests: bool = False,
     ) -> None:
         """Bind the entry clone (or island opt-out marker), the delegate
-        source and the licences the program was compiled under."""
+        source, the licences the program was compiled under and whether its
+        sub-runs nest."""
         self.start = start
         self.delegates = delegates
         self.grants = grants
+        self.nests = nests
 
 
 def clear_build[Carry](clone: FlatClone[Carry]) -> None:
@@ -470,9 +477,7 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
-        work.extend(landing_targets(clone))
-        for arm in clone_arms(clone):
-            work.extend(p for p in arm.payloads if isinstance(p, FlatClone))
+        work.extend(_reached(clone))
     return out
 
 
@@ -491,20 +496,89 @@ def mark_sub_roots(roots: list[FlatClone]) -> None:
     forks = False
     for clone in clones:
         clone.sub_root = False
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
-        for arm in clone_arms(clone):
-            forks = forks or GATE_ATTEMPT in arm.gate_kinds
-            work.extend(
-                payload
-                for kind, gate, payload in zip(arm.kinds, arm.gate_kinds, arm.payloads)
-                if gate == GATE_ATTEMPT and kind in (OP_REF, OP_GRP)
-            )
+        work.extend(attempt_subs(clone))
+        forks = forks or any(
+            GATE_ATTEMPT in arm.gate_kinds for arm in clone_arms(clone)
+        )
     while forks and work:
         clone = work.pop()
         if not clone.sub_root:
             clone.sub_root = True
             work.extend(landing_targets(clone))
+
+
+NESTING_CHAIN = 13
+"""The most attempt sub-runs one chain may nest in a clone set that is never
+counted: the in-place depth at the default recursion limit. Past it, or on a
+cycle, a document can nest them as deep as it likes."""
+
+
+def can_nest(roots: list[FlatClone]) -> bool:
+    """Whether the attempt sub-runs of the clones reachable from ``roots`` can
+    nest past :data:`NESTING_CHAIN` (:attr:`PdaProgram.nests`).
+
+    A sub-run of ``sub`` nests one of every attempt sub-clone the clones
+    ``sub`` reaches can start. Read on the clone graph's strongly connected
+    components (:func:`~lexic.ir.grammar.graph.components`): an attempt edge
+    inside one is a cycle, so the nesting has no bound; across them, the most
+    attempt edges on one path is the deepest a document can nest.
+    """
+    clones = all_clones(roots)
+    names = {id(clone): str(at) for at, clone in enumerate(clones)}
+    graph = {
+        names[id(clone)]: [names[id(t)] for t in _reached(clone)] for clone in clones
+    }
+    owner: dict[str, int] = {}
+    deepest: list[int] = []
+    for root in graph:
+        for component in components(graph, root, owner):
+            deep = 0
+            for name in component:
+                owner[name] = len(deepest)
+            for name in component:
+                deep = max(deep, _chain_from(clones[int(name)], names, owner, deepest))
+            deepest.append(deep)
+    return max(deepest, default=0) > NESTING_CHAIN
+
+
+def _chain_from(
+    clone: FlatClone, names: dict[int, str], owner: dict[str, int], deepest: list[int]
+) -> int:
+    """The most attempt edges on a path out of ``clone``, its component's
+    other members aside; past :data:`NESTING_CHAIN` for an attempt edge back
+    into its own component."""
+    here, attempts = owner[names[id(clone)]], {id(sub) for sub in attempt_subs(clone)}
+    deep = 0
+    for target in _reached(clone):
+        there = owner[names[id(target)]]
+        step = 1 if id(target) in attempts else 0
+        if there == here:
+            deep = max(deep, step * (NESTING_CHAIN + 1))
+        else:
+            deep = max(deep, deepest[there] + step)
+    return deep
+
+
+def _reached(clone: FlatClone) -> list[FlatClone]:
+    """The clones entering ``clone`` can enter next: its landing targets and
+    every clone-valued arm payload (:func:`all_clones`' step)."""
+    found = landing_targets(clone)
+    for arm in clone_arms(clone):
+        found.extend(p for p in arm.payloads if isinstance(p, FlatClone))
+    return found
+
+
+def attempt_subs(clone: FlatClone) -> list[FlatClone]:
+    """The clones a sub-run of ``clone``'s own starts at: its attempt entries'
+    sub-clones, and the payloads of its arms' attempt-gated references."""
+    found = [] if clone.attempt is None else [entry[-1] for entry in clone.attempt[1]]
+    for arm in clone_arms(clone):
+        found.extend(
+            payload
+            for kind, gate, payload in zip(arm.kinds, arm.gate_kinds, arm.payloads)
+            if gate == GATE_ATTEMPT and kind in (OP_REF, OP_GRP)
+        )
+    return found
 
 
 def check_entry_shape(clone: FlatClone) -> None:

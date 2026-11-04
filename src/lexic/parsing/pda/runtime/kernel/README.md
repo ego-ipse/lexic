@@ -3,8 +3,9 @@
 The kernel is one cursor split by responsibility: `kernel.py` holds
 `PdaKernel`, the paid loop, island splice, and public `pda_model` entry;
 `decisions.py` holds the attempt/probe method group it inherits;
-`verdicts/` holds the boundary verdict that group inherits in turn, and the
-sides that verdict is asked on; and
+`verdicts/` holds the boundary verdict that group inherits in turn, the
+sides that verdict is asked on, and the floor drive both settle sub-runs with;
+and
 `attempt_inline.py` holds frame-less loops for attempt-aware value strings.
 
 ## `kernel.py`
@@ -25,7 +26,11 @@ folded model into the live frame.
 `Attempting` provides ordered speculative entries and watermarked sub-runs. An
 attempted iteration whose boundary is both viable asks the verdict. An
 undecidable result is `ProbeFork`, which returns control to the ordinary Earley
-completion.
+completion. Sub-runs are driven where their caller stands up to the parse's
+in-place depth; past it they suspend (`Suspended`) and are settled at their
+floors (`verdicts/floors.py`), so attempt nesting never reaches Python
+recursion either. Only a program that can nest that deep counts: it parses on
+`NestingKernel`, every other on `PdaKernel`'s plain sub-run drive.
 
 ## `verdicts/`
 

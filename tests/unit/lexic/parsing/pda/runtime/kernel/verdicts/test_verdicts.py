@@ -28,12 +28,9 @@ from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
 from lexic.parsing.pda.runtime.kernel.verdicts import verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.floors import PENDING, UNSEEN
 from lexic.parsing.pda.runtime.kernel.verdicts.liveset import Split
-from lexic.parsing.pda.runtime.kernel.verdicts.sides import (
-    PENDING,
-    UNSEEN,
-    Sides,
-)
+from lexic.parsing.pda.runtime.kernel.verdicts.sides import Sides
 from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import (
     FORKED,
     STOP_FORCED,

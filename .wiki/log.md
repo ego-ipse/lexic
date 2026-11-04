@@ -1,5 +1,16 @@
 # Log
 
+## A sub-run nested past the in-place depth suspends (2026-11-03)
+
+`decisions.md` records how the predictive parse drives attempt sub-runs in
+place up to `in_place_depth` and settles every deeper one at its floor through
+the drive sides use, with the steal (at a live floor only), the island-ends
+claim and the audit's rivals the live caller applies; that only a program that can nest that deep
+(`PdaProgram.nests`) parses on the counting `NestingKernel`; and
+`same_value`'s explicit stack.
+`invariants.md` records that the depth costs no Python frame past it and changes
+no answer, and the pins that hold both.
+
 ## An inline capture beside a region's run is laid back (2026-10-29)
 
 `parallel-parsing.md`'s stitch section: `RegionPlan.edges` holds each inline

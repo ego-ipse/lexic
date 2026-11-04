@@ -1,9 +1,10 @@
 # `parsing/pda/runtime/kernel/verdicts` — boundary decisions
 
 A both-viable boundary in the kernel's attempt group (`kernel/decisions.py`) is
-settled here, by three host classes the kernel inherits in turn: `Verdicts`
-(`verdicts.py`), `LiveSet` (`liveset.py`) and `Sides` (`sides.py`). All are
-method groups of the one kernel cursor, split by responsibility.
+settled here, by four host classes the kernel inherits in turn: `Verdicts`
+(`verdicts.py`), `LiveSet` (`liveset.py`), `Sides` (`sides.py`) and `Floors`
+(`floors.py`). All are method groups of the one kernel cursor, split by
+responsibility.
 
 ## `verdicts.py`
 
@@ -29,3 +30,11 @@ name.
 taken — and drives it one copied frame at a time, recording where each frame
 completes (its ledger, which the rank reads) and settling each attempt sub-run
 it stands inside as the sub-run's caller would, recovered from the stack.
+
+## `floors.py`
+
+`Floors` drives a stack down to each sub-run left on it with no Python call
+waiting — one a side stands inside, or one the live parse suspended past its
+in-place depth — and settles it there as its caller would: the iteration's
+commit or close, the attempt's next entry, the audit with its rivals, and on a
+miss the island steal and the claim of an island's ends.
