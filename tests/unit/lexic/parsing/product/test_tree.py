@@ -19,7 +19,7 @@ import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrLiteral, IrRuleRef, IrSeq, IrSpan
+from lexic.ir import IrAst, IrLiteral, IrNone, IrRuleRef, IrSeq, IrSpan
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
@@ -239,6 +239,57 @@ def test_a_one_capture_looks_through_a_transparent_node_to_its_descendant():
     assert result.value == "deep"
 
 
+EDGE_VALUES = {
+    "none": None,
+    "ir-none": IrNone,
+    "empty-tuple": (),
+    "empty-list": [],
+    "empty-str": "",
+    "zero": 0,
+    "false": False,
+}
+"""Completed values that are falsy, empty or absence-shaped: each is present,
+never the empty marker."""
+
+
+def _valued(value: object) -> RuleRoutine:
+    """A routine completing its node to exactly ``value``."""
+    return _record((), (), Construction(lambda: value, (), frozenset()), 0)
+
+
+@pytest.mark.parametrize("value", EDGE_VALUES.values(), ids=EDGE_VALUES)
+def test_a_pass_through_of_any_completed_value_forwards_that_value(value) -> None:
+    """A child completing to ``value`` is present, whatever the value: the
+    pass-through forwards that very object rather than reading it as empty."""
+    outer = _leaf("outer", _leaf("inner"))
+    assert (
+        complete_product(outer, {"outer": _pass(0), "inner": _valued(value)}) is value
+    )
+
+
+@pytest.mark.parametrize("value", EDGE_VALUES.values(), ids=EDGE_VALUES)
+def test_an_optional_one_capture_of_any_completed_value_is_written(value) -> None:
+    """An optional ONE capture of a child completing to ``value`` writes the
+    keyword: present, so not omitted for the class default."""
+    node = _leaf("root", _leaf("inner"))
+    capture = Construction(lambda **kw: kw, ("field",), frozenset({0}))
+    routines = {
+        "root": _record((int(CaptureMode.ONE),), (0,), capture, 1),
+        "inner": _valued(value),
+    }
+    built = complete_product(node, routines)
+    assert "field" in built and built["field"] is value
+
+
+@pytest.mark.parametrize("value", EDGE_VALUES.values(), ids=EDGE_VALUES)
+def test_a_spliced_occurrence_of_any_completed_value_is_completed(value) -> None:
+    """The occurrence answer keeps presence explicit: ``Completed(value)``,
+    never the empty marker, for every edge value."""
+    spliced = ProductExecutor({"inner": _valued(value)}).splice(_leaf("inner"))
+    assert spliced is not EMPTY_RESULT and isinstance(spliced, Completed)
+    assert spliced.value is value
+
+
 # ── MANY capture: always present, a list of whatever completed ──────────
 
 
@@ -317,7 +368,7 @@ def test_replay_never_rebuilds_a_result_already_present_in_the_seed():
 
     node = _leaf("root")
     routines = {"root": _record((), (), Construction(_tracked, (), frozenset()), 0)}
-    seeded = {id(node): Completed("seeded")}
+    seeded = {id(node): "seeded"}
     executor = ProductExecutor(routines)
     result = executor.replay(node, dict(seeded))
     assert result == "seeded"
