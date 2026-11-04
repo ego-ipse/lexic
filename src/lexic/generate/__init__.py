@@ -43,7 +43,7 @@ from functools import partial
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.generate.sizing import FreeWalk, steer
+from lexic.generate.sizing import FreeWalk, Reaching, steer
 from lexic.ir import (
     IrAction,
     IrAlternation,
@@ -53,6 +53,8 @@ from lexic.ir import (
     IrLambda,
     IrLiteral,
     IrNamedTuple,
+    IrNone,
+    IrNoneType,
     IrQuantifier,
     IrRaise,
     IrRule,
@@ -114,12 +116,13 @@ def _item(nc: Sequence[IrSelf]) -> IrItem:
 def _gen_literal(_d: Generator, n: IrLiteral, nc: Sequence[IrSelf]) -> str:
     """Emit a literal verbatim, repeated when quantified."""
     q = _item(nc).quantifier
-    return n * pick_count(q, _d.rng) if not q.once() else n
+    return n * _d.counted(q, 1 if q.once() else pick_count(q, _d.rng))
 
 
 def _gen_charclass(_d: Generator, n: IrCharClass, nc: Sequence[IrSelf]) -> str:
     """Emit sampled characters from a char class under its quantifier."""
-    count = pick_count(_item(nc).quantifier, _d.rng)
+    q = _item(nc).quantifier
+    count = _d.counted(q, pick_count(q, _d.rng))
     return "".join(chr(n.sample(_d.rng)) for _ in range(count))
 
 
@@ -131,9 +134,13 @@ def _gen_ruleref(_d: Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
     measure through its target's own minimal arms.
     """
     q = _item(nc).quantifier
-    count = q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng)
+    count = _d.counted(q, q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng))
     child = Generator(
-        rng=_d.rng, rules=_d.rules, heights=_d.heights, max_depth=_d.max_depth - 1
+        rng=_d.rng,
+        rules=_d.rules,
+        heights=_d.heights,
+        max_depth=_d.max_depth - 1,
+        reach=_d.reach,
     )
     return "".join(child.run(str(n)) for _ in range(count))
 
@@ -141,7 +148,7 @@ def _gen_ruleref(_d: Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
 def _gen_group(_d: Generator, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
     """Expand an inline group, repeated under its quantifier."""
     q = _item(nc).quantifier
-    count = q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng)
+    count = _d.counted(q, q.lo if _d.max_depth <= 0 else pick_count(q, _d.rng))
     return "".join(_d.alternation(n, "an inline group") for _ in range(count))
 
 
@@ -261,7 +268,9 @@ def _open_arms(
     return [a for a, cost in zip(body, costs) if cost <= cap and cost < _INF]
 
 
-class Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
+class Generator(
+    IrNamedTuple[_random.Random, Rules, dict[str, float], int, Reaching | IrNoneType]
+):
     """Random-string generator state over a rules-by-name view.
 
     Carries the shared random source, the grammar's rules, their computed
@@ -269,6 +278,10 @@ class Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
     named rule. It rides the dispatcher channel of :data:`_GEN_ATOM` so each
     atom body can reach this state. ``_child_attrs`` is empty — none of the
     fields is an IR-node child.
+
+    :ivar reach: :class:`~lexic.generate.sizing.Reaching` where size-steering
+        walks a piece that must not come out empty; ``IrNone`` everywhere
+        else, and then the walk is exactly the free one, roll for roll.
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
@@ -276,6 +289,7 @@ class Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
     rules: Rules
     heights: dict[str, float]
     max_depth: int
+    reach: Reaching | IrNoneType = IrNone
 
     def run(self, rule_name: str) -> str:
         """Expand the named rule to a random string.
@@ -308,11 +322,20 @@ class Generator(IrNamedTuple[_random.Random, Rules, dict[str, float], int]):
             has nothing to offer.
         """
         arms = _open_arms(self.heights, body, self.max_depth, where)
+        reach = self.reach
+        if isinstance(reach, Reaching):
+            return reach.spell(self, arms)
         return "".join(self.atom(it) for it in self.rng.choice(arms))
 
     def atom(self, item: IrItem) -> str:
         """Expand one item by dispatching on its atom, item riding the channel."""
         return str(_GEN_ATOM.eval(self, item.atom, (item,)))
+
+    def counted(self, q: IrQuantifier, count: int) -> int:
+        """``count``, as rolled — or at least one where a reaching walk must
+        spend this item to come out non-empty."""
+        reach = self.reach
+        return reach.forced(q, count) if isinstance(reach, Reaching) else count
 
 
 def generate(
@@ -359,7 +382,14 @@ def generate(
 
 
 def _walker(
-    rng: _random.Random, rules: Rules, heights: dict[str, float], depth: int
+    rng: _random.Random,
+    rules: Rules,
+    heights: dict[str, float],
+    depth: int,
+    reach: Reaching | IrNoneType,
 ) -> Generator:
-    """The free walk at ``depth`` — what :mod:`lexic.generate.sizing` spends a small budget by."""
-    return Generator(rng=rng, rules=rules, heights=heights, max_depth=depth)
+    """The free walk at ``depth`` — what :mod:`lexic.generate.sizing` spends a small
+    budget by; ``reach`` makes it a reaching walk (:class:`~lexic.generate.sizing.Reaching`)."""
+    return Generator(
+        rng=rng, rules=rules, heights=heights, max_depth=depth, reach=reach
+    )

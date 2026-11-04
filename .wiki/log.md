@@ -1,5 +1,11 @@
 # Log
 
+## Every size-steered repetition ends (2026-11-04)
+
+`public-api.md`'s `generate` entry: an empty steered piece hands the rest of
+its item to free pieces, and a unit the free walk cannot spell at its natural
+depth walks at the shallowest depth that can, with every piece non-empty.
+
 ## A completion's memo holds each value as it is (2026-11-04)
 
 `decisions.md` records that the product completion's memo keeps each node's
