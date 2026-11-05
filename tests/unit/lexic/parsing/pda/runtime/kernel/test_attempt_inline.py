@@ -9,7 +9,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import IslandEscape, ProbeFork
+from lexic.parsing.pda.core.errors import IslandEscape, IslandRefusal, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import attempt_inline as attempt_inline_module
@@ -128,7 +128,7 @@ class _RefusingIsland(_UndecidableBelow):
     _inline_once = vars(AttemptInlineMixin)["_inline_once"]  # the real match
 
     def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[str]) -> int:
-        raise UnsupportedConstructError("derives the same text two ways")
+        raise IslandRefusal("derives the same text two ways")
 
 
 def test_an_island_refusing_inside_an_iteration_forks(

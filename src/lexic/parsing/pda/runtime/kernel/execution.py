@@ -19,7 +19,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any, cast
 
-from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.pda.analysis.gates.windows import Pref
@@ -50,7 +49,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.compiler.specs import IslandPayload
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import BuildFail, IslandEscape, PdaFail
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -480,24 +479,19 @@ class KernelExecutionMixin[Carry]:
         if frame.inherited is not None:
             frame.adopt_inherited()
         clone = frame.clone
-        try:
-            if mode == BUILD_FOLD:
-                model = _folded(self.text, frame, clone)
-            elif mode == BUILD_SEQ:
-                if clone.build is not no_shape_build and frame.arm.n == clone.n_items:
-                    model = clone.build(self.text, frame.ends or (), frame.sinks)
-                else:
-                    model = build_sequence(self.text, frame, clone, self._caches.intern)
-            elif mode == BUILD_VALUE_STR:
-                model = build_vstr(
-                    clone, self.text[frame.span_start() : self.pos], self._caches.intern
-                )
-            else:  # BUILD_ALT
-                model = frame.alt_model()
-        except LexicError as refused:  # a refusing fold: the build's, not the text's
-            raise BuildFail(
-                f"{clone.name!r} at {self.pos}: the build refused its values", self.pos
-            ) from refused
+        if mode == BUILD_FOLD:
+            model = _folded(self.text, frame, clone)
+        elif mode == BUILD_SEQ:
+            if clone.build is not no_shape_build and frame.arm.n == clone.n_items:
+                model = clone.build(self.text, frame.ends or (), frame.sinks)
+            else:
+                model = build_sequence(self.text, frame, clone, self._caches.intern)
+        elif mode == BUILD_VALUE_STR:
+            model = build_vstr(
+                clone, self.text[frame.span_start() : self.pos], self._caches.intern
+            )
+        else:  # BUILD_ALT
+            model = frame.alt_model()
         if model is not None:
             frame.out.append(model)
 

@@ -237,12 +237,15 @@ is settled by convergence"* below.
   may refuse. Public soundness is unchanged: `parse_model` falls back on any
   `PdaFail` to gated Earley.
 - **An island's refusal inside an attempt forks; a refusing build misses.**
-  An island refuses (`UnsupportedConstructError`) a span that derives two
-  ways meaning different things: that answers for the text, so an attempted
-  arm or iteration, or a live set's reading, that meets it raises
-  `ProbeFork`, and the document declines to gated Earley, which refuses it.
-  A build that refuses the values it was handed raises `BuildFail` (a
-  `PdaFail`), the arm's or the reading's own miss, which asks no island.
+  An island refuses a span that derives two ways meaning different things
+  with `IslandRefusal`, an `UnsupportedConstructError`. On the plain path that
+  is the document's refusal. An attempted arm or iteration, or a live set's
+  reading, that meets it raises `ProbeFork` from it, and the document declines
+  to gated Earley, which refuses it. A build that refuses the values it was
+  handed raises its own `LexicError`: the arm's or the reading's miss inside an
+  attempt, and the document's refusal on the plain path. It is never a
+  decline: the gated engine's fold need not refuse what the predictive one
+  did, so declining a refusal can turn it into a model.
 
 ## 2026-07-29 — The island seam declares cross-span uncertainty instead of longest-matching through it
 

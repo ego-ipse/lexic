@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import LexicError
 from lexic.ir import IrNamedTuple, IrStr
-from lexic.parsing.pda.core.errors import BuildFail, ProbeFork
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
@@ -190,7 +191,7 @@ def test_a_refusal_in_a_readings_drive_is_its_own_death(monkeypatch) -> None:
 
     def refusing(self, floor=0, limit=-1):
         if self.stack is stop[0]:
-            raise BuildFail("refused on the stop reading's own values", 0)
+            raise LexicError("refused on the stop reading's own values")
         return drive(self, floor, limit)
 
     advance = vars(Sides)["_advance"]

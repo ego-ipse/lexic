@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
-from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.exceptions import LexicError
 from lexic.ir import IrNoneType
 from lexic.parsing.earley.kernel.forest.fasttree import (
     FastTree,
@@ -55,7 +55,7 @@ from lexic.parsing.pda.compiler.program.gating import (
     window_admits,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork
 from lexic.parsing.product import ProductExecutor
 from lexic.parsing.product.tree import CompletionResult
 
@@ -250,7 +250,7 @@ def island_parse(
         (``None`` when it did not, and the caller completes the tree itself).
     :raises PdaFail: When the island completes over no window.
     :raises ProbeFork: When a shorter completion could compose with the caller.
-    :raises UnsupportedConstructError: On an ambiguous island with no resolver.
+    :raises IslandRefusal: On an ambiguous island with no resolver.
         The round-trip invariant cannot catch a wrong choice here:
         ``to_text()`` reproduces the input for whichever derivation was taken.
     """
@@ -382,7 +382,7 @@ def _settle_two_meanings(
         where none was built, which is the executor-less path. Everywhere else
         the answer came FROM a built value, and :func:`different_meaning`
         retains it so the seam can splice that rather than build it again.
-    :raises UnsupportedConstructError: When the span means two things and no
+    :raises IslandRefusal: When the span means two things and no
         resolver was supplied.
     """
     executor = policy.executor
@@ -406,7 +406,7 @@ def _settle_two_meanings(
         return tree, pair.first.value
     resolve = policy.config.resolve
     if isinstance(resolve, IrNoneType):
-        raise UnsupportedConstructError(
+        raise IslandRefusal(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — supply a resolver to choose between them"
         )
@@ -476,7 +476,7 @@ def island_derivation(
         to answer the ambiguity question and it is handed on rather than
         rebuilt, exactly as on the fast path.
     :raises PdaFail: When the completion decodes to no derivation.
-    :raises UnsupportedConstructError: When a second derivation builds a
+    :raises IslandRefusal: When a second derivation builds a
         different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end

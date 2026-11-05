@@ -15,13 +15,13 @@ from typing import Never
 
 import pytest
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     OP_ISLAND,
 )
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import (
@@ -160,7 +160,7 @@ def _attempt_failing(monkeypatch, why: Exception) -> tuple[PdaKernel, list[int]]
 
 @pytest.mark.parametrize(
     ("why", "asks"),
-    [(BuildFail("refused", 1), False), (PdaFail("dead", 1), True)],
+    [(LexicError("refused"), False), (PdaFail("dead", 1), True)],
     ids=["refusing-fold", "miss"],
 )
 def test_an_arm_whose_sub_run_fails_misses(monkeypatch, why, asks: bool) -> None:
@@ -176,7 +176,7 @@ def test_an_island_refusing_inside_an_arm_forks(monkeypatch) -> None:
     """An island that refuses its text as meaning two things is no arm's
     miss: read as one, a later arm would commit what the gated engine
     refuses. The arm forks, caused by the refusal, and the cursor is back."""
-    refused = UnsupportedConstructError("derives the same text two ways")
+    refused = IslandRefusal("derives the same text two ways")
     kern, asked = _attempt_failing(monkeypatch, refused)
     with pytest.raises(ProbeFork) as fork:
         ATTEMPT_RUN(kern, flat_clone(), 1, 1)

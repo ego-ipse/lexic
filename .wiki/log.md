@@ -1,5 +1,10 @@
 # Log
 
+## An island's refusal is marked, not a build's (2026-11-05)
+
+`decisions.md`'s island-refusal bullet: the island raises `IslandRefusal`,
+which attempts and readings fork on, and a build's refusal stays itself.
+
 ## A nullable key's families promote past a threshold (2026-11-05)
 
 `decisions.md`: a key facing a nullable rule promotes once it holds

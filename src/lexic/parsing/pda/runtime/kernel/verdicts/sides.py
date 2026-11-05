@@ -28,7 +28,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_REF1,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     Audit,
     Floor,
@@ -241,12 +241,10 @@ class Sides[Carry](Floors[Carry]):
             )
         except ProbeFork:
             raise  # undecidable is not death: it is the gated engine's
-        except PdaFail:  # a refusing fold among them: the reading's own values
+        except IslandRefusal as refused:  # nor is an island's refusal
+            raise ProbeFork("probe side: an island refuses", self.pos) from refused
+        except PdaFail, LexicError:
             return None
-        except LexicError as refused:  # an island's text means two things
-            raise ProbeFork(
-                f"probe side: an island refuses at {self.pos}", self.pos
-            ) from refused
         finally:
             caches.probing -= 1
             caches.side = saved_side

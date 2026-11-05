@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
@@ -21,7 +21,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_REF,
     OP_REF1,
 )
-from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
@@ -140,7 +140,7 @@ def test_a_refusing_fold_reads_as_a_dead_side(monkeypatch) -> None:
     kern = live_kernel()
     side = _side(kern)
     monkeypatch.setattr(
-        PdaKernel, "_drive", lambda *_a, **_k: _raise(BuildFail("refused", 0))
+        PdaKernel, "_drive", lambda *_a, **_k: _raise(LexicError("refused"))
     )
     assert _advance(kern, side) is None
 
@@ -152,7 +152,7 @@ def test_an_island_refusal_in_a_side_forks(monkeypatch) -> None:
     kern = live_kernel()
     before = _cursor(kern)
     side = _side(kern)
-    refused = UnsupportedConstructError("derives the same text two ways")
+    refused = IslandRefusal("derives the same text two ways")
     monkeypatch.setattr(PdaKernel, "_drive", lambda *_a, **_k: _raise(refused))
     with pytest.raises(ProbeFork) as fork:
         _advance(kern, side)

@@ -13,7 +13,12 @@ from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import IslandEscape, PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import (
+    IslandEscape,
+    IslandRefusal,
+    PdaFail,
+    ProbeFork,
+)
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
@@ -204,6 +209,10 @@ class AttemptInlineMixin[Carry]:
             return self._inline_once(arm, i, pos)
         except ProbeFork:
             raise
+        except IslandRefusal as refused:  # its longest take's island
+            raise ProbeFork(
+                f"inline attempt at {pos}: an island refuses", pos
+            ) from refused
         except PdaFail, LexicError:
             return None
 
@@ -214,10 +223,5 @@ class AttemptInlineMixin[Carry]:
         try:
             end = once(self.text, self._caches.intern, arm.payloads[i], holder, pos)
         except IslandEscape as escape:
-            try:
-                end = self._islanded(escape, holder)
-            except LexicError as refused:  # the island's text means two things
-                raise ProbeFork(
-                    f"inline attempt at {pos}: an island refuses", pos
-                ) from refused
+            end = self._islanded(escape, holder)
         return end, holder

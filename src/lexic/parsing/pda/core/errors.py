@@ -11,7 +11,9 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-__all__ = ["BuildFail", "IslandEscape", "PdaFail", "ProbeFork", "Suspended"]
+from lexic.exceptions import UnsupportedConstructError
+
+__all__ = ["IslandEscape", "IslandRefusal", "PdaFail", "ProbeFork", "Suspended"]
 
 
 class PdaFail(Exception):
@@ -69,14 +71,16 @@ class PdaFail(Exception):
         self.expected, self.negated = wanted
 
 
-class BuildFail(PdaFail):
-    """A model build that refuses the values it was handed — a refusing fold.
+class IslandRefusal(UnsupportedConstructError):
+    """An island whose span derives two ways that mean different things, with no
+    resolver to choose between them.
 
-    A failure of the VALUES the parse built, not of the text it read: an
-    attempted arm whose build refuses misses, as any arm that fails, and the
-    gated engine, re-running the same build, refuses the same way. Kept apart
-    from the :class:`~lexic.exceptions.LexicError` an island raises when its
-    text means two things, which is no arm's miss."""
+    On the plain path it is the document's refusal, and it leaves the parse as
+    one. Inside an attempted arm or iteration, or a live set's reading, it is no
+    miss: the arm may still fail elsewhere, so it can neither lose to a later
+    arm nor refuse the document, and the attempt raises :class:`ProbeFork`
+    from it. Kept apart from a build's refusal of its values, which is that
+    arm's or reading's own miss."""
 
 
 class ProbeFork(PdaFail):
