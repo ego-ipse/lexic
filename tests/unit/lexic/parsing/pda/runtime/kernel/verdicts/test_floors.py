@@ -64,9 +64,12 @@ def _entry_clone(sub: object) -> object:
 
 def _draining(calls: list[tuple[int, int]], ends: dict[int, int] | None = None):
     """A ``_drive`` that records each call and drains the stack to its floor,
-    leaving the cursor where ``ends`` says that floor's frames ended."""
+    leaving the cursor where ``ends`` says that floor's frames ended. Past
+    32 calls, more than any drive here makes, it raises: a loop fails by name."""
 
     def drive(self, floor: int = 0, limit: int = -1) -> None:
+        if len(calls) >= 32:
+            raise AssertionError(f"_drive called more than 32 times: {calls[:8]}")
         calls.append((floor, limit))
         del self.stack[floor:]
         if ends and floor in ends:
@@ -186,6 +189,59 @@ def test_a_side_ledger_records_an_unreadable_settle_as_unseen(monkeypatch) -> No
     DRIVE_FLOORS(kern, [(1, 0, [], [], None, None)], ledger, -1)
     assert ledger == [6, UNSEEN]
     assert calls == [(1, -1), (0, -1), (0, -1)]
+
+
+def _side_drive(monkeypatch, floors, ledger, ends: dict[int, int]):
+    """A side's drive three frames deep over ``floors`` and ``ledger``, each
+    drain ending where ``ends`` says and every floor settling: the drive's
+    calls, and each settled floor's depth and start."""
+    kern, _caches = _kernel(monkeypatch, depth=3)
+    calls: list[tuple[int, int]] = []
+    settled: list[tuple[int, int]] = []
+    monkeypatch.setattr(PdaKernel, "_drive", _draining(calls, ends))
+    monkeypatch.setattr(
+        PdaKernel, "_settle_floor", lambda _s, f, _got: settled.append(f[:2]) or True
+    )
+    DRIVE_FLOORS(kern, floors, ledger, -1)
+    return calls, settled
+
+
+def test_a_side_ledger_settles_both_floors_rooted_at_one_depth(monkeypatch) -> None:
+    """An attempted iteration and the entry its payload runs root at one
+    depth. A side keeping a ledger settles the inner floor, then the outer at
+    the same depth, before it steps out a copied frame — and still records
+    every copied frame and settles the floor further out. Stepped out after
+    the inner, the outer floor was left behind, deeper than the stack."""
+    floors = [(0, 0, [], [], None, None), (2, 0, [], [], None, None)]
+    floors.append((2, 1, [], [], None, None))
+    ledger = [PENDING, PENDING, PENDING]
+    calls, settled = _side_drive(monkeypatch, floors, ledger, {2: 4, 1: 5, 0: 6})
+    assert settled == [(2, 1), (2, 0), (0, 0)]
+    assert ledger == [6, 5, 4]
+    assert calls == [(2, -1), (2, -1), (1, -1), (0, -1), (0, -1)]
+    assert not floors
+
+
+def test_a_side_ledger_steps_out_each_copied_frame_to_a_floor_further_out(
+    monkeypatch,
+) -> None:
+    """With its one floor two copied frames out, a side keeping a ledger stops
+    at each copied frame on the way and records where it ended, then settles
+    the floor where the drive reaches its depth."""
+    floors, ledger = [(0, 0, [], [], None, None)], [PENDING, PENDING, PENDING]
+    calls, settled = _side_drive(monkeypatch, floors, ledger, {2: 4, 1: 5, 0: 6})
+    assert settled == [(0, 0)]
+    assert ledger == [6, 5, 4]
+    assert calls == [(2, -1), (1, -1), (0, -1), (0, -1)]
+
+
+def test_a_side_keeping_no_ledger_stops_only_at_its_floors(monkeypatch) -> None:
+    """A side keeping no ledger records nothing, so it stops only where a
+    floor stands, the innermost first."""
+    floors = [(0, 0, [], [], None, None), (2, 0, [], [], None, None)]
+    calls, settled = _side_drive(monkeypatch, floors, None, {2: 4, 0: 6})
+    assert settled == [(2, 0), (0, 0)]
+    assert calls == [(2, -1), (0, -1), (0, -1)]
 
 
 def _failing_once(calls: list[tuple[int, int]], why: Exception, ends=None):

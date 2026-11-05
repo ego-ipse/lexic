@@ -61,3 +61,22 @@ def test_a_boundary_with_readings_past_it_answers_predictively(
     assert sets[0], "no boundary asked a set — the witness proves nothing"
     assert predictive != DECLINED
     assert predictive == gated
+
+
+TWO_FLOORS = (
+    'root ::= "ab"+ "ab"+ | x? x+ ";"? | [a;]*\nx ::= y? ";"\n'
+    'y ::= z* [ab] z | [a;]* [a;] "ab"\n'
+    'z ::= "a" "ab" [ab]+ | "ab"* ";"? | [ab] [ab]* "ab"\n'
+)
+"""``a;;aa`` meets with values that differ, so its set reruns keeping ledgers,
+and a reading of it is forked inside two sub-runs rooted at one depth: an
+attempted iteration of ``x+`` and the attempt entry its payload runs."""
+
+
+def test_a_ranked_reading_settles_both_sub_runs_rooted_at_one_depth() -> None:
+    """Both floors settle where the reading drains back to their depth, the
+    inner first. Stepped one copied frame out after the first, the drive
+    passed the second, and the next fork of the reading read its caller from
+    a frame no longer on the stack."""
+    predictive, gated = answers(TWO_FLOORS, "live-set-two-floors", "a;;aa")
+    assert predictive == gated == "RootArm3('a;;aa')"

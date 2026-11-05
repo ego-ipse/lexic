@@ -335,11 +335,16 @@ def _floor_sub(floor: Floor) -> FlatClone | None:
 
 
 def _next_stop(floors: list[Floor], ledger: list[int] | None, depth: int) -> int:
-    """Where a side's drive stops next, having just stopped at ``depth``: one
-    copied frame further out where it keeps a ledger, else the innermost
-    sub-run's floor; ``-1`` for none."""
+    """Where a side's drive stops next, having just stopped at ``depth``: the
+    innermost sub-run's floor, and where it keeps a ledger, one copied frame
+    further out if that is deeper; ``-1`` for none.
+
+    Two sub-runs can root at one depth — an attempted iteration and the entry
+    its payload runs — so the floor left after one settles may sit at the
+    depth just stopped at. A ledger's step out would pass it, and the floor
+    would outlive the frames it was to settle."""
     if ledger is not None:
-        return depth - 1
+        return max(depth - 1, floors[-1][0]) if floors else depth - 1
     return floors[-1][0] if floors else -1
 
 
