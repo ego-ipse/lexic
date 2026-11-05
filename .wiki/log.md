@@ -1,5 +1,11 @@
 # Log
 
+## An island's refusal inside an arm is no miss (2026-11-05)
+
+`decisions.md`, beside the `ProbeFork` entry: an island's refusal met in an
+attempted arm or iteration, or a live set's reading, forks to gated Earley,
+and a refusing build is `BuildFail`, the arm's own miss.
+
 ## Every size-steered repetition ends (2026-11-04)
 
 `public-api.md`'s `generate` entry: an empty steered piece hands the rest of

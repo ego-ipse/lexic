@@ -198,7 +198,8 @@ class AttemptInlineMixin[Carry]:
         self, arm: FlatArm, i: int, pos: int
     ) -> tuple[int, list[Carry]] | None:
         """Try one frame-less value-string iteration, fail-soft — except where
-        the iteration is undecidable, which is the gated engine's question."""
+        the iteration is undecidable, which is the gated engine's question, as
+        is an island its longest take asks that refuses its text."""
         try:
             return self._inline_once(arm, i, pos)
         except ProbeFork:
@@ -213,5 +214,10 @@ class AttemptInlineMixin[Carry]:
         try:
             end = once(self.text, self._caches.intern, arm.payloads[i], holder, pos)
         except IslandEscape as escape:
-            end = self._islanded(escape, holder)
+            try:
+                end = self._islanded(escape, holder)
+            except LexicError as refused:  # the island's text means two things
+                raise ProbeFork(
+                    f"inline attempt at {pos}: an island refuses", pos
+                ) from refused
         return end, holder

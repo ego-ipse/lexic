@@ -29,7 +29,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_ISLAND,
 )
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork, Suspended
+from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork, Suspended
 from lexic.parsing.pda.runtime.admission import composes
 from lexic.parsing.pda.runtime.build import (
     Frame,
@@ -469,10 +469,13 @@ class Attempting[Carry](Verdicts[Carry]):
         fork whose alternative lived in an enclosing frame (gbnf-meta's rule
         terminator). EVERY value the arm reports is returned (a transparent
         arm splices several); an EOF completion is a legitimate success; a
-        refusing fold (:class:`~lexic.exceptions.LexicError`) fails the ARM,
-        not the parse. Deliberately unmemoized — a sub-run's outcome depends
-        on the enclosing continuation, so ``(clone, pos)`` is not a sound
-        key (and the memo measured zero hits when it was).
+        refusing fold (:class:`~...core.errors.BuildFail`) fails the ARM, not
+        the parse, while an island that refuses its text as meaning two things
+        (:class:`~lexic.exceptions.LexicError`) forks: the arm may still fail
+        elsewhere, so it is neither a miss nor the document's answer.
+        Deliberately unmemoized — a sub-run's outcome depends on the enclosing
+        continuation, so ``(clone, pos)`` is not a sound key (and the memo
+        measured zero hits when it was).
 
         The sub-run's root frame is MARKED with ``mark``
         (:attr:`~lexic.parsing.pda.runtime.build.Frame.start`): the one fact a
@@ -511,10 +514,16 @@ class Attempting[Carry](Verdicts[Carry]):
             # would let a later arm commit what the gated engine may refuse.
             claim_ends(fork, holder, sub)
             raise
+        except BuildFail:
+            return None  # a refusing fold fails the arm, not the parse
         except PdaFail:
             island = self._stolen_at(floor)
-        except LexicError:
-            return None
+        except LexicError as refused:
+            # An island's text means two things: no arm's miss, so a later
+            # arm may not commit it. The gated engine answers the question.
+            raise ProbeFork(
+                f"attempt at {pos}: an island refuses inside an arm", pos
+            ) from refused
         except Suspended as up:  # last: a miss never tests for it
             up.floors.append((floor, pos, holder, [], None, None))
             # Nothing is unwound: its frames stay pushed, the cursor where

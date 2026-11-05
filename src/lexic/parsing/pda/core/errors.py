@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-__all__ = ["IslandEscape", "PdaFail", "ProbeFork", "Suspended"]
+__all__ = ["BuildFail", "IslandEscape", "PdaFail", "ProbeFork", "Suspended"]
 
 
 class PdaFail(Exception):
@@ -67,6 +67,16 @@ class PdaFail(Exception):
         self.pos = pos
         self.rule = rule
         self.expected, self.negated = wanted
+
+
+class BuildFail(PdaFail):
+    """A model build that refuses the values it was handed — a refusing fold.
+
+    A failure of the VALUES the parse built, not of the text it read: an
+    attempted arm whose build refuses misses, as any arm that fails, and the
+    gated engine, re-running the same build, refuses the same way. Kept apart
+    from the :class:`~lexic.exceptions.LexicError` an island raises when its
+    text means two things, which is no arm's miss."""
 
 
 class ProbeFork(PdaFail):

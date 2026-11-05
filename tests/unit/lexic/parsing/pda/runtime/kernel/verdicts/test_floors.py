@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.exceptions import LexicError
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrRuleRef, IrSeq
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork, Suspended
+from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork, Suspended
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
@@ -315,16 +315,20 @@ def test_island_ends_with_a_floor_held_settle_that_floor(monkeypatch) -> None:
     assert calls == [(1, -1), (0, -1)]
 
 
-def test_a_plain_fork_with_a_floor_held_is_raised(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "why",
+    [ProbeFork("undecidable", 0), UnsupportedConstructError("two ways")],
+    ids=["plain-fork", "island-refusal"],
+)
+def test_a_fork_or_refusal_with_a_floor_held_is_raised(monkeypatch, why) -> None:
     """Only an island's ends are a floor's to settle: any other fork is the
-    gated engine's question, and leaves the drive."""
+    gated engine's question, and an island refusing its text as meaning two
+    things is no sub-run's miss. Either leaves the drive."""
     kern, _caches = _kernel(monkeypatch, depth=3)
     settled: list[object] = []
-    monkeypatch.setattr(
-        PdaKernel, "_drive", _failing_once([], ProbeFork("undecidable", 0))
-    )
+    monkeypatch.setattr(PdaKernel, "_drive", _failing_once([], why))
     monkeypatch.setattr(PdaKernel, "_settle_floor", lambda *a: settled.append(a))
-    with pytest.raises(ProbeFork):
+    with pytest.raises(type(why)):
         DRIVE_FLOORS(kern, [(1, 2, [], [], None, None)], None, -1, 0, True)
     assert not settled
 
@@ -526,7 +530,7 @@ def test_a_refusal_never_steals(monkeypatch) -> None:
     kern, _caches = _kernel(monkeypatch, depth=3)
     asked = _asking(monkeypatch, object(), (5, ["stolen"]))
     floor = (1, 2, [], [], None, (_entry_clone(flat_clone()), [], 0, None, None))
-    assert MISSED_AT(kern, floor, LexicError("refused"), True) is None
+    assert MISSED_AT(kern, floor, BuildFail("refused", 6), True) is None
     assert not asked
 
 

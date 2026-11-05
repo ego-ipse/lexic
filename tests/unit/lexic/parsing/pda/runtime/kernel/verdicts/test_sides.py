@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
@@ -20,7 +21,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_REF,
     OP_REF1,
 )
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
@@ -132,6 +133,31 @@ def test_an_ordinary_failure_still_reads_as_a_dead_side(monkeypatch) -> None:
         PdaKernel, "_drive", lambda *_a, **_k: _raise(PdaFail("dead", 0))
     )
     assert _advance(kern, side) is None
+
+
+def test_a_refusing_fold_reads_as_a_dead_side(monkeypatch) -> None:
+    """A build that refuses the reading's own values kills that reading."""
+    kern = live_kernel()
+    side = _side(kern)
+    monkeypatch.setattr(
+        PdaKernel, "_drive", lambda *_a, **_k: _raise(BuildFail("refused", 0))
+    )
+    assert _advance(kern, side) is None
+
+
+def test_an_island_refusal_in_a_side_forks(monkeypatch) -> None:
+    """An island that refuses its text as meaning two things answers for the
+    text, not the reading: read as a death, the other way would commit what
+    the gated engine refuses. ``_advance`` forks, and puts the cursor back."""
+    kern = live_kernel()
+    before = _cursor(kern)
+    side = _side(kern)
+    refused = UnsupportedConstructError("derives the same text two ways")
+    monkeypatch.setattr(PdaKernel, "_drive", lambda *_a, **_k: _raise(refused))
+    with pytest.raises(ProbeFork) as fork:
+        _advance(kern, side)
+    assert fork.value.__cause__ is refused
+    assert _cursor(kern) == before
 
 
 # ── a fork inside an attempt sub-run settles it, as the live parse would ────

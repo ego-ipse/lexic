@@ -13,10 +13,24 @@ branches), a nested leaf-in-leaf reference (``OP_LEAF1``), and an all-
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
+from lexic.exceptions import LexicError
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT
+from lexic.parsing.pda.core.errors import BuildFail
+from lexic.parsing.pda.runtime.build import Frame
+from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
+    live_kernel,
+)
+
+COMPLETE = vars(KernelExecutionMixin)["_complete"]
+"""Frame completion as the mixin defines it, driven on a real kernel."""
 
 
 def _model_for(text: str, grammar: str, cache_key: str):
@@ -75,3 +89,23 @@ def test_completion_round_trips_a_realistic_grammar_end_to_end():
     text = "1+2*3=x\n"
     model = compiled.parse(text, cores=1)
     assert model.to_text() == text
+
+
+def test_a_build_that_refuses_its_values_fails_as_a_build(monkeypatch) -> None:
+    """A completion whose build refuses raises :class:`BuildFail`, caused by
+    the refusal: a failure of the values, which an attempt reads as its arm's
+    miss, kept apart from an island's refusal of the text."""
+    kern = live_kernel()
+    frame = Frame(flat_arm(1), [], flat_clone(BUILD_ALT, name="x"), 0)
+    kern.stack = [frame]
+    refused = LexicError("the build refused")
+    monkeypatch.setattr(Frame, "alt_model", lambda _self: _refuse(refused))
+    with pytest.raises(BuildFail) as fail:
+        COMPLETE(kern, frame)
+    assert fail.value.__cause__ is refused
+    assert not frame.out
+
+
+def _refuse(why: LexicError) -> None:
+    """Raise from inside a lambda, so the patched build stays one expression."""
+    raise why

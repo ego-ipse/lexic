@@ -241,8 +241,12 @@ class Sides[Carry](Floors[Carry]):
             )
         except ProbeFork:
             raise  # undecidable is not death: it is the gated engine's
-        except PdaFail, LexicError:
+        except PdaFail:  # a refusing fold among them: the reading's own values
             return None
+        except LexicError as refused:  # an island's text means two things
+            raise ProbeFork(
+                f"probe side: an island refuses at {self.pos}", self.pos
+            ) from refused
         finally:
             caches.probing -= 1
             caches.side = saved_side

@@ -12,10 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork, Suspended
+from lexic.parsing.pda.core.errors import BuildFail, PdaFail, ProbeFork, Suspended
 from lexic.parsing.pda.runtime.admission import Floor, KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import IslandEnds
@@ -156,7 +155,7 @@ class Floors[Carry]:
                 # Held without its traceback, which holds this frame and so
                 # the failure: a cycle only the collector frees.
                 failed = fork.with_traceback(None)
-            except (PdaFail, LexicError) as failure:
+            except PdaFail as failure:  # an island's refusal (LexicError) passes on
                 if not floors:
                     raise
                 failed = failure.with_traceback(None)
@@ -251,7 +250,7 @@ class Floors[Carry]:
         ends = failure if isinstance(failure, IslandEnds) else None
         steals = (
             None
-            if not live or ends is not None or isinstance(failure, LexicError)
+            if not live or ends is not None or isinstance(failure, BuildFail)
             else self._stolen_at(depth)
         )
         del self.stack[depth:]
