@@ -679,14 +679,14 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if top not in seen_i:
             seen_i.add(top)
             self.cols[i].append(top)
-            if c.next_sym[top >> bits]:
-                st.file_item(i, top, c.next_sym[top >> bits])
+            s = c.next_sym[top >> bits]
+            if s:
+                st.file_item(i, top, s)
         if self.record_links:
-            key = (top << bits) | i
             entry: KLink = (sole, done & mask, (done << bits) | i)
-            bucket = st.leo_links.get(key)
+            bucket = st.leo_links.get((top << bits) | i)
             if bucket is None:
-                st.leo_links[key] = [entry]
+                st.leo_links[(top << bits) | i] = [entry]
             elif entry not in bucket:  # a second chain to the same top
                 bucket.append(entry)
         return True

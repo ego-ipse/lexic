@@ -64,12 +64,17 @@ def leo_resolve(
             return memo
     pk, c = tables.packing, tables.codes
     found = leo_sole(st, tables, col, rid)
-    if found >= 0 and found & pk.mask == col and c.unit_start[found >> pk.bits]:
-        if col >= cur:
+    if found >= 0 and found & pk.mask == col:  # an empty-span step
+        if not c.unit_start[found >> pk.bits]:
+            found = -1
+        elif col >= cur:
             raise EngineInvariantError(f"leo: a unit step passed in open column {col}")
-        found = leo_sole(st, tables, col, c.arm_rule[c.code_arm[found >> pk.bits]])
-    if found < 0 or (found & pk.mask) == col:
-        result = -1  # no sole waiter, or an empty-span step — no jump
+        else:  # the unit arm's rule's own waiter, if it crosses columns
+            found = leo_sole(st, tables, col, c.arm_rule[c.code_arm[found >> pk.bits]])
+            if found >= 0 and found & pk.mask == col:
+                found = -1
+    if found < 0:
+        result = -1  # no sole waiter, or a refused empty-span step — no jump
     else:
         parent = leo_resolve(
             st, tables, cur, found & pk.mask, c.arm_rule[c.code_arm[found >> pk.bits]]
