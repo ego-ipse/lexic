@@ -9,6 +9,7 @@ the kernel, so ``kernel``, ``leo`` and ``readout`` all sit above it.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
@@ -32,6 +33,30 @@ element type, and negative so it cannot collide: a predecessor item, an origin
 column and a child handle are all packed non-negative ints, so no producer can
 file this triple. Compared by IDENTITY against this one module-level object,
 never by value."""
+
+
+def lazy_head(cursor: int, held: int) -> KLink:
+    """A lazily promoted bucket's second entry: where its group read starts.
+
+    Its bucket is ``[PROMOTED, head, *held, *late, *leo]``. ``cursor`` is
+    the place in the ``(rule, end)`` group from which the key reads its
+    families, ``held`` the families it kept before that. Stored negated, so
+    a reader tells it from the first family a factoring key keeps there,
+    whose predecessor item is never negative; no empty families yet
+    (:func:`late_head`).
+    """
+    return (-1 - cursor, held, -1)
+
+
+def late_head(head: KLink, place: int) -> KLink:
+    """``head`` with the group's length when the key's empty families were filed."""
+    return (head[0], head[1], place)
+
+
+def lazy_parts(head: KLink) -> tuple[int, int, int]:
+    """A :func:`lazy_head`'s ``(cursor, held, place)``, ``place`` ``-1`` before
+    any empty family. The head holds ints in all three places."""
+    return -1 - head[0], head[1], cast(int, head[2])
 
 
 def _sets(count: int) -> list[set]:
@@ -74,7 +99,10 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         ending there that the COMPLETER ACTUALLY PROCESSED, in event order,
         from the first promotion at that ``(rule, end)`` on. Created only then,
         so a chart that never promotes never builds one — and an empty
-        ``groups`` is how a reader knows no key promoted at all.
+        ``groups`` is how a reader knows no key promoted at all. A key facing
+        a nullable rule promotes only once it holds many families, and its
+        head (:func:`lazy_head`) names where in the group its own read
+        starts.
 
         It exists because ``cols[end]`` is NOT a record of what the completer
         processed: ``_complete`` returns early when ``_try_leo`` takes a

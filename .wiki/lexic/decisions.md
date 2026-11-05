@@ -2519,3 +2519,42 @@ nothing keeps the refusal: a base whose sequential parse refuses, or a probe
 that dies. The rule reads models, never row names. The gate's page is
 `tools/benchmark/README.md`; the pins are listed there.
 
+## A key facing a nullable rule promotes once it holds many families (2026-11-05)
+
+**Decision:** the Earley family store promotes a key facing a nullable rule
+only once its bucket holds `LAZY_PROMOTION` families (8). It keeps those, in
+order, and reads the rest from its `(rule, end)` completion group from the
+place where it promoted. Empty families `_nullable_advance` files after that
+are stored explicitly at the group's length at that moment. A key facing a rule
+with no empty arm still promotes at its second family; one facing a rule its
+kernel delegates never promotes.
+
+**Why:** a key facing a nullable rule used to keep every family, deduped by a
+linear scan, because its empty families interleave with the completions'. On
+the vyx `!R` body, whose prose words admit the two-character separator and so
+span any run of separators, that cost n³ families and an n⁴ scan: 15.9 s and
+668 MB at 128 lines, now 2.7 s and 273 MB. Promoting every such key at its second family undid the
+recovery that deciding a completion's tier once had made on rows whose keys
+each hold two families. Promoting past a threshold keeps those rows explicit.
+
+**Why 8:** the ski-rental crossover `(P + R) / a`. An explicit family costs
+`a` ≈ 113 ns; a promotion costs `P` ≈ 134 ns at the kernel plus `R` ≈ 762 ns
+of group reads over the key's life. Times from 2 to 8 lie within 4%, and 16
+is slower.
+
+**No dedup at filing:** a column closes once whenever links are recorded
+(`extend` refuses under `record_links`, and a window grows without re-closing).
+So each completion files once, its waiters' keys are distinct, and
+`_nullable_advance` runs once per key. No filing site can meet its own family
+twice, and the scans that checked are gone. Leo expansion, after recognition,
+keeps its own.
+
+**What it does not change:** the recognizer's own cost. Every completion still
+advances every waiter, about n^2.3 on that body; the family store now stays
+under that floor rather than above it.
+
+**Pins:** `test_families.py` compares every key's complete ordered bucket
+against the pre-factoring recorder at thresholds 1, 2 and the default. Its
+witnesses include a key whose empty families stand between group entries
+filed before and after them, and groups opened before a later key promotes.
+

@@ -1,5 +1,11 @@
 # Log
 
+## A nullable key's families promote past a threshold (2026-11-05)
+
+`decisions.md`: a key facing a nullable rule promotes once it holds
+`LAZY_PROMOTION` families, reading the rest from its group from where it
+promoted. The threshold is a measured crossover, and no filing site dedups.
+
 ## A build's internal disagreement is an engine invariant (2026-11-05)
 
 `error-vocabulary.md`'s `EngineInvariantError` row: the PDA build's item-count

@@ -106,7 +106,7 @@ def before_group(kern: Kernel) -> list[int]:
     pk = kern.tables.packing
     out = []
     for key, bucket in kern.st.links.items():
-        if bucket[0] is not PROMOTED:
+        if bucket[0] is not PROMOTED or bucket[1][0] < 0:  # a lazy head: no first
             continue
         child = bucket[1][2]
         assert isinstance(child, int), key
