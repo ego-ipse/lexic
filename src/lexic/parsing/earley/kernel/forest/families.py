@@ -134,21 +134,31 @@ class FamilyTable:
         The group holds completions in the order the completer processed them;
         ``start`` and ``stop`` bound the slice of it read.
         A completion yields a family for this key iff the key's waiter was
-        waiting on the rule at the completion's origin; that bucket is keyed by
-        ORIGIN and final once that column closed, which strictly precedes any
-        completion ending later, so reading it now reads what the completer saw.
+        waiting on the rule at the completion's origin; that column closed
+        before any completion ending later, so reading it now reads what the
+        completer saw. The waiter faces the rule by construction, so it waited
+        there iff it stands in that column: an advanced item iff the column's
+        ``seen`` holds it, a dot-0 item iff the column is its own origin, where
+        alone it is ever seeded. Both are one test, where the column's waiting
+        list is one scan per completion.
         """
         kern = self.kern
-        pk = kern.tables.packing
-        bits, mask = pk.bits, pk.mask
+        bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
+        codes = kern.tables.codes
         end = key & mask
-        waiter = (key >> bits) - pk.advance
-        rid = kern.tables.codes.next_sym[waiter >> bits] - 1
-        waiting = kern.st.waiting
-        for it in islice(kern.st.groups[(rid, end)], start, stop):
-            origin = it & mask
-            if waiter in waiting[origin].get(rid, ()):
-                yield waiter, origin, (it << bits) | end
+        waiter = (key >> bits) - kern.tables.packing.advance
+        rid = codes.next_sym[waiter >> bits] - 1
+        group = islice(kern.st.groups[(rid, end)], start, stop)
+        if codes.arm_base[codes.code_arm[waiter >> bits]] == waiter >> bits:
+            home = waiter & mask  # a dot-0 waiter stands in its origin alone
+            for it in group:
+                if it & mask == home:
+                    yield waiter, home, (it << bits) | end
+            return
+        seen = kern.st.seen
+        for it in group:
+            if waiter in seen[it & mask]:
+                yield waiter, it & mask, (it << bits) | end
 
 
 def _with_leo(out: list[KLink], stored: list[KLink], tail: int) -> list[KLink]:

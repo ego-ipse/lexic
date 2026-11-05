@@ -378,7 +378,8 @@ def generate(
         except RecursionError as exc:
             raise UnsupportedConstructError(
                 f"generate: {rule_name!r} needs deeper nesting than the stack "
-                "carries — every string it derives nests that deep"
+                f"carries at max_depth={max_depth} — lower max_depth, unless "
+                "its shortest string already nests that deep"
             ) from exc
     free = FreeWalk(
         rng,
