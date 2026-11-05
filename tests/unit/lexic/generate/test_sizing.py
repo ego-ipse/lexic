@@ -154,6 +154,31 @@ def test_a_target_deeper_than_the_stack_is_refused_with_words(source, depth):
         generate("root", rules, rng=random.Random(1), max_depth=depth, size=5_000)
 
 
+def chain(n: int) -> str:
+    """``r0 ::= "[" r1 "]"`` … ``rn ::= "x"``: every string nests ``n`` deep."""
+    rules = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(n)]
+    return "\n".join([*rules, f'r{n} ::= "x"']) + "\n"
+
+
+@pytest.mark.parametrize("depth", [5, 48])
+def test_a_chain_of_required_references_past_the_stack_is_refused(depth) -> None:
+    """Where a depth is spent a required reference is still sized, so the
+    sizing recurses as deep as the chain: 400 references are refused with
+    words, as the fill is, rather than raising from the sizing."""
+    rules = {r.name: r for r in canonical_grammar(chain(400), GBNF_FLAVOUR).rules}
+    with pytest.raises(
+        UnsupportedConstructError, match="deeper nesting than the stack"
+    ):
+        generate("r0", rules, rng=random.Random(0), max_depth=depth, size=64)
+
+
+def test_a_chain_the_stack_carries_is_sized_and_spelled() -> None:
+    """Forty required references nest forty deep: spelled whole."""
+    rules = {r.name: r for r in canonical_grammar(chain(40), GBNF_FLAVOUR).rules}
+    out = generate("r0", rules, rng=random.Random(0), max_depth=5, size=64)
+    assert out == "[" * 40 + "x" + "]" * 40
+
+
 NESTED_LISTS = 'value ::= "[" (value ("," value)*)? "]" | "x"\n'
 """A self-reference inside an OPTIONAL group, on an arm as cheap as the
 terminal one — sized eagerly, it recursed to negative depths before a character

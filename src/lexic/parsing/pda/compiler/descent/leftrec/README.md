@@ -1,4 +1,4 @@
-# `pda/compiler/leftrec` — the left-recursion fold
+# `pda/compiler/descent/leftrec` — the left-recursion fold
 
 A rule the predictive descent cannot run, rewritten into one it can, without
 changing what it parses or what it builds.

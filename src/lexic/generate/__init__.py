@@ -363,15 +363,23 @@ def generate(
     :raises UnsupportedConstructError: When ``rule_name`` names no rule, when
         a reference reaches one, when an alternation has no arms, when a
         rule's every arm loops forever (it derives no finite string), or when
-        a ``size`` target needs deeper nesting than the stack carries.
+        a string, or a ``size`` target, needs deeper nesting than the stack
+        carries (a chain of required references longer than it, as a
+        hundred-odd ``ri ::= "[" ri+1 "]"``).
     """
     if rng is None:
         rng = _random.Random()
     heights = _rule_heights(rules)
     if size is None:
-        return Generator(
-            rng=rng, rules=rules, heights=heights, max_depth=max_depth
-        ).run(rule_name)
+        try:
+            return Generator(
+                rng=rng, rules=rules, heights=heights, max_depth=max_depth
+            ).run(rule_name)
+        except RecursionError as exc:
+            raise UnsupportedConstructError(
+                f"generate: {rule_name!r} needs deeper nesting than the stack "
+                "carries — every string it derives nests that deep"
+            ) from exc
     free = FreeWalk(
         rng,
         partial(_open_arms, heights),

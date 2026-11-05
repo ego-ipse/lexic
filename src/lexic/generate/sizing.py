@@ -524,20 +524,18 @@ def steer(
     :param size: The target, in characters.
     :returns: The document.
     :raises UnsupportedConstructError: When the target needs deeper nesting
-        than the interpreter's stack carries at ``max_depth``. Only the FILL is
-        guarded: :meth:`_Shape.of` sizes rules bottom-up per depth, so rule
-        references never recurse deep there, but a grammar with thousands of
-        nested INLINE groups would still raise raw from the sizing.
+        than the interpreter's stack carries at ``max_depth``. The sizing is
+        guarded as the fill is: where a depth is spent, a required reference is
+        still sized, so a chain of them recurses as deep as the chain.
     """
-    shape = _Shape.of(rules, free, max_depth)
-    filler = _Filler(
-        rng=free.rng,
-        shape=shape,
-        walker=free.walker,
-        max_depth=max_depth,
-        budget=float(size),
-    )
     try:
+        filler = _Filler(
+            rng=free.rng,
+            shape=_Shape.of(rules, free, max_depth),
+            walker=free.walker,
+            max_depth=max_depth,
+            budget=float(size),
+        )
         return filler.rule(rule_name)
     except RecursionError as exc:
         raise UnsupportedConstructError(
