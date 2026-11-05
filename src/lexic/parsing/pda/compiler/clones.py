@@ -66,12 +66,12 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.ends.contexts import Decided, RunContexts
 from lexic.parsing.pda.compiler.continuation import IslandContinuations
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
+from lexic.parsing.pda.compiler.descent import descent_grammar
 from lexic.parsing.pda.compiler.eligibility import (
     attempt_window,
     extent_consult,
     matches_own_text,
 )
-from lexic.parsing.pda.compiler.leftrec import folded_grammar
 from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
@@ -663,7 +663,7 @@ def compile_clones(
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle.
     """
-    grammar, folds = folded_grammar(lifted, binding)
+    grammar, folds = descent_grammar(lifted, binding)
     compiler = PdaCompiler(GrammarAnalysis(grammar, grants=grants), binding.routines)
     compiler.folds = folds
     return compiler, compiler.compile_start()

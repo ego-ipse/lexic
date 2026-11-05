@@ -419,9 +419,9 @@ def run_decides(
 ) -> bool:
     """Settle item ``k``'s loop where its run ends, if some follower needs part
     of the run; under ``known`` (its route was otherwise an island), only where
-    no context of it is unknown. A loop whose arm still needs text after it
-    keeps its route, and nothing past the run starting in its class skips the
-    walk.
+    no context of it is unknown. What its own arm still needs after it is part
+    of each context's lead, as what follows the rule is, and nothing past the
+    run starting in its class skips the walk.
 
     :param analysis: The grammar-analysis oracle (``Any``-typed leaf argument).
     :param at: The loop's arm, and its index there.
@@ -429,8 +429,6 @@ def run_decides(
     :param notes: The rule's note accumulators.
     """
     items, k = at
-    if not all(analysis.item_nullable(item) for item in items[k + 1 :]):
-        return False
     run = analysis.atom_first(items[k].atom)
     if not run.overlaps(analysis.cont_at(items, k, scope.tail)):
         return False

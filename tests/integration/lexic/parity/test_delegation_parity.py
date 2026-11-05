@@ -100,7 +100,7 @@ on its clone instead of the island's Earley item machinery.
 
 The recursion goes through ``step`` rather than directly. Direct left recursion
 no longer islands — the fold rewrites it into a loop and builds the model back
-(:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`) — so a directly recursive
+(:mod:`lexic.parsing.pda.compiler.descent.leftrec.rewrite`) — so a directly recursive
 ``item`` would leave this test with no island to delegate inside, which is the
 whole thing it measures."""
 

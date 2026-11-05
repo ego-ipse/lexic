@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.compiler.leftrec.shape — what the fold may take.
+"""Tests for lexic.parsing.pda.compiler.descent.leftrec.shape — what the fold may take.
 
 The shape reader decides which rules get rewritten, so every wrong answer here
 is a wrong model somewhere else: a shape it takes that it should not is a rule
@@ -21,8 +21,12 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAst, IrRule, IrRuleRef
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec import shape as shape_module
-from lexic.parsing.pda.compiler.leftrec.shape import Fold, any_candidate, foldable
+from lexic.parsing.pda.compiler.descent.leftrec import shape as shape_module
+from lexic.parsing.pda.compiler.descent.leftrec.shape import (
+    Fold,
+    any_candidate,
+    foldable,
+)
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
 

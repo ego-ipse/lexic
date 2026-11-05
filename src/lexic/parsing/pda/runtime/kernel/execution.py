@@ -500,7 +500,7 @@ def _folded[Carry](text: str, frame: Frame[Carry], clone: FlatClone[Carry]) -> C
     """A left-recursive rule's model, folded out of its rewritten loop.
 
     The rule was rewritten to ``(γ)(β)*`` so the predictive descent could run
-    it (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). Its VALUE is the
+    it (:mod:`lexic.parsing.pda.compiler.descent.leftrec.rewrite`). Its VALUE is the
     one the original arms build: the base, then each iteration folded through
     the recursive arm's own composed build, left-nested —
     ``A(A(A(γ, β), β), β)``.

@@ -1,5 +1,12 @@
 # Log
 
+## A run's own arm tail is part of its lead (2026-11-05)
+
+`decisions.md`'s run-end entry: a loop whose arm still needs text after it is
+decided at its run's end, and a text-only rule's same-class items fuse on the
+predictive side. CLAUDE.md lists `compiler/descent/`, the predictive grammar's rewrites:
+the fusion and the left-recursion fold.
+
 ## A Leo climb passes a unit arm's same-column step (2026-11-05)
 
 `decisions.md`: `leo_resolve` passes one same-column step through a unit

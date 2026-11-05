@@ -287,7 +287,7 @@ def build_plan[Carry](
     """The positional plan — one ``(mode, item, lo, default)`` per class field.
 
     Public because the left-recursion fold composes an arm's build from it too
-    (:mod:`lexic.parsing.pda.compiler.leftrec.build`): a fold that re-derived
+    (:mod:`lexic.parsing.pda.compiler.descent.leftrec.build`): a fold that re-derived
     the plan could drift from the one the ordinary bake uses, and then the same
     arm would build two different models depending on how it was reached.
 

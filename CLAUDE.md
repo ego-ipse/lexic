@@ -365,11 +365,14 @@ src/lexic/
         eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
-        leftrec/
-          __init__.py              The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
-          build.py                 Folding the iterations back into the model the grammar's arms build
-          rewrite.py               `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
-          shape.py                 Which rules the fold can take, and what their pieces are
+        descent/
+          __init__.py              The grammar the predictive descent runs — the PDA's own rewrites of the lifted grammar
+          fusion.py                Adjacent same-class items of a text-only rule as one — the PDA's own view
+          leftrec/
+            __init__.py            The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
+            build.py               Folding the iterations back into the model the grammar's arms build
+            rewrite.py             `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
+            shape.py               Which rules the fold can take, and what their pieces are
         program/
           __init__.py              Flat-program package marker
           flatten.py               The flat int-coded records a compiled PDA IS

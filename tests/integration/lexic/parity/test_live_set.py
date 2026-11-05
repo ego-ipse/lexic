@@ -80,3 +80,33 @@ def test_a_ranked_reading_settles_both_sub_runs_rooted_at_one_depth() -> None:
     a frame no longer on the stack."""
     predictive, gated = answers(TWO_FLOORS, "live-set-two-floors", "a;;aa")
     assert predictive == gated == "RootArm3('a;;aa')"
+
+
+TWO_DEEP_IN_PAIRS = (
+    'root ::= arr\narr ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" e ")" "," "(" e ")" | "(" e ")"\n'
+)
+"""Pairs that may reopen, around an ``e`` whose run ends where a tail the
+class overlaps does: decided two characters deep, inside each reading."""
+
+
+@pytest.mark.parametrize("tail", ["[aeiou]", '"e"'])
+def test_an_exit_decided_two_deep_inside_a_reading_answers_predictively(
+    monkeypatch, tail: str
+) -> None:
+    """The two-deep grant settles ``e``'s run inside a live set's readings, as
+    it does outside them: the sets are asked, and the predictive route builds
+    the gated engine's model."""
+    source = TWO_DEEP_IN_PAIRS + f"e ::= [a-z]* {tail}\n"
+    sets = [0]
+    decide = vars(LiveSet)["_decide"]
+
+    def counted(self, roots, ahead_first):
+        sets[0] += 1
+        return decide(self, roots, ahead_first)
+
+    monkeypatch.setattr(LiveSet, "_decide", counted)
+    text = "[" + ",".join(f"(b{'ca' * k}e)" for k in range(12)) + "]"
+    predictive, gated = answers(source, f"two-deep-pairs-{tail}", text)
+    assert sets[0], "no boundary asked a set — the witness proves nothing"
+    assert predictive == gated != DECLINED

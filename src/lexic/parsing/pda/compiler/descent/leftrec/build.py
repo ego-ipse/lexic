@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lexic.parsing.pda.compiler.leftrec.shape import Fold, Recursive
+from lexic.parsing.pda.compiler.descent.leftrec.shape import Fold, Recursive
 from lexic.parsing.pda.compiler.program.bake.lowering import (
     FoldBuild,
     FoldStep,

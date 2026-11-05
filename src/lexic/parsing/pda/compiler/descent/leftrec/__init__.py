@@ -17,9 +17,9 @@ from __future__ import annotations
 from lexic.ir import IrAst
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec.build import fold_build
-from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
-from lexic.parsing.pda.compiler.leftrec.shape import any_candidate, foldable
+from lexic.parsing.pda.compiler.descent.leftrec.build import fold_build
+from lexic.parsing.pda.compiler.descent.leftrec.rewrite import fold_grammar
+from lexic.parsing.pda.compiler.descent.leftrec.shape import any_candidate, foldable
 from lexic.parsing.pda.compiler.program.bake.lowering import FoldBuild
 
 __all__ = ["folded_grammar"]

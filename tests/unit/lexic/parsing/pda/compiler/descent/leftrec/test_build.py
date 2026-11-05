@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.compiler.leftrec.build — the per-iteration build.
+"""Tests for lexic.parsing.pda.compiler.descent.leftrec.build — the per-iteration build.
 
 This module's refusals are the interesting part. Each one, if waved through,
 produces a WRONG MODEL rather than a slow parse — the rule would be rewritten
@@ -18,8 +18,8 @@ from lexic.compile import compile_text
 from lexic.parsing import products
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec.build import fold_build
-from lexic.parsing.pda.compiler.leftrec.shape import Fold, Recursive, foldable
+from lexic.parsing.pda.compiler.descent.leftrec.build import fold_build
+from lexic.parsing.pda.compiler.descent.leftrec.shape import Fold, Recursive, foldable
 from lexic.parsing.products import model_product
 from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import pda_and_earley
 

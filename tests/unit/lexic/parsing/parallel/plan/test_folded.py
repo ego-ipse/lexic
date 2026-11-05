@@ -31,7 +31,7 @@ from lexic.parsing.parallel.plan.folded import (
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_PIECE
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec.shape import foldable
+from lexic.parsing.pda.compiler.descent.leftrec.shape import foldable
 
 SERVED = (
     "root ::= expr nl\n"

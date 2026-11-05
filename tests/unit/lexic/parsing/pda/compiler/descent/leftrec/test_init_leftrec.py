@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.compiler.leftrec — the fold's one entry.
+"""Tests for lexic.parsing.pda.compiler.descent.leftrec — the fold's one entry.
 
 The package's claim is that a left-recursive rule can be parsed as a loop and
 still build the model its arms build. That claim is only worth anything if it
@@ -18,7 +18,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.compiler.leftrec import folded_grammar
+from lexic.parsing.pda.compiler.descent.leftrec import folded_grammar
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import earley_model, model_product, pda_model
 

@@ -28,7 +28,7 @@ from lexic.ir import (
     IrSequence,
     reachable,
 )
-from lexic.parsing.pda.compiler.leftrec.shape import Fold
+from lexic.parsing.pda.compiler.descent.leftrec.shape import Fold
 
 
 def _group(arms: tuple[tuple[IrItem, ...], ...]) -> IrAlternation:

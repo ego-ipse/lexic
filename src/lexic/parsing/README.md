@@ -140,6 +140,8 @@ parsing/
       specs.py          the compiler-intermediate NamedTuple vocabulary
       tables.py         PdaTables — the compiled predictive half
       delegate_compile.py island-interior delegation (§13)
+      descent/          the grammar the descent runs: the left-recursion fold,
+                        and a text-only rule's runs of one class fused
       program/          the flat program: opcodes, lowering, the product bake,
                         post-flatten specialisation
     runtime/          execute the tables — the fused model build (§12)

@@ -80,15 +80,16 @@ def test_the_witness_loop_is_decided_where_its_run_ends() -> None:
     assert len(analysis.taxonomy.loops.run) == 1
 
 
-def test_a_loop_its_own_arm_still_needs_text_after_keeps_its_route() -> None:
-    """``[a-z]* [a-z]``: the rest of the arm is not nullable, so the loop is
-    not settled at its run's end and ``e`` islands as before."""
+def test_a_loop_its_own_arm_still_needs_text_after_is_settled() -> None:
+    """``[a-z]* [a-z]``: what the arm still needs after the loop is part of
+    each context's lead, as what follows the rule is, so the loop is settled at
+    its run's end in both of ``e``'s contexts, as authored, before any fusion."""
     grammar = (
         'root ::= entry+\nentry ::= e ";" tail*\ntail ::= "," e\ne ::= [a-z]* [a-z]\n'
     )
     analysis = GrammarAnalysis(_lifted(grammar))
-    assert not analysis.taxonomy.loops.run
-    assert "e" in analysis.conflicts
+    assert analysis.demoted["e"] == ["e[0]: loop stop-set applied (run end)"]
+    assert len(analysis.taxonomy.loops.run) == 1
 
 
 def test_an_unclosed_follower_keeps_the_longest_take() -> None:

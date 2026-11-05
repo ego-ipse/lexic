@@ -504,7 +504,7 @@ first has a shorter one the continuation accepts.
 
 The recursion goes through `step` rather than directly, because DIRECT left
 recursion no longer islands — the fold rewrites it into a loop and builds the
-model back (:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). The fold does
+model back (:mod:`lexic.parsing.pda.compiler.descent.leftrec.rewrite`). The fold does
 not take indirect recursion, so this still reaches the island seam, which is
 what these tests are about."""
 

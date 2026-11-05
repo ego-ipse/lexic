@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.pda.compiler.leftrec.rewrite — the grammar the PDA runs.
+"""Tests for lexic.parsing.pda.compiler.descent.leftrec.rewrite — the grammar the PDA runs.
 
 Three things the rewrite must get right, each with its own way of being subtly
 wrong: the SHAPE it produces (one arm, base then unbounded step), the ORPHANS
@@ -17,8 +17,8 @@ from lexic.compile import compile_text
 from lexic.ir import IrItem, IrRuleRef
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.compiler.leftrec.rewrite import fold_grammar
-from lexic.parsing.pda.compiler.leftrec.shape import foldable
+from lexic.parsing.pda.compiler.descent.leftrec.rewrite import fold_grammar
+from lexic.parsing.pda.compiler.descent.leftrec.shape import foldable
 
 _SOURCE = (
     'root ::= expr "!"\nexpr ::= expr op term | term\nterm ::= [a-z]\nop ::= "+"\n'

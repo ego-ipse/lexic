@@ -1273,15 +1273,22 @@ decided loop can see, so every other key, and every program with no closed
 width is the grammar's own — one more than the largest closed `j` — and a
 context no follower needs the run in keeps the plain whole-run stop-set.
 
-Three refusals keep a loop on its route:
+Two refusals keep a loop on its route:
 
 - **A context is unknown.** An island interior's end is not the document's;
   anything may follow it, `t` at once included.
 - **Contexts keep multiplying.** A recursion that consumes `C` after itself
   needs one more of the run per level; past `CONTEXT_CAP` contexts for one
   rule the class is refused with a note — a refusal, not a depth.
-- **The loop's own arm still needs text after it** (`[a-z]* [a-z]`): it keeps
-  the route its rule had.
+
+What the loop's own arm still needs after it (`[a-z]* x`, `x ::= [a-z]`) is
+part of each context's lead, read first, as what follows the rule is: it is
+no reason to keep the route. A text-only rule's adjacent items of one class
+are one item on the predictive side (`compiler/descent/fusion.py`), so `[a-z]* [a-z]`,
+`[a-z] [a-z]*` and `[a-z]+` compile to one program: the value is the matched
+text, and where one run ends inside it is read by nothing. The canonical
+grammar keeps the authored items, as does Earley; fusing there would change
+the grammar's normal form for speed.
 
 A loop whose route was an island or a fail-island (a deferred stop-set, an
 escape into soft FOLLOW) is decided only where no context is unknown and no

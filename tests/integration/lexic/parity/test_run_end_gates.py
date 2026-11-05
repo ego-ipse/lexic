@@ -134,12 +134,56 @@ def test_an_escaping_stop_set_over_an_optional_tail_gives_the_right_model() -> N
         assert str(compiled.parse(text).dump()) == _earley(compiled, text)
 
 
-def test_a_loop_its_own_arm_still_needs_text_after_keeps_its_island() -> None:
-    """``[a-z]* [a-z]`` keeps its route: ``e`` is an island, models unchanged."""
-    compiled = compile_text(_ENTRY + "e ::= [a-z]* [a-z]\n")
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "[a-z]* [a-z]",
+        "[a-z]* [a-z] [a-z]",
+        "[a-z]+ [a-z]",
+        "[a-z]* [a-z]+",
+        "[a-z]* x\nx ::= [a-z]",
+    ],
+)
+def test_a_loop_its_own_arm_still_needs_text_after_is_decided(spelling: str) -> None:
+    """What the loop's own arm needs after it is part of what follows its run:
+    every spelling of ``e``'s one-class language leaves the islands, and builds
+    Earley's model."""
+    compiled = compile_text(
+        _ENTRY + f"e ::= {spelling}\n", cache_key=f"tail-{spelling}"
+    )
+    assert "e" not in compiled.pda_tables().islands
+    for text in (UNIT * 8, "bj;", "bj;,uv,iw"):
+        assert str(compiled.parse(text).dump()) == _earley(compiled, text)
+
+
+@pytest.mark.parametrize(
+    "spelling", ["[a-z]* [aeiou]", '[a-z]* "e"', '("a" [a-z]*)? [a-z]']
+)
+def test_a_tail_two_adjacent_runs_cannot_place_keeps_its_island(spelling: str) -> None:
+    """Where a tail's ``e`` runs straight into the next entry's, a subset or
+    literal tail is reached at two lengths, MIXED, and an optional head is an
+    arm choice no run decides: ``e`` stays an island, with Earley's model."""
+    compiled = compile_text(
+        _ENTRY + f"e ::= {spelling}\n", cache_key=f"mixed-{spelling}"
+    )
     assert "e" in compiled.pda_tables().islands
-    text = UNIT * 8
+    text = "ae;,ae"
     assert str(compiled.parse(text).dump()) == _earley(compiled, text)
+
+
+@pytest.mark.parametrize("spelling", ["[a-z]* [aeiou]", '[a-z]* "e"'])
+def test_a_tail_a_separator_places_is_decided_on_the_predictive_route(
+    spelling: str,
+) -> None:
+    """With a separator after every ``e`` no two runs meet, and the subset or
+    literal tail is settled two characters deep: ``e`` leaves the islands,
+    and the predictive route builds Earley's model."""
+    source = 'root ::= (e ";")+\n' + f"e ::= {spelling}\n"
+    compiled = compile_text(source, cache_key=f"semi-{spelling}")
+    assert "e" not in compiled.pda_tables().islands
+    for text in ("bae;", "e;", "zzz" * 200 + "e;" * 50, "ae;ue;"):
+        built = pda_model(compiled.pda_tables(), text, compiled.executor)
+        assert str(built.dump()) == _earley(compiled, text)
 
 
 def test_a_right_recursive_spelling_at_document_scale() -> None:
