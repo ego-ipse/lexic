@@ -48,12 +48,13 @@ from lexic.parsing.earley.kernel.loop.state import (
 from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
-LAZY_PROMOTION = 8
+LAZY_PROMOTION = 3
 """How many families a key facing a nullable rule holds before it promotes:
-the ski-rental crossover ``(P + R) / a`` ≈ 7.9 of an explicit family's cost
-``a`` ≈ 113 ns against a promotion's ``P`` ≈ 134 ns plus ``R`` ≈ 762 ns of
-group reads over the key's life (126 of 63,119 promoted keys read, on the vyx
-``!R`` body whose words span separators)."""
+the ski-rental crossover ``(P + R) / a`` ≈ 2.7 of an explicit family's cost
+``a`` ≈ 117 ns against a promotion's ``P`` ≈ 136 ns plus ``R`` ≈ 181 ns of
+group reads over the key's life (at this threshold, 126 of 63,251 promoted
+keys read, on the vyx ``!R`` body whose words span separators). A key holding two families, as an
+alternation's pairs do, stays explicit."""
 
 Delegate = Callable[[str, int], tuple[int, object] | None]
 """An island-interior delegate: ``(window_text, pos) -> (end, payload) | None``.

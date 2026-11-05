@@ -177,15 +177,31 @@ def _interleaved(base: Kernel) -> list[int]:
     ]
 
 
-def test_a_key_facing_a_nullable_rule_holds_few_families_explicitly():
+def test_a_key_facing_a_nullable_rule_holds_few_families_explicitly(monkeypatch):
     """Zero-width and ordinary families interleave in filing order at such a key.
-    Holding fewer than :data:`LAZY_PROMOTION` of them, it keeps them all."""
+    Holding fewer than its threshold of them, it keeps them all."""
+    monkeypatch.setattr(kernel_module, "LAZY_PROMOTION", 8)
     base, kern = paired(tables(*NULLABLE), NULLABLE[1])
     mixed = _interleaved(base)
     assert mixed, "no key mixes zero-width and ordinary families — nothing tested"
     for key in mixed:
         assert kern.st.links[key][0] is not PROMOTED, key
-        assert len(kern.st.links[key]) <= LAZY_PROMOTION, key
+        assert len(kern.st.links[key]) < 8, key
+    assert not bucket_differences(base, kern)
+
+
+def test_empty_families_take_a_bucket_past_its_threshold_unpromoted() -> None:
+    """The completer files a family while its bucket holds fewer than the
+    threshold and promotes at the next; the empty families the waiter's own
+    visit files go in beside them. A bucket can so hold more than the
+    threshold, explicitly, and read as filed."""
+    base, kern = paired(tables(*NULLABLE), NULLABLE[1])
+    over = [
+        key
+        for key, bucket in kern.st.links.items()
+        if bucket[0] is not PROMOTED and len(bucket) > LAZY_PROMOTION
+    ]
+    assert over, "no bucket past its threshold — nothing tested"
     assert not bucket_differences(base, kern)
 
 

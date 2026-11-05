@@ -1,5 +1,10 @@
 # Log
 
+## The lazy promotion threshold re-derived (2026-11-05)
+
+`decisions.md`'s lazy-promotion entry: `LAZY_PROMOTION` is 3, the same
+crossover over a group read that costs one lookup per entry.
+
 ## A run's own arm tail is part of its lead (2026-11-05)
 
 `decisions.md`'s run-end entry: a loop whose arm still needs text after it is

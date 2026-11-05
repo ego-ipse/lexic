@@ -2532,7 +2532,7 @@ that dies. The rule reads models, never row names. The gate's page is
 ## A key facing a nullable rule promotes once it holds many families (2026-11-05)
 
 **Decision:** the Earley family store promotes a key facing a nullable rule
-only once its bucket holds `LAZY_PROMOTION` families (8). It keeps those, in
+only once its bucket holds `LAZY_PROMOTION` families (3). It keeps those, in
 order, and reads the rest from its `(rule, end)` completion group from the
 place where it promoted. Empty families `_nullable_advance` files after that
 are stored explicitly at the group's length at that moment. A key facing a rule
@@ -2547,10 +2547,11 @@ span any run of separators, that cost n³ families and an n⁴ scan: 15.9 s and
 recovery that deciding a completion's tier once had made on rows whose keys
 each hold two families. Promoting past a threshold keeps those rows explicit.
 
-**Why 8:** the ski-rental crossover `(P + R) / a`. An explicit family costs
-`a` ≈ 113 ns; a promotion costs `P` ≈ 134 ns at the kernel plus `R` ≈ 762 ns
-of group reads over the key's life. Times from 2 to 8 lie within 4%, and 16
-is slower.
+**Why 3:** the ski-rental crossover `(P + R) / a`. An explicit family costs
+`a` ≈ 117 ns; a promotion costs `P` ≈ 136 ns at the kernel plus `R` ≈ 181 ns
+of group reads over the key's life (126 of 63,251 promoted keys read at 3) (a group entry is tested against its
+column's `seen`, one lookup). Times from 2 to 8 lie within 4%, and 16 is
+slower; a key holding two families still stays explicit.
 
 **No dedup at filing:** a column closes once whenever links are recorded
 (`extend` refuses under `record_links`, and a window grows without re-closing).
