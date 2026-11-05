@@ -27,6 +27,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     MeaningRun,
     ParseConfig,
     ambiguity_points,
+    arm_choices,
     chosen_meaning,
     different_meaning,
     dirty_cone,
@@ -109,9 +110,6 @@ KEPT_CARVING = (
 """As :data:`DROPPED_CARVING`, but ``w`` over the kept carving's ``b`` is
 ``w1`` or ``w2``: an arm choice inside the carving the decider keeps."""
 
-ARM_CHOICES = vars(ambiguity)["_arm_choices"]
-"""The decided walk as the module defines it."""
-
 
 def test_the_walk_enters_only_the_carving_the_decider_keeps() -> None:
     """Every family reaches ``w``'s arm choice under the dropped carving; the
@@ -127,7 +125,7 @@ def test_the_walk_enters_only_the_carving_the_decider_keeps() -> None:
         )
     ]
     assert everywhere, "no arm choice under the dropped carving — nothing tested"
-    assert ARM_CHOICES(kernel, handle, LEFTMOST_LONGEST) == []
+    assert arm_choices(kernel, handle, LEFTMOST_LONGEST) == []
 
 
 def test_an_arm_choice_inside_a_dropped_carving_is_not_refused() -> None:
@@ -145,7 +143,7 @@ def test_an_arm_choice_inside_the_kept_carving_is_still_refused() -> None:
     """The walk enters the kept carving, so its arm choice is found and its
     two meanings refuse the document."""
     kernel, handle = kernel_and_handle("aab!", KEPT_CARVING, "ambiguity-kept")
-    assert ARM_CHOICES(kernel, handle, LEFTMOST_LONGEST)
+    assert arm_choices(kernel, handle, LEFTMOST_LONGEST)
     predictive, gated = answers(KEPT_CARVING, "ambiguity-kept", "aab!")
     assert gated == REFUSED
     assert predictive in (REFUSED, DECLINED)

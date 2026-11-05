@@ -60,6 +60,7 @@ __all__ = [
     "ParseConfig",
     "Resolver",
     "ambiguity_points",
+    "arm_choices",
     "chosen_meaning",
     "dirty_cone",
     "different_meaning",
@@ -429,7 +430,7 @@ def different_meaning[Value, NodeValue](
     """
     handle = first.handle
     siblings = _sibling_roots(kernel, handle)
-    choices = _arm_choices(kernel, handle, decide, first.steered)
+    choices = arm_choices(kernel, handle, decide, first.steered)
     if not choices:
         base = BuiltMeaning(first.tree, builder.build(first.tree))
         witness = _sibling_witness(kernel, siblings, base, builder, decide)
@@ -561,7 +562,7 @@ def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int
     return flips
 
 
-def _arm_choices(
+def arm_choices(
     kernel: Kernel,
     handle: int,
     decide: Decider,
