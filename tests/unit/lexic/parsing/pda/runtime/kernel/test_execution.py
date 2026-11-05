@@ -16,8 +16,9 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_text
-from lexic.exceptions import LexicError
-from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT
+from lexic.exceptions import EngineInvariantError, LexicError
+from lexic.parsing.pda.compiler.program.bake.lowering import no_shape_build
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_SEQ
 from lexic.parsing.pda.core.errors import BuildFail
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
@@ -104,6 +105,18 @@ def test_a_build_that_refuses_its_values_fails_as_a_build(monkeypatch) -> None:
         COMPLETE(kern, frame)
     assert fail.value.__cause__ is refused
     assert not frame.out
+
+
+def test_a_build_that_disagrees_with_its_clone_is_no_refusal() -> None:
+    """An arm whose item count matches neither its clone's slots nor the empty
+    arm is a compile/runtime disagreement: it leaves the parse as an engine
+    invariant, never as a :class:`BuildFail` a fallback would answer."""
+    kern = live_kernel()
+    clone = flat_clone(BUILD_SEQ, name="x", ctor=None, n_items=2, build=no_shape_build)
+    frame = Frame(flat_arm(1), [], clone, 0)
+    kern.stack = [frame]
+    with pytest.raises(EngineInvariantError, match="match neither"):
+        COMPLETE(kern, frame)
 
 
 def _refuse(why: LexicError) -> None:

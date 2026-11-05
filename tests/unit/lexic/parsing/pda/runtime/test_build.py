@@ -14,7 +14,11 @@ from typing import cast
 
 import pytest
 
-from lexic.exceptions import FieldValidationError, UnsupportedConstructError
+from lexic.exceptions import (
+    EngineInvariantError,
+    FieldValidationError,
+    UnsupportedConstructError,
+)
 from lexic.parsing.pda.compiler.program.bake.lowering import shape_build
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
@@ -178,9 +182,10 @@ def test_leaf_mismatch_empty_arm_builds_ctor_and_keeps_pos():
 
 
 def test_leaf_mismatch_nonempty_raises():
-    """A non-empty item-count mismatch is a compile/runtime disagreement."""
+    """A non-empty item-count mismatch is a compile/runtime disagreement: an
+    engine invariant, which no fallback catch reads as a refusal."""
     clone = cast(FlatClone, SimpleNamespace(ctor=lambda: None, n_items=2))
-    with pytest.raises(UnsupportedConstructError):
+    with pytest.raises(EngineInvariantError):
         leaf_mismatch(clone, [], 3, 0, {})
 
 
@@ -310,11 +315,11 @@ def test_fast_build_does_not_intern_the_record_path():
 
 
 def test_build_validated_unknown_mode_raises():
-    """A capture mode outside the build vocabulary is a hard error."""
+    """A capture mode outside the build vocabulary is an engine invariant."""
     clone = cast(
         FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
     )
-    with pytest.raises(UnsupportedConstructError):
+    with pytest.raises(EngineInvariantError):
         build_validated("ab", ([0, 2], None), clone, {})
 
 

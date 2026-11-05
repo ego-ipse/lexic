@@ -30,7 +30,7 @@ from collections.abc import Callable, Hashable, Sequence
 from enum import Enum
 from typing import Any
 
-from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, LexicError
 from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
@@ -288,13 +288,13 @@ def build_sequence[Carry](
 
     :param memo: The per-parse intern memo — repeated identical sub-models are
         built once and shared (immutable models make sharing transparent).
-    :raises UnsupportedConstructError: On an item count that matches neither
+    :raises EngineInvariantError: On an item count that matches neither
         the bound fields nor the empty arm, or a capture mode outside the
         build vocabulary.
     """
     if frame.arm.n != clone.n_items:
         if frame.arm.n:
-            raise UnsupportedConstructError(
+            raise EngineInvariantError(
                 f"pda: {clone.ctor!r}: {frame.arm.n} items match neither "
                 f"{clone.n_items} slots nor the empty arm"
             )
@@ -348,7 +348,7 @@ def build_validated[Carry](
     therefore unchanged.
 
     :param memo: The per-parse intern memo.
-    :raises UnsupportedConstructError: On a capture mode outside the build
+    :raises EngineInvariantError: On a capture mode outside the build
         vocabulary.
     """
     kwargs, key_parts = _validated_fields(text, spans, clone)
@@ -374,7 +374,7 @@ def _validated_fields[Carry](
 
     :returns: ``(kwargs, key_parts)`` — absent captures omitted from ``kwargs``
         yet represented in ``key_parts``.
-    :raises UnsupportedConstructError: On a capture mode outside the build
+    :raises EngineInvariantError: On a capture mode outside the build
         vocabulary.
     """
     ends, sinks = spans
@@ -404,7 +404,7 @@ def _validated_fields[Carry](
             kwargs[name] = extent
             key_parts.append(extent)
         else:
-            raise UnsupportedConstructError(f"pda: unknown capture mode {mode!r}")
+            raise EngineInvariantError(f"pda: unknown capture mode {mode!r}")
     return kwargs, tuple(key_parts)
 
 
@@ -419,11 +419,11 @@ def leaf_mismatch[Carry](
 
     :param memo: The per-parse intern memo (the empty arm shares one instance).
     :returns: ``pos`` unchanged (the empty alternate arm consumed nothing).
-    :raises UnsupportedConstructError: On a non-empty mismatch (a
+    :raises EngineInvariantError: On a non-empty mismatch (a
         compile/runtime disagreement).
     """
     if n:
-        raise UnsupportedConstructError(
+        raise EngineInvariantError(
             f"pda: {clone.ctor!r}: {n} items match neither "
             f"{clone.n_items} slots nor the empty arm"
         )

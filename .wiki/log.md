@@ -1,5 +1,10 @@
 # Log
 
+## A build's internal disagreement is an engine invariant (2026-11-05)
+
+`error-vocabulary.md`'s `EngineInvariantError` row: the PDA build's item-count
+and capture-mode disagreements, so no fallback reads them as a refusal.
+
 ## An island's refusal inside an arm is no miss (2026-11-05)
 
 `decisions.md`, beside the `ProbeFork` entry: an island's refusal met in an
