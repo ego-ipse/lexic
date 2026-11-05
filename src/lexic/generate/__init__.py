@@ -324,7 +324,7 @@ class Generator(
         arms = _open_arms(self.heights, body, self.max_depth, where)
         reach = self.reach
         if isinstance(reach, Reaching):
-            return reach.spell(self, arms)
+            return reach.spell(self, arms, self.max_depth, self.rng)
         return "".join(self.atom(it) for it in self.rng.choice(arms))
 
     def atom(self, item: IrItem) -> str:

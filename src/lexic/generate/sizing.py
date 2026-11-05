@@ -65,17 +65,7 @@ _INF = float("inf")
 
 
 class Walk(Protocol):
-    """The free walk, as steering uses it."""
-
-    @property
-    def rng(self) -> _random.Random:
-        """The shared random source."""
-        raise NotImplementedError
-
-    @property
-    def max_depth(self) -> int:
-        """The remaining reference budget."""
-        raise NotImplementedError
+    """The free walk's expansions, as steering calls them."""
 
     def run(self, rule_name: str) -> str:
         """Expand a named rule."""
@@ -308,14 +298,16 @@ class Reaching(IrLeaf[IrSelf, IrSelf]):
         """Whether ``item`` can spell something at ``depth``."""
         return self.shape.item_size(item, depth)[0] > 0
 
-    def spell(self, walk: Walk, arms: list[Sequence[IrItem]]) -> str:
-        """One arm of ``arms`` expanded by ``walk``, reaching while nothing is spelled."""
-        depth = walk.max_depth
+    def spell(
+        self, walk: Walk, arms: list[Sequence[IrItem]], depth: int, rng: _random.Random
+    ) -> str:
+        """One arm of ``arms``, drawn from ``rng``, expanded by ``walk`` with
+        ``depth`` references left, reaching while nothing is spelled."""
         if self.need:
             arms = [
                 arm for arm in arms if any(self.reaches(it, depth) for it in arm)
             ] or arms
-        arm = walk.rng.choice(arms)
+        arm = rng.choice(arms)
         last = max(
             (j for j, item in enumerate(arm) if self.reaches(item, depth)), default=-1
         )
