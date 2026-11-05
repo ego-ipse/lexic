@@ -2561,3 +2561,34 @@ against the pre-factoring recorder at thresholds 1, 2 and the default. Its
 witnesses include a key whose empty families stand between group entries
 filed before and after them, and groups opened before a later key promotes.
 
+## A Leo climb passes one same-column step through a unit arm (2026-11-05)
+
+**Decision:** `leo_resolve` passes one empty-span step, the one whose waiter
+opens a single-item arm `A → • B` (`CodeTables.unit_start`), and only where
+`A`'s own sole waiter in that column crosses columns. A second same-column
+step is refused, and the level reached by the pass keeps no memo, so a unit
+cycle cannot loop and a memo filled without the pass is never read with it.
+`_try_leo`'s precheck counts the two steps a jump must
+climb past that unit step, so a chain one real step long still completes
+normally.
+
+**Why:** the arm hoist turns `root ::= x root | x` into a unit arm over the
+recursive one, so each level's climb met `root → • root-arm1` in the column
+that level began in and stopped there. Every level re-climbed from its own
+completion: n(n−1)/2 climbs, 1.3 s and 269 MB at 800 units, against 52 ms and
+8 MB now. Every alternation's arms are unit references after the hoist, so
+the step is passed by shape, not by name.
+
+**Why the precheck counts past it:** counting the free unit step as one made
+chains of one real step jump, and a jump costs its bookkeeping and an
+expansion on readback. Arithmetic's jumps rose by a third, and it read 1.7%
+slower, until the precheck stopped counting the unit step.
+
+**Safe:** the passed step's column is closed (a climb starts below the
+current column and descends; `EngineInvariantError` otherwise), so its
+waiters are final, and leo_sole's single waiter means the two skipped
+completions have no other consumer. Expansion files their families back.
+
+**The limit:** two unit arms stacked in one column (`root ::= u | x`,
+`u ::= w`) refuse the second step and stay quadratic, correctly.
+

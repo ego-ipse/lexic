@@ -157,7 +157,9 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         ``rule_dot0`` code view are derived from it.
     :ivar nullable_completes: rule_id → completed codes of its empty-deriving
         arms (empty tuple ⇔ not nullable) — the Aycock-Horspool advance set.
-    :ivar accept_codes: completed codes of the start rule's arms.
+    :ivar unit_start: code → whether it opens a single-item arm, ``A → • B``:
+        the one same-column step a Leo climb passes
+        (:func:`~lexic.parsing.earley.kernel.loop.leo.leo_resolve`).
     """
 
     __slots__ = (
@@ -167,7 +169,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
         "arm_base",
         "rule_seed_gates",
         "nullable_completes",
-        "accept_codes",
+        "unit_start",
     )
 
     next_sym: tuple[int, ...]
@@ -176,7 +178,7 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
     arm_base: tuple[int, ...]
     rule_seed_gates: tuple[tuple[tuple[int, int, Charset], ...], ...]
     nullable_completes: tuple[tuple[int, ...], ...]
-    accept_codes: frozenset[int]
+    unit_start: tuple[bool, ...]
 
     def __init__(self, builder: TableBuilder, bits: int) -> None:
         """Freeze the code-space half of a finished builder.
@@ -199,7 +201,10 @@ class CodeTables(IrLeaf[IrSelf, IrSelf]):
             )
         )
         self.nullable_completes = tuple(builder.nullable(nullable))
-        self.accept_codes = builder.accept_codes()
+        unit = [False] * len(self.next_sym)
+        for base in self.arm_base:  # a rule faced first, and the arm then done
+            unit[base] = self.next_sym[base] > 0 and self.next_sym[base + 1] == 0
+        self.unit_start = tuple(unit)
 
     @property
     def rule_seeds(self) -> tuple[tuple[tuple[int, int], ...], ...]:
@@ -245,6 +250,8 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
     :ivar code_droppable: code → whether the step completing there is a
         repetition's iteration beyond its minimum (:func:`code_droppables`),
         read when a forest reader chooses among a key's families.
+    :ivar accept_codes: completed codes of the start rule's arms, read when a
+        finished chart's accepting item is found.
     """
 
     __slots__ = (
@@ -254,6 +261,7 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
         "arm_seqs",
         "code_droppable",
         "cyclic",
+        "accept_codes",
     )
 
     rule_names: tuple[str, ...]
@@ -262,6 +270,7 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
     arm_seqs: tuple[IrSequence, ...]
     code_droppable: tuple[bool, ...]
     cyclic: bool
+    accept_codes: frozenset[int]
 
     def __init__(self, builder: TableBuilder, codes: CodeTables) -> None:
         """Freeze the IR-space half of a finished builder.
@@ -275,6 +284,7 @@ class DecodeTables(IrLeaf[IrSelf, IrSelf]):
         self.arm_seqs = tuple(seq for seq, _, _ in builder.arms)
         self.code_droppable = code_droppables(builder)
         self.cyclic = _closes_a_loop(_same_span_steps(codes))
+        self.accept_codes = builder.accept_codes()
 
 
 class TermTables(IrLeaf[IrSelf, IrSelf]):

@@ -241,9 +241,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 # every waiter facing a nullable rule is advanced (and its
                 # family recorded) by _nullable_advance at its own visit in
                 # this same fixpoint pass, and Leo never engages on an empty
-                # span (_leo_resolve stops on same-column steps), so the
-                # completer would only re-derive deduped items and identical
-                # families.
+                # span: a climb starts at a completion that crosses columns,
+                # and the one same-column step it passes (a unit arm whose own
+                # waiter crosses) lies inside that span. So the completer would
+                # only re-derive deduped items and identical families.
                 if delegated:  # island-interior delegation (empty otherwise)
                     payload = delegated.get((it << bits) | i)
                     if payload is not None:
@@ -651,9 +652,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     def _try_leo(self, i: int, done: int, sole: int) -> bool:
         """Leo fast path: jump a deterministic right-recursion to its top.
 
-        Engages only for chains of length ≥ 2 (the one-level pre-check keeps
-        shallow right-recursions on the normal completer); a nullable cycle
-        (no topmost item) falls back too.
+        Engages only for chains of two steps or more (the pre-check keeps
+        shallow right-recursions on the normal completer). A same-column
+        ``sole`` is the unit step the climb passes, which is free, so the two
+        are counted past it: its rule's own sole waiter must cross columns and
+        have one of its own. A nullable cycle (no topmost item) falls back too.
 
         :returns: ``True`` when Leo handled the completion.
         """
@@ -661,8 +664,14 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         c = t.codes
         bits, mask = t.packing.bits, t.packing.mask
         st = self.st
-        if leo_sole(st, t, sole & mask, c.arm_rule[c.code_arm[sole >> bits]]) < 0:
+        above = leo_sole(st, t, sole & mask, c.arm_rule[c.code_arm[sole >> bits]])
+        if above < 0:
             return False  # chain length 1 — normal completion is cheaper
+        if sole & mask == done & mask and (
+            above & mask == done & mask
+            or leo_sole(st, t, above & mask, c.arm_rule[c.code_arm[above >> bits]]) < 0
+        ):
+            return False  # past a unit step, one step is all the climb has
         top = leo_resolve(st, t, i, done & mask, c.arm_rule[c.code_arm[done >> bits]])
         if top < 0:  # nullable cycle — run the normal completer
             return False
@@ -670,9 +679,8 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if top not in seen_i:
             seen_i.add(top)
             self.cols[i].append(top)
-            s = c.next_sym[top >> bits]
-            if s:
-                st.file_item(i, top, s)
+            if c.next_sym[top >> bits]:
+                st.file_item(i, top, c.next_sym[top >> bits])
         if self.record_links:
             key = (top << bits) | i
             entry: KLink = (sole, done & mask, (done << bits) | i)

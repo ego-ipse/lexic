@@ -43,7 +43,7 @@ def accept_item(kern: Kernel) -> int:
     island path reads its completion off :func:`longest_start_completion` instead,
     never this).
     """
-    accepts = kern.tables.codes.accept_codes
+    accepts = kern.tables.decode.accept_codes
     pk = kern.tables.packing
     bits, mask = pk.bits, pk.mask
     for it in kern.cols[len(kern.text)]:
@@ -82,7 +82,7 @@ def accept_items(kern: Kernel) -> list[int]:
 
     :returns: The accepting items, in chart order (empty on no parse).
     """
-    accepts = kern.tables.codes.accept_codes
+    accepts = kern.tables.decode.accept_codes
     pk = kern.tables.packing
     bits, mask = pk.bits, pk.mask
     n = len(kern.text)
@@ -126,7 +126,7 @@ def start_completions(kern: Kernel) -> dict[int, int]:
 
     :returns: End column → accepting item.
     """
-    accepts = kern.tables.codes.accept_codes
+    accepts = kern.tables.decode.accept_codes
     bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
     return {
         j: it

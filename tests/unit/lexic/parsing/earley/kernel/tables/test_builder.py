@@ -160,7 +160,7 @@ def test_accept_codes_only_contains_start_rule_arms():
     """Every code in accept_codes belongs to an arm of the start rule."""
     tables = compile_tables(_word_grammar())
     start_rid = tables.start_id
-    for code in tables.codes.accept_codes:
+    for code in tables.decode.accept_codes:
         arm_id = tables.codes.code_arm[code]
         assert tables.codes.arm_rule[arm_id] == start_rid
 
@@ -168,7 +168,7 @@ def test_accept_codes_only_contains_start_rule_arms():
 def test_accept_codes_nonempty_for_defined_start():
     """accept_codes is non-empty when the start rule is defined with arms."""
     tables = compile_tables(_digit_grammar())
-    assert len(tables.codes.accept_codes) > 0
+    assert len(tables.decode.accept_codes) > 0
 
 
 # ── Undefined rule ref ────────────────────────────────────────────────────

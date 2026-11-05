@@ -1,5 +1,10 @@
 # Log
 
+## A Leo climb passes a unit arm's same-column step (2026-11-05)
+
+`decisions.md`: `leo_resolve` passes one same-column step through a unit
+arm whose waiter crosses, and the jump precheck counts steps past it.
+
 ## An island's refusal is marked, not a build's (2026-11-05)
 
 `decisions.md`'s island-refusal bullet: the island raises `IslandRefusal`,
