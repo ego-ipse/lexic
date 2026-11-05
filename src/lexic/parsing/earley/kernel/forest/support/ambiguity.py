@@ -429,7 +429,7 @@ def different_meaning[Value, NodeValue](
     """
     handle = first.handle
     siblings = _sibling_roots(kernel, handle)
-    choices = _arm_choices(kernel, handle)
+    choices = _arm_choices(kernel, handle, decide, first.steered)
     if not choices:
         base = BuiltMeaning(first.tree, builder.build(first.tree))
         witness = _sibling_witness(kernel, siblings, base, builder, decide)
@@ -561,19 +561,77 @@ def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int
     return flips
 
 
-def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
-    """The ambiguity points under ``handle`` that are genuine arm choices.
+def _arm_choices(
+    kernel: Kernel,
+    handle: int,
+    decide: Decider,
+    steered: dict[int, list[KLink]] | None = None,
+) -> list[int]:
+    """The arm choices under ``handle`` that the decider's carvings reach.
 
-    A SPLIT — one production carved two ways — has a defined answer and is
-    never a candidate; only a choice between arms can mean two things.
+    The decider selects carvings top-down first, and only the arm alternatives
+    that survive can mean two things. So the walk enters a key holding several
+    families only through the families a reader of it is shown
+    (:func:`~lexic.parsing.earley.kernel.tables.splits.canonical_indices`): at
+    a SPLIT, one production carved two ways, the one carving the decider keeps;
+    at an arm choice, each arm's. An arm choice inside a carving the decider
+    dropped is in no derivation this engine produces, and a forest that keeps
+    every carving of a nullable repetition is walked along the kept ones, not
+    through all its families.
+
+    Where a cyclic grammar's build steered off a family that cannot complete
+    (``steered``, the build's own chains), the derivation it produces is not
+    the kept carving's: the walk starts from the steered chains' links too, so
+    it covers every derivation the build reads, at no cost per key.
     """
-    bits = kernel.tables.packing.bits
-    links = kernel.family_reader()
+    tables = kernel.tables
+    bits, mask = tables.packing.bits, tables.packing.mask
+    codes, links = tables.codes, kernel.family_reader()
+    found: set[int] = set()
+    seen: set[int] = set()
+    stack = [handle, *_steered_handles(steered, bits, mask)]
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        item = key >> bits
+        if (item >> bits) == codes.arm_base[codes.code_arm[item >> bits]]:
+            continue
+        bucket = links.get(key)
+        if bucket is None:
+            continue
+        if len(bucket) > 1:
+            if is_arm_choice(bucket, bits, tables.code_choice):
+                found.add(key)
+            bucket = _shown(kernel, links, key, bucket, decide)
+        stack.extend(_reachable(bucket, bits, mask))
+    return sorted(found)
+
+
+def _steered_handles(
+    steered: dict[int, list[KLink]] | None, bits: int, mask: int
+) -> list[int]:
+    """The handles the build's own steered chains lead to, entered once. Kept
+    out of the walk's frame, whose packing constants then stay plain locals."""
     return [
-        key
-        for key in ambiguity_points(kernel, handle)
-        if is_arm_choice(links[key], bits, kernel.tables.code_choice)
+        h for chain in (steered or {}).values() for h in _reachable(chain, bits, mask)
     ]
+
+
+def _shown(
+    kernel: Kernel, links: FamilyReader, key: int, bucket: list[KLink], decide: Decider
+) -> list[KLink]:
+    """The families of a multi-family ``key`` a reader of it is shown."""
+    tables = kernel.tables
+    spec = spec_for(
+        tables.codes,
+        tables.packing.bits,
+        tables.code_choice,
+        tables.decode.code_droppable,
+        key,
+    )
+    return [bucket[i] for i in canonical_indices(links, bucket, spec, decide)]
 
 
 def _sibling_witness[Value, NodeValue](

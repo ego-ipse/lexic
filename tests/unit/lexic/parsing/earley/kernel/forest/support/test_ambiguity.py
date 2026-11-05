@@ -35,6 +35,8 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     same_value,
 )
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
+from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
+from tests.parity_helpers import DECLINED, REFUSED, answers
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
 )
@@ -90,6 +92,80 @@ def test_ambiguity_points_finds_a_multi_family_key_in_an_ambiguous_grammar():
     """A genuinely ambiguous expression grammar has at least one such key."""
     kernel, handle = kernel_and_handle("n+n+n", AMBIGUOUS_EXPR, "ambiguity-found")
     assert ambiguity_points(kernel, handle)
+
+
+DROPPED_CARVING = (
+    'root ::= x y\nx ::= "a"+\ny ::= w "!"\nw ::= w1 | w2\n'
+    'w1 ::= "a"* "b"\nw2 ::= "ab"\n'
+)
+"""``aab!`` splits ``root`` as ``aa`` + ``b!``, the carving the decider keeps,
+or ``a`` + ``ab!``, where ``w`` over ``ab`` is ``w1`` or ``w2``: an arm choice
+only inside the dropped carving."""
+
+KEPT_CARVING = (
+    'root ::= x y\nx ::= "a"+\ny ::= w "!"\nw ::= w1 | w2\n'
+    'w1 ::= "a"* "b"\nw2 ::= "b"\n'
+)
+"""As :data:`DROPPED_CARVING`, but ``w`` over the kept carving's ``b`` is
+``w1`` or ``w2``: an arm choice inside the carving the decider keeps."""
+
+ARM_CHOICES = vars(ambiguity)["_arm_choices"]
+"""The decided walk as the module defines it."""
+
+
+def test_the_walk_enters_only_the_carving_the_decider_keeps() -> None:
+    """Every family reaches ``w``'s arm choice under the dropped carving; the
+    decided walk, entering the split only through its kept family, reaches
+    no arm choice at all."""
+    kernel, handle = kernel_and_handle("aab!", DROPPED_CARVING, "ambiguity-dropped")
+    links = kernel.family_reader()
+    everywhere = [
+        key
+        for key in ambiguity_points(kernel, handle)
+        if is_arm_choice(
+            links[key], kernel.tables.packing.bits, kernel.tables.code_choice
+        )
+    ]
+    assert everywhere, "no arm choice under the dropped carving — nothing tested"
+    assert ARM_CHOICES(kernel, handle, LEFTMOST_LONGEST) == []
+
+
+def test_an_arm_choice_inside_a_dropped_carving_is_not_refused() -> None:
+    """The dropped carving is a derivation this engine never produces, so the
+    two meanings of ``w`` there are no ambiguity: the parse builds the kept
+    carving's model, and the predictive engine, where it answers, the same."""
+    for text, x in (("aab!", "aa"), ("aaab!", "aaa"), ("ab!", "a")):
+        predictive, gated = answers(DROPPED_CARVING, "ambiguity-dropped", text)
+        assert gated == f"Root(X('{x}'), Y(W1('b')))"
+        assert predictive in (gated, DECLINED)
+    assert answers(DROPPED_CARVING, "ambiguity-dropped", "ab!")[0] != DECLINED
+
+
+def test_an_arm_choice_inside_the_kept_carving_is_still_refused() -> None:
+    """The walk enters the kept carving, so its arm choice is found and its
+    two meanings refuse the document."""
+    kernel, handle = kernel_and_handle("aab!", KEPT_CARVING, "ambiguity-kept")
+    assert ARM_CHOICES(kernel, handle, LEFTMOST_LONGEST)
+    predictive, gated = answers(KEPT_CARVING, "ambiguity-kept", "aab!")
+    assert gated == REFUSED
+    assert predictive in (REFUSED, DECLINED)
+
+
+STEERED_CYCLE = (
+    'a ::= b c\nb ::= a | "x"\nc ::= w?\nw ::= w1 | w2\nw1 ::= "y"\nw2 ::= "y"\n'
+)
+"""``xy`` carves ``a`` as ``b[0,2] c[2,2]``, where ``b[0,2]`` is only the cycle
+``b → a``, or as ``b[0,1] c[1,2]``. The decider keeps the first, the build
+steers off it to the second, and only the second holds ``w``'s arm choice."""
+
+
+def test_an_arm_choice_under_a_steered_chain_is_refused() -> None:
+    """The walk enters the chains the build steered to, so the arm choice in
+    the derivation the build produces is found and its two meanings refuse,
+    on both engines."""
+    predictive, gated = answers(STEERED_CYCLE, "ambiguity-steered", "xy")
+    assert gated == REFUSED
+    assert predictive in (REFUSED, DECLINED)
 
 
 def _builder(build) -> MeaningBuilder:

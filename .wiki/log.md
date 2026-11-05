@@ -1,5 +1,11 @@
 # Log
 
+## The ambiguity gate walks the decided carvings (2026-11-05)
+
+`decisions.md`'s decided-carving entry: the walk that asks whether any arm
+choice is reached enters a multi-family key only through the families its
+reader is shown.
+
 ## The lazy promotion threshold re-derived (2026-11-05)
 
 `decisions.md`'s lazy-promotion entry: `LAZY_PROMOTION` is 3, the same

@@ -1325,6 +1325,16 @@ from the same predecessor, naming another arm. A family reaching another
 predecessor is a carving the decider rejected. The old walk over every
 reachable family is kept only where no decided build exists.
 
+Whether any arm choice is reached at all, the gate that decides whether a
+decided build is needed, walks the same rule: a key holding several families
+is entered only through the families a reader of it is shown
+(`splits.canonical_indices`), the kept carving at a split and each arm's at an
+arm choice. An arm choice inside a carving the decider dropped is in no
+derivation this engine produces. Walking every family instead visits the whole
+forest, and a nullable unit under a repetition keeps a cubic one:
+`doc ::= sec* tail?`, `sec ::= part* sepr?` took 95 s and 734 MB at 1,024
+characters, 4.7 s and 604 MB with the decided walk.
+
 Consequence, ruled with the design: a choice whose boundaries differ is
 decided, not refused. ``e ::= e "+" e`` groups `n+n+n` leftmost-longest;
 ``item tail`` over `abc` with `item ::= "a" | "ab"` is `ab` + `c`. Only an arm
