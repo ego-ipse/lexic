@@ -240,14 +240,18 @@ class WorkPool:
         idle it. Its refusal drains the phase like an item's. It is handed a
         ``submit``: items it learns of there go to the pool at once, and their
         results follow ``items``' in the order submitted — so work that needs
-        what the calling thread decides still overlaps what did not. Once it
-        returns, the calling thread takes back items no worker has started
-        and runs them itself (:func:`taking_back`), as many as the phase left
-        workers without an item: it was busy while the workers woke, and a
-        woken worker the scheduler leaves waiting would otherwise start its
-        item milliseconds after the rest. A phase with an item for every
-        worker gets nothing taken back — its queue is the pool's to drain.
-        Should it return ``False``, the phase is ABANDONED: nothing submitted
+        what the calling thread decides still overlaps what did not.
+
+        Once the first items are out, and ``beside`` has returned if there is
+        one, the calling thread takes back items no worker has started and
+        runs them itself (:func:`taking_back`), as many as the phase left
+        workers without an item. It would otherwise idle in the wait while a
+        woken worker the scheduler leaves waiting starts its item a slice
+        after the rest, and that item finishes last. A phase with an item for
+        every worker gets nothing taken back — its queue is the pool's to
+        drain.
+
+        Should ``beside`` return ``False``, the phase is ABANDONED: nothing submitted
         will be read, so the queued items are cancelled, the running ones are
         left to finish unread, the pool is retired rather than lent again, and
         ``[]`` comes back at once — a caller that declines never waits on work
@@ -273,6 +277,7 @@ class WorkPool:
         )
         futures, failures = phase.futures, phase.failures
         next_item = 0
+        first = True
         try:
             while next_item < len(items) or futures or beside is not None:
                 while next_item < len(items) and len(futures) < 4 * self.workers:
@@ -283,7 +288,8 @@ class WorkPool:
                     _cancel(futures)
                     self._retired = "abandoned"
                     return []
-                if own is not None:
+                if first:
+                    first = False
                     phase.take_back(work, self.workers)
                 if not futures:
                     if failures:

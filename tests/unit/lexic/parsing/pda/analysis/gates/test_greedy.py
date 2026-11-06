@@ -28,7 +28,7 @@ def _gate(source: str, unit: str = "u", key: str | None = None):
     analysis = GrammarAnalysis(compiled.codegen_grammar)
     analysis.eval(analysis, compiled.codegen_grammar, ())
     items = list(analysis.rules[unit].body[0])
-    return greedy_loop_gate(analysis.rules, analysis.start, unit, items, 0)
+    return greedy_loop_gate(analysis, unit, items, 0)
 
 
 def test_the_baseline_shape_is_licensed() -> None:

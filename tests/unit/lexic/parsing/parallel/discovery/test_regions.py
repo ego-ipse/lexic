@@ -8,11 +8,13 @@ Model stitching is owned by the orchestrator, not this analysis leaf.
 
 from __future__ import annotations
 
+from math import ceil
 from typing import NamedTuple, cast
 
 import pytest
 
-from lexic.compile import compile_from_path, compile_text
+from lexic.compile import compile_from_path, compile_text, parse_grammar
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
 from lexic.parsing.parallel.discovery.interiors import Skip
@@ -25,18 +27,27 @@ from lexic.parsing.parallel.discovery.regions import (
     Roles,
     Vocab,
     find,
+    listed,
     merge_windows,
+    nearest_first,
+    own_marks,
     pair_rules,
     par_find,
     scan_vocabulary,
     separators,
-    sweep_offsets,
-    walk_regions,
     walk_roles,
     window_bounds,
 )
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import (
+    CLOSER_SEPARATOR_UNREAD,
+    PAREN_SUM,
+    SHARED_CLOSER,
+    closer_separator_document,
+    shared_closer_source,
+    two_role_source,
+)
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")
 
@@ -83,6 +94,126 @@ def test_every_json_formulation_derives_the_same_pairs(name: str):
 def test_json_derives_the_comma_separator():
     """Derived, never named: the char every arm of a repeated body leads with."""
     assert separators(JSON_GRAMMAR) == frozenset(",")
+
+
+_NUM_LIST = 'arr ::= open num ("," num)* close\nnum ::= [0-9]+\n'
+_PUNCTUATION = 'open ::= ws "[" ws\nclose ::= ws "]"\nws ::= [ ]*\n'
+
+
+def _pairs_of(source: str) -> dict[str, tuple[str, str]]:
+    """The pairs the region scan counts for one gbnf source."""
+    return pair_rules(parse_grammar(source, GBNF_FLAVOUR))
+
+
+def test_a_closer_spelled_inside_its_own_span_derives_no_pair():
+    """The scan counts depth on every ``)`` it reads, and ``(a),b)`` spells one
+    inside the pair's span: only the list's bracket stands."""
+    source = (
+        'root ::= list\nlist ::= "[" pair ("," pair)* "]"\n'
+        'pair ::= "(" [a-z),]* ")" | [a-z]+ ")"\n'
+    )
+    assert _pairs_of(source) == {"[": ("]", "list")}
+
+
+def test_a_punctuation_rule_named_only_by_its_bracket_derives_the_pair():
+    """``open ::= ws "[" ws`` spells the bracket wherever it is named."""
+    assert _pairs_of("root ::= arr\n" + _NUM_LIST + _PUNCTUATION) == {"[": ("]", "arr")}
+
+
+def test_a_punctuation_rule_also_named_off_a_bracket_derives_no_pair():
+    """``tag`` names ``open`` with no closer after it: that ``[`` is stray."""
+    source = "root ::= arr | tag\ntag ::= open num\n" + _NUM_LIST + _PUNCTUATION
+    assert _pairs_of(source) == {}
+
+
+def test_an_opener_spelled_only_inside_a_skipped_interior_derives_the_pair():
+    """``[^"]`` emits ``[``, but only inside the string the scan skips whole."""
+    source = (
+        'root ::= arr\narr ::= "[" val ("," val)* "]"\n'
+        'val ::= str | [0-9]+\nstr ::= "\\"" [^"]* "\\""\n'
+    )
+    assert _pairs_of(source) == {"[": ("]", "arr")}
+
+
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_is_never_a_mark(shape: str):
+    """The pair stands and its closer keeps one role: ``,`` is no mark."""
+    vocab = scan_vocabulary(compile_text(CLOSER_SEPARATOR_UNREAD[shape]).grammar)
+    assert vocab.pairs == {"<": (",", "root")}
+    assert vocab.closers == {",": "<"}
+    assert vocab.marks == frozenset(".")
+
+
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_finds_the_run(shape: str):
+    """The run opens at ``<``, takes every ``.`` as its mark and closes on the
+    final ``,``; a ``,`` inside a string is skipped, never a mark."""
+    doc = closer_separator_document(shape, 40)
+    dots = tuple(at for at, char in enumerate(doc) if char == ".")
+    grammar = compile_text(CLOSER_SEPARATOR_UNREAD[shape]).grammar
+    assert find(grammar, doc) == [Region(0, len(doc) - 1, "root", dots)]
+
+
+def test_a_closer_that_opens_another_pair_derives_neither():
+    """``|`` closes ``angle`` and opens ``bar``; the walk could read it only
+    as one of the two, opening a frame from an angle's closer inside a bar.
+    Neither pair stands, so nothing is read from the wrong delimiter."""
+    grammar = compile_text(two_role_source("nest")).grammar
+    assert pair_rules(grammar) == {}
+    assert not find(grammar, "|<x|;y;z>")
+
+
+def test_an_opener_two_pairs_claim_derives_neither():
+    """The scan opens one frame per ``(`` and closes it on ONE closer, so a
+    ``(`` closed by ``]`` elsewhere would end every ``(`` … ``)`` early."""
+    source = (
+        'root ::= item ("," item)*\nitem ::= par | rng | [0-9]+\n'
+        'par ::= "(" item ")"\nrng ::= "(" item "]"\n'
+    )
+    assert _pairs_of(source) == {}
+
+
+@pytest.mark.parametrize("shape", SHARED_CLOSER)
+def test_two_pairs_sharing_a_closer_both_stand(shape: str):
+    """``(`` and ``[`` both close on ``)``: the closer keeps BOTH openers."""
+    vocab = scan_vocabulary(compile_text(shared_closer_source(shape)).grammar)
+    assert {o: vocab.pairs[o] for o in "(["} == {"(": (")", "a"), "[": (")", "b")}
+    assert vocab.closers[")"] == "(["
+
+
+_SHARED_CLOSER_REGIONS = [
+    Region(0, 4, "a", (2,)),
+    Region(6, 10, "b", (8,)),
+    Region(12, 16, "a", (14,)),
+]
+"""``(x;y),[p;q),(r;s)``'s three runs, read off the text by hand."""
+
+
+def test_a_shared_closer_closes_each_pairs_own_frame():
+    """Each ``)`` closes the frame on top, whichever of its openers opened it,
+    so neither ``a`` region is lost to the ``b`` pair."""
+    grammar = compile_text(shared_closer_source("top")).grammar
+    assert find(grammar, "(x;y),[p;q),(r;s)") == _SHARED_CLOSER_REGIONS
+
+
+def test_a_shared_closer_leaves_the_enclosing_frame_to_its_own_closer():
+    """An ``a`` frame left open would swallow the ``}``: the root run closes."""
+    grammar = compile_text(shared_closer_source("wrapped")).grammar
+    shifted = [
+        Region(r.opener + 1, r.closer + 1, r.rule, (r.marks[0] + 1,))
+        for r in _SHARED_CLOSER_REGIONS
+    ]
+    assert find(grammar, "{(x;y),[p;q),(r;s)}") == [
+        *shifted,
+        Region(0, 18, "root", (6, 12)),
+    ]
+
+
+def test_the_region_scan_counts_a_bracket_around_no_construct():
+    """A bracket arm delimiting only a class still moves the depth the scan
+    counts, so its pair stands here, where roles does not take it."""
+    source = 'root ::= unit ("," unit)*\nunit ::= "<" [a-z] ">" | [0-9]+\n'
+    assert pair_rules(compile_text(source).codegen_grammar) == {"<": (">", "unit")}
 
 
 # ── find ──────────────────────────────────────────────────────────────────
@@ -194,31 +325,12 @@ def _vocab(
     skips: dict[str, Skip] | None = None,
 ) -> Vocab:
     """A hand-built :class:`Vocab`, every table empty unless given."""
-    return Vocab(pairs or {}, closers or {}, marks, skips or {})
+    return Vocab(pairs or {}, closers or {}, marks, {}, frozenset(), skips or {})
 
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert walk_roles(_vocab()) == Roles("", "", (), (), 0, 0, "")
-
-
-def test_watched_deduplicates_a_two_role_character() -> None:
-    """A separator that is also a closer stands twice in the classification
-    spelling and ONCE in the sweep alphabet.
-
-    The spelling needs both, so `find` can resolve the character by precedence;
-    a sweep that iterated it would report every one of that character's offsets
-    twice.
-    """
-    vocab = _vocab(
-        pairs={"[": ("]", "list")},
-        closers={"]": "[", "|": "("},
-        marks=frozenset({"|"}),
-    )
-    roles = walk_roles(vocab)
-    assert roles.spelling.count("|") == 2
-    assert roles.watched.count("|") == 1
-    assert set(roles.watched) == set(roles.spelling)
+    assert walk_roles(_vocab()) == Roles("", (), (), (), 0, 0)
 
 
 def test_names_is_padded_across_the_skip_section() -> None:
@@ -232,35 +344,20 @@ def test_names_is_padded_across_the_skip_section() -> None:
     assert roles.names[: roles.n_skip] == ("",)
     assert roles.skips == (skip,)
     assert roles.names[roles.n_skip] == "paren"  # the opener right after it
+    assert roles.closes[: roles.n_skip] == ("",)
+    assert roles.closes[roles.n_skip] == ")"
 
 
-TWO_ROLE_VOCAB = _vocab(
-    pairs={"(": ("|", "paren"), "[": ("]", "brak")},
-    closers={"|": "(", "]": "["},
-    marks=frozenset({"|", ","}),
-)
-"""``|`` closes ``(`` AND is a separator — the two-role case the section
-order has to resolve."""
-
-
-def test_a_closer_that_is_also_a_mark_closes_when_it_matches_the_open_frame() -> None:
-    """Closers are spelled before marks, so ``find`` always lands on the
-    closer entry first; when it matches the frame on top, CLOSE wins — the
-    old elif chain's first test for this character."""
-    roles = walk_roles(TWO_ROLE_VOCAB)
-    text = "(a,b|"
-    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
-    assert walk_regions(text, offsets, roles, 0) == [Region(0, 4, "paren", (2,))]
-
-
-def test_an_unmatched_closer_that_is_also_a_mark_falls_through_to_mark() -> None:
-    """The same ``|``, but the open frame wants ``]`` — the closer test
-    fails, and the fallthrough treats it as a separator instead, exactly as
-    the old ``elif char in vocab.marks and stack`` branch did."""
-    roles = walk_roles(TWO_ROLE_VOCAB)
-    text = "[a|]"
-    offsets = sweep_offsets(text, TWO_ROLE_VOCAB.watched)
-    assert walk_regions(text, offsets, roles, 0) == [Region(0, 3, "brak", (2,))]
+def test_every_frame_of_a_shared_closer_waits_for_it() -> None:
+    """``(`` and ``[`` both close on ``)``: each opener's frame waits for
+    ``)``, and nothing past the openers waits for anything."""
+    vocab = scan_vocabulary(compile_text(shared_closer_source("top")).grammar)
+    roles = walk_roles(vocab)
+    waiting = {roles.spelling[at]: closer for at, closer in enumerate(roles.closes)}
+    assert {char: closer for char, closer in waiting.items() if closer} == {
+        "(": ")",
+        "[": ")",
+    }
 
 
 # ── merge_windows ─────────────────────────────────────────────────────────
@@ -269,35 +366,37 @@ def test_an_unmatched_closer_that_is_also_a_mark_falls_through_to_mark() -> None
 def test_an_opener_spanning_three_windows_closes_with_its_middle_mark() -> None:
     """``R_OPEN`` in window 1, ``R_MARK`` in window 2, ``R_CLOSE`` in window
     3 — the replay threads all three through the one real stack."""
-    frame = (5, "(", [], "paren")
-    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, "(", False)]]
+    frame = (5, ")", [], "paren")
+    chunks = [[(R_OPEN, 5, frame)], [(R_MARK, 10)], [(R_CLOSE, 15, ")")]]
     assert merge_windows(chunks, 0) == [Region(5, 15, "paren", (10,))]
 
 
-def test_a_mismatched_closer_that_is_also_a_mark_falls_through() -> None:
-    """A closer that does not match the frame on top is not dropped outright
-    — if it is ALSO a separator, the fallthrough keeps it as a mark."""
+def test_a_mismatched_closer_is_dropped() -> None:
+    """A closer the frame on top does not wait for records nothing: no closer
+    is also a separator (:func:`scan_vocabulary`), so it has no other role."""
     chunks = [
         [
-            (R_OPEN, 1, (1, "[", [], "brak")),
-            (R_CLOSE, 5, "(", True),  # wrong opener, but a separator
-            (R_CLOSE, 9, "[", False),
-        ]
-    ]
-    assert merge_windows(chunks, 0) == [Region(1, 9, "brak", (5,))]
-
-
-def test_a_mismatched_closer_with_no_mark_role_is_dropped() -> None:
-    """Same mismatch, but not a separator — nothing is recorded for it."""
-    chunks = [
-        [
-            (R_OPEN, 1, (1, "[", [], "brak")),
+            (R_OPEN, 1, (1, "]", [], "brak")),
             (R_MARK, 3),
-            (R_CLOSE, 5, "(", False),  # wrong opener, not a separator: dropped
-            (R_CLOSE, 9, "[", False),
+            (R_CLOSE, 5, ")"),  # not the frame's closer: dropped
+            (R_CLOSE, 9, "]"),
         ]
     ]
     assert merge_windows(chunks, 0) == [Region(1, 9, "brak", (3,))]
+
+
+def test_an_underflowed_shared_closer_closes_either_pairs_frame() -> None:
+    """Frames of two pairs sharing ``)`` both wait for it, so the one
+    underflowed closer closes whichever opened the frame on top."""
+    chunks = [
+        [(R_OPEN, 0, (0, ")", [], "a")), (R_MARK, 2)],
+        [(R_CLOSE, 4, ")"), (R_OPEN, 6, (6, ")", [], "b")), (R_MARK, 8)],
+        [(R_CLOSE, 10, ")")],
+    ]
+    assert merge_windows(chunks, 0) == [
+        Region(0, 4, "a", (2,)),
+        Region(6, 10, "b", (8,)),
+    ]
 
 
 def test_r_done_regions_from_two_windows_keep_document_order() -> None:
@@ -445,3 +544,35 @@ def test_the_floor_holds_on_both_window_paths_at_its_boundary() -> None:
     assert par_find(grammar, doc, 5, windows) == find(grammar, doc, 5) == [outer]
     kept = par_find(grammar, doc, 4, windows)
     assert kept == find(grammar, doc, 4) and len(kept) == len(inner) + 1
+
+
+@pytest.mark.parametrize("want", (0, 3, 4.5, 7, 12.5, 30))
+def test_nearest_first_orders_found_marks_as_listed_orders_a_list(want: float) -> None:
+    """Two walks out from ``want`` merge into the order :func:`listed` reads
+    off a list: nearest first, the earlier on a tie, every mark once."""
+    marks = [1, 2, 4, 5, 9, 12, 13, 20]
+    lo, hi, middle = 0, 25, min(max(ceil(want), 0), 25)
+    down = iter([at for at in reversed(marks) if lo <= at < middle])
+    up = iter([at for at in marks if middle <= at < hi])
+    assert list(nearest_first(down, up, want)) == list(listed(marks, want, lo, hi))
+
+
+def test_a_pair_whose_run_leads_with_a_set_watches_the_set() -> None:
+    """The paren pair's run separates by ``+`` or ``-``: both are watched, and
+    are that pair's leads; the terms' ``*/`` are neither."""
+    vocab = scan_vocabulary(compile_text(PAREN_SUM, cache_key="pair-leads").grammar)
+    assert vocab.leads == {"(": frozenset("+-")}
+    assert vocab.marks == frozenset("+-")
+
+
+def test_a_one_literal_separator_has_no_lead_set_and_is_left_alone() -> None:
+    """A json-shaped pair separates by one literal: its own marks are the
+    one-literal separators, every mark there is, and the regions come back as
+    the very list the walk built."""
+    grammar = compile_text(
+        'root ::= "[" item ("," item)* "]"\nitem ::= [a-z]+\n', cache_key="one-lead"
+    ).grammar
+    vocab = scan_vocabulary(grammar)
+    assert vocab.leads == {"[": frozenset(",")} and vocab.marks == frozenset(",")
+    found = [Region(0, 6, "root", (2, 4))]
+    assert own_marks("[a,b,c]", found, vocab) is found

@@ -47,6 +47,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
+from lexic.parsing.pda.compiler.program.gating import flat_window, window_admits
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
@@ -278,27 +279,33 @@ def test_refs_carry_islandref_iff_their_target_is_an_island(stem: str):
 # ── gate/stop-set correctness on named fixture shapes (pivots 2/4) ─────────
 
 
-def test_arithmetic_ws_stopgate_excludes_newline_only_when_the_tail_reaches_it():
-    """arithmetic's ``ws`` loop excludes ``\\n`` from its stop-set exactly when
-    the clone's own hard continuation could begin with ``\\n`` (the trailing
-    ``ws term "\\n"`` shape) — otherwise ``\\n`` stays in the stop-set since the
-    loop may safely keep consuming it (the ``ws "=" ...`` shape, pivot 4).
-    """
+def test_arithmetic_ws_takes_a_newline_only_where_its_run_goes_on():
+    """arithmetic's ``ws`` loop takes ``\\n`` freely where the clone's own hard
+    continuation cannot begin with it (the ``ws "=" ...`` shape, pivot 4): a
+    stop set holding it. Where it can (the trailing ``ws term "\\n"`` shape),
+    the run's end decides — another newline or blank goes on, a term or the
+    end of the input stops — so a blank line is the run's, and the line's own
+    ``"\\n"`` is the last one."""
     specs = specs_for(GROUND_TRUTH / "arithmetic.gbnf")
     ws_clones = [(k, s) for k, s in specs.clones.items() if k.name == "ws"]
     assert ws_clones
-    saw_excluding = saw_including = False
+    saw_ending = saw_free = False
     for key, spec in ws_clones:
         gate = spec.arms[0].specs[0].gate
-        assert isinstance(gate, StopGate)
         if key.tail.has("\n"):
-            assert not gate.charset.has("\n")
-            saw_excluding = True
+            assert isinstance(gate, KTupleGate)
+            windows = tuple(flat_window(win) for win in gate.windows)
+            assert window_admits("\n\n", 0, windows)
+            assert window_admits("\n ", 0, windows)
+            assert not window_admits("\nx", 0, windows)
+            assert not window_admits("\n", 0, windows)
+            saw_ending = True
         else:
+            assert isinstance(gate, StopGate)
             assert gate.charset.has("\n")
-            saw_including = True
-        assert gate.charset.has(" ") and gate.charset.has("\t")
-    assert saw_excluding and saw_including
+            assert gate.charset.has(" ") and gate.charset.has("\t")
+            saw_free = True
+    assert saw_ending and saw_free
 
 
 def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():

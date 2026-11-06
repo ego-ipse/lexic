@@ -1,1 +1,46 @@
 """The text group — see README.md."""
+
+SURFACE: dict[str, str] = {
+    "IrEncoding": "lexic.ir.text.codec.encodings",
+    "IrUnicode": "lexic.ir.text.codec.encodings",
+    "IrUtf": "lexic.ir.text.codec.encodings",
+    "Merges": "lexic.ir.text.codec.encodings",
+    "Vocab": "lexic.ir.text.codec.encodings",
+    "EscapeCodec": "lexic.ir.text.codec.escapes",
+    "IrCat": "lexic.ir.text.layout",
+    "IrDoc": "lexic.ir.text.layout",
+    "IrDocConcat": "lexic.ir.text.layout",
+    "IrDocJoin": "lexic.ir.text.layout",
+    "IrGroup": "lexic.ir.text.layout",
+    "IrLine": "lexic.ir.text.layout",
+    "IrNest": "lexic.ir.text.layout",
+    "IrText": "lexic.ir.text.layout",
+    "Sheet": "lexic.ir.text.layout",
+    "as_doc": "lexic.ir.text.layout",
+    "render": "lexic.ir.text.layout",
+    "IrNormalizer": "lexic.ir.text.pipeline",
+    "IrPretoken": "lexic.ir.text.pipeline",
+    "IrReplace": "lexic.ir.text.pipeline",
+    "IrTokenPipeline": "lexic.ir.text.pipeline",
+    "IrUnicodeForm": "lexic.ir.text.pipeline",
+    "IrUnknown": "lexic.ir.text.pipeline",
+    "UnicodeForm": "lexic.ir.text.pipeline",
+    "WMeta": "lexic.ir.text.pipeline",
+    "identity_meta": "lexic.ir.text.pipeline",
+    "IrAddress": "lexic.ir.text.spans",
+    "IrEmission": "lexic.ir.text.spans",
+    "IrExtent": "lexic.ir.text.spans",
+    "IrExtents": "lexic.ir.text.spans",
+    "IrOrigin": "lexic.ir.text.spans",
+    "IrOrigins": "lexic.ir.text.spans",
+    "IrSpan": "lexic.ir.text.spans",
+    "IrStep": "lexic.ir.text.spans",
+    "IrLongestMatch": "lexic.ir.text.tokenizer",
+    "IrRankedMerge": "lexic.ir.text.tokenizer",
+    "IrSegmenter": "lexic.ir.text.tokenizer",
+    "IrTokenizer": "lexic.ir.text.tokenizer",
+}
+"""Every name this group puts on the ``lexic.ir`` façade, and the module that
+defines it. The façade's lazy lookup reads it, so a name resolves only once
+listed here. Data only, as the marker is: every import of a submodule runs it
+first."""

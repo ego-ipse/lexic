@@ -22,12 +22,11 @@ from lexic.ir.action.build import (
 from lexic.ir.action.flow.control import IrPass
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrDispatch, IrEmitter
+from lexic.ir.grammar.charclass import IrCharClass, IrRange
 from lexic.ir.grammar.nodes import (
     IrAlternation,
-    IrCharClass,
     IrItem,
     IrLiteral,
-    IrRange,
     IrRuleRef,
     IrSequence,
 )

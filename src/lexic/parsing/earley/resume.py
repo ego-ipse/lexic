@@ -24,12 +24,36 @@ so a re-opened column is char-independent — a later rollback + re-extend
 with a different character finds every arm already filed and re-files
 nothing. Ungated extra seeds are harmless: the scanner tests the actual
 character, so wrong-char seeds never advance (the E6-1 geometry).
+
+:class:`WindowKernel` is the other growing chart: an island's window over a
+document, widened without rollback, so it keeps its SPPF families and its
+island-interior delegates. Its argument is on the class.
 """
 
 from __future__ import annotations
 
+from functools import partial
+from typing import Self
+
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
+from lexic.parsing.earley.kernel.tables.records import ParserTables
+
+
+def refuse_runs(tables: ParserTables) -> None:
+    """Refuse to grow a chart over run-collapsed tables.
+
+    A run terminal takes the MAXIMAL run, which depends on input not yet in
+    the chart, so a committed run could never be extended.
+
+    :raises UnsupportedConstructError: When the tables hold a run terminal.
+    """
+    if any(length == 0 for length in tables.terms.lens):  # a RunTerm
+        raise UnsupportedConstructError(
+            "parsing: a chart cannot grow over run-collapsed tables — a run "
+            "terminal takes the MAXIMAL run, which depends on input not yet "
+            "in the chart, so a committed run can never be extended"
+        )
 
 
 class ResumableKernel(Kernel):
@@ -81,30 +105,13 @@ class ResumableKernel(Kernel):
                 "parsing: extend() is recognition-only — record_links holds "
                 "parse-global state a rollback cannot truncate"
             )
-        if any(length == 0 for length in self.tables.terms.lens):  # a RunTerm
-            raise UnsupportedConstructError(
-                "parsing: extend() cannot run over run-collapsed tables — a "
-                "run terminal takes the MAXIMAL run, which depends on input "
-                "not yet appended, so a committed run can never be extended"
-            )
+        refuse_runs(self.tables)
         if not chars:
             return
         n = len(self.text)
         end = n + len(chars)
-        if end >= self.tables.packing.advance:
-            raise UnsupportedConstructError(
-                f"parsing: extending to {end} chars exceeds the packed "
-                f"column capacity ({self.tables.packing.advance - 1})"
-            )
+        self.open_columns(end)
         self.text = self.text + chars
-        st = self.st
-        for _ in chars:
-            self.cols.append([])
-            st.seen.append(set())
-            st.waiting.append({})
-            st.scannable.append({})
-            st.predicted.append(set())
-            st.leo.append({})
         self._reopen(n)
         self._scan(n)
         for i in range(n + 1, end):
@@ -122,14 +129,7 @@ class ResumableKernel(Kernel):
 
         :param mark: A value previously returned by :meth:`mark`.
         """
-        keep = mark + 1
-        st = self.st
-        del self.cols[keep:]
-        del st.seen[keep:]
-        del st.waiting[keep:]
-        del st.scannable[keep:]
-        del st.predicted[keep:]
-        del st.leo[keep:]
+        self.cut_columns(mark + 1)
         self.text = self.text[:mark]
         for col in [c for c in self._topped if c > mark]:
             del self._topped[col]
@@ -190,3 +190,161 @@ class ResumableKernel(Kernel):
                 waiting_i.setdefault(s - 1, []).append(new)
             elif s < 0:
                 scannable_i.setdefault(-s - 1, []).append(new)
+
+
+class WindowKernel(Kernel):
+    """An island's window over a document, grown on one chart rather than
+    re-parsed at every width.
+
+    The chart a window leaves behind is exactly the one a parse of the wider
+    window would have built over the same columns, so growing it is a plain
+    continuation: no rollback, so the SPPF families can stay (nothing ever
+    truncates them), and nothing to re-open. Three things make that hold.
+
+    - **The edge column is closed as an interior one.** Its seeds are gated
+      on the document's next character, not the empty slice of an input end,
+      so the column the next width scans from is already the one it needs.
+    - **A scan near the edge reads past it.** The text carries the longest
+      literal's reach beyond the stop, so no literal is cut short there.
+    - **A delegate reads the document.** Its sub-run decides its own extent,
+      whatever the width, and its completion is filed wherever it lands.
+
+    What lands past the stop is held aside while the window stands, so between
+    widths the kernel reads exactly like a parse of the window's text: its
+    text ends at the stop, and every column past it is out of sight. Island
+    tables are never run-collapsed (`PdaTables` compiles them plain), and the
+    one refusal that would mean otherwise stays: a run terminal's maximal run
+    depends on input past any stop.
+
+    :ivar document: The whole input the window opens on.
+    :ivar origin: Where the window opens in it — column 0.
+    :ivar stop: The window's width: its last closed column.
+    :ivar live: Whether the chart reaches past the stop: something landed
+        beyond it, or an item at it accepts the next character.
+    """
+
+    __slots__ = ("document", "origin", "stop", "live", "_ahead", "_aside")
+
+    document: str
+    origin: int
+    stop: int
+    live: bool
+    _ahead: int
+    _aside: tuple[list[list[int]], list[list]]
+
+    def __init__(
+        self,
+        tables: ParserTables,
+        document: str,
+        origin: int,
+        stop: int,
+        delegates: dict[int, Delegate] | None = None,
+    ) -> None:
+        """Open a window of ``stop`` characters on ``document`` at ``origin``.
+
+        :param tables: The island rule's compiled tables.
+        :param document: The whole input.
+        :param origin: Where the window opens.
+        :param stop: The window's first width.
+        :param delegates: rule_id → island-interior delegate, each re-anchored
+            to read the document rather than the window.
+        :raises UnsupportedConstructError: Over run-collapsed tables.
+        """
+        refuse_runs(tables)
+        self.document = document
+        self.origin = origin
+        self.stop = stop
+        self.live = False
+        self._ahead = max(max(tables.terms.lens, default=1), 1)
+        self._aside = ([], [])
+        anchored: dict[int, Delegate] = {
+            rid: partial(_anchored, delegate, document, origin)
+            for rid, delegate in (delegates or {}).items()
+        }
+        super().__init__(tables, self._span(stop), delegates=anchored)
+
+    def run(self) -> Self:
+        """Build the chart up to the stop and close the stop column."""
+        if self.tables.start_id >= 0:
+            self.st.predicted[0].add(self.tables.start_id)
+            self._seed(0, self.tables.start_id)
+        self._drive(0, self.stop)
+        return self
+
+    def grow(self, stop: int) -> None:
+        """Widen the window to ``stop`` characters on the same chart.
+
+        :param stop: The new width, past the current one.
+        """
+        old = self.stop
+        self.stop = stop
+        self.text = self._span(stop)
+        self._restore()
+        if self.cols[old]:
+            self._scan(old)
+        self._drive(old + 1, stop)
+
+    def _drive(self, start: int, stop: int) -> None:
+        """Close and scan columns ``start`` .. ``stop - 1``, close ``stop``,
+        then set the rest aside."""
+        cols = self.cols
+        for i in range(start, stop):
+            if cols[i]:
+                self._close(i)
+                self._scan(i)
+        self._close(stop)
+        self._set_aside(stop)
+
+    def _span(self, stop: int) -> str:
+        """The window's text: ``stop`` characters and the reach past them."""
+        return self.document[self.origin : self.origin + stop + self._ahead]
+
+    def _set_aside(self, stop: int) -> None:
+        """Hold every column past the stop out of sight, and record whether the
+        chart reaches past it."""
+        beyond = stop + 1
+        self.live = any(self.cols[beyond:]) or self._accepts_next(stop)
+        self._aside = self.cut_columns(beyond)
+        self.text = self.text[:stop]
+
+    def _restore(self) -> None:
+        """Put the held columns back, and open the rest the text now covers."""
+        self.restore_columns(self._aside)
+        self._aside = ([], [])
+        self._cover(len(self.text))
+
+    def _cover(self, end: int) -> None:
+        """Columns up to ``end``, and the text to read them."""
+        self.open_columns(end)
+        if len(self.text) < end:
+            self.text = self.document[self.origin : self.origin + end + self._ahead]
+
+    def _accepts_next(self, stop: int) -> bool:
+        """Whether an item at the stop faces a terminal the next character
+        starts."""
+        char = self.text[stop : stop + 1]
+        if not char:
+            return False
+        scannable = self.st.scannable[stop]
+        return any(scannable.get(tid) for tid in self.tables.terms.terms_for(char))
+
+    def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
+        """File a delegated completion wherever it lands — past the stop too."""
+        self._cover(end)
+        super()._inject_delegate(i, rid, end, payload)
+
+
+def _anchored(
+    delegate: Delegate, document: str, origin: int, _window: str, i: int
+) -> tuple[int, object] | None:
+    """A delegate re-anchored on the document: asked at a window column, it
+    runs at the matching document position and answers in window columns.
+
+    :param delegate: The island-interior delegate.
+    :param document: The whole input.
+    :param origin: Where the window opens in it.
+    :param _window: The window's text, which the sub-run does not read.
+    :param i: The window column it is asked at.
+    """
+    got = delegate(document, origin + i)
+    return None if got is None else (got[0] - origin, got[1])

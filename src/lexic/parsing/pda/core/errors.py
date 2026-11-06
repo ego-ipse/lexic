@@ -8,7 +8,12 @@ still resolves.
 
 from __future__ import annotations
 
-__all__ = ["IslandEscape", "PdaFail", "ProbeFork"]
+import sys
+from typing import Any
+
+from lexic.exceptions import UnsupportedConstructError
+
+__all__ = ["IslandEscape", "IslandRefusal", "PdaFail", "ProbeFork", "Suspended"]
 
 
 class PdaFail(Exception):
@@ -66,6 +71,18 @@ class PdaFail(Exception):
         self.expected, self.negated = wanted
 
 
+class IslandRefusal(UnsupportedConstructError):
+    """An island whose span derives two ways that mean different things, with no
+    resolver to choose between them.
+
+    On the plain path it is the document's refusal, and it leaves the parse as
+    one. Inside an attempted arm or iteration, or a live set's reading, it is no
+    miss: the arm may still fail elsewhere, so it can neither lose to a later
+    arm nor refuse the document, and the attempt raises :class:`ProbeFork`
+    from it. Kept apart from a build's refusal of its values, which is that
+    arm's or reading's own miss."""
+
+
 class ProbeFork(PdaFail):
     """An attempt boundary where taking and stopping are BOTH viable.
 
@@ -99,3 +116,44 @@ class IslandEscape[Payload](ProbeFork):
         """Bind the island question to ask at ``pos``."""
         super().__init__(f"a longest take at {pos} holds a follower: its island", pos)
         self.payload = payload
+
+
+class Suspended(BaseException):
+    """An attempt sub-run left on the stack for the drive to settle.
+
+    Raised past the parse's in-place depth, where a sub-run's caller would
+    otherwise drive it one more Python level down: the caller returns instead,
+    and the drive that stands at the depth settles the sub-run when its frames
+    drain back to its floor, as the caller would have. A ``BaseException`` so
+    that no ``PdaFail`` handler on the way reads it as a miss.
+
+    :ivar floors: The sub-runs it leaves, innermost first — each recorded by
+        the sub-run as it passes, and its caller named by the caller's own.
+    """
+
+    __slots__ = ("floors",)
+
+    def __init__(self) -> None:
+        """Start with no sub-run recorded."""
+        super().__init__()
+        self.floors: list[tuple[Any, ...]] = []
+
+    @staticmethod
+    def called_by(loop: Any, entry: Any) -> None:
+        """Name, on the :class:`Suspended` being handled, the caller of the
+        sub-run it recorded last — read from :func:`sys.exception`, so a
+        caller's handler binds no name of its own."""
+        up = sys.exception()
+        if isinstance(up, Suspended):
+            up.floors[-1] = (*up.floors[-1][:4], loop, entry)
+
+    @staticmethod
+    def splicing_into(out: list[Any]) -> None:
+        """Name, on the :class:`Suspended` being handled, the list its last
+        sub-run's attempt splices its kept arm into, where the audit that
+        named the caller could not."""
+        up = sys.exception()
+        if isinstance(up, Suspended):
+            *head, entry = up.floors[-1]
+            if entry is not None and entry[1] is None:
+                up.floors[-1] = (*head, (entry[0], out, *entry[2:]))

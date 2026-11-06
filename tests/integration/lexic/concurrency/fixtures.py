@@ -20,10 +20,16 @@ SPLITTING = 'root ::= line+\nline ::= [a-z0-9]* nl\nnl ::= "\\n"\n'
 """Newline-terminated lines — a shape whose split genuinely engages."""
 
 FLAT = """\
-root ::= "[" row ("," row)* "]"
-row ::= "{" [a-z]+ ":" [0-9]+ "}"
+root ::= "[" body "]"
+body ::= [a-z0-9:{},]*
 """
-"""A bracketed record list, which declines to split at every size."""
+"""A bracket around one opaque run of record text, which declines to split at
+every size for a structural reason: every character between the brackets
+belongs to one maximal-munch run, so none of them is an anchor a cut could be
+found at, and the bracket holds no repeated items a region could divide. The
+routed-interior split divides a delimited region's repeated units too, and this
+one holds a single terminal run, so it has none: a change that lets a run itself
+divide has this witness in its path."""
 
 
 def split_doc(seed: int = 0, lines: int = 2600) -> str:

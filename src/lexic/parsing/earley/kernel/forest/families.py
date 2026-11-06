@@ -12,19 +12,28 @@ dict itself — :meth:`Kernel.family_reader` hands that over directly, so a flat
 chart reads its families the way it always did, with no wrapper and no marker
 check. :class:`FamilyTable` exists only for charts that factored.
 
+**Keys facing a nullable rule promote lazily.** `_nullable_advance` files
+their empty families at the waiter's own visit, so they interleave with the
+completions'. Such a key promotes only once it holds
+:data:`~lexic.parsing.earley.kernel.loop.kernel.LAZY_PROMOTION` families: it
+keeps those, reads the rest from its group from its head's cursor on, and
+files any later empty families explicitly, at the group's length then.
+Families are read back in the order the old recorder kept them.
+
 **What is never read back.** Scan families live at keys facing a terminal and
-never reach the completer. Keys facing a nullable or a delegated rule are never
-promoted, because their families interleave with those of `_nullable_advance`
-and `_complete_delegated`. Leo families are appended by expansion after
-recognition, behind the first family, and read after the ordinary ones — which
-is where the old recorder had them too.
+never reach the completer. Keys facing a delegated rule are never promoted,
+because `_complete_delegated` files payload families no group can hold. Leo
+families are appended by expansion after recognition, behind the stored ones,
+and read after the ordinary ones — which is where the old recorder had them
+too.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from itertools import islice
 
-from lexic.parsing.earley.kernel.loop.state import PROMOTED, KLink
+from lexic.parsing.earley.kernel.loop.state import PROMOTED, KLink, lazy_parts
 
 
 class FamilyTable:
@@ -79,33 +88,82 @@ class FamilyTable:
         would have filed at this key first. It may also be in the group — when
         it was filed after the group existed — so the group's copy is skipped.
         What follows it was appended by Leo expansion, after recognition, and
-        so after every ordinary family.
+        so after every ordinary family. A lazily promoted key is read by
+        :meth:`_lazy`.
         """
         first = stored[1]
+        if first[0] < 0:
+            return self._lazy(key, stored)
         out = [first]
         out.extend(one for one in self._from_group(key) if one != first)
-        if len(stored) > 2:
-            seen = set(out)
-            out.extend(one for one in stored[2:] if one not in seen)
-        return out
+        return _with_leo(out, stored, 2)
 
-    def _from_group(self, key: int) -> Iterator[KLink]:
+    def _lazy(self, key: int, stored: list[KLink]) -> list[KLink]:
+        """A lazily promoted key's families, in the order they were filed.
+
+        ``stored`` is ``[PROMOTED, head, *held, *late, *leo]``
+        (:func:`~lexic.parsing.earley.kernel.loop.state.lazy_head`). The held
+        families came first. The group's entries from the head's cursor on
+        follow, with the late empty families at the group's length when they
+        were filed: entries before it were processed before them.
+        """
+        cursor, held, place = lazy_parts(stored[1])
+        held += 2
+        out = stored[2:held]
+        if place < 0:
+            out.extend(self._from_group(key, cursor))
+            return _with_leo(out, stored, held)
+        late = held + len(self._completes(key))
+        out.extend(self._from_group(key, cursor, place))
+        out.extend(stored[held:late])
+        out.extend(self._from_group(key, place))
+        return _with_leo(out, stored, late)
+
+    def _completes(self, key: int) -> tuple[int, ...]:
+        """The empty-deriving arms of the rule ``key``'s waiter faces."""
+        pk = self.kern.tables.packing
+        codes = self.kern.tables.codes
+        waiter = (key >> pk.bits) - pk.advance
+        return codes.nullable_completes[codes.next_sym[waiter >> pk.bits] - 1]
+
+    def _from_group(
+        self, key: int, start: int = 0, stop: int | None = None
+    ) -> Iterator[KLink]:
         """The ordinary families at a promoted ``key`` its group records, in order.
 
-        The group holds completions in the order the completer processed them.
+        The group holds completions in the order the completer processed them;
+        ``start`` and ``stop`` bound the slice of it read.
         A completion yields a family for this key iff the key's waiter was
-        waiting on the rule at the completion's origin; that bucket is keyed by
-        ORIGIN and final once that column closed, which strictly precedes any
-        completion ending later, so reading it now reads what the completer saw.
+        waiting on the rule at the completion's origin; that column closed
+        before any completion ending later, so reading it now reads what the
+        completer saw. The waiter faces the rule by construction, so it waited
+        there iff it stands in that column: an advanced item iff the column's
+        ``seen`` holds it, a dot-0 item iff the column is its own origin, where
+        alone it is ever seeded. Both are one test, where the column's waiting
+        list is one scan per completion.
         """
         kern = self.kern
-        pk = kern.tables.packing
-        bits, mask = pk.bits, pk.mask
+        bits, mask = kern.tables.packing.bits, kern.tables.packing.mask
+        codes = kern.tables.codes
         end = key & mask
-        waiter = (key >> bits) - pk.advance
-        rid = kern.tables.codes.next_sym[waiter >> bits] - 1
-        waiting = kern.st.waiting
-        for it in kern.st.groups[(rid, end)]:
-            origin = it & mask
-            if waiter in waiting[origin].get(rid, ()):
-                yield waiter, origin, (it << bits) | end
+        waiter = (key >> bits) - kern.tables.packing.advance
+        rid = codes.next_sym[waiter >> bits] - 1
+        group = islice(kern.st.groups[(rid, end)], start, stop)
+        if codes.arm_base[codes.code_arm[waiter >> bits]] == waiter >> bits:
+            home = waiter & mask  # a dot-0 waiter stands in its origin alone
+            for it in group:
+                if it & mask == home:
+                    yield waiter, home, (it << bits) | end
+            return
+        seen = kern.st.seen
+        for it in group:
+            if waiter in seen[it & mask]:
+                yield waiter, it & mask, (it << bits) | end
+
+
+def _with_leo(out: list[KLink], stored: list[KLink], tail: int) -> list[KLink]:
+    """``out`` and the Leo families stored from ``tail`` on that it lacks."""
+    if len(stored) > tail:
+        seen = set(out)
+        out.extend(one for one in stored[tail:] if one not in seen)
+    return out
