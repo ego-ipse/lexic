@@ -919,7 +919,11 @@ stood. Three rules settle the set:
   forked from, and is read down that fork chain. Read from its own containers
   alone, a vyx reading that kept `k=`'s value and one that settled `value?`
   without it met as equal past a later split, and the merge kept the one
-  without (`!R k=\n-:\n# c >`). Different values are ranked at the split where they parted, on ledgers kept
+  without (`!R k=\n-:\n# c >`). A sub-run left to settle is part of the
+  future too: an attempt entry under audit meets only one with the same winner
+  and rivals, else a reading whose entry had missed stood for one whose entry
+  had won, and the attempt lost an arm Earley derives (a fuzz grammar's
+  `babb`). Different values are ranked at the split where they parted, on ledgers kept
   through every split since (`Level`): the composite of the frames frozen as
   they completed and the reading's own. A split whose frames both readings
   rolled back (equal completions below, unreadable on both from one depth up)

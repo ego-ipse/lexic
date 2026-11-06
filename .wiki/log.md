@@ -3028,3 +3028,8 @@ take's island settling its ends through the extent verdict.
 repeated item's next iteration, and the rank entry the iteration that read a
 terminal before its run forked; the live set's meeting rule reads what a
 reading built down its fork chain.
+
+## A meeting reads an audited entry's winner (2026-11-06)
+
+`decisions.md`'s meeting rule: a reading inside an attempt entry under audit
+meets only one with the same winner and rivals.

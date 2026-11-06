@@ -418,10 +418,28 @@ def _near(side: Side) -> tuple[Any, ...]:
 def meeting(side: Side) -> tuple[Any, ...]:
     """What two sides must share to have one future: a completed side its
     position alone; any other its position, the sub-runs it still has to
-    settle, and its control state."""
+    settle — each with the entry it stands in and, for an entry under audit,
+    where the winner ends and how many rivals it has met — and its control
+    state."""
     if not side[0]:
         return (side[1], "done")
-    return (side[1], len(side[4]), control_signature(side[0], side[1]))
+    return (side[1], _settling(side), control_signature(side[0], side[1]))
+
+
+def _settling(side: Side) -> tuple[tuple[int, ...], ...]:
+    """Each sub-run ``side`` has still to settle, as its future reads it."""
+    return tuple(
+        (depth, start)
+        if entry is None
+        else (
+            depth,
+            start,
+            entry[2],
+            -1 if entry[3] is None else entry[3][0],
+            len(entry[4] or ()),
+        )
+        for depth, start, _holder, _live, _loop, entry in side[4]
+    )
 
 
 def _agree(one: Strand, other: Strand) -> bool:
@@ -436,15 +454,22 @@ def built_since(reading: Strand, at: int) -> Any:
     frame split ``at`` was taken on. A copy's containers start empty, so a
     reading that came through later splits holds what it built before them in
     the frames it was forked from; frames it settled away hold nothing it
-    keeps."""
+    keeps. An attempt entry under audit holds its winner's values and the
+    rivals met so far, which the attempt settles with."""
     side = reading.side
     if not side[0]:
         return side[3]
     base = reading.levels[at].stack
-    return tuple(
+    held = tuple(
         _chain_values(frame, base[depth] if depth < len(base) else None)
         for depth, frame in enumerate(side[0])
     )
+    audited = tuple(
+        (entry[3][1], entry[4])
+        for *_floor, entry in side[4]
+        if entry is not None and entry[3] is not None
+    )
+    return held, audited
 
 
 def _chain_values(frame: Frame[Any], base: Frame[Any] | None) -> tuple[Any, ...]:

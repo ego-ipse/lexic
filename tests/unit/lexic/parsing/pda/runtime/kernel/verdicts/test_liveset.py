@@ -9,12 +9,14 @@ documents, against the gated engine.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from lexic.exceptions import LexicError
 from lexic.ir import IrNamedTuple, IrStr
 from lexic.parsing.pda.core.errors import ProbeFork
-from lexic.parsing.pda.runtime.admission import Side
+from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, pda_model
 from lexic.parsing.pda.runtime.kernel.verdicts import liveset, sides
@@ -30,6 +32,7 @@ from lexic.parsing.pda.runtime.kernel.verdicts.liveset import (
 from lexic.parsing.pda.runtime.kernel.verdicts.sides import Sides
 from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from tests import parity_helpers
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_clone
 from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
     ENTRY_AT_THE_START,
     SECTIONS,
@@ -206,21 +209,43 @@ def test_a_refusal_in_a_readings_drive_is_its_own_death(monkeypatch) -> None:
     assert _decide(kern, stop, take) == 1
 
 
+def _auditing(winner: tuple[int, list[Any]] | None) -> Side:
+    """An open side inside one attempt entry's sub-run: under audit with
+    ``winner`` found, or still trying its entry when ``None``."""
+    floor: Floor = (0, 0, [], [], None, (flat_clone(), [], 2, winner, None))
+    stack, pos, lane, root, _floors, ledger, copies, step = _open(3)
+    return (stack, pos, lane, root, [floor], ledger, copies, step)
+
+
 @pytest.mark.parametrize(
     ("one", "other", "meet"),
     [
         (completed_side(3, []), completed_side(3, ["x"]), True),
         (completed_side(3, []), _open(3), False),
-        (_open(3), _open(3)[:4] + ([None],) + _open(3)[5:], False),
+        (
+            _open(3),
+            _open(3)[:4] + ([(0, 0, [], [], None, None)],) + _open(3)[5:],
+            False,
+        ),
+        (_auditing(None), _auditing((4, [])), False),
+        (_auditing((4, [])), _auditing((4, [])), True),
     ],
-    ids=["both-completed", "completed-and-open", "other-sub-runs"],
+    ids=[
+        "both-completed",
+        "completed-and-open",
+        "other-sub-runs",
+        "one-auditing-a-winner",
+        "one-winner-each",
+    ],
 )
 def test_readings_meet_only_where_they_share_a_future(
     monkeypatch, one: Side, other: Side, meet: bool
 ) -> None:
     """A completed reading meets only another completed one at its position;
     open ones meet in one control state inside the same sub-runs — one still
-    inside a floor settles it on the way, the other does not."""
+    inside a floor settles it on the way, the other does not — and an entry
+    under audit with the same winner: one that has found its winner and one
+    still trying its entry settle the attempt apart."""
     monkeypatch.setattr(liveset, "control_signature", lambda _stack, pos: pos)
     assert (liveset.meeting(one) == liveset.meeting(other)) is meet
 
