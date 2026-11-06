@@ -81,7 +81,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
@@ -427,8 +427,8 @@ class PdaKernel[M](
         Stated as a property rather than as a census: a count is a fact about
         one roster on one day, and the placement rests on the construction.
         """
-        if arm.kinds[i] == OP_FAIL:
-            raise PdaFail(
+        if arm.kinds[i] == OP_FAIL:  # undecidable here, never an attempted arm's miss
+            raise ProbeFork(
                 f"fail-island {arm.payloads[i]!r} at {pos}: "
                 "F1 semantic escape, engine fallback",
                 pos,
