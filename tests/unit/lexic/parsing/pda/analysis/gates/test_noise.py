@@ -24,6 +24,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.cursors import Cont, Scope
 from lexic.parsing.pda.analysis.gates.noise import (
     ResidualFirst,
     noise_alphabet,
@@ -320,7 +321,7 @@ def test_json_array_item_peek_loop_gate_takes_on_comma():
     analysis = _ground_truth_analysis("json.gbnf")
     w = noise_alphabet(analysis)
     items = [i for i in analysis.rules["array-item2"].body[0] if isinstance(i, IrItem)]
-    take = peek_loop_gate(analysis, items, 1, analysis.follow["array-item2"], w)
+    take = peek_loop_gate(analysis, items, 1, _scope(analysis, "array-item2"), w)
     assert take == CharSet.from_chars(",")
 
 
@@ -338,3 +339,94 @@ def test_peek_arm_gate_bails_on_true_post_noise_overlap():
     w = noise_alphabet(analysis)
     arms = [[i for i in arm if isinstance(i, IrItem)] for arm in root.body]
     assert peek_arm_gate(analysis, arms, w) is None
+
+
+# ── the peek loop gate's exit side ──────────────────────────────────────────
+
+
+def _scope(analysis: GrammarAnalysis, rule: str, body: bool = True) -> Scope:
+    """``rule``'s arm-end scope, its FOLLOW as the tail, in a body or a group."""
+    tail = analysis.follow[rule]
+    return Scope(rule, Cont(tail, tail, tail), body)
+
+
+def _peek(*after: IrItem, own_rule: bool = False, body: bool = True):
+    """The peek loop gate's take for ``x*`` (``x ::= ws "c"``) in ``"a" x*
+    <after>`` — root's own arm, or with ``own_rule`` the whole arm of ``y`` in
+    ``root ::= y <after>`` — read in a body scope or a group's."""
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
+    x = IrRule(
+        "x", IrAlternation(IrSequence(item(IrRuleRef("ws")), item(IrLiteral("c"))))
+    )
+    loop = (item(IrLiteral("a")), item(IrRuleRef("x"), lo=0, hi=None))
+    if own_rule:
+        y = IrRule("y", IrAlternation(IrSequence(*loop)))
+        root = IrRule("root", IrAlternation(IrSequence(item(IrRuleRef("y")), *after)))
+        analysis, rule = make_analysis(root, y, x, ws, start="root"), "y"
+    else:
+        root = IrRule("root", IrAlternation(IrSequence(*loop, *after)))
+        analysis, rule = make_analysis(root, x, ws, start="root"), "root"
+    items = list(analysis.rules[rule].body[0])
+    return peek_loop_gate(
+        analysis, items, 1, _scope(analysis, rule, body), noise_alphabet(analysis)
+    )
+
+
+SPACE, B, C = (item(IrLiteral(ch)) for ch in " bc")
+
+
+def test_peek_loop_gate_skips_a_required_noise_character_on_the_exit_side():
+    """``x* " " "b"``: past the noise the exit reads ``b``, never ``c``, so
+    the take separates on ``c``."""
+    assert _peek(SPACE, B) == CharSet.from_chars("c")
+
+
+def test_peek_loop_gate_refuses_where_the_exit_reads_the_take_past_its_noise():
+    """``x* " " "c"``: past the noise both sides read ``c``. Subtracting the
+    required ``" "`` from the continuation left nothing to meet the take."""
+    assert _peek(SPACE, C) is None
+
+
+def test_peek_loop_gate_reads_a_rule_s_continuation_past_an_open_exit():
+    """``y ::= "a" x*`` before ``" " "c"`` reads ``c`` past the arm's end and
+    refuses; before ``" " "b"`` it reads ``b`` and takes on ``c``."""
+    assert _peek(SPACE, C, own_rule=True) is None
+    assert _peek(SPACE, B, own_rule=True) == CharSet.from_chars("c")
+
+
+def test_peek_loop_gate_refuses_an_open_exit_in_a_group_before_a_noise_led_tail():
+    """Inside an inline group the tail is one char set, which says nothing
+    past its noise."""
+    assert _peek(SPACE, B, own_rule=True, body=False) is None
+
+
+def test_peek_loop_gate_reads_a_noise_free_tail_past_an_open_exit():
+    """``y ::= "a" x*`` before ``"b"``: the tail is the exit's next character,
+    in a body or a group alike."""
+    assert _peek(B, own_rule=True) == CharSet.from_chars("c")
+    assert _peek(B, own_rule=True, body=False) == CharSet.from_chars("c")
+
+
+def test_an_item_that_can_derive_only_noise_is_transparent():
+    """``x ::= "dd" | " "`` can be pure noise though its FIRST is not within
+    the noise alphabet, so a walk reads past it; a literal shows its first
+    non-noise character, where the skip stops."""
+    ws = noise_rule("ws", IrSequence(item(WS, lo=0, hi=None)))
+    x = IrRule(
+        "x",
+        IrAlternation(
+            IrSequence(item(IrLiteral("dd"))), IrSequence(item(IrLiteral(" ")))
+        ),
+    )
+    root = IrRule(
+        "root", IrAlternation(IrSequence(item(IrRuleRef("x")), item(IrRuleRef("ws"))))
+    )
+    analysis = make_analysis(root, x, ws, start="root")
+    rf = ResidualFirst(analysis, noise_alphabet(analysis))
+    assert "x" in rf.pure
+    assert rf.seq([item(IrRuleRef("x")), item(IrLiteral("b"))]) == (
+        CharSet.from_chars("d", "b"),
+        False,
+    )
+    assert rf.atom(IrLiteral(" %")) == CharSet.from_chars("%")
+    assert rf.atom(IrLiteral("  ")) == CharSet.EMPTY

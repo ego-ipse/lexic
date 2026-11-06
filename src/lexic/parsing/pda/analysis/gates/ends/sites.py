@@ -17,7 +17,7 @@ characters after itself, so every level needs one more — is refused past
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 from lexic.ir import (
     IrAction,
@@ -27,7 +27,9 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
+    IrNone,
     IrNot,
+    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
@@ -50,7 +52,15 @@ from lexic.parsing.pda.analysis.gates.ends.leads import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
-__all__ = ["CONTEXT_CAP", "RunIndex", "RunSites", "run_decides", "run_sites"]
+__all__ = [
+    "CONTEXT_CAP",
+    "Rest",
+    "RunIndex",
+    "RunSites",
+    "run_decides",
+    "run_index",
+    "run_sites",
+]
 
 CONTEXT_CAP = 256
 """The most distinct contexts one rule may be solved in before the class is
@@ -73,6 +83,30 @@ class _Place(IrLeaf[IrSelf, IrSelf]):
     def __init__(self, rule: str, frames: tuple[Frame, ...]) -> None:
         self.rule = rule
         self.frames = frames
+
+
+class Rest(NamedTuple):
+    """What follows one reference to a rule, as far as the end of the rule
+    holding it: an item sequence per arm on the way down, innermost first,
+    each led by the referencing item's own repeats where those come next.
+
+    :ivar holder: The rule whose arm holds the reference.
+    :ivar steps: The sequences, innermost arm first.
+    """
+
+    holder: str
+    steps: tuple[tuple[IrItem, ...], ...]
+
+
+def _rest_at(place: _Place) -> Rest:
+    """What follows ``place``, up to the end of its rule."""
+    steps: list[tuple[IrItem, ...]] = []
+    for items, at, again in reversed(place.frames):
+        tail = tuple(items[at + 1 :])
+        if again:
+            tail = (IrItem(items[at].atom, IrQuantifier(0, IrNone)), *tail)
+        steps.append(tail)
+    return Rest(place.rule, tuple(steps))
 
 
 class _Walk(IrLeaf[IrSelf, IrSelf]):
@@ -207,6 +241,11 @@ class RunIndex(IrLeaf[IrSelf, IrSelf]):
         if walk.item.quantifier.upper() is None:
             places = self.loops.setdefault(chars, {}).setdefault(id(walk.item), [])
             places.append(walk.place(False))
+
+    def rests(self, rule: str) -> list[Rest]:
+        """What follows each reference to ``rule``, up to the end of the rule
+        holding it."""
+        return [_rest_at(place) for place in self.sites.get(rule, ())]
 
     def of(self, run: CharSet) -> RunSites:
         """The run sites of class ``run``, made once."""
@@ -405,13 +444,19 @@ class RunSites(IrLeaf[IrSelf, IrSelf]):
         return any(lead_windows(self.run, lead) is not None for lead in leads)
 
 
-def run_sites(analysis: Any, run: CharSet) -> RunSites:
-    """``analysis``'s run sites of class ``run`` — its grammar walked once."""
+def run_index(analysis: Any) -> RunIndex:
+    """``analysis``'s reference and loop sites — its grammar walked once, at
+    the first ask."""
     runs = analysis.follows.runs
     if not runs:
         delegated = analysis.taxonomy.delegated
         runs.append(RunIndex(analysis.rules, analysis.start, delegated))
-    return runs[0].of(run)
+    return runs[0]
+
+
+def run_sites(analysis: Any, run: CharSet) -> RunSites:
+    """``analysis``'s run sites of class ``run``."""
+    return run_index(analysis).of(run)
 
 
 def run_decides(

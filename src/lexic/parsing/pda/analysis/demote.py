@@ -183,7 +183,7 @@ def _separable_loop(
         notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
         return True
     w = noise_alphabet(analysis)
-    take = peek_loop_gate(analysis, items, k, analysis.cont_at(items, k, scope.tail), w)
+    take = peek_loop_gate(analysis, items, k, scope, w)
     if take is not None:
         key = id(items[k])
         prior = analysis.taxonomy.pn_loop_gates.get(key)

@@ -2983,3 +2983,9 @@ lead read from the text.
 `decisions.md`'s stop-set entry: the four grants in cascade order, and the
 run-end decision — the closure kinds and their counterexamples, the context
 per clone, and its three refusals.
+
+## A noise-skip peek reads its loop's exit past the noise (2026-11-06)
+
+`decisions.md`'s P3 Decision 3: the exit side as its own residual FIRST, the
+rule's continuation past an open exit, and transparency as "can derive a
+W-only string".
