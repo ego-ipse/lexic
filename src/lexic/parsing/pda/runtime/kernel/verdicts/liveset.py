@@ -50,8 +50,6 @@ from lexic.parsing.pda.runtime.admission import (
     Side,
     control_signature,
     forks_deep,
-    pending_values,
-    value_shape,
 )
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.verdicts.floors import PENDING, UNSEEN
@@ -70,6 +68,7 @@ __all__ = [
     "Strand",
     "Split",
     "Unrecorded",
+    "built_since",
     "meeting",
     "planned",
     "ranked_level",
@@ -353,8 +352,7 @@ class LiveSet[Carry](Sides[Carry]):
         """
         at = _parted(one, other)
         stop, take = (one, other) if one.path[at] < other.path[at] else (other, one)
-        shape = value_shape(stop.levels[at].stack)
-        if same_value(_built(stop.side, shape), _built(take.side, shape)):
+        if _agree(stop, take):
             return take
         if stop.side[5] is None or take.side[5] is None:
             raise Unrecorded
@@ -426,10 +424,46 @@ def meeting(side: Side) -> tuple[Any, ...]:
     return (side[1], len(side[4]), control_signature(side[0], side[1]))
 
 
-def _built(side: Side, shape: tuple[Any, ...]) -> Any:
-    """What a side built since ``shape`` was taken: a completed side's root
-    output, any other's pending values."""
-    return side[3] if not side[0] else pending_values(side[0], shape)
+def _agree(one: Strand, other: Strand) -> bool:
+    """Whether two readings that meet built the same values since they parted."""
+    at = _parted(one, other)
+    return same_value(built_since(one, at), built_since(other, at))
+
+
+def built_since(reading: Strand, at: int) -> Any:
+    """What ``reading`` built since split ``at`` and still holds: a completed
+    side's root output, else each frame's values down its fork chain to the
+    frame split ``at`` was taken on. A copy's containers start empty, so a
+    reading that came through later splits holds what it built before them in
+    the frames it was forked from; frames it settled away hold nothing it
+    keeps."""
+    side = reading.side
+    if not side[0]:
+        return side[3]
+    base = reading.levels[at].stack
+    return tuple(
+        _chain_values(frame, base[depth] if depth < len(base) else None)
+        for depth, frame in enumerate(side[0])
+    )
+
+
+def _chain_values(frame: Frame[Any], base: Frame[Any] | None) -> tuple[Any, ...]:
+    """``frame``'s sink values, oldest first, down its fork chain to ``base``."""
+    links: list[list[Any]] = []
+    link: Frame[Any] | None = frame
+    while link is not None and link is not base:
+        links.append(link.sinks or [])
+        link = link.inherited
+    width = max((len(sinks) for sinks in links), default=0)
+    return tuple(
+        tuple(
+            value
+            for sinks in reversed(links)
+            if k < len(sinks) and sinks[k]
+            for value in sinks[k]
+        )
+        for k in range(width)
+    )
 
 
 def _parted(one: Strand, other: Strand) -> int:

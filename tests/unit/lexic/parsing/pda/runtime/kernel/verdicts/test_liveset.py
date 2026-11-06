@@ -40,9 +40,10 @@ from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
 )
 from tools.benchmark.cases.grammars import BENCHES
 
-VYX_CONVERGES = "!P %P \U000e465b\\n# \\nS:t={y} >\n"
-"""A generated vyx packet (seed 221) whose one boundary's two readings meet,
-having built values that differ."""
+VYX_CONVERGES = "!R a: |\\nk= >"
+"""A vyx packet with one boundary whose two readings meet, having built values
+that differ. A packet with more `\\n`-separated lines asks a boundary at each
+separator a line's run can stop at, and meets once per boundary."""
 
 
 def _vyx():
@@ -277,7 +278,7 @@ def test_readings_that_meet_with_equal_values_merge_unranked(monkeypatch) -> Non
 
     The vyx packet's readings meet with values that DIFFER, so they are made
     to agree at the one site that reads them."""
-    monkeypatch.setattr(liveset, "pending_values", lambda _stack, _shape: ())
+    monkeypatch.setattr(liveset, "built_since", lambda _reading, _at: ())
     tally = meeting_tally(_vyx().compiled, VYX_CONVERGES, monkeypatch)
     assert tally["meetings"] == 1, f"no longer meets — witnesses nothing: {tally}"
     assert (tally["agree"], tally["took"]) == (1, 1), tally

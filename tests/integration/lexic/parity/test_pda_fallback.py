@@ -5,7 +5,7 @@
 completes on a whole-input engine reparse on any
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`. This module pins one input that
 genuinely forces that completion on a real ground-truth grammar (vyx's
-``nl-head`` stop set running through the inline body's separator) and proves it
+``nl-escape`` island seeing two ends that both compose) and proves it
 both fires and returns the engine-correct model — ``PdaFail`` never leaks to the
 public ``parse()`` caller.
 """
@@ -24,14 +24,14 @@ from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
-# The pinned fallback input: an inline body that opens with a scope line, then a
-# line that ends where a second scope line begins. vyx's ``nl-head`` runs
-# longest there, so it takes ``a\n-`` — the two-character separator and the
-# scope line's ``-`` — and the mandatory ``" >"`` then meets ``:``. Earley ends
-# the line at ``a`` and reads ``-:`` as a scope line. The PDA reports the
-# refusal rather than guess.
+# The pinned fallback input: an inline body of escaped lines. ``nl-escape``'s
+# tail takes every printable character, the ``\n`` separator's included, so the
+# first line can end after ``\#`` or run on through the separators to the last
+# line's end. The rule is an island, and its two ends both compose with what
+# follows; the island refuses rather than pick one, and the PDA reports the
+# refusal.
 FALLBACK_GRAMMAR = GROUND_TRUTH / "vyx.gbnf"
-FALLBACK_INPUT = "!R -:\\na\\n-: >"
+FALLBACK_INPUT = "!R \\#\\n# \\n\\#\\n\\#\\n >"
 
 
 def test_a_run_that_takes_its_separator_forces_pda_fallback():

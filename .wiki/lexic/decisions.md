@@ -913,7 +913,13 @@ stood. Three rules settle the set:
   guesses;
 - **readings that meet merge** — at one position, in one control state, inside
   the same sub-runs, they share their future. Equal values keep the take.
-  Different values are ranked at the split where they parted, on ledgers kept
+  Values are what each built since the split they parted at and still holds
+  (`built_since`): a copy's containers start empty, so a reading that came
+  through later splits keeps what it built before them in the frames it was
+  forked from, and is read down that fork chain. Read from its own containers
+  alone, a vyx reading that kept `k=`'s value and one that settled `value?`
+  without it met as equal past a later split, and the merge kept the one
+  without (`!R k=\n-:\n# c >`). Different values are ranked at the split where they parted, on ledgers kept
   through every split since (`Level`): the composite of the frames frozen as
   they completed and the reading's own. A split whose frames both readings
   rolled back (equal completions below, unreadable on both from one depth up)
@@ -1596,6 +1602,14 @@ alone, and another `ab` does not cover that. Forced, the take read `;aaba` as
 `a, a, b, a` where Earley reads `a, ab, a`. Requiring two occurrences (`w{2,}`)
 keeps the loopback too: the take can leave too few.
 
+At run time the boundary's class (`Verdicts._beyond_class`) reads what
+follows up the live chain: each enclosing frame's rest from the item it
+stands in, and, where that item repeats, its next iteration, as
+`stop_side_dead` already read it. Without it, a later line's `nl-head` stands
+inside `inline-content`'s repeated `("\\" "n" body-line)`, its stop read as
+dead at `\`, and the run took the separator: `!R -:\na\nk= >` declined, and
+under a budget the reading without it survived as a wrong model.
+
 ## A semantic stop-set that escapes into soft FOLLOW is attempted, not failed
 
 **Decision:** where a semantic rule's stop-set escapes into its soft FOLLOW, and
@@ -1669,7 +1683,10 @@ engine reads a carving:
 - **Steps are compared raw.** A node's step that ends where the one before it
   did is still a step, as Earley's chain boundaries are. The one exception is
   an iteration at a boundary whose loop had taken nothing: it may be
-  zero-width, which the loop's carving drops, so it forks.
+  zero-width, which the loop's carving drops, so it forks. It cannot be where
+  a frame from the iteration up passed a mandatory literal or class, so there
+  the step is ranked: a later vyx line, whose iteration read the `\n`
+  separator before its run forked, is ranked like the first.
 - **An open child** at a convergence ends somewhere in the sides' common
   future; it is ranked only where every end it can reach ranks the same way
   (`_kept_open`), whatever the decider. Leftmost-longest's slot is the end

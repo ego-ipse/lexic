@@ -22,7 +22,11 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     lands_on,
 )
-from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_TRANSPARENT
+from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_ALT,
+    BUILD_TRANSPARENT,
+    TERMINAL_OPS,
+)
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     Side,
@@ -48,6 +52,7 @@ from lexic.parsing.pda.runtime.matchers import (
     REST_ASCEND,
     REST_DEAD,
     arm_rest_scan,
+    item_admits,
     stop_side_dead,
 )
 from lexic.parsing.product import Completed
@@ -122,14 +127,19 @@ class Verdicts[Carry](LiveSet[Carry]):
             exists. Optional admits never settle the walk — a hard admit
             deeper up outranks them. Each frame up the chain is read from the
             item it is suspended in, which after an ``OP_REF1`` is the one before
-            ``frame.i``.
+            ``frame.i``; where that item repeats, its next iteration is an
+            optional admit too, as :func:`stop_side_dead` reads it.
         """
         text = self.text
         verdict, opt = arm_rest_scan(arm, i, text, pos)
         if verdict == REST_ASCEND:
+            char = text[pos : pos + 1]
             for frame in self.stack[-2::-1]:
-                verdict, seen = arm_rest_scan(frame.arm, frame.suspended(), text, pos)
-                opt = opt or seen
+                at = frame.suspended()
+                verdict, seen = arm_rest_scan(frame.arm, at, text, pos)
+                # A further iteration of the item it stands in is a stop side too.
+                again = frame.arm.his[at] != 1 and item_admits(frame.arm, at, char)
+                opt = opt or seen or again
                 if verdict != REST_ASCEND:
                     break
         if verdict == REST_ADMITS_HARD:
@@ -237,7 +247,7 @@ class Verdicts[Carry](LiveSet[Carry]):
                 return own
         elif not whole:
             return FORKED
-        return self._child_step(ends, stop[1], whole)
+        return self._child_step(ends, stop[1], whole, depth + 1)
 
     def _pushed_by(self, depth: int, items: list[int]) -> list[int]:
         """Of ``items`` — a frame just past an exactly-once item with a loop next
@@ -264,14 +274,24 @@ class Verdicts[Carry](LiveSet[Carry]):
             return None
         return FORKED if min(step) < 0 else self._kept(*map(tuple, zip(step)))
 
-    def _child_step(self, ends: tuple[int, int], at: int, whole: bool) -> int:
-        """The rank by where the child completed on the two sides — an
-        iteration of a loop unless ``whole`` — at a convergence at ``at``."""
+    def _child_step(
+        self, ends: tuple[int, int], at: int, whole: bool, child: int
+    ) -> int:
+        """The rank by where the child at depth ``child`` completed on the two
+        sides — an iteration of a loop unless ``whole`` — at a convergence at
+        ``at``. An iteration that ends at the boundary is zero-width unless the
+        boundary's loop took something, or a frame from the child up passed a
+        terminal it had to read."""
         if UNSEEN in ends or ends == (PENDING, PENDING):
             return FORKED
         if not whole and not self._takes_longest():
             return FORKED
-        if not whole and ends[0] == self.pos and not self.stack[-1].count:
+        if (
+            not whole
+            and ends[0] == self.pos
+            and not self.stack[-1].count
+            and not any(_read_a_terminal(frame) for frame in self.stack[child:])
+        ):
             return FORKED
         if PENDING in ends:
             return self._kept_open(ends, at)
@@ -425,4 +445,14 @@ def _whole_run(frame: Frame[Any], pos: int) -> bool:
         and frame.clone.mode in (BUILD_ALT, BUILD_TRANSPARENT)
         and frame.clone.sub_root
         and getattr(frame, "start", None) == pos
+    )
+
+
+def _read_a_terminal(frame: Frame) -> bool:
+    """Whether ``frame`` passed a mandatory literal or class, so its span so
+    far is not empty."""
+    arm = frame.arm
+    return any(
+        arm.los[j] > 0 and arm.kinds[j] in TERMINAL_OPS
+        for j in range(frame.suspended())
     )

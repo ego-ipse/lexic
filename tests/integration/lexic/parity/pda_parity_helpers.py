@@ -12,6 +12,7 @@ from typing import cast
 
 from lexic.compile import (
     CompiledGrammar,
+    Directives,
     canonical_grammar,
     compile_from_path,
     compile_text,
@@ -26,6 +27,7 @@ from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from lexic.parsing.products import earley_model, model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
+from tools.benchmark.cases.directives import DIRECTIVES
 
 # Mirrors tools/benchmark/pipeline_bench.py's arithmetic instance workload
 # (same snippets, same ~4800-char target). This module is the single home:
@@ -227,3 +229,20 @@ def _earley(compiled: CompiledGrammar, text: str) -> str:
             product.instance_grammar, text, compiled.product, product.tables
         )
     )
+
+
+VYX_VIEWS = ("lex", "lexns", "plain")
+"""vyx's bench views: its declared ``@lexical`` set, that set with its
+``@non-semantic`` one, and neither."""
+
+
+def vyx_view(view: str, key: str) -> CompiledGrammar:
+    """vyx compiled under one of :data:`VYX_VIEWS`."""
+    lexical, noise = DIRECTIVES["vyx"]
+    directives = {
+        "plain": Directives(),
+        "lex": Directives(lexical=frozenset(lexical)),
+        "lexns": Directives(lexical=frozenset(lexical), non_semantic=frozenset(noise)),
+    }[view]
+    source = (GROUND_TRUTH / "vyx.gbnf").read_text()
+    return compile_text(source, cache_key=f"{key}-{view}", directives=directives)

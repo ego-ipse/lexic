@@ -3021,3 +3021,10 @@ can end at the loop, so a repetition's next iteration is audited.
 
 `decisions.md`'s stop-set entry: the swallowed-closer criterion, and a longest
 take's island settling its ends through the extent verdict.
+
+## A boundary's class reads an enclosing item's next iteration (2026-11-06)
+
+`decisions.md`: the audit-set entry gains the run-time chain walk reading a
+repeated item's next iteration, and the rank entry the iteration that read a
+terminal before its run forked; the live set's meeting rule reads what a
+reading built down its fork chain.
