@@ -515,6 +515,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             if all(self.analysis.item_nullable(i) for i in items):
                 default = specs
                 default_idx = idx
+                # An attempted arm's empty derivation is tried where its tail may follow.
+                if order is not None and not first.is_empty():
+                    first = first.union(tail)
             if not first.is_empty():
                 arms.append(
                     ArmSpec(
