@@ -26,6 +26,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
 )
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
+from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -36,6 +37,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
 )
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 def file_attempt_loop(
@@ -76,12 +78,59 @@ def defer_stop_set(
         return
     first = analysis.atom_first(items[k].atom)
     soft = analysis.cont_at(items, k, scope.tail)
-    if first.overlaps(
-        soft.subtract(analysis.structural_cont_at(items, k, scope.structural_tail))
-    ):
+    loopback = soft.subtract(
+        analysis.structural_cont_at(items, k, scope.structural_tail)
+    )
+    if first.overlaps(loopback) and _swallows_a_site(analysis, scope.rule, first):
         notes.hard.append(f"{scope.rule}[{k}]: loop stop-set meets a loopback")
         return
     notes.stop_sets.append(note)
+
+
+def _swallows_a_site(analysis: Any, name: str, first: CharSet) -> bool:
+    """Whether at some site rule ``name`` is followed at, every character that
+    may follow it is one ``first`` takes: there the run swallows the site's
+    closer whole, so the longest take always runs past its end and its span
+    check asks the island every time. A rule that is only ever a whole arm is
+    read at its rule's sites, the closer being theirs. A site the text may end
+    at closes nothing."""
+    windows = analysis.follows.windows(FOLLOW_LOOP_K)
+    return any(
+        site and all(chars and chars[0].within(first) for chars, _state in site)
+        for site in _closing_sites(analysis, windows, name, set())
+    )
+
+
+def _closing_sites(analysis: Any, windows: Any, name: str, seen: set[str]) -> list:
+    """The window sets of every site rule ``name`` is followed at, read through
+    the rules it is a whole arm of where it is nothing else."""
+    seen.add(name)
+    owners = [
+        rule
+        for rule, body in analysis.rules.items()
+        for arm in body.body
+        if any(_names(item, name) for item in arm)
+    ]
+    whole = [
+        rule
+        for rule, body in analysis.rules.items()
+        for arm in body.body
+        if len(arm) == 1 and _names(arm[0], name) and arm[0].quantifier.upper() == 1
+    ]
+    if not owners or len(whole) != len(owners) or seen.intersection(whole):
+        return windows.site_windows(name)
+    return [
+        site for rule in whole for site in _closing_sites(analysis, windows, rule, seen)
+    ]
+
+
+def _names(item: IrItem, name: str) -> bool:
+    """Whether ``item`` references rule ``name``, exactly once."""
+    return (
+        isinstance(item.atom, IrRuleRef)
+        and str(item.atom) == name
+        and int(item.quantifier.lo) == 1
+    )
 
 
 def soft_gap_conflict(

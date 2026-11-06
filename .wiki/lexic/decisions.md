@@ -1243,12 +1243,23 @@ hard, so its rule islands and Earley answers:
 soft continuation and not its structural one, only a repetition's next
 iteration takes it after the loop, so the stop at it may be the carving that
 completes, and a longest take's span check cannot see past the rule. The rule
-islands instead. Vyx's `nl-escape`, `nl-force` and, on the lexical views,
-`unquoted` are the case (the separator `\`). Their islands' ends are ranked
+islands instead, where at some site it is followed at every character that may
+follow is one the loop takes, so its run swallows that closer whole
+(`_swallows_a_site`; a rule that is only ever a whole arm is read at its owner's
+sites, and a site the text may end at closes nothing). Vyx's `nl-escape` and
+`nl-force` before ` >` are the case (the separator `\`); `unquoted` swallows no
+closer and keeps its longest take, which as an island had cost the @lexical
+rows about ten times. Their islands' ends are ranked
 where they stand; one that is the whole of an attempt's only admitted entry,
 under a pass-through root, is the attempt's outcome and reaches the attempted
 iteration it runs for (`Verdicts._extent`, `Attempting.attempt`), so the
 iteration ranks its ends beside its stop.
+
+**A longest take's island settles its own ends.** Where an exactly-once
+value-string item's longest take asks its island (`_match_once`), the island's
+undecided ends go to the extent verdict as the item's own reference would send
+them, with the frame moved past the item first, so each end's side goes on from
+there instead of matching the item again.
 
 `LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the conditions
 refuse costs Earley time where a real grammar's run can hold its closer.

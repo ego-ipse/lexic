@@ -260,6 +260,9 @@ class KernelExecutionMixin[Carry]:
         1.107, mixedends pda 1.062, announced pda 1.053, split-nullable and
         wrapped-unit 1.04.
 
+        A longest take that asks for its island settles the island's ends as
+        the item's own reference would (:meth:`_extent`), as the leaf path does.
+
         :raises PdaFail: On the matcher's refusal.
         """
         if arm.kinds[i] == OP_VRUN:
@@ -267,7 +270,12 @@ class KernelExecutionMixin[Carry]:
         try:
             return vstr_once(self.text, self._caches.intern, arm.payloads[i], sink, pos)
         except IslandEscape as escape:
-            return self._islanded(escape, sink)
+            try:
+                return self._islanded(escape, sink)
+            except IslandEnds as two:
+                self.stack[-1].i = i + 1  # each end's side goes on past the item
+                self._extent(two, i, sink)
+                return self.pos
 
     def _match_vdisp(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.

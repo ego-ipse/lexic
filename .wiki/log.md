@@ -3004,3 +3004,8 @@ and how a whole-run island's ends reach the attempted iteration.
 
 `decisions.md` gains the entry: `beyond_at` reads the soft tail where the arm
 can end at the loop, so a repetition's next iteration is audited.
+
+## A loopback stop-set islands only where its run swallows a closer (2026-11-06)
+
+`decisions.md`'s stop-set entry: the swallowed-closer criterion, and a longest
+take's island settling its ends through the extent verdict.
