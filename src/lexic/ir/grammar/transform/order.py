@@ -20,7 +20,7 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from hashlib import blake2b
 
-from lexic.ir.grammar.graph import reachable, refs_in_order
+from lexic.ir.grammar.graph import reach, refs_in_order
 from lexic.ir.grammar.nodes import IrAst, IrRule
 from lexic.ir.spine.records import IrSeq
 
@@ -140,16 +140,22 @@ def rule_closure(ast: IrAst) -> dict[str, int]:
     :returns: Rule name → a 64-bit digest of its reachable subgraph.
     """
     bodies = {str(rule.name): rule for rule in ast.rules}
+    spellings = {name: _spelling(rule) for name, rule in bodies.items()}
+    reached = reach(bodies)
     return {
-        name: _closure_digest(reachable(bodies, (name,)), bodies) for name in bodies
+        name: _closure_digest({name} | (reached[name] & spellings.keys()), spellings)
+        for name in bodies
     }
 
 
-def _closure_digest(seen: frozenset[str], bodies: dict[str, IrRule]) -> int:
+def _spelling(rule: IrRule) -> bytes:
+    """A rule's length-prefixed bytes, spelled once however many closures
+    hold it."""
+    text = repr(rule).encode("utf-8", "surrogatepass")
+    return len(text).to_bytes(8, "little") + text
+
+
+def _closure_digest(seen: set[str], spellings: dict[str, bytes]) -> int:
     """One closure's digest — sorted, so ref order cannot perturb it."""
-    packed = b"".join(
-        len(chunk).to_bytes(8, "little") + chunk
-        for name in sorted(seen)
-        for chunk in (repr(bodies[name]).encode("utf-8", "surrogatepass"),)
-    )
+    packed = b"".join(spellings[name] for name in sorted(seen))
     return int.from_bytes(blake2b(packed, digest_size=8).digest(), "little")

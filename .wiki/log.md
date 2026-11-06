@@ -2989,3 +2989,8 @@ per clone, and its three refusals.
 `decisions.md`'s P3 Decision 3: the exit side as its own residual FIRST, the
 rule's continuation past an open exit, and transparency as "can derive a
 W-only string".
+
+## An exact-match gate yields where its units spell into the follower (2026-11-06)
+
+`decisions.md`'s P6 licence entry: the follower check, how far the follower
+reads, the walk in `extend/prefix.py`, and where a refused loop lands.

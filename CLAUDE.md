@@ -342,6 +342,7 @@ src/lexic/
           lengthen.py              EXTEND — item, sequence and arm rules, the shifting bound, R3's confinement, rule_extensions
           runs.py                  Runs — what a run lets EXTEND drop, read off the grammar alone
           inner.py                 NON_INITIAL — every character a string can carry past its first
+          prefix.py                Prefixes — whether a loop's complete units can spell into what follows the loop
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
           ends/               Where a run ends — a one-class loop decided at its run's end, per context

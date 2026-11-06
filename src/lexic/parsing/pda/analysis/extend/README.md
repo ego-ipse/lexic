@@ -11,6 +11,12 @@ every rule, grown from empty and bounded by ALPHABET:
   first position. The folded-run split reads it: a character outside it, met
   past a string's start, begins one.
 
+A third question is asked of two sides, so it is no fixpoint: **PREFIX**
+(`prefix.py`) — whether a loop's complete units can spell into what follows
+the loop, at the cursor or past a shorter unit (EXTEND's exact, local form).
+The exact-match noise gate asks it of its required follower. Both sides are
+Thompson NFAs over character sets, built only as far as the walk goes.
+
 Where EXTEND's readings part inside a run (`C*` over one character set), the
 ALPHABET fallback is too coarse: R3 (`lengthen.py`) takes the rest's EXTEND
 there instead, when the shift is confined to the run. The structural facts it

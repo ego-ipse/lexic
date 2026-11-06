@@ -48,6 +48,7 @@ from lexic.parsing.pda.analysis.cursors import (
 )
 from lexic.parsing.pda.analysis.extend.lengthen import rule_extensions
 from lexic.parsing.pda.analysis.extend.maps import Extensions
+from lexic.parsing.pda.analysis.extend.prefix import Spelled
 from lexic.parsing.pda.analysis.gates.ends.sites import RunIndex, run_decides
 from lexic.parsing.pda.analysis.gates.kwindow import (
     FOLLOW_LOOP_K,
@@ -81,12 +82,11 @@ class Follows(NamedTuple):
     """An analysis' FOLLOW views: the soft, hard and structural CharSet
     fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
 
-    :ivar deep: The window sets built so far, by width — filled by
-        :meth:`windows`, never by a caller.
+    :ivar deep: The window sets built so far, by width — filled by :meth:`windows`.
     :ivar extended: EXTEND once built — filled by ``rule_extensions`` alone.
-    :ivar runs: The run-site index once asked for — filled by ``run_sites``.
-    :ivar noise: The semantic and rigid FOLLOW tables, by ``rigid`` — filled
-        by ``sem_follow_table`` alone.
+    :ivar runs: The site index once asked for — filled by ``run_index`` alone.
+    :ivar noise: The semantic and rigid FOLLOW tables, by ``rigid`` — ``sem_follow_table``'s.
+    :ivar spelled: Each loop unit's side of the follower walk — ``spelled``'s.
     """
 
     soft: dict[str, CharSet]
@@ -98,6 +98,7 @@ class Follows(NamedTuple):
     extended: list[Extensions]
     runs: list[RunIndex]
     noise: dict[bool, dict[str, CharSet]]
+    spelled: dict[str, Spelled]
 
     def windows(self, k: int) -> FollowWindows:
         """FOLLOW\\ :sub:`k` as window sets, built once per width.
@@ -168,6 +169,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             {},
             [],
             [],
+            {},
             {},
         )
         self.taxonomy = Taxonomy(delegated)

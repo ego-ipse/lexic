@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrAlternation, IrItem, IrLiteral, IrRuleRef
+from lexic.parsing.pda.analysis.extend.prefix import After, spells_into
 from lexic.parsing.pda.analysis.gates.noise import sem_follow_table
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import (
@@ -357,10 +358,41 @@ def _match_gate(
         exit_is_noise(analysis, items, k) or sem_follow_clear(analysis, items, k, scope)
     ):
         return None
+    if not exact_against_follower(analysis, atom, items[k + 1 :], scope):
+        return None
     rec = build_recognizer(analysis.rules, roots | {str(atom)})
     if rec is None:
         return None
     return ScanGate(SG_MATCH, rec, (rec.index[str(atom)],))
+
+
+def follower(
+    analysis: Any, rest: Sequence[IrItem], scope: Any
+) -> tuple[Sequence[IrItem], After | None]:
+    """A loop's REQUIRED follower: ``rest`` up to its first item that is
+    required and cannot vanish, and what it runs on into where the arm runs
+    out first — ``None`` where it ends in the arm or only the end of the input
+    follows. A required item that can derive nothing (the lift's ``e`` for a
+    nullable ``e?``) is no end of it."""
+    for end, item in enumerate(rest, 1):
+        if int(item.quantifier.lo) >= 1 and not analysis.item_nullable(item):
+            return rest[:end], None
+    if scope.tail.within(CharSet.from_chars("")) and not analysis.taxonomy.delegated:
+        return rest, None
+    return rest, After(scope.rule if scope.body else None, scope.tail)
+
+
+def exact_against_follower(
+    analysis: Any, unit: IrRuleRef, rest: Sequence[IrItem], scope: Any
+) -> bool:
+    """Whether a complete ``unit`` at the cursor can never take the text of
+    the loop's required :func:`follower`
+    (:func:`~lexic.parsing.pda.analysis.extend.prefix.spells_into`). Refused
+    where a unit is the whole of, or a proper prefix of, a follower string, or
+    runs on past a shorter complete unit into one; a refused loop falls to
+    the attempt licence, whose decider settles take against stop."""
+    items, after = follower(analysis, rest, scope)
+    return not spells_into(analysis, unit, items, after)
 
 
 def sem_follow_clear(
