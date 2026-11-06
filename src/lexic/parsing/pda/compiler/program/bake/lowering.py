@@ -54,7 +54,14 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.product.abi.construction import ProductValue
 
-__all__ = ["UNROLL_LIMIT", "FoldBuild", "ShapeBuild", "no_shape_build", "shape_build"]
+__all__ = [
+    "UNROLL_LIMIT",
+    "FoldBuild",
+    "FoldStep",
+    "ShapeBuild",
+    "no_shape_build",
+    "shape_build",
+]
 
 UNROLL_LIMIT = 8
 """Widest arity with a template of its own.
@@ -89,6 +96,18 @@ type Plan[Carry] = Sequence[tuple[int, int, int, ProductValue[Carry]]]
 """A class-ordered plan: one ``(mode, item, lo, default)`` per field."""
 
 
+class FoldStep[Carry](NamedTuple):
+    """One recursive arm's iteration build.
+
+    :ivar build: The arm's own composed build, called with a synthetic sinks
+        array: slot 0 the value so far, the rest the iteration's captures.
+    :ivar slots: How wide that array must be.
+    """
+
+    build: ShapeBuild[Carry]
+    slots: int
+
+
 class FoldBuild[Carry](NamedTuple):
     """What a folding clone's completion needs.
 
@@ -97,11 +116,15 @@ class FoldBuild[Carry](NamedTuple):
     :ivar width: How many captured values one iteration contributes, which is
         how the flat sink is cut back into iterations.
     :ivar slots: How wide the synthetic array must be.
+    :ivar arms: One :class:`FoldStep` per recursive arm, in authored order,
+        where there are two or more — each iteration then says which arm it
+        took, and the flat cut by :attr:`width` does not apply. Empty for one.
     """
 
     step: ShapeBuild[Carry]
     width: int
     slots: int
+    arms: tuple[FoldStep[Carry], ...] = ()
 
 
 def no_shape_build[Carry](

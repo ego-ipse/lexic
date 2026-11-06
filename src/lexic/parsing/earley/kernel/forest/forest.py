@@ -29,9 +29,11 @@ frame, so the driver's list holds only the live spine — depth lives in a list,
 never the C stack.
 
 A :class:`ForestCtx` cursor carries the chart and the set of **open** handles
-(those whose prefixes are mid-production); a re-entrant prefix request on an open
-handle is a genuine (nullable) cycle and emits the single empty prefix, which
-terminates it.
+(the ancestors of what is being expanded). A request on an open handle is a
+node inside itself over its own span: that branch ends, so the stream holds
+only the cycle-free derivations and every one is complete, and the cursor
+records the cut (:attr:`ForestCtx.cut`) — a span with a cycle has more
+derivations than the stream emits.
 
 Public readers:
 
@@ -46,6 +48,7 @@ Public readers:
 
 from __future__ import annotations
 
+from itertools import islice
 from typing import ClassVar, Iterable, Iterator, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
@@ -53,8 +56,6 @@ from lexic.ir import (
     IrLeaf,
     IrLiteral,
     IrNamedTuple,
-    IrNone,
-    IrNoneType,
     IrRuleRef,
     IrSelf,
     IrSeq,
@@ -200,12 +201,17 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
 
     The **mutable** forest-read cursor (the mutable-chart exception, like
     :class:`~lexic.parsing.earley.kernel.loop.state.KernelState`): :attr:`open` holds the
-    ``(item, end)`` handles whose prefixes are currently being produced. A
-    re-entrant :class:`PrefixSource` on an open handle is a genuine empty-span
-    (nullable) cycle and emits the single empty prefix to terminate it. A handle
-    is added to :attr:`open` before its families are walked and discarded after —
-    so an *exhausted* handle can be legitimately re-entered (sharing), only a
-    *mid-production* one is treated as a cycle.
+    ``(item, end)`` handles whose prefixes are being produced right now — the
+    ancestors of whatever is being expanded. A handle is open while its
+    :class:`PrefixSource` waits on a predecessor or a child, and closed while it
+    is suspended after emitting a prefix: a suspended prefix is a left sibling
+    of what its caller expands next, not its ancestor, and the same handle may
+    legitimately recur below it (``a ::= p b`` with ``p`` empty, inside its own
+    ``b``). Re-entering an OPEN handle is a node inside itself over the same
+    span — a cycle — and that branch ends there: it has no complete derivation.
+    The cursor records that it did (:attr:`cut`): putting any finite derivation
+    of the handle in the inner one's place completes the branch, so the span has
+    a derivation the stream does not emit, and the strict readers count it.
 
     :attr:`open` is a set (membership + ``discard``), so it rides a slot rather
     than an :class:`~lexic.ir.action.mapping.IrMultiMap` — the same set-shaped-state
@@ -214,12 +220,14 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
 
     :ivar chart: The chart holding the family table.
     :ivar open: The handles whose prefixes are mid-production.
+    :ivar cut: Whether a branch has ended at an open handle.
     """
 
-    __slots__ = ("chart", "open")
+    __slots__ = ("chart", "open", "cut")
 
     chart: Chart
     open: set[tuple[EarleyItem, int]]
+    cut: bool
 
     def __init__(self, chart: Chart) -> None:
         """Build the cursor over ``chart`` with no open handles.
@@ -228,6 +236,7 @@ class ForestCtx(IrLeaf[IrSelf, IrSelf]):
         """
         self.chart = chart
         self.open = set()
+        self.cut = False
 
 
 class IrStream[T: IrSelf](IrLeaf[IrSelf, IrSelf]):
@@ -370,8 +379,9 @@ class PrefixSource(IrLeaf[IrSelf, IrSelf]):
 
     Dot 0 is the single empty prefix; otherwise the lazy product over each packed
     family of (predecessor prefix) × (consumed-child derivation), in source order.
-    A re-entrant request on an *open* handle (in :attr:`ForestCtx.open`) is a
-    nullable cycle and emits one empty prefix to terminate.
+    A request on an *open* handle (in :attr:`ForestCtx.open`) is a cycle: it
+    yields nothing and sets :attr:`ForestCtx.cut`, so every emitted prefix is a
+    complete derivation of its span.
 
     :ivar _node: The :class:`SppfNode` handle to expand.
     :ivar _ctx: The forest cursor.
@@ -398,22 +408,24 @@ class PrefixSource(IrLeaf[IrSelf, IrSelf]):
             return
         ctx = self._ctx
         key = (node.item, node.end)
-        if key in ctx.open:  # re-entrant open handle ⇒ empty-span cycle
-            yield (EMIT, IrSeq())
+        if key in ctx.open:  # a node inside itself over the same span: a cycle
+            ctx.cut = True
             return
-        chart = ctx.chart
-        ctx.open.add(key)
-        for link in chart.links[key]:
+        opened = ctx.open
+        opened.add(key)
+        for link in ctx.chart.links[key]:
             predecessor = iter(PrefixSource(SppfNode(link[0], link[1]), ctx))
             prefix = yield (ADVANCE, predecessor)
             while prefix is not EXHAUSTED:
                 children = iter(ChildDerivs(link[2], ctx))
                 child = yield (ADVANCE, children)
                 while child is not EXHAUSTED:
+                    opened.discard(key)  # suspended: no longer an ancestor
                     yield (EMIT, IrSeq(*cast(IrSeq, prefix), child))
+                    opened.add(key)
                     child = yield (ADVANCE, children)
                 prefix = yield (ADVANCE, predecessor)
-        ctx.open.discard(key)
+        opened.discard(key)
 
 
 class ChildDerivs(IrLeaf[IrSelf, IrSelf]):
@@ -494,16 +506,18 @@ class DerivationStream(IrLeaf[IrSelf, IrSelf]):
 
 
 class Derivations(IrLeaf[IrSelf, IrSelf]):
-    """Realise a completed handle's prefixes into ALL :class:`ParseTree` trees.
+    """Realise a completed handle's cycle-free :class:`ParseTree` derivations.
 
     Invoked directly via :data:`DERIVATIONS`: ``n`` is a completed
     :class:`SppfNode`; ``nc`` is ``(chart,)`` or ``(ForestCtx,)``. Eagerly drains
-    the lazy :data:`DERIVATION_STREAM` into an :class:`~lexic.ir.base.IrSeq`. The
-    public way to recover ALL derivations of a parse.
+    the lazy :data:`DERIVATION_STREAM` into an :class:`~lexic.ir.base.IrSeq`:
+    every derivation in which no node sits inside itself over its own span. On
+    an acyclic grammar that is all of them; where a cycle was cut, the cursor's
+    :attr:`ForestCtx.cut` says the span has more.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSeq:
-        """Enumerate every :class:`ParseTree` the handle ``n`` packs.
+        """Enumerate the cycle-free :class:`ParseTree` trees ``n`` packs.
 
         :param d: Dispatcher, forwarded to the lazy stream.
         :param n: The completed :class:`SppfNode` handle.
@@ -519,7 +533,8 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
     Invoked directly via :data:`BUILD_TREE`: ``n`` is the accepting
     :class:`SppfNode`; ``nc`` is ``(chart,)``. A single :class:`ParseTree` cannot
     honestly represent ambiguity, so a handle packing more than one derivation
-    **raises** rather than silently picking one.
+    **raises** rather than silently picking one — a second tree, or a cut cycle
+    (:attr:`ForestCtx.cut`), whose pumped derivation the stream never emits.
 
     This is the trampolined strict reader over a decoded chart. The common
     unambiguous case never reaches it — :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`
@@ -539,20 +554,18 @@ class BuildTree(IrLeaf[IrSelf, IrSelf]):
             more than one (ambiguous input).
         """
         symbol = n.symbol if isinstance(n, RootNode) else cast(SppfNode, n).item[0]
-        stream = DERIVATION_STREAM.eval(d, n, IrTuple(nc[0]))
-        first: IrSelf = IrNone
-        for index, tree in enumerate(stream):
-            if index == 0:
-                first = tree
-                continue
-            raise UnsupportedConstructError(  # a second derivation ⇒ ambiguous
+        ctx = _forest_ctx(nc[0])
+        # Two trees settle it; fewer drive the stream to its end, so the cut is known
+        found = list(islice(DERIVATION_STREAM.eval(d, n, IrTuple(ctx)), 2))
+        if len(found) > 1 or ctx.cut:  # a second derivation ⇒ ambiguous
+            raise UnsupportedConstructError(
                 f"parsing: ambiguous input — more than one derivation of "
                 f"{symbol!r}; use the forest enumeration entry "
                 "(parse_forest / derivations) instead"
             )
-        if isinstance(first, IrNoneType):
+        if not found:
             raise UnsupportedConstructError(f"parsing: no derivation of {symbol!r}")
-        return first
+        return found[0]
 
 
 DERIVATIONS = Derivations()

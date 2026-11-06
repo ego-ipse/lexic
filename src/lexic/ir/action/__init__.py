@@ -1,1 +1,48 @@
 """The action group — see README.md."""
+
+SURFACE: dict[str, str] = {
+    "IrArg": "lexic.ir.action.access",
+    "IrArgs": "lexic.ir.action.access",
+    "IrAt": "lexic.ir.action.access",
+    "IrChild": "lexic.ir.action.access",
+    "IrChildren": "lexic.ir.action.access",
+    "IrField": "lexic.ir.action.access",
+    "IrIndex": "lexic.ir.action.access",
+    "IrLen": "lexic.ir.action.access",
+    "IrAction": "lexic.ir.action.build",
+    "IrApply": "lexic.ir.action.build",
+    "IrBuild": "lexic.ir.action.build",
+    "IrEmit": "lexic.ir.action.build",
+    "IrRaise": "lexic.ir.action.build",
+    "IrRebuild": "lexic.ir.action.build",
+    "IrWalk": "lexic.ir.action.build",
+    "IrCompare": "lexic.ir.action.flow.compute",
+    "IrConcat": "lexic.ir.action.flow.compute",
+    "IrGlyph": "lexic.ir.action.flow.compute",
+    "IrIsA": "lexic.ir.action.flow.compute",
+    "IrJoin": "lexic.ir.action.flow.compute",
+    "IrMerge": "lexic.ir.action.flow.compute",
+    "IrOrd": "lexic.ir.action.flow.compute",
+    "IrRadix": "lexic.ir.action.flow.compute",
+    "IrUnradix": "lexic.ir.action.flow.compute",
+    "IrCond": "lexic.ir.action.flow.control",
+    "IrEach": "lexic.ir.action.flow.control",
+    "IrPass": "lexic.ir.action.flow.control",
+    "IrPipe": "lexic.ir.action.flow.control",
+    "IrReturn": "lexic.ir.action.flow.control",
+    "IrThis": "lexic.ir.action.flow.control",
+    "IR_DEFAULT": "lexic.ir.action.mapping",
+    "IrMap": "lexic.ir.action.mapping",
+    "IrMapping": "lexic.ir.action.mapping",
+    "IrMultiMap": "lexic.ir.action.mapping",
+    "IrTypeMap": "lexic.ir.action.mapping",
+    "IrBottomUp": "lexic.ir.action.walk",
+    "IrDispatch": "lexic.ir.action.walk",
+    "IrEmitter": "lexic.ir.action.walk",
+    "IrTransformer": "lexic.ir.action.walk",
+    "IrVisitor": "lexic.ir.action.walk",
+}
+"""Every name this group puts on the ``lexic.ir`` façade, and the module that
+defines it. The façade's lazy lookup reads it, so a name resolves only once
+listed here. Data only, as the marker is: every import of a submodule runs it
+first."""

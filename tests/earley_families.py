@@ -24,12 +24,16 @@ from lexic.parsing.earley.kernel.loop.state import PROMOTED
 
 
 def baseline_index_completion(
-    self, i: int, it: int, wl: list[int], origin: int
+    self, i: int, child: int, wl: list[int], origin: int, _rid: int
 ) -> None:
-    """One family per waiter per completion — the pre-factoring recorder."""
+    """One family per waiter per completion — the pre-factoring recorder.
+
+    It takes the completed rule like the store it replaces, and ignores it: the
+    pre-factoring recorder had no tiers to decide.
+    """
     pk = self.tables.packing
     for w in wl:
-        family = (w, origin, (it << pk.bits) | i)
+        family = (w, origin, child)
         bucket = self.st.links.setdefault(((w + pk.advance) << pk.bits) | i, [])
         if family not in bucket:
             bucket.append(family)
@@ -99,14 +103,19 @@ def before_group(kern: Kernel) -> list[int]:
     The late-promotion witness: such a key's first family is served only
     because the bucket kept it.
     """
-    pk, codes = kern.tables.packing, kern.tables.codes
+    pk = kern.tables.packing
     out = []
     for key, bucket in kern.st.links.items():
-        if bucket[0] is not PROMOTED:
+        if bucket[0] is not PROMOTED or bucket[1][0] < 0:  # a lazy head: no first
             continue
         child = bucket[1][2]
         assert isinstance(child, int), key
-        rid = codes.next_sym[((key >> pk.bits) - pk.advance) >> pk.bits] - 1
-        if child >> pk.bits not in kern.st.groups[(rid, key & pk.mask)]:
+        if child >> pk.bits not in kern.st.groups[(facing(kern, key), key & pk.mask)]:
             out.append(key)
     return out
+
+
+def facing(kern: Kernel, key: int) -> int:
+    """The rule a family key's waiter was waiting on — the key's tier."""
+    pk = kern.tables.packing
+    return kern.tables.codes.next_sym[((key >> pk.bits) - pk.advance) >> pk.bits] - 1

@@ -17,7 +17,7 @@ import pytest
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.gating import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.pda.runtime.kernel import sides
+from lexic.parsing.pda.runtime.kernel.verdicts import sides
 from lexic.parsing.products import (
     earley_model,
     model_product,

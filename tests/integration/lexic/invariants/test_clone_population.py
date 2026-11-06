@@ -12,7 +12,9 @@ The lesson was not "walk more edges". It was **count the population by a second
 route before trusting the first**, and the second route has to be one that
 cannot share the first's blind spot:
 
-* the **walk** reads named fields, the way every consumer does;
+* the **walk** is :func:`~lexic.parsing.pda.compiler.program.flatten.all_clones`,
+  the one walk the compiler itself reads (for an island's interior, rooted at
+  the clones the program's delegate source holds);
 * the **oracle** is :func:`gc.get_referents` from the compiled tables, which is
   field-name blind — it follows a reference without knowing what holds it, so
   it structurally cannot forget an edge. An oracle that knew the field names
@@ -37,28 +39,10 @@ from types import BuiltinFunctionType, FunctionType, ModuleType
 import pytest
 
 from lexic.compile import compile_text
-from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram
+from lexic.parsing.pda.compiler.program import flatten
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, PdaProgram, all_clones
 from lexic.parsing.products import model_product
 from tools.benchmark.cases.grammars import BENCHES, Bench
-
-EDGES = (
-    "selectors",
-    "wide_selectors",
-    "default",
-    "attempt",
-    "runarm",
-    "chartable",
-    "longest",
-)
-"""Slots that hold, or nest, an arm or a clone.
-
-``longest`` nests the island reference a longest-take clone asks when its span
-holds a follower: the island's name, which reaches the interiors it compiled.
-
-``struct_arm`` is deliberately absent: a ``ScanGate`` reaches no clone. The
-oracle does not consult this list, which is the point of having it.
-"""
 
 _OPAQUE = (type, ModuleType, FunctionType, BuiltinFunctionType)
 """Never descended into.
@@ -89,35 +73,20 @@ def _spread(value: object, stack: list[object]) -> None:
         stack.append(value)
 
 
-def walked(program: PdaProgram, edges: tuple[str, ...] = EDGES) -> set[int]:
-    """Clone ids reachable from ``program`` through the named fields.
-
-    An island reference's payload names its rule (a string, once the payload
-    is spread), and the program's delegate source holds the interior clones
-    compiled for that island so far: that is the edge from the reference to
-    them. Any other name holds none. They are compiled on first use, so
-    which are held depends on what the process has parsed.
-    """
-    return _walk(program.start, program.delegates, edges)
-
-
-def _walk(
-    root: object, delegates: DelegateSource | None, edges: tuple[str, ...]
-) -> set[int]:
-    """Clone ids reachable from ``root``, island interiors through ``delegates``."""
-    seen: set[int] = set()
-    stack: list[object] = [root]
-    while stack:
-        node = stack.pop()
-        _spread(getattr(node, "payloads", None), stack)
-        if delegates is not None and isinstance(node, str):
-            _spread(delegates.held(node), stack)
-        if not isinstance(node, FlatClone) or id(node) in seen:
-            continue
-        seen.add(id(node))
-        for slot in edges:
-            _spread(getattr(node, slot), stack)
-    return seen
+def walked(program: PdaProgram) -> set[int]:
+    """Clone ids :func:`all_clones` reaches from ``program``: from its start,
+    and from the interior clones its delegate source holds for each island
+    compiled so far — an island reference names its rule, and the interiors
+    are their own lowering, so they are roots of their own. Which are held
+    depends on what the process has parsed."""
+    delegates = program.delegates
+    roots: list[FlatClone] = (
+        [program.start] if isinstance(program.start, FlatClone) else []
+    )
+    if delegates is not None:
+        for island in delegates.held_islands():
+            roots.extend(delegates.held(island).values())
+    return {id(clone) for clone in all_clones(roots)}
 
 
 def _closure(root: object) -> tuple[list[object], list[FunctionType]]:
@@ -171,8 +140,8 @@ def test_the_walk_reaches_every_clone_the_artefact_holds(bench: Bench) -> None:
     missed = set(oracle) - found
     extra = found - set(oracle)
     assert not missed, (
-        f"{bench.name}: the walk missed {len(missed)} of {len(oracle)} clones — "
-        f"an edge is absent from {EDGES}: {_names(oracle, missed)}"
+        f"{bench.name}: all_clones missed {len(missed)} of {len(oracle)} clones: "
+        f"{_names(oracle, missed)}"
     )
     assert not extra, (
         f"{bench.name}: the walk reached {len(extra)} clones the artefact does "
@@ -180,28 +149,32 @@ def test_the_walk_reaches_every_clone_the_artefact_holds(bench: Bench) -> None:
     )
 
 
-def test_a_crippled_walk_is_caught() -> None:
+def test_a_crippled_walk_is_caught(monkeypatch) -> None:
     """A walk with a known hole must DISAGREE with the oracle.
 
     Without this the module's own agreement means nothing: two instruments
     that share a blind spot agree exactly as loudly as two that are right.
-    The hole chosen is the original one — follow ``selectors`` and no other
-    field, which is what reported a third of the roster missing.
+    The hole is the original kind: :func:`all_clones` blind to landing targets,
+    so it stops at every dispatch clone, as a walk reading ``selectors`` alone
+    once stopped at every wide one.
     """
     bench = next(one for one in BENCHES if one.name == "gbnf-meta")
     tables = model_product(bench.compiled.codegen_grammar, bench.compiled.product).pda
+    monkeypatch.setattr(flatten, "landing_targets", lambda _clone: [])
 
-    blind = walked(tables.program, edges=("selectors",))
+    blind = walked(tables.program)
 
-    assert blind < set(referenced(tables)), "a one-edge walk must not see it all"
+    assert blind < set(referenced(tables)), (
+        "a walk blind to dispatch must not see it all"
+    )
 
 
 @pytest.mark.parametrize("bench", BENCHES, ids=lambda one: one.name)
 def test_no_clone_hides_in_a_closure_cell(bench: Bench) -> None:
     """The one blind spot the two routes SHARE, asserted empty per grammar.
 
-    The fence stops the oracle at a function, and the walk reads named slots,
-    so neither opens a closure: a clone captured in a cell is invisible to
+    The fence stops the oracle at a function, and the walk follows payloads
+    and landing targets, so neither opens a closure: a clone captured in a cell is invisible to
     both, and they would agree about a number that is wrong. That is not
     hypothetical — ``clone.build`` and a fold's ``step`` are composed closures
     already. True today, so it is asserted rather than assumed.
@@ -272,7 +245,7 @@ def test_the_walk_follows_an_island_into_the_interiors_it_compiled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A parse that reaches the island compiles its interior clones; the walk
-    reaches them through the island's reference and nowhere else."""
+    reaches them from the delegate source that holds them, and nowhere else."""
     compiled = compile_text(ISLAND_WITH_INTERIOR, cache_key="walk-island-interior")
     tables = model_product(compiled.codegen_grammar, compiled.product).pda
     compiled.parse("<abxxandacyyorabx>", cores=1)
@@ -284,6 +257,4 @@ def test_the_walk_follows_an_island_into_the_interiors_it_compiled(
     monkeypatch.setattr(type(tables.program.delegates), "held", lambda _self, _name: {})
     missed = set(oracle) - walked(tables.program)
     assert {id(clone) for clone in held.values()} <= missed
-    assert missed <= set().union(
-        *(_walk(clone, None, EDGES) for clone in held.values())
-    )
+    assert missed <= {id(clone) for clone in all_clones(list(held.values()))}

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeIs, cast
+from dataclasses import dataclass
+from typing import Any, cast
 
-from lexic.exceptions import LexicError
-from lexic.ir import Bound, IrNamedTuple, IrSelf
+from lexic.exceptions import EngineInvariantError, LexicError
+from lexic.ir import Bound, IrNamedTuple, IrSelf, is_plain_tuple
 from lexic.model import GrammarModel
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.stitch.plan import RegionPlan, field_slot
@@ -28,12 +29,18 @@ def region_items(model: GrammarModel, plan: RegionPlan) -> GrammarModel | None:
 def head_rest(
     items: GrammarModel, plan: RegionPlan
 ) -> tuple[GrammarModel, tuple[GrammarModel, ...]] | None:
-    """One items node's head and plain-tuple repeated tails."""
+    """One items node's head and plain-tuple repeated tails — for a terminated
+    run (``plan.ends``), its first unit and the rest of its run."""
     children = items.children()
     if max(plan.items_head, plan.items_rest) >= len(children):
         return None
     head, rest = children[plan.items_head], children[plan.items_rest]
-    if not isinstance(head, GrammarModel) or rest.__class__ is not tuple:
+    if plan.ends:
+        if not is_plain_tuple(rest) or not rest:
+            return None
+        units = cast(tuple[GrammarModel, ...], rest)
+        return units[0], units[1:]
+    if not isinstance(head, GrammarModel) or not is_plain_tuple(rest):
         return None
     tails = cast(tuple[object, ...], rest)
     if any(tail.__class__ is not plan.tail_type for tail in tails):
@@ -71,7 +78,7 @@ def sole_routes(
         for slot, child in enumerate(node.children()):
             if isinstance(child, GrammarModel):
                 stack.append((child, (*route, (slot, None))))
-            elif child.__class__ is tuple:
+            elif is_plain_tuple(child):
                 parts = cast(tuple[object, ...], child)
                 stack.extend(
                     (part, (*route, (slot, at)))
@@ -124,15 +131,89 @@ def _item_at(
     return (*base, (plan.items_rest, item - 1), (plan.tail_head, None)), inner
 
 
-def model_at(root: GrammarModel, route: tuple[ModelStep, ...]) -> GrammarModel | None:
-    """The model at ``route`` below ``root``, or ``None`` on a shape surprise."""
-    node: object = root
-    for slot, repeated in route:
-        children = node.children() if isinstance(node, GrammarModel) else ()
-        node = children[slot] if slot < len(children) else None
-        if repeated is not None:
-            node = node[repeated] if is_run(node) and repeated < len(node) else None
-    return node if isinstance(node, GrammarModel) else None
+@dataclass(frozen=True, slots=True)
+class Reading:
+    """How :func:`read_route` reads a route — one of the three readings below,
+    never built by a caller. Slotted rather than a tuple, because the walk reads
+    its flags per step and a slot read is the fast one.
+
+    :ivar sole_runs: A run step needs a run of exactly one element.
+    :ivar strict: A slot the model does not have raises rather than declines.
+    :ivar isolated: Every other child of a step's node must be empty.
+    """
+
+    sole_runs: bool
+    strict: bool
+    isolated: bool
+
+
+FOUND = Reading(sole_runs=False, strict=False, isolated=False)
+"""A route :func:`sole_routes` found in the model: a run step indexes a run of
+any length (json's 800 records), and anything missing declines."""
+
+PREDICTED = Reading(sole_runs=True, strict=True, isolated=False)
+"""A route derived from the grammar (a routed interior's, a folded spine's).
+
+**Every run step must hold exactly one element.** ``splice`` bounds a run index
+but never checks arity, so a step naming element 0 of a run of three would
+rewrite the first and leave the other two: a wrong model rather than a refusal.
+One unit is true by construction in a PIECE, not in the whole model an
+intermediate step runs over. A slot the model does not have means the chain and
+the model disagree about the grammar, not a document shape, so it raises."""
+
+WRAPPED = Reading(sole_runs=False, strict=False, isolated=True)
+"""A separated plan's sole-reference start wrappers: each step's node must hold
+nothing beside the child it is read through, or the wrapper is not the plain
+shell the merge rebuilds."""
+
+
+def read_route(
+    node: GrammarModel, route: tuple[ModelStep, ...], reading: Reading
+) -> GrammarModel | None:
+    """The model at ``route`` below ``node`` under ``reading``, or ``None``
+    when the shape surprises.
+
+    Each child is checked for a model as the walk steps into it, so the node
+    in hand is always one and the answer needs no check of its own.
+
+    :raises EngineInvariantError: Under a strict reading, at a slot the model
+        does not have.
+    """
+    if not route:
+        return node  # a separated plan with no wrapper: the root is the container
+    isolated = reading.isolated  # read per step otherwise
+    current = node
+    for slot, index in route:
+        children = current.children()
+        if slot >= len(children):
+            if reading.strict:
+                raise EngineInvariantError(
+                    f"routed chain names slot {slot} of "
+                    f"{type(current).__name__}, which has {len(children)}"
+                )
+            return None
+        if (
+            isolated
+            and len(children) > 1
+            and any(
+                value not in (None, (), "")
+                for at, value in enumerate(children)
+                if at != slot
+            )
+        ):
+            return None
+        held: object = children[slot]
+        if index is not None:
+            if not is_plain_tuple(held):
+                return None
+            if reading.sole_runs:  # a run of two was never one run: decline
+                held = held[0] if len(held) == 1 else None
+            else:
+                held = held[index] if index < len(held) else None
+        if not isinstance(held, GrammarModel):
+            return None
+        current = held
+    return current
 
 
 def overlaid(node: GrammarModel, overlay: Mapping[int, Bound]) -> GrammarModel | None:
@@ -156,22 +237,6 @@ def _nested(
     if not isinstance(child, GrammarModel):
         return None
     return value if len(route) == 1 else splice(child, route[1:], value)
-
-
-def is_run(child: Bound) -> TypeIs[tuple[IrSelf, ...]]:
-    """Whether one bound value is a repetition's RUN — exactly a plain tuple.
-
-    Not ``isinstance``: every record and every :class:`IrTuple` is a tuple
-    subclass and none of them is a run, so the test is on the class itself.
-    Public because the stitch asks it from three places, and a fourth spelling
-    of it would be a fourth chance to get the subclass case wrong.
-
-    :func:`~lexic.ir.identity.field_children` makes the same test a fourth
-    time, and cannot call this one: ``ir`` is the leaf every other layer
-    imports. That one is the exception, it says so, and ``ir-shapes.md``
-    counts them — a fifth would not be.
-    """
-    return child.__class__ is tuple
 
 
 def splice[M: GrammarModel](
@@ -198,7 +263,7 @@ def splice[M: GrammarModel](
     if repeated is None:
         replacement = _nested(child, route, value)
     else:
-        if not is_run(child) or repeated >= len(child):
+        if not is_plain_tuple(child) or repeated >= len(child):
             return None
         parts = list(child)
         replacement = _nested(parts[repeated], route, value)
@@ -228,7 +293,7 @@ def stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
     sequences = []
     for chunk in chunks:
         fields = tuple(chunk)
-        if len(fields) != 1 or fields[0].__class__ is not tuple:
+        if len(fields) != 1 or not is_plain_tuple(fields[0]):
             return None
         sequences.extend(fields[0])
     return chunks[0].rebuild(cast(Any, [tuple(sequences)]))
@@ -240,9 +305,10 @@ def _stitch_separated(
     """Rebuild the container from chunk models; ``None`` = shape surprise.
 
     The repetition field is a PLAIN tuple, as the model product builds it and
-    as :func:`is_run` reads it. An ``IrTuple`` here compared and rendered the
-    same, so text and structure matched a sequential parse — and then failed
-    the run test that decides whether a field is a repetition at all.
+    as :func:`~lexic.ir.spine.records.is_plain_tuple` reads it. An ``IrTuple``
+    here compared and rendered the same, so text and structure matched a
+    sequential parse — and then failed the run test that decides whether a
+    field is a repetition at all.
     """
     heads = [tuple(chunk)[0] for chunk in chunks]
     rests = [tuple(chunk)[1] for chunk in chunks]
@@ -270,28 +336,6 @@ def _wrapper_route[M: IrNamedTuple](
     return tuple(route)
 
 
-def _at_route(
-    root: GrammarModel, route: tuple[tuple[int, None], ...]
-) -> GrammarModel | None:
-    """The model below an isolated head-reference wrapper route."""
-    node = root
-    for slot, _repeated in route:
-        children = node.children()
-        if slot >= len(children):
-            return None
-        if any(
-            value not in (None, (), "")
-            for at, value in enumerate(children)
-            if at != slot
-        ):
-            return None
-        child = children[slot]
-        if not isinstance(child, GrammarModel):
-            return None
-        node = child
-    return node
-
-
 def stitch_routed[M: IrNamedTuple](
     chunks: list[M],
     lead_models: list[tuple],
@@ -303,7 +347,7 @@ def stitch_routed[M: IrNamedTuple](
     if route is None or any(not isinstance(chunk, GrammarModel) for chunk in chunks):
         return None
     roots = cast(list[GrammarModel], chunks)
-    containers = [_at_route(root, route) for root in roots]
+    containers = [read_route(root, route, WRAPPED) for root in roots]
     if any(container is None for container in containers):
         return None
     merged = _stitch_separated(cast(list[GrammarModel], containers), lead_models)

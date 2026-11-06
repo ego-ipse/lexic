@@ -208,10 +208,22 @@ def answer(run) -> str:
 
 def public_and_earley(compiled: CompiledGrammar, text: str) -> tuple[str, str]:
     """The public parse's answer and whole-document Earley's, as :func:`answer`."""
+    return answer(lambda: compiled.parse(text)), _earley(compiled, text)
+
+
+def pda_and_earley(compiled: CompiledGrammar, text: str) -> tuple[str, str]:
+    """The predictive engine's answer and whole-document Earley's, as
+    :func:`answer`; a predictive decline raises."""
     product = model_product(compiled.codegen_grammar, compiled.product)
-    earley = answer(
+    pda = answer(lambda: pda_model(product.pda, text, compiled.product.executor))
+    return pda, _earley(compiled, text)
+
+
+def _earley(compiled: CompiledGrammar, text: str) -> str:
+    """Whole-document Earley's answer, as :func:`answer`."""
+    product = model_product(compiled.codegen_grammar, compiled.product)
+    return answer(
         lambda: earley_model(
             product.instance_grammar, text, compiled.product, product.tables
         )
     )
-    return answer(lambda: compiled.parse(text)), earley

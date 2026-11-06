@@ -13,8 +13,8 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import earley_model, pda_model
+from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 CASES = {
@@ -82,15 +82,84 @@ def test_a_granted_stop_set_keeps_the_pda_route(case: str) -> None:
     assert got.dump() == want.dump()
 
 
-def test_a_two_deep_stop_set_that_exits_too_soon_bails() -> None:
-    """On ``aa!``, the first exit leaves ``"a" t`` to meet ``a!``: the PDA
-    fails, and the public parse is still Earley's answer."""
+def test_a_two_deep_stop_set_reads_its_exit_s_second_character() -> None:
+    """On ``aa!``, the first ``a`` is an exit, and the character after it says
+    the loop goes on: the window the exit was proved on takes it, and the
+    second ``a`` — before ``!`` — stops. A stop set alone left ``"a" t`` to
+    meet ``a!`` and failed."""
     source, _text = GRANTED["two deep"]
-    compiled = compile_text(source, cache_key="stop-set-bail-two-deep")
+    compiled = compile_text(source, cache_key="stop-set-second-two-deep")
     product = prod(compiled)
-    with pytest.raises(PdaFail):
-        pda_model(product.pda, "aa!;", compiled.product.executor)
+    got = pda_model(product.pda, "aa!;", compiled.product.executor)
     want = earley_model(
         product.instance_grammar, "aa!;", compiled.product, product.tables
     )
-    assert compiled.parse("aa!;").dump() == want.dump()
+    assert got.dump() == want.dump()
+
+
+_TAGGED = 'root ::= "!" tag? " " content\ntag ::= " %" [a-z]+\n'
+"""An optional tag before a body: a live set weighs taking it against not,
+so the body is first parsed inside a reading, where a death is a prune."""
+
+IN_A_READING = {
+    "two deep, a reference after the run": (
+        _TAGGED
+        + 'content ::= w | prose\nw ::= [a-z-]* close\nclose ::= "->"\n'
+        + 'prose ::= "%" [a-z %>-]*\n',
+        ["! %a a-b->", "! a-b->", "! %a a->"],
+    ),
+    "two deep, a word before its tail": (
+        _TAGGED
+        + 'content ::= word | prose\nword ::= [a-z]* tail\ntail ::= "a;"\n'
+        + 'prose ::= "%" [a-z %;]*\n',
+        ["! %a xaba;", "! xaba;", "! %a ba;"],
+    ),
+    "noise run before a required noise token": (
+        "# @non-semantic ws sep end\n"
+        + _TAGGED.replace("content\n", "content end?\n")
+        + "content ::= list | prose\nlist ::= item (sep item)*\n"
+        + 'item ::= [a-z]+ ws\nws ::= [ \\n]*\nsep ::= "\\n" "-"\n'
+        + 'prose ::= "%" [a-z %\\n-]*\nend ::= " " "!"\n',
+        ["! %a a\n-b", "! %a a\n-b !", "! %a a"],
+    ),
+}
+"""Policy grants a reading crossed: the two-deep stop set that stopped at its
+first exit, and the noise run that ate the token after it. The tag's live
+set read the take's death as certain and kept the reading without the tag."""
+
+
+@pytest.mark.parametrize(
+    ("case", "text"),
+    [(case, text) for case, (_s, texts) in IN_A_READING.items() for text in texts],
+)
+def test_a_policy_grant_inside_a_reading_answers_as_earley(
+    case: str, text: str
+) -> None:
+    """The predictive engine builds Earley's model, asked directly."""
+    source, _texts = IN_A_READING[case]
+    compiled = compile_text(source, cache_key=f"stop-set-reading-{case}")
+    product = prod(compiled)
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    got = pda_model(product.pda, text, compiled.product.executor)
+    assert got.dump() == want.dump()
+
+
+@pytest.mark.parametrize("stem", ["arithmetic.gbnf", "arithmetic.ebnf"])
+@pytest.mark.parametrize("text", ["x=1\n\n", "x=1 \n\n", "x=1\n\ny=2\n"])
+def test_a_blank_line_after_a_noise_run_stays_on_the_predictive_engine(
+    stem: str, text: str
+) -> None:
+    """arithmetic's ``ws`` ends a term the line's own ``"\\n"`` follows: a
+    blank line is ``ws`` taking a newline the next one does not."""
+    flavour = stem.rsplit(".", 1)[1]
+    compiled = compile_text(
+        (GROUND_TRUTH / stem).read_text(), cache_key=f"stop-set-{stem}", flavour=flavour
+    )
+    product = prod(compiled)
+    want = earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
+    got = pda_model(product.pda, text, compiled.product.executor)
+    assert got.dump() == want.dump()

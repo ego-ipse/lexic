@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import types
 from operator import eq, ne
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 import pytest
 
@@ -25,6 +25,7 @@ from lexic.ir.spine.records import (
     IrNamedTuple,
     IrSeq,
     IrTuple,
+    is_plain_tuple,
 )
 from lexic.ir.spine.scalars import IrInt, IrStr
 from lexic.ir.spine.spine import IrNone
@@ -333,3 +334,36 @@ def test_nested_records_compare_by_kind_at_every_depth() -> None:
     x, y = IrInt(1), IrInt(2)
     assert IrTuple(IrAnd(x, y)) != IrTuple(IrEq(x, y))
     assert IrTuple(IrAnd(x, y)) == IrTuple(IrAnd(x, y))
+
+
+class _Pair(NamedTuple):
+    """A tuple subclass from outside the spine."""
+
+    left: int
+    right: int
+
+
+@pytest.mark.parametrize("value", [(), (IrStr("a"), IrStr("b")), (1, "x", None)])
+def test_a_plain_tuple_is_plain(value: tuple[object, ...]) -> None:
+    """A model's run and a plain map key are exactly ``tuple``."""
+    assert is_plain_tuple(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        IrTuple(IrStr("a")),
+        IrSeq(IrStr("a")),
+        IrSequence(IrItem(IrLiteral("a"))),
+        IrItem(IrLiteral("a")),
+        IrAnd(IrInt(1), IrInt(2)),
+        _Pair(1, 2),
+        [IrStr("a")],
+        "ab",
+        None,
+    ],
+)
+def test_a_tuple_subclass_or_other_value_is_not_plain(value: object) -> None:
+    """Every record and every spine tuple is a tuple subclass, and none of them
+    is plain: an ``isinstance`` test would read each as a run."""
+    assert not is_plain_tuple(value)

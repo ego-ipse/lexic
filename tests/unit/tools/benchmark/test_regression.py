@@ -22,7 +22,7 @@ from tools.benchmark import regression
 from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import PROTOCOL, read_contract
-from tools.benchmark.presentation.cli import REFUSES, UNMEASURED, Artifact
+from tools.benchmark.presentation.artifact import REFUSES, UNMEASURED, Artifact
 
 
 def _bench(name: str = "json") -> Bench:
@@ -43,11 +43,11 @@ def test_the_gate_exits_zero_on_an_intact_tree(
     assert "contracts intact" in capsys.readouterr().out
 
 
-def test_the_roster_is_nineteen_grammars_and_a_hundred_and_fourteen_rows() -> None:
+def test_the_roster_is_twenty_seven_grammars_and_a_hundred_and_sixty_two_rows() -> None:
     """The A/B's row count is this product, and a silent drop must fail."""
-    assert len(BENCHES) == regression.EXPECTED_GRAMMARS == 19
+    assert len(BENCHES) == regression.EXPECTED_GRAMMARS == 27
     assert len(LEXIC_ROWS) == 6
-    assert len(BENCHES) * len(LEXIC_ROWS) == 114
+    assert len(BENCHES) * len(LEXIC_ROWS) == 162
 
 
 def test_a_missing_grammar_is_a_failure_not_a_smaller_benchmark(
@@ -57,7 +57,7 @@ def test_a_missing_grammar_is_a_failure_not_a_smaller_benchmark(
     monkeypatch.setattr(regression, "BENCHES", BENCHES[:-1])
     problems = regression.check()
 
-    assert any("expected 19 benchmark grammars" in problem for problem in problems)
+    assert any("expected 27 benchmark grammars" in problem for problem in problems)
 
 
 def test_every_lexic_row_is_named_by_both_legend_tables() -> None:

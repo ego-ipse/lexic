@@ -17,6 +17,12 @@ share measuring what it produced: a RECURSIVE atom takes heavy-tailed pieces of
 at most half its share, so the document nests; any other takes natural-size
 pieces, so it repeats as ordinary units.
 
+Every repetition ends. A steered piece that comes back empty past the item's
+minimum hands the rest of the item to free pieces, which yield with positive
+probability; a unit the free walk cannot spell at its natural depth, though it
+has room deeper, walks at the shallowest depth that can, as a
+:class:`Reaching` walk whose every piece is non-empty.
+
 The sizer is as lazy as the walk it predicts: an optional reference or group is
 not sized where a spent depth would not expand it. A steered level costs more
 stack than a free one and the frames per level depend on the grammar, so no
@@ -27,9 +33,10 @@ is REFUSED, with words, rather than clamped behind the caller's back.
 from __future__ import annotations
 
 import random as _random
+from collections.abc import Mapping
 from typing import Callable, ClassVar, NamedTuple, Protocol, Sequence
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, UnsupportedConstructError
 from lexic.ir import (
     IrAction,
     IrAlternation,
@@ -38,8 +45,10 @@ from lexic.ir import (
     IrInt,
     IrItem,
     IrLambda,
+    IrLeaf,
     IrLiteral,
     IrNamedTuple,
+    IrNone,
     IrNoneType,
     IrQuantifier,
     IrRaise,
@@ -47,15 +56,16 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
     IrTypeMap,
+    reach,
+    references,
 )
 
-Rules = dict[str, IrRule]
+Rules = Mapping[str, IrRule]
 _INF = float("inf")
-_UNIT = IrQuantifier(1, 1)
 
 
 class Walk(Protocol):
-    """The free walk, as steering uses it."""
+    """The free walk's expansions, as steering calls them."""
 
     def run(self, rule_name: str) -> str:
         """Expand a named rule."""
@@ -70,8 +80,9 @@ class Walk(Protocol):
         raise NotImplementedError
 
 
-Walker = Callable[[int], Walk]
-"""The free walk at a depth."""
+Walker = Callable[[int, "Reaching | IrNoneType"], Walk]
+"""The free walk at a depth — a reaching one when handed a :class:`Reaching`."""
+
 
 ArmFilter = Callable[[IrAlternation, int, str], list[Sequence[IrItem]]]
 """The arms a walk at a depth may choose, refusing an arm-less or looping body."""
@@ -112,7 +123,8 @@ expansion can yield within its depth."""
 
 def _most(q: IrQuantifier) -> float:
     """The most repetitions an item allows; unbounded is infinite."""
-    return _INF if isinstance(q.hi, IrNoneType) else float(q.hi)
+    hi = q.upper()
+    return _INF if hi is None else float(hi)
 
 
 def _scaled(d: _Shape, q: IrQuantifier, depth: int, size: Size) -> Size:
@@ -182,32 +194,6 @@ _SIZE_ATOM: IrDispatch = IrDispatch(
 )
 
 
-def _refs_terminal(_d: _Shape, _n: IrSelf, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A literal or char class names no rule."""
-    return frozenset()
-
-
-def _refs_ruleref(_d: _Shape, n: IrRuleRef, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A reference names its target."""
-    return frozenset((str(n),))
-
-
-def _refs_group(d: _Shape, n: IrAlternation, _nc: Sequence[IrSelf]) -> frozenset[str]:
-    """A group names what its arms name."""
-    return d.alt_refs(n)
-
-
-_REFS_ATOM: IrDispatch = IrDispatch(
-    actions=IrTypeMap(
-        IrAction(IrLiteral, IrLambda(_refs_terminal)),
-        IrAction(IrCharClass, IrLambda(_refs_terminal)),
-        IrAction(IrRuleRef, IrLambda(_refs_ruleref)),
-        IrAction(IrAlternation, IrLambda(_refs_group)),
-    ),
-    default=IrRaise(message="generate: no reference rule for {node_type!r}"),
-)
-
-
 class _Shape(
     IrNamedTuple[Rules, ArmFilter, dict[tuple[str, int], Size], frozenset[str]]
 ):
@@ -229,32 +215,18 @@ class _Shape(
     def of(cls, rules: Rules, free: FreeWalk, depth: int) -> _Shape:
         """Which rules reach a cycle, by fixpoint; then sizes bottom-up to ``depth``,
         so no reading recurses as deep as the budget."""
-        bare = cls(rules=rules, free=free, memo={}, recursive=frozenset())
-        reach = {name: set(bare.alt_refs(rule.body)) for name, rule in rules.items()}
-        changed = True
-        while changed:
-            changed = False
-            for seen in reach.values():
-                more = set().union(*(reach.get(t, ()) for t in seen)) - seen
-                seen |= more
-                changed = changed or bool(more)
-        cyclic = {name for name, seen in reach.items() if name in seen}
-        recursive = frozenset(n for n, seen in reach.items() if seen & cyclic)
+        closures = reach(rules)
+        on_cycle = {name for name, seen in closures.items() if name in seen}
+        recursive = frozenset(n for n, seen in closures.items() if seen & on_cycle)
         shape = cls(rules=rules, free=free, memo={}, recursive=recursive)
         for level in range(depth + 1):
             for name in rules:
                 shape.rule_size(name, level)
         return shape
 
-    def alt_refs(self, body: IrAlternation) -> frozenset[str]:
-        """Every rule an alternation names, groups included."""
-        return frozenset().union(
-            *(_REFS_ATOM.eval(self, item.atom, ()) for arm in body for item in arm)
-        )
-
     def atom_recursive(self, item: IrItem) -> bool:
         """Whether an item's atom reaches a reference cycle."""
-        return bool(_REFS_ATOM.eval(self, item.atom, ()) & self.recursive)
+        return any(str(ref) in self.recursive for ref in references(item.atom))
 
     def rule_size(self, name: str, depth: int) -> Size:
         """Rule ``name`` at ``depth``, memoised; no room once the depth is spent."""
@@ -284,8 +256,77 @@ class _Shape(
     def unit_mean(self, item: IrItem) -> float:
         """One repetition of the atom, spent freely: a reference's target walked
         at the natural depth, as :meth:`_Filler.rule` walks it. At least 1."""
-        unit = IrItem(item.atom, _UNIT)
+        unit = IrItem(item.atom)
         return max(1.0, self.item_size(unit, _NATURAL_DEPTH + 1)[0])
+
+
+class Reaching(IrLeaf[IrSelf, IrSelf]):
+    """A free walk that may not come out empty — the state one piece carries.
+
+    Size-steering walks a repetition's pieces freely. Where the free walk at its
+    usual depth cannot yield anything, the piece walks deeper (:meth:`_Filler.item`),
+    and there every optional roll on the way to the one non-empty string can
+    still come out empty, so a piece is empty most of the time and the
+    repetition draws pieces without end. This walk keeps the free walk's arms
+    and counts, except where a choice would leave nothing non-empty reachable in
+    what remains of the piece: an arm that reaches is preferred while nothing
+    has been spelled, and the last reaching item of the arm is spent at least
+    once. Every piece is then non-empty, so a repetition draws at most its
+    budget in pieces.
+
+    "Reaches" is the sizer's own mean, above zero at the walk's depth — the
+    expectation the free walk has there, so nothing new is measured.
+
+    :ivar shape: The sizer, whose means say what reaches.
+    :ivar need: Nothing spelled yet in the current piece.
+    :ivar force: The item being expanded is the arm's last chance to reach.
+    """
+
+    __slots__ = ("shape", "need", "force")
+
+    shape: _Shape
+    need: bool
+    force: bool
+
+    def __init__(self, shape: _Shape) -> None:
+        """Start with no piece open."""
+        self.shape = shape
+        self.need = False
+        self.force = False
+
+    def reaches(self, item: IrItem, depth: int) -> bool:
+        """Whether ``item`` can spell something at ``depth``."""
+        return self.shape.item_size(item, depth)[0] > 0
+
+    def spell(
+        self, walk: Walk, arms: list[Sequence[IrItem]], depth: int, rng: _random.Random
+    ) -> str:
+        """One arm of ``arms``, drawn from ``rng``, expanded by ``walk`` with
+        ``depth`` references left, reaching while nothing is spelled."""
+        if self.need:
+            arms = [
+                arm for arm in arms if any(self.reaches(it, depth) for it in arm)
+            ] or arms
+        arm = rng.choice(arms)
+        last = max(
+            (j for j, item in enumerate(arm) if self.reaches(item, depth)), default=-1
+        )
+        out = []
+        for j, item in enumerate(arm):
+            self.force = self.need and j == last
+            got = walk.atom(item)
+            self.force = False
+            self.need = self.need and not got
+            out.append(got)
+        return "".join(out)
+
+    def forced(self, q: IrQuantifier, count: int) -> int:
+        """``count``, or one where the item is the piece's last chance to reach."""
+        if self.force:
+            self.force = False
+            if count == 0 and _most(q) >= 1:
+                return 1
+        return count
 
 
 def _fill_ruleref(d: _Filler, n: IrRuleRef, _nc: Sequence[IrSelf]) -> str:
@@ -338,7 +379,7 @@ class _Filler(IrNamedTuple[_random.Random, _Shape, Walker, int, float]):
 
     def free(self, depth: int = _NATURAL_DEPTH) -> Walk:
         """The free walk a small budget is spent by."""
-        return self.walker(min(self.max_depth, depth))
+        return self.walker(min(self.max_depth, depth), IrNone)
 
     def rule(self, name: str) -> str:
         """Spend the budget on rule ``name``; within its natural size, walk it."""
@@ -381,33 +422,73 @@ class _Filler(IrNamedTuple[_random.Random, _Shape, Walker, int, float]):
         )
 
     def item(self, item: IrItem) -> str:
-        """Spend the budget on one item's repetitions, measuring as it goes."""
-        unit = IrItem(item.atom, _UNIT)
+        """Spend the budget on one item's repetitions, measuring as it goes.
+
+        A filled repetition that comes back empty once the item's minimum is met
+        spends the rest of the item freely: a budget its fill cannot spend would
+        come back empty again, without end, while a free piece yields with
+        positive probability. A free one walks where its unit can yield
+        (:meth:`_free_unit`).
+        """
+        unit = IrItem(item.atom)
         each = self.shape.item_size(unit, self.max_depth)[1]
         natural = self.shape.unit_mean(item)
         q, most = item.quantifier, _most(item.quantifier)
-        walk = self.free(_NATURAL_DEPTH + 1)
+        fills = each > _SPREAD * natural
+        walk, reaching = (self.free(), IrNone) if fills else self._free_unit(unit, each)
         out: list[str] = []
         made = 0
         while len(out) < most:
             left = self.budget - made
             if len(out) >= q.lo and left < natural / 2:
                 break
-            if each > _SPREAD * natural:
+            if fills:
                 piece = self.piece(item, left, natural, most - len(out))
-                budget = max(min(piece, left), 0.0)
-                out.append(str(_FILL_ATOM.eval(self.spending(budget), item.atom, ())))
+                fill = self.spending(max(min(piece, left), 0.0))
+                out.append(str(_FILL_ATOM.eval(fill, item.atom, ())))
+                if not out[-1] and len(out) > q.lo:
+                    fills = False
+                    walk, reaching = self._free_unit(unit, each)
             else:
+                if not isinstance(reaching, IrNoneType):
+                    reaching.need = True
                 out.append(walk.atom(unit))
             made += len(out[-1])
         return "".join(out)
+
+    def _free_unit(
+        self, unit: IrItem, each: float
+    ) -> tuple[Walk, Reaching | IrNoneType]:
+        """The walk a free repetition's pieces are spent by.
+
+        The free walk at :data:`_NATURAL_DEPTH` + 1, as :meth:`_Shape.unit_mean`
+        predicts it — unless the unit has room (it can yield within the item's
+        depth) but that walk's mean is zero, every piece certain to come out
+        empty. Then the pieces walk at the shallowest depth whose mean is above
+        zero, as a :class:`Reaching` walk, so each piece is non-empty and the
+        repetition ends. Room above zero at ``max_depth`` means a mean above
+        zero there, so a depth is always found.
+
+        :raises EngineInvariantError: When none is.
+        """
+        near = min(self.max_depth, _NATURAL_DEPTH + 1)
+        if not each or self.shape.item_size(unit, near)[0] > 0:
+            return self.free(_NATURAL_DEPTH + 1), IrNone
+        for depth in range(near + 1, self.max_depth + 1):
+            if self.shape.item_size(unit, depth)[0] > 0:
+                reaching = Reaching(self.shape)
+                return self.walker(depth, reaching), reaching
+        raise EngineInvariantError(
+            f"generate: a repetition with room {each} yields nothing at any depth "
+            f"up to {self.max_depth}"
+        )
 
     def piece(self, item: IrItem, left: float, unit: float, slots: float) -> float:
         """The next repetition's share: heavy-tailed and at most half the budget
         for a recursive atom, so it nests; exactly natural for any other, which
         the free walk varies. A bounded count spreads what is left over its slots.
         """
-        if item.quantifier.hi == item.quantifier.lo:
+        if item.quantifier.fixed():
             return left / slots
         piece = unit
         if self.shape.atom_recursive(item):
@@ -419,7 +500,7 @@ class _Filler(IrNamedTuple[_random.Random, _Shape, Walker, int, float]):
 def _spill(spare: float, rooms: list[float], weights: list[float]) -> list[float]:
     """``spare`` shared by weight, each share capped at its room, excess re-shared."""
     shares = [0.0] * len(rooms)
-    while spare > 1.0 and any(weights):
+    while spare >= 1.0 and any(weights):
         total, over = sum(weights), 0.0
         for k, weight in enumerate(weights):
             if weight:
@@ -443,20 +524,18 @@ def steer(
     :param size: The target, in characters.
     :returns: The document.
     :raises UnsupportedConstructError: When the target needs deeper nesting
-        than the interpreter's stack carries at ``max_depth``. Only the FILL is
-        guarded: :meth:`_Shape.of` sizes rules bottom-up per depth, so rule
-        references never recurse deep there, but a grammar with thousands of
-        nested INLINE groups would still raise raw from the sizing.
+        than the interpreter's stack carries at ``max_depth``. The sizing is
+        guarded as the fill is: where a depth is spent, a required reference is
+        still sized, so a chain of them recurses as deep as the chain.
     """
-    shape = _Shape.of(rules, free, max_depth)
-    filler = _Filler(
-        rng=free.rng,
-        shape=shape,
-        walker=free.walker,
-        max_depth=max_depth,
-        budget=float(size),
-    )
     try:
+        filler = _Filler(
+            rng=free.rng,
+            shape=_Shape.of(rules, free, max_depth),
+            walker=free.walker,
+            max_depth=max_depth,
+            budget=float(size),
+        )
         return filler.rule(rule_name)
     except RecursionError as exc:
         raise UnsupportedConstructError(

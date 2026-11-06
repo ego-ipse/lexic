@@ -29,7 +29,6 @@ from lexic.ir import (
     IrStr,
 )
 from lexic.model_fields import (
-    UNIT,
     FieldCheck,
     check_charclass,
     check_literal,
@@ -55,18 +54,12 @@ def _rule(*arms: IrSequence) -> IrRule:
     return IrRule("r", IrAlternation(*arms))
 
 
-def _literal_arm(text: str, quantifier: IrQuantifier = UNIT) -> IrSequence:
+def _literal_arm(text: str, quantifier: IrQuantifier = IrQuantifier()) -> IrSequence:
     """A one-item arm holding a single literal."""
     return IrSequence(IrItem(IrLiteral(text), quantifier))
 
 
-# ── UNIT and the carrier ──────────────────────────────────────────────────
-
-
-def test_unit_is_exactly_once():
-    """The quantifier an unrepeated item carries is ``{1,1}``."""
-    assert UNIT == IrQuantifier(1, 1)
-    assert (UNIT.lo, UNIT.hi) == (1, 1)
+# ── the carrier ──────────────────────────────────────────────────
 
 
 def test_field_check_reads_its_three_lanes_by_name():
@@ -185,25 +178,27 @@ def test_check_literal_accepts_anything_because_it_is_an_r7_hole():
     """A bound literal field is typed plain ``str`` and deliberately unchecked."""
     for value in ("anything", 42, None, object()):
         carrier = FieldCheck("lit", value, "text")
-        assert check_literal(carrier, IrLiteral("x"), _nc(UNIT)) is IrNone
+        assert check_literal(carrier, IrLiteral("x"), _nc(IrQuantifier())) is IrNone
 
 
 def test_check_token_accepts_any_str_without_consulting_a_vocabulary():
     """Vocabulary membership needs a tokenizer, which is not per-field intrinsic."""
     carrier = FieldCheck("tok", "not-a-real-token", "text")
-    assert check_token(carrier, IrLiteral("x"), _nc(UNIT)) is IrNone
+    assert check_token(carrier, IrLiteral("x"), _nc(IrQuantifier())) is IrNone
 
 
 def test_check_token_refuses_a_non_str_value():
     """The one thing a token field can say alone: it holds the token's TEXT."""
     with pytest.raises(FieldValidationError, match="expected a str for token field"):
-        check_token(FieldCheck("tok", 7, "text"), IrLiteral("x"), _nc(UNIT))
+        check_token(FieldCheck("tok", 7, "text"), IrLiteral("x"), _nc(IrQuantifier()))
 
 
 def test_check_token_refuses_bytes_which_are_not_text():
     """``bytes`` is sequence-like but is not the field's declared ``str``."""
     with pytest.raises(FieldValidationError, match="got bytes"):
-        check_token(FieldCheck("tok", b"ab", "text"), IrLiteral("x"), _nc(UNIT))
+        check_token(
+            FieldCheck("tok", b"ab", "text"), IrLiteral("x"), _nc(IrQuantifier())
+        )
 
 
 # ── value_str_literals ────────────────────────────────────────────────────
