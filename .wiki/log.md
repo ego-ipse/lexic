@@ -3048,3 +3048,8 @@ over the winner's span.
 
 `decisions.md`'s live-set entry: `_relieved`, before the set forks past
 `SET_MAX`.
+
+## A set past its bound relieves its crowded places round by round (2026-11-06)
+
+`decisions.md`'s live-set entry: `_relieved` repeats while the set is past
+`SET_MAX` and a crowded place remains.

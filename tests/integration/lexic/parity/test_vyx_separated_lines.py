@@ -82,3 +82,15 @@ def test_readings_crowded_ahead_meet_before_the_set_forks() -> None:
     """The packet's predictive model is Earley's, on plain."""
     got, want = pda_and_earley(vyx_view("plain", "vyx-separated"), SEPARATED_ENDS)
     assert got == want
+
+
+RELIEVED_AGAIN = '!X:Q o:"" L7716< a\\n# \\n# \\n# \\n\\#\\n\\#\\n}\\n\\n# \\n >'
+"""More lines that run on through the separators after them: one round of
+relief meets the pairs that stood together, but the readings it drives on split
+into pairs of their own further ahead, and the set was still past its bound."""
+
+
+def test_relief_goes_on_while_the_set_is_past_its_bound() -> None:
+    """The packet's predictive model is Earley's, on plain."""
+    got, want = pda_and_earley(vyx_view("plain", "vyx-separated"), RELIEVED_AGAIN)
+    assert got == want

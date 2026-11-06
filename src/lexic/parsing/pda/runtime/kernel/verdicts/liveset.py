@@ -252,7 +252,7 @@ class LiveSet[Carry](Sides[Carry]):
                 return next(iter(ways))
             readings = self._stepped(readings, ahead_first and not _step)
             if len(readings) > SET_MAX:
-                readings = self._merged(self._relieved(readings))
+                readings = self._relieved(readings)
             if len(readings) > SET_MAX and len(_ways(readings)) > 1:
                 raise ProbeFork(
                     f"live set at {self.pos}: {len(readings)} readings exceed"
@@ -283,14 +283,26 @@ class LiveSet[Carry](Sides[Carry]):
     def _relieved(self, readings: list[Strand]) -> list[Strand]:
         """A set past its bound, before it forks: the readings that stand
         together ahead without meeting, each place's driven one character on,
-        where they can meet. The step keeps them waiting for the readings
-        behind, and a run of island ends grows the set by two a place."""
-        behind = min(reading.side[1] for reading in readings)
-        for place in _crowded(readings, behind):
-            readings = self._driven(
-                readings, lambda at, at_=place: at == at_, place + 1
-            )
-        return readings
+        where they can meet, and merged — round after round while the set is
+        past its bound, holds two ways and has a crowded place ahead. The step
+        keeps them waiting for the readings behind, and a run of island ends
+        grows the set by two a place: a round's readings, driven on, split
+        into pairs of their own further ahead. Merged once more on the way out,
+        so the meetings the step just made are merged before the bound is read,
+        a round or none."""
+        for _round in range(SET_STEPS):
+            if len(readings) <= SET_MAX or len(_ways(readings)) <= 1:
+                break
+            behind = min(reading.side[1] for reading in readings)
+            crowded = _crowded(readings, behind)
+            if not crowded:
+                break
+            for place in crowded:
+                readings = self._driven(
+                    readings, lambda at, at_=place: at == at_, place + 1
+                )
+            readings = self._merged(readings)
+        return self._merged(readings)
 
     def _driven(
         self, readings: list[Strand], chosen: Callable[[int], bool], target: int

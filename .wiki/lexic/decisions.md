@@ -947,9 +947,12 @@ meeting are each driven one character on (`_relieved`): two readings at one
 place can differ only in a frame about to close, and the step keeps them
 waiting for the readings behind. A run of vyx lines that each run on through
 every separator added two readings a separator, one per body-line arm that
-reads the line, and declined. Driven on every step instead, the readings ahead
-skip meetings with those arriving from behind and the set grows elsewhere, so
-it is the bound's last resort.
+reads the line, and declined. The relief goes round by round, merging after
+each, while the set is past its bound, holds two ways and has a crowded place
+ahead: the readings a round drives on split into pairs of their own further
+ahead, and one round left longer runs of such lines past the bound. Driven on
+every step instead, the readings ahead skip meetings with those arriving from
+behind and the set grows elsewhere, so it is the bound's last resort.
 
 **What a set pays is what it needs**, measured on vyx (the bench row that asks
 boundaries, three sets a parse), where the first build cost the decision path
