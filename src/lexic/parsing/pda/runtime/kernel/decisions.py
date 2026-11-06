@@ -248,9 +248,18 @@ class Attempting[Carry](Verdicts[Carry]):
         if got and not composes(follow, self.text, got[0]):
             got = None
         for idx in range(len(entries) if got else ran + 1, len(entries)):
-            sub = entries[idx][4]
-            if not admitted(entries[idx], self.text, pos, char):
+            # `admitted`, read in place: the attempt's hottest test
+            entry = entries[idx]
+            chars = entry[0]
+            if chars is not None and (
+                (char == "" or char in chars) if entry[1] else (char not in chars)
+            ):
                 continue
+            if entry[2] is not None and entry[2].match(self.text, pos) is None:
+                continue
+            if entry[3] is not None and entry[3].match(self.text, pos) is None:
+                continue
+            sub = entry[4]
             try:
                 got = self._attempt_run(sub, pos, pos)
             except Suspended:  # the drive settles it, and goes on from here
@@ -376,9 +385,18 @@ class Attempting[Carry](Verdicts[Carry]):
         pos = self.pos  # every entry starts here, where each sub-run leaves it
         char = self.text[pos : pos + 1]
         for idx in range(ran + 1, len(entries)):
-            sub = entries[idx][4]
-            if not admitted(entries[idx], self.text, pos, char):
+            # `admitted`, read in place: the attempt's hottest test
+            entry = entries[idx]
+            chars = entry[0]
+            if chars is not None and (
+                (char == "" or char in chars) if entry[1] else (char not in chars)
+            ):
                 continue
+            if entry[2] is not None and entry[2].match(self.text, pos) is None:
+                continue
+            if entry[3] is not None and entry[3].match(self.text, pos) is None:
+                continue
+            sub = entry[4]
             if not sub.sub_root:  # the program cannot fork: nothing reads it
                 try:
                     got = self._attempt_run(sub, pos, -1)
