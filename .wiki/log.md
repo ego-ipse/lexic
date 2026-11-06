@@ -1,5 +1,11 @@
 # Log
 
+## A semantic escaping stop-set is attempted, not failed (2026-11-06)
+
+`decisions.md` gains the entry: the F1 note is covered by the attempt licence
+where the decider grants it. Reading the audit FOLLOW in the escape check is
+recorded as not landable, with its census.
+
 ## An attempt loop's audit FOLLOW leaves out only a unit run's loopback (2026-11-06)
 
 `decisions.md`'s audit-set entry: `beyond_at` reads `Follows.audit`, which is

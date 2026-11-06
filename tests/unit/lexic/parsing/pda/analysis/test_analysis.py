@@ -657,12 +657,14 @@ def test_empty_middle_arm_licenses_sg_scan_with_escape_at_middle_index():
 
 
 def test_fail_islands_pins_the_f1_escape_rule():
-    """The F1 shape's island is also a fail-island when its rule is semantic.
+    """The F1 shape is an attempt rule where the decider grants the attempt
+    licence, and a fail-island where it does not.
 
     ``root ::= x "ab"?`` / ``x ::= [a-c]*`` (the same grammar as
     :func:`test_loop_over_soft_only_follower_islands`): ``x``'s stop-set escapes
-    into the soft-only ``"ab"?`` follower, so a reference to it must raise
-    ``PdaFail`` rather than parse via longest-match — ``x`` is a fail-island.
+    into the soft-only ``"ab"?`` follower, so it never parses via longest-match.
+    Under leftmost-longest the loop takes with rollback and audits that
+    follower; withheld, a reference to it must raise ``PdaFail``.
     """
     x = _rule(
         "x",
@@ -671,7 +673,10 @@ def test_fail_islands_pins_the_f1_escape_rule():
     root = _rule(
         "root", IrSequence(_item(IrRuleRef("x")), _item(IrLiteral("ab"), lo=0, hi=1))
     )
-    analysis = _analysis(root, x, start="root")
+    attempted = _analysis(root, x, start="root")
+    assert attempted.fail_islands == frozenset()
+    assert set(attempted.taxonomy.attempts) == {"x"}
+    analysis = _analysis(root, x, start="root", grants=frozenset())
     assert analysis.fail_islands == frozenset({"x"})
     assert analysis.fail_islands <= analysis.islands
     assert analysis.rules["x"].semantic is True

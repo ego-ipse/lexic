@@ -1596,6 +1596,32 @@ alone, and another `ab` does not cover that. Forced, the take read `;aaba` as
 `a, a, b, a` where Earley reads `a, ab, a`. Requiring two occurrences (`w{2,}`)
 keeps the loopback too: the take can leave too few.
 
+## A semantic stop-set that escapes into soft FOLLOW is attempted, not failed
+
+**Decision:** where a semantic rule's stop-set escapes into its soft FOLLOW, and
+neither the noise-greedy licence nor its run's end settles it, the conflict note
+is covered by the attempt licence (`conflicts.file_attempt_loop`), as an
+ungatable loop's note is. The rule becomes a fail-island only where the decider
+withholds `ATTEMPT`.
+
+**Why:** a fail-island makes every reference decline to the gated engine. The
+attempt licence takes with rollback and audits each character the stop side can
+also go on with. That set holds the escape gap, so the over-eat a fail-island
+guarded against (`x ::= [a-c]*` before `"ab"?`) is never taken unasked. Against
+the soft-tail audit tree, 1,258 fuzz parses that declined build Earley's model,
+and none builds a wrong one.
+
+The escape check still reads the structural tail. With the rule's audit FOLLOW
+there instead, vyx's `nl-head` escapes on the @lexical views. That repairs the
+budget witness, but it costs answers everywhere:
+- as a fail-island: 4 new wrong fuzz models, and 344, 344 and 244 of 450 vyx
+  packets declining on @lex, @lex-ns and plain;
+- attempted: 6 new wrong fuzz models, an arm choice Earley refuses, and 99, 99
+  and 94 vyx packets declining.
+
+So the @lexical views of `test_vyx_budget_body.py` stay pinned with a strict
+xfail.
+
 ## A gate that reads a run whole is a leftmost-longest licence
 
 **Decision:** a structured gate that skips a run of rules before it peeks

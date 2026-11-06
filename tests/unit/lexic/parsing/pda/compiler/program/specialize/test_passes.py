@@ -818,10 +818,13 @@ def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
 
 
 def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
-    """A ref to a fail-island (the F1 soft-follower-escape shape) flattens
-    to OP_FAIL, never spliced by the pure-PDA runtime.
+    """A ref to a fail-island (the F1 soft-follower-escape shape, under a
+    decider that withholds the attempt licence) flattens to OP_FAIL, never
+    spliced by the pure-PDA runtime. Under leftmost-longest it is attempted.
     """
-    pda = pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
+    text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
+    assert only_arm(pda_from_text(text).program.start).kinds[0] != OP_FAIL
+    pda = pda_from_text(text, frozenset())
     arm = only_arm(pda.program.start)
     assert arm.kinds[0] == OP_FAIL
     assert arm.payloads[0][0] == "x"

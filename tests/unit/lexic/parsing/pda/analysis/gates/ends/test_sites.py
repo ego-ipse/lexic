@@ -104,9 +104,15 @@ def test_an_unclosed_follower_keeps_the_longest_take() -> None:
     assert analysis.demoted["e"] == ["e[0]: loop stop-set applied (runs longest)"]
 
 
-def test_an_escaping_stop_set_with_an_unclosed_end_stays_a_fail_island() -> None:
+def test_an_escaping_stop_set_with_an_unclosed_end_is_not_decided_at_its_end() -> None:
     """``x ::= [a-c]*`` before ``"ab"?``: the input may end after the run or
-    two characters later — MIXED, so the escape keeps its engine fallback."""
-    analysis = GrammarAnalysis(_lifted('root ::= x "ab"?\nx ::= [a-c]*\n'))
+    two characters later — MIXED, so the run's end decides nothing. The escape
+    is the attempt licence's where the decider grants it, and the engine's
+    fallback where it does not."""
+    grammar = _lifted('root ::= x "ab"?\nx ::= [a-c]*\n')
+    analysis = GrammarAnalysis(grammar)
     assert not analysis.taxonomy.loops.run
-    assert "x" in analysis.fail_islands
+    assert "x" in analysis.taxonomy.attempts and "x" not in analysis.fail_islands
+    withheld = GrammarAnalysis(grammar, grants=frozenset())
+    assert not withheld.taxonomy.loops.run
+    assert "x" in withheld.fail_islands

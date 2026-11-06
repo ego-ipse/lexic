@@ -625,7 +625,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     notes.hard.append(
                         f"{scope.rule}[{k}]: loop stop-set escapes soft FOLLOW"
                     )
-                    notes.f1 = True
+                    notes.f1 |= not file_attempt_loop(self, items, k, scope, notes)
             return
         soft_gap_conflict(self, items, k, scope, notes)
 

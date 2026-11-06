@@ -23,6 +23,7 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.executable import ModelExecutable
@@ -93,7 +94,9 @@ def only_arm(clone: FlatClone) -> FlatArm:
     return clone.default
 
 
-def pda_from_text(text: str) -> PdaTables:
+def pda_from_text(
+    text: str, grants: frozenset[str] = LEFTMOST_LONGEST.grants
+) -> PdaTables:
     """Compile a hand-authored GBNF snippet to its :class:`PdaTables`."""
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
@@ -102,6 +105,7 @@ def pda_from_text(text: str) -> PdaTables:
         lifted,
         model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
         compiled.product,
+        grants,
     )
 
 
@@ -118,11 +122,14 @@ def specs_for(path: Path) -> PdaCompiler:
     return compile_clones(lifted, compile_from_path(path).product)[0]
 
 
-def specs_from_text(text: str) -> PdaCompiler:
+def specs_from_text(
+    text: str, grants: frozenset[str] = LEFTMOST_LONGEST.grants
+) -> PdaCompiler:
     """The clone compiler run over a hand-authored GBNF snippet."""
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    return compile_clones(lifted, compile_text(text, flavour="gbnf").product)[0]
+    product = compile_text(text, flavour="gbnf").product
+    return compile_clones(lifted, product, grants)[0]
 
 
 def clones_named(specs: PdaCompiler, name: str) -> list[CloneSpec]:
@@ -397,15 +404,19 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     ``x``'s trailing ``[a-c]*`` loop runs up to ``x``'s FOLLOW, which at the
     ``root`` call site includes the *optional* ``"ab"?``'s ``'a'``. That ``'a'``
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
-    non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
-    routes the ref through an :class:`IslandRef`, so the pure-PDA
+    non-greedy stop-set would greedily eat it — ``x`` must island. Where the
+    decider withholds the attempt licence, islanding routes the ref through a
+    fail :class:`IslandRef`, so the pure-PDA
     :func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` refuses
     ("ab" and "cab") with a
     :exc:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` (→ engine fallback) rather than
-    returning the wrong model.
+    returning the wrong model. Under leftmost-longest the loop is attempted
+    instead, and the ref is no island reference.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
-    specs = specs_from_text(text)
+    attempted = sole_clone(specs_from_text(text), "root").arms[0].specs[0]
+    assert not isinstance(attempted.payload, IslandRef)
+    specs = specs_from_text(text, frozenset())
     assert "x" in specs.islands
     root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
@@ -417,7 +428,10 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
         build_codegen_grammar(canonical_grammar(text, GBNF_FLAVOUR))
     )
     live = compile_pda(
-        lifted, normalize(lifted), compile_text(text, flavour="gbnf").product
+        lifted,
+        normalize(lifted),
+        compile_text(text, flavour="gbnf").product,
+        frozenset(),
     )
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):

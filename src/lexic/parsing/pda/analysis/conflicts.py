@@ -42,14 +42,18 @@ from lexic.parsing.pda.core.charsets import CharSet
 
 def file_attempt_loop(
     analysis: Any, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
-) -> None:
+) -> bool:
     """Cover an ungatable loop's conflict note with the attempt licence — a
     greedy take with rollback, committed as the decider's split answer — where
-    the decider grants it; otherwise the note stands and the rule islands."""
+    the decider grants it; otherwise the note stands and the rule islands.
+
+    :returns: Whether the note is covered.
+    """
     if ATTEMPT not in notes.grants:
-        return
+        return False
     analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
     notes.covered += 1
+    return True
 
 
 def defer_stop_set(
