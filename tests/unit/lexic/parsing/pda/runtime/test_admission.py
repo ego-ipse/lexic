@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from lexic.exceptions import EngineInvariantError
@@ -12,6 +14,7 @@ from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
     RunScope,
     admits,
+    admitted,
     composes,
     control_signature,
     forks_deep,
@@ -325,3 +328,25 @@ def test_a_planned_answer_is_given_only_to_the_boundary_it_was_planned_for():
     assert scope.answered(stack, 3, 2) == 1
     assert scope.answered(stack, 4, 2) == -1
     assert not scope.answers
+
+
+@pytest.mark.parametrize(
+    ("text", "pos", "expected"),
+    [("ab;", 0, True), ("ax;", 0, False), ("xb;", 0, False), ("zab;", 1, True)],
+    ids=["all-three", "prefix-misses", "lead-misses", "at-pos"],
+)
+def test_an_entry_admits_by_its_lead_its_prefix_and_its_window(
+    text: str, pos: int, expected: bool
+) -> None:
+    """An attempt entry admits where its lead characters hold the character,
+    its arm's literal prefix matches, and its window matches."""
+    entry = (frozenset("a"), False, re.compile("ab"), re.compile("..;"), None)
+    assert admitted(entry, text, pos, text[pos : pos + 1]) is expected
+
+
+def test_an_entry_with_no_tests_admits_anything_but_its_negated_lead() -> None:
+    """A default entry (``None`` lead) admits; a negated lead refuses its own
+    characters and the end of the text."""
+    assert admitted((None, None, None, None, None), "q", 0, "q")
+    assert not admitted((frozenset("q"), True, None, None, None), "q", 0, "q")
+    assert not admitted((frozenset("q"), True, None, None, None), "", 0, "")

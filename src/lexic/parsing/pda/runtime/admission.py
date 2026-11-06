@@ -38,6 +38,7 @@ __all__ = [
     "composes",
     "forks_deep",
     "frames_copy",
+    "admitted",
     "sole_admitted",
 ]
 
@@ -113,6 +114,22 @@ def admits(char: str, chars: Any, negated: Any) -> bool:
     return (char != "" and char not in chars) if negated else char in chars
 
 
+def admitted(entry: tuple[Any, ...], text: str, pos: int, char: str) -> bool:
+    """Whether an attempt ``entry`` admits ``text`` at ``pos``, ``char`` there:
+    its lead characters, its arm's literal prefix, and its window.
+
+    The one statement of the test: :func:`sole_admitted` and the attempt's
+    two entry loops read it in place, being the hottest sites that ask it."""
+    chars, negated, prefix, window, _sub = entry
+    if chars is not None and (
+        (char == "" or char in chars) if negated else (char not in chars)
+    ):
+        return False
+    if prefix is not None and prefix.match(text, pos) is None:
+        return False
+    return window is None or window.match(text, pos) is not None
+
+
 def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     """The single admitted entry's clone, or ``None`` when several admit.
 
@@ -126,7 +143,7 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     char = text[pos : pos + 1]
     sole = None
     for chars, negated, prefix, window, sub in entries:
-        # `admits` read in place — this scan is the densest call site in the
+        # `admitted` read in place — this scan is the densest call site in the
         # engine (1.72 per character of vyx corpus), and the test is a set
         # membership either way.
         if chars is not None and (
