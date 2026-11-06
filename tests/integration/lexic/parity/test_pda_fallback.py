@@ -24,13 +24,14 @@ from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
-# The pinned fallback input: an inline body whose first line ends where a
-# scope line begins. vyx's ``nl-head`` runs longest, so it takes ``a\n-`` — the
-# two-character separator and the scope line's ``-`` — and the mandatory ``" >"``
-# then meets ``:``. Earley ends the line at ``a`` and reads ``-:`` as a second,
-# scope line. The PDA reports the refusal rather than guess.
+# The pinned fallback input: an inline body that opens with a scope line, then a
+# line that ends where a second scope line begins. vyx's ``nl-head`` runs
+# longest there, so it takes ``a\n-`` — the two-character separator and the
+# scope line's ``-`` — and the mandatory ``" >"`` then meets ``:``. Earley ends
+# the line at ``a`` and reads ``-:`` as a scope line. The PDA reports the
+# refusal rather than guess.
 FALLBACK_GRAMMAR = GROUND_TRUTH / "vyx.gbnf"
-FALLBACK_INPUT = "!R a\\n-: >"
+FALLBACK_INPUT = "!R -:\\na\\n-: >"
 
 
 def test_a_run_that_takes_its_separator_forces_pda_fallback():
