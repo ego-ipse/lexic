@@ -1582,6 +1582,20 @@ takes the budget, and the predictive engine answered the body without it where
 Earley keeps the budget. On the @lexical views the same loop is a stop-set that
 runs longest, a site of its own.
 
+The set is the rule's **audit FOLLOW** (`Follows.audit`). That is the soft
+fixpoint, minus one kind of loopback: a repeated reference, at most once
+required, to a *unit run* (`predicates.unit_runs`). A unit run is a rule with
+one arm, every item over one reference-free atom `B`, and minimums that sum to
+one, so it derives `B{1,M}`. Each reading of its next occurrence is `B`
+followed by complete occurrences, so taking `B` covers whatever the stop side
+goes on with, and the split rule's take stands unasked. Under
+`y ::= "a" "a"?` in `y+` and `x ::= [a]+` in `x+`, auditing that `a` made the
+terminal loop bail where the split rule answers. Any other loopback stays
+audited. `x ::= [ab] | "ab"+` in `x*` can begin its next occurrence with `a`
+alone, and another `ab` does not cover that. Forced, the take read `;aaba` as
+`a, a, b, a` where Earley reads `a, ab, a`. Requiring two occurrences (`w{2,}`)
+keeps the loopback too: the take can leave too few.
+
 ## A gate that reads a run whole is a leftmost-longest licence
 
 **Decision:** a structured gate that skips a run of rules before it peeks

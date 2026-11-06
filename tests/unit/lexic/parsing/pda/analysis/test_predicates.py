@@ -25,9 +25,12 @@ from lexic.ir import (
     IrRuleRef,
 )
 from lexic.parsing.lift import lift_optional_nullables
+from lexic.parsing.pda.analysis.cursors import FollowPass
 from lexic.parsing.pda.analysis.predicates import (
     STOPSET_ATOM,
+    loops_back,
     rule_spans,
+    unit_runs,
 )
 
 
@@ -89,3 +92,54 @@ def test_an_unmeasured_rule_under_a_zero_count_does_not_poison_the_low_end() -> 
         low, high = span_of(source, rule)
         assert not (math.isnan(low) or math.isnan(high)), rule
         assert (low, high) == (1.0, math.inf), rule
+
+
+# ── unit runs — whose next occurrence a take covers ──────────────────────
+
+
+def rules_of(source: str) -> dict:
+    """``source``'s rules, over the grammar the PDA analyses."""
+    compiled = compile_text(source, cache_key=f"units-{hash(source)}")
+    grammar = lift_optional_nullables(compiled.codegen_grammar)
+    return {str(one.name): one for one in grammar.rules}
+
+
+@pytest.mark.parametrize(
+    ("body", "unit"),
+    [
+        ('"a" "a"?', True),
+        ("[a]+", True),
+        ('"ab" "ab"*', True),
+        ('"a"{2,3}', False),
+        ('[ab] | "ab"+', False),
+        ('"a" "b"?', False),
+        ('"a"?', False),
+        ("u u?", False),
+    ],
+    ids=[
+        "one-or-two",
+        "plus",
+        "literal-run",
+        "two-required",
+        "two-arms",
+        "two-atoms",
+        "nullable",
+        "reference",
+    ],
+)
+def test_a_unit_run_is_one_atom_once_required(body: str, unit: bool) -> None:
+    """``B{1,M}`` over one reference-free atom, and nothing else."""
+    rules = rules_of(f'root ::= "x" w+\nw ::= {body}\nu ::= "a"\n')
+    assert ("w" in unit_runs(rules)) is unit
+
+
+def test_the_audit_pass_drops_only_a_unit_runs_loopback_once_required() -> None:
+    """A repeated reference loops back unless it names a unit run at most once
+    required; ``w{2,}`` keeps it, for the take would leave too few occurrences."""
+    rules = rules_of('root ::= w+ v* w{2,} v\nw ::= "a" "a"?\nv ::= [ab] | "ab"+\n')
+    units = unit_runs(rules)
+    audit = FollowPass({}, hard=False, loopback=True, nullable_first=True, units=units)
+    soft = FollowPass({}, hard=False, loopback=True, nullable_first=True)
+    items = rules["root"].body[0]
+    assert [loops_back(item, audit) for item in items] == [False, True, True, False]
+    assert [loops_back(item, soft) for item in items] == [True, True, True, False]

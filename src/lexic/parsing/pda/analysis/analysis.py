@@ -69,7 +69,9 @@ from lexic.parsing.pda.analysis.predicates import (
     HARD,
     STOPSET_ATOM,
     item_nullable,
+    loops_back,
     seq_nullable,
+    unit_runs,
 )
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec, Taxonomy
 from lexic.parsing.pda.core.charsets import CharSet
@@ -80,7 +82,7 @@ sentinel in a positive :class:`CharSet`."""
 
 
 class Follows(NamedTuple):
-    """An analysis' FOLLOW views: the soft, hard and structural CharSet
+    """An analysis' FOLLOW views: the soft, hard, structural and audit CharSet
     fixpoints, and the FOLLOW\\ :sub:`k` windows and EXTEND, built on demand.
 
     :ivar deep: The window sets built so far, by width — filled by :meth:`windows`.
@@ -93,6 +95,7 @@ class Follows(NamedTuple):
     soft: dict[str, CharSet]
     hard: dict[str, CharSet]
     structural: dict[str, CharSet]
+    audit: dict[str, CharSet]
     rules: dict[str, IrRule]
     start: str
     deep: dict[int, FollowWindows]
@@ -165,6 +168,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._follow_fixpoint(hard=False, loopback=True, nullable_first=True),
             self._follow_fixpoint(hard=True, loopback=False, nullable_first=False),
             self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
+            self._follow_fixpoint(False, True, True, unit_runs(self.rules)),
             self.rules,
             self.start,
             {},
@@ -350,23 +354,26 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     # ── FOLLOW ─────────────────────────────────────────────────────────
 
     def _follow_fixpoint(
-        self, hard: bool, loopback: bool, nullable_first: bool
+        self,
+        hard: bool,
+        loopback: bool,
+        nullable_first: bool,
+        units: frozenset[str] = frozenset(),
     ) -> dict[str, CharSet]:
         """A per-rule FOLLOW fixpoint (EOF-seeded at the start rule).
 
         :param hard: When ``True``, compute *hard* FOLLOW — nullable followers
             skipped (the union of the HARD continuations every reference site
             cuts its PDA clone against); when ``False``, the classical soft FOLLOW.
-        :param loopback: Whether repeated-item FIRST contributes. Disabling it
-            on a soft pass preserves authored/nullable continuation while
-            excluding split-only repeat edges.
-        :param nullable_first: Whether nullable-follower FIRST contributes. The
-            structural pass retains once-only optional followers and omits
-            repeated nullable followers.
+        :param loopback: Whether repeated-item FIRST contributes; a soft pass
+            without it keeps authored continuation, not split-only repeat edges.
+        :param nullable_first: Whether nullable-follower FIRST contributes; the
+            structural pass keeps only once-only optional followers'.
+        :param units: The unit runs whose loopback is left out — the audit pass's.
         """
         tgt = {name: CharSet.EMPTY for name in self.rules}
         tgt[self.start] = _EOF
-        pass_ = FollowPass(tgt, hard, loopback, nullable_first)
+        pass_ = FollowPass(tgt, hard, loopback, nullable_first, units)
         changed = True
         while changed:
             changed = False
@@ -401,11 +408,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             atom = item.atom
             hi = item.quantifier.upper()
             eff = cont
-            if (hi is None or hi > 1) and pass_.loopback:
-                # Loopback is a MAY-follow. Treating it as hard makes a repeated
-                # child stop before its next possible occurrence, reversing the
-                # documented leftmost split policy. Mandatory successors still
-                # enter hard FOLLOW through the ordinary right-to-left carry.
+            if loops_back(item, pass_):
                 eff = eff.union(self.atom_first(atom))
             ctx = FeedCtx(eff, rule, pass_)
             if cast(bool, FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
@@ -662,22 +665,22 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The attempt licence's audit set: every boundary char the stop side
-        can also go on with, the same-arm rest and a repetition's next iteration included.
+        can also go on with, the same-arm rest and the rule's audit FOLLOW included.
 
-        A stop side continuing into the rest of its own arm is a carving of
-        that arm the decider ranks, as much as one continuing past it, so both
-        are audited. A rest-of-arm boundary that two characters already decide
-        is left out (:func:`~.gates.kwindow.stop_exit_settles`): no text
-        continues both ways, so at most one side completes, and an iteration
-        that parsed reads two characters of the take. One that is a single
-        exit character reads only one, so those stay audited
-        (:func:`~.gates.kwindow.lone_iterations`). That proof reads the end of
-        the input, so a delegate's analysis withholds it.
+        A stop side continuing into the rest of its own arm is a carving of that
+        arm the decider ranks, as much as one continuing past it, so both are
+        audited. A rest-of-arm boundary two characters already decide is left out
+        (:func:`~.gates.kwindow.stop_exit_settles`): no text continues both ways,
+        so at most one side completes, and an iteration that parsed reads two
+        characters of the take. One that is a single exit character reads only
+        one, so those stay audited (:func:`~.gates.kwindow.lone_iterations`).
+        That proof reads the end of the input, so a delegate's analysis withholds it.
         """
         cont = self.cont_at(items, k, scope.structural_tail)
         rest = items[k + 1 :]
         if all(self.item_nullable(i) for i in rest) or not scope.body:
-            return self.cont_at(items, k, scope.tail)
+            tail = self.follows.audit[scope.rule] if scope.body else scope.tail
+            return self.cont_at(items, k, tail)
         if self.taxonomy.delegated:
             return cont
         first = self.atom_first(items[k].atom)

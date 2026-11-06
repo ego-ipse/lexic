@@ -31,10 +31,13 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
     IrTypeMap,
+    has_reference,
+    references,
 )
 from lexic.parsing.pda.analysis.cursors import (
     ConflictCtx,
     FeedCtx,
+    FollowPass,
     Scope,
     Site,
 )
@@ -402,6 +405,46 @@ def item_nullable(d: GrammarAnalysis, item: IrItem) -> bool:
 def seq_nullable(d: GrammarAnalysis, items: Sequence[IrItem]) -> bool:
     """Whether every item in a sequence arm is nullable (empty arm → True)."""
     return all(item.vanishes(d.nullable) for item in items)
+
+
+def unit_runs(rules: Mapping[str, IrRule]) -> frozenset[str]:
+    """The rules that derive exactly ``B{1,M}`` for one reference-free atom ``B``.
+
+    Such a rule has one arm, every item over ``B``, and minimums that sum to one.
+    Where a loop over ``B`` ends one occurrence and a repetition goes on into
+    the next, every reading of that next occurrence is ``B`` followed by complete
+    occurrences. So taking ``B`` covers whatever the stop side goes on with, and
+    the next occurrence need not be audited.
+    """
+    return frozenset(name for name, rule in rules.items() if _unit_run(rule.body))
+
+
+def _unit_run(arms: Sequence[Sequence[IrItem]]) -> bool:
+    """One arm over one reference-free atom, minimums summing to one."""
+    if len(arms) != 1 or not arms[0]:
+        return False
+    atom = arms[0][0].atom
+    same = all(type(i.atom) is type(atom) and i.atom == atom for i in arms[0])
+    lows = sum(int(i.quantifier.lo) for i in arms[0])
+    return same and lows == 1 and not has_reference(atom)
+
+
+def loops_back(item: IrItem, pass_: FollowPass) -> bool:
+    """Whether a repeated item's own FIRST follows its end in this pass.
+
+    Loopback is a MAY-follow. Treating it as hard makes a repeated child stop
+    before its next possible occurrence, reversing the documented leftmost split
+    policy; mandatory successors still enter hard FOLLOW through the ordinary
+    right-to-left carry. The audit pass leaves it out at a reference to a unit
+    run at most once required (:func:`unit_runs`), where an occurrence the stop
+    side needs is one the take side need not.
+    """
+    hi = item.quantifier.upper()
+    if not pass_.loopback or (hi is not None and hi <= 1):
+        return False
+    atom = item.atom
+    unit = str(atom) in pass_.units and next(references(atom), None) is atom
+    return not (unit and int(item.quantifier.lo) <= 1)
 
 
 FIRST: IrTypeMap = IrTypeMap(

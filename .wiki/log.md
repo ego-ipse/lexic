@@ -1,5 +1,11 @@
 # Log
 
+## An attempt loop's audit FOLLOW leaves out only a unit run's loopback (2026-11-06)
+
+`decisions.md`'s audit-set entry: `beyond_at` reads `Follows.audit`, which is
+the soft fixpoint without the loopback of a repeated reference, at most once
+required, to a unit run (`predicates.unit_runs`).
+
 ## The ambiguity gate walks the decided carvings (2026-11-05)
 
 `decisions.md`'s decided-carving entry: the walk that asks whether any arm
