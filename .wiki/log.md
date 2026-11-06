@@ -1,5 +1,10 @@
 # Log
 
+## An attempted iteration's ends keep the loop's stop inside a reading (2026-11-06)
+
+`decisions.md` gains the entry: `_iteration_ends` splits a reading into the
+iteration's ends plus the loop's stop side, unless stopping is dead.
+
 ## A semantic escaping stop-set is attempted, not failed (2026-11-06)
 
 `decisions.md` gains the entry: the F1 note is covered by the attempt licence
