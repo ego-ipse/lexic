@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 from functools import partial
+from typing import Any
 
 from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
@@ -247,30 +248,22 @@ class Attempting[Carry](Verdicts[Carry]):
             got = None
         for idx in range(len(entries) if got else ran + 1, len(entries)):
             # `admission.admitted`, read in place: the attempt's hottest test
-            entry = entries[idx]
-            chars = entry[0]
+            chars, negated, prefix, window, sub = entries[idx]
             if chars is not None and (
-                (char == "" or char in chars) if entry[1] else (char not in chars)
+                (char == "" or char in chars) if negated else (char not in chars)
             ):
                 continue
-            if entry[2] is not None and entry[2].match(self.text, pos) is None:
+            if prefix is not None and prefix.match(self.text, pos) is None:
                 continue
-            if entry[3] is not None and entry[3].match(self.text, pos) is None:
+            if window is not None and window.match(self.text, pos) is None:
                 continue
-            sub = entry[4]
             try:
                 got = self._attempt_run(sub, pos, pos)
             except Suspended:  # the drive settles it, and goes on from here
                 Suspended.called_by(None, (clone, out, idx, None, None))
                 raise
-            except IslandEnds as two:
-                # The entry's whole outcome is an island's ends: with no later
-                # entry admitted, they are the attempt's, for its caller.
-                rest = entries[idx + 1 :]
-                if two.root is sub and not any(
-                    admitted(entry, self.text, pos, char) for entry in rest
-                ):
-                    two.sink, two.root = out, None
+            except IslandEnds:
+                self._hand_ends(sub, entries[idx + 1 :], out)
                 raise
             if got is not None:
                 if not composes(follow, self.text, got[0]):
@@ -292,6 +285,22 @@ class Attempting[Carry](Verdicts[Carry]):
         except Suspended:  # an audited entry's: the kept arm splices into `out`
             Suspended.splicing_into(out)
             raise
+
+    def _hand_ends(
+        self, sub: FlatClone[Carry], rest: tuple[Any, ...], out: list[Carry]
+    ) -> None:
+        """While an entry's IslandEnds is handled: where its whole outcome is the
+        island's ends and no later entry is admitted, they are the attempt's,
+        for its caller."""
+        two = sys.exception()
+        pos = self.pos
+        char = self.text[pos : pos + 1]
+        if (
+            isinstance(two, IslandEnds)
+            and two.root is sub
+            and not any(admitted(entry, self.text, pos, char) for entry in rest)
+        ):
+            two.sink, two.root = out, None
 
     def _settle_arm(
         self,
@@ -384,17 +393,15 @@ class Attempting[Carry](Verdicts[Carry]):
         char = self.text[pos : pos + 1]
         for idx in range(ran + 1, len(entries)):
             # `admission.admitted`, read in place: the attempt's hottest test
-            entry = entries[idx]
-            chars = entry[0]
+            chars, negated, prefix, window, sub = entries[idx]
             if chars is not None and (
-                (char == "" or char in chars) if entry[1] else (char not in chars)
+                (char == "" or char in chars) if negated else (char not in chars)
             ):
                 continue
-            if entry[2] is not None and entry[2].match(self.text, pos) is None:
+            if prefix is not None and prefix.match(self.text, pos) is None:
                 continue
-            if entry[3] is not None and entry[3].match(self.text, pos) is None:
+            if window is not None and window.match(self.text, pos) is None:
                 continue
-            sub = entry[4]
             if not sub.sub_root:  # the program cannot fork: nothing reads it
                 try:
                     got = self._attempt_run(sub, pos, -1)

@@ -28,7 +28,7 @@ def test_an_attempted_arm_keeps_the_stop_its_iteration_splits_past(text: str) ->
 
 
 @pytest.mark.parametrize("text", ["b;a", "b;aa", "bb;a"])
-def test_the_same_arm_alone_still_answers_as_earley(text: str) -> None:
+def test_the_same_arm_alone_answers_as_earley(text: str) -> None:
     """With root unattempted, its first arm is read as Earley reads it."""
     predictive, gated = answers(SOLE, "iteration-ends-sole", text)
     assert predictive == gated

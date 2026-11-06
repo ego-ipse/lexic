@@ -94,14 +94,14 @@ class Verdicts[Carry](LiveSet[Carry]):
         # frame-chain walk cannot add information. Only the overlap population
         # pays the exact continuation classification and fork audit.
         char = self.text[pos : pos + 1]
-        chars, negated = arm.gate_data[i][1]  # `_boundary_class`, read in place
+        chars, negated = arm.gate_data[i][1]  # `_stop_dead`, read in place
         cls = (
             REST_DEAD
             if ((char == "" or char in chars) if negated else char not in chars)
             else self._beyond_class(arm, i, pos)
         )
         if self._caches.probing:  # inside a reading: it splits, never guesses
-            if cls == REST_DEAD or (  # `_stop_dead`, read in place
+            if cls == REST_DEAD or (
                 self._caches.scope.whole()
                 and stop_side_dead(self.stack, arm, i, self.text, pos)
             ):
@@ -117,20 +117,17 @@ class Verdicts[Carry](LiveSet[Carry]):
             return self._fork_verdict(arm, i, pos, got) == TAKE
         return True
 
-    def _boundary_class(self, arm: FlatArm, i: int, pos: int) -> int:
-        """A loop boundary's stop class: :data:`REST_DEAD` where the char is
-        outside the stored soft continuation, else :meth:`_beyond_class`."""
+    def _stop_dead(self, arm: FlatArm, i: int, pos: int) -> bool:
+        """Whether a reading's stop side at loop boundary ``(arm, i, pos)`` is
+        dead, so the take is forced there: the char outside the stored soft
+        continuation, :meth:`_beyond_class` finding no stop side, or a
+        whole-text scope where :func:`stop_side_dead` says so.
+        :meth:`_attempt_choice` reads it in place, being the hot site."""
         char = self.text[pos : pos + 1]
         chars, negated = arm.gate_data[i][1]
         if (char == "" or char in chars) if negated else char not in chars:
-            return REST_DEAD
-        return self._beyond_class(arm, i, pos)
-
-    def _stop_dead(self, arm: FlatArm, i: int, pos: int, cls: int) -> bool:
-        """Whether a reading's stop side at a loop boundary of class ``cls`` is
-        dead, so the take is forced there. :meth:`_attempt_choice` reads it in
-        place, being the hot site that asks it."""
-        return cls == REST_DEAD or (
+            return True
+        return self._beyond_class(arm, i, pos) == REST_DEAD or (
             self._caches.scope.whole()
             and stop_side_dead(self.stack, arm, i, self.text, pos)
         )
@@ -155,9 +152,11 @@ class Verdicts[Carry](LiveSet[Carry]):
             for frame in self.stack[-2::-1]:
                 at = frame.suspended()
                 verdict, seen = arm_rest_scan(frame.arm, at, text, pos)
-                # A further iteration of the item it stands in is a stop side too.
-                again = frame.arm.his[at] != 1 and item_admits(frame.arm, at, char)
-                opt = opt or seen or again
+                if not opt:  # once an optional admit is seen, no other changes it
+                    # A further iteration of the item it stands in is a stop side too.
+                    opt = seen or (
+                        frame.arm.his[at] != 1 and item_admits(frame.arm, at, char)
+                    )
                 if verdict != REST_ASCEND:
                     break
         if verdict == REST_ADMITS_HARD:
@@ -412,7 +411,7 @@ class Verdicts[Carry](LiveSet[Carry]):
                 self._iteration_side((arm, i, pos), end, values, record)
                 for end, values in self._picks(two)
             ]
-            if self._stop_dead(arm, i, pos, self._boundary_class(arm, i, pos)):
+            if self._stop_dead(arm, i, pos):
                 raise self._split(ends, pos)
             raise self._split([self._side(arm, i, pos, None, record), *ends], pos)
         end, values = self._kept_end(two, partial(self._iteration_side, (arm, i, pos)))

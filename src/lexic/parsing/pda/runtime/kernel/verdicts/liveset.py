@@ -246,7 +246,7 @@ class LiveSet[Carry](Sides[Carry]):
         ]
         for _step in range(SET_STEPS):
             readings = self._merged(readings)
-            ways = _ways(readings)
+            ways = {reading.path[0] for reading in readings}  # `_ways`, read in place
             if len(ways) <= 1:
                 self._caches.scope.answers = planned(readings)
                 return next(iter(ways))
