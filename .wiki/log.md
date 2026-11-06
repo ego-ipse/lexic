@@ -1,5 +1,11 @@
 # Log
 
+## A greedy split meeting a follower's FIRST is attempted (2026-11-06)
+
+`decisions.md` gains the entry: a GREEDY_SPLIT loop whose iteration can fail
+where another optional follower starts gets the attempt licence for its
+iterations.
+
 ## An attempted iteration's ends keep the loop's stop inside a reading (2026-11-06)
 
 `decisions.md` gains the entry: `_iteration_ends` splits a reading into the

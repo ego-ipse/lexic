@@ -1661,8 +1661,7 @@ xfail.
 sub-run is an island with several followable ends (`Verdicts._iteration_ends`)
 splits into one child per end *and* the loop's stop side at the iteration's
 start, unless stopping is dead there. That is the same test
-`_attempt_choice` asks of a single completion (`_boundary_class`,
-`_stop_dead`).
+`_attempt_choice` asks of a single completion (`_stop_dead`).
 
 **Why:** outside a reading, the kept end goes back to `_attempt_settle`, and
 `_attempt_choice` then asks take or stop. Inside one, every child was already a
@@ -1670,8 +1669,30 @@ take, so the stop was never a reading. Under `root ::= x? ";" "a"* | ";"? z+`
 with `x ::= [a;]+ z | z+`, root's attempted first arm reaches `z+`'s iteration
 at `;` with the ends `;` and `;a`. Without the stop, the arm cannot read its own
 `;`, so it rolls back, and the second arm is built for `b;a`, where Earley
-refuses. `_attempt_choice` keeps its own inline read of the class (its
-hottest path); `_boundary_class` serves the cold split.
+refuses. `_attempt_choice` keeps its own inline read of the test (its
+hottest path); `_stop_dead` serves the cold split.
+
+## A greedy split whose iteration can fail where a follower starts is attempted
+
+**Decision:** a loop that would be granted GREEDY_SPLIT keeps it, except
+where its iteration can fail after its gate admitted it and an optional
+follower of another atom, before the first required item, shares the loop's
+FIRST (`conflicts._iteration_meets_a_follower`). Such a loop gets the attempt
+licence for its own iterations: each one is a sub-run that closes the loop
+when it fails, audited where stopping goes on too. The rule is not made an
+attempt rule. A one-character class atom keeps the split, because its iteration
+cannot fail once admitted.
+
+**Why:** GREEDY_SPLIT compiles to a plain stop-set, which commits an iteration
+on its first character and fails the arm on a later mismatch inside it. Under
+`root ::= "ab"* [ab]* | y* "ab"+`, `"ab"*` took the first `a` of `aab`, met
+`a`, and the attempt over root's arms read that failure as the arm's miss. The
+second arm was then built where Earley refuses. Denying the split instead sends
+the loop down the demotion cascade. That reaches a structured-noise gate that
+skips a nullable optional that derives, which is a wrong model. An empty audit
+set, a greedy take with rollback, brings the wrong models back. The audited
+attempt costs answers the take policy gave: those parses decline, and the public
+parse returns Earley's model.
 
 ## A gate that reads a run whole is a leftmost-longest licence
 

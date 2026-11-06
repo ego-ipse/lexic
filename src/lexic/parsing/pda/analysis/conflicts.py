@@ -35,7 +35,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
     KWindowFirst,
     separable,
 )
-from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
+from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, STOPSET_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -51,9 +51,17 @@ def file_attempt_loop(
     """
     if ATTEMPT not in notes.grants:
         return False
-    analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
+    license_attempt(analysis, items, k, scope)
     notes.covered += 1
     return True
+
+
+def license_attempt(
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Scope
+) -> None:
+    """Give loop ``k`` the attempt licence: each iteration a sub-run that closes
+    the loop when it fails, audited where stopping goes on too."""
+    analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
 
 
 def defer_stop_set(
@@ -155,7 +163,12 @@ def soft_gap_conflict(
         items, k, scope.structural_tail
     ).subtract(analysis.hard_cont_at(items, k, scope.hard_tail))
     if not first.overlaps(structural_gap):
-        notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split", GREEDY_SPLIT)
+        if not _iteration_meets_a_follower(analysis, items, k, first):
+            notes.picks_extent(f"{scope.rule}[{k}]: loop greedy split", GREEDY_SPLIT)
+            return
+        notes.picks_extent(f"{scope.rule}[{k}]: loop iterations attempted", ATTEMPT)
+        if ATTEMPT in notes.grants:
+            license_attempt(analysis, items, k, scope)
         return
     if noise_greedy_licensed(analysis, items, k, scope):
         notes.picks_extent(
@@ -165,6 +178,29 @@ def soft_gap_conflict(
     if not demote_loop(analysis, items, k, scope, notes):
         notes.hard.append(f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable")
         file_attempt_loop(analysis, items, k, scope, notes)
+
+
+def _iteration_meets_a_follower(
+    analysis: Any, items: Sequence[IrItem], k: int, first: CharSet
+) -> bool:
+    """Whether loop ``k``'s iteration can fail after its gate admitted it where
+    an optional follower of another atom could have read the character.
+
+    A greedy split commits each iteration on its first character, and a plain
+    stop-set fails the arm on a later mismatch inside it. That is sound only
+    where nothing after the loop could have started there: the loop's own
+    next copy is the split, another item is not. A one-character atom's
+    iteration cannot fail once admitted.
+    """
+    atom = items[k].atom
+    if STOPSET_ATOM.resolve(atom).eval(analysis, atom, ()):
+        return False
+    for item in items[k + 1 :]:
+        if item.atom != atom and first.overlaps(analysis.atom_first(item.atom)):
+            return True
+        if not analysis.item_nullable(item):
+            return False
+    return False
 
 
 def attempt_spec(analysis: Any, arms: Sequence[Sequence[IrItem]]) -> AttemptSpec:
