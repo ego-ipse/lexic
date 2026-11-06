@@ -215,20 +215,26 @@ def test_dense_earley_keeps_its_terminated_plan() -> None:
     assert engages(bench.compiled, bench.full, cores=4)
 
 
-def test_only_island_earley_gains_a_folded_plan() -> None:
-    """Exactly one roster row reaches the new source.
+def test_the_folded_rows_are_island_earley_led_and_the_direct_rows_run() -> None:
+    """Exactly these roster rows reach the source, each by its kind.
 
-    Both halves matter. A second row quietly gaining one would be a change to
+    Both halves matter. Another row quietly gaining one would be a change to
     a measured grammar nobody asked for; ZERO rows gaining one would make
     every identity assertion above a test of the sequential path against
-    itself.
+    itself. island-earley is a LED spine, cut at its operator; the three
+    direct engine-reach rows are RUNS of bare steps (``test_folded_run_split``).
     """
     reached = {
-        bench.name
+        bench.name: "run" if plan.steps else "led"
         for bench in BENCHES
-        if folded_plan(bench.compiled.codegen_grammar) is not None
+        if (plan := folded_plan(bench.compiled.codegen_grammar)) is not None
     }
-    assert reached == {"island-earley"}
+    assert reached == {
+        "island-earley": "led",
+        "start-fallback": "run",
+        "interior-exact": "run",
+        "interior-climb": "run",
+    }
 
 
 @pytest.mark.parametrize("bench", BENCHES, ids=lambda one: one.name)

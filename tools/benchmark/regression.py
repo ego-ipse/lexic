@@ -39,7 +39,7 @@ from tools.benchmark.measurement.contract import (
     digest,
     read_contract,
 )
-from tools.benchmark.presentation.cli import (
+from tools.benchmark.presentation.artifact import (
     REFUSES,
     UNMEASURED,
     Artifact,
@@ -50,11 +50,11 @@ from tools.benchmark.presentation.cli import (
 ARTIFACT = Path(__file__).resolve().parent / "competitors_baseline.json"
 """The committed cross-engine numbers — what the README publishes from."""
 
-EXPECTED_GRAMMARS = 19
+EXPECTED_GRAMMARS = 27
 """How many languages the fixture set defines.
 
 Pinned so a case silently dropping out is a failure rather than a smaller
-benchmark. The A/B compares 114 rows; that number is this times the seat count.
+benchmark. The A/B compares 162 rows; that number is this times the seat count.
 """
 
 

@@ -68,7 +68,7 @@ toolkit that takes an Earley-normalised grammar (a truth value is an
   (the instance completion, see :mod:`.product`).
 - :func:`parse_forest` — the SPPF root :class:`.earley.forest.SppfNode`, or
   :data:`~lexic.ir.base.IrNone` on no parse.
-- :func:`derivations` — ALL derivations as an :class:`~lexic.ir.base.IrSeq`.
+- :func:`derivations` — the cycle-free derivations as an :class:`~lexic.ir.base.IrSeq`.
 - :func:`is_ambiguous` — whether the input has more than one derivation.
 
 The tree/forest readers (:func:`recognize` … :func:`is_ambiguous`) each box the
@@ -94,11 +94,6 @@ readers, :func:`start_completion_ends`, :func:`root_ambiguous`,
 calls no method on it, which is what makes it a seam; exporting it means a
 consumer that wants to SEE a parse — a chart-column view, a trace — never
 reaches past the package boundary for it.
-
-:func:`~lexic.parsing.pda.analysis.predicates.nullable_names` surfaces here for
-the same reason: it is the repo's only nullability fixpoint, and the codegen
-passes need it to tell a language-preserving rewrite from a language-widening
-one (:func:`~lexic.compile.pipeline.passes.relax_non_semantic`).
 
 :mod:`~lexic.parsing.parallel` is the parallel layer — the split-point
 analysis (anchors, roles, the self-locating scan) and the worker-count
@@ -135,6 +130,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
+    accept_handles,
     accept_item,
     accept_items,
     accept_node,
@@ -158,7 +154,6 @@ from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.pool import reset_pools
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.predicates import nullable_names
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.product import ProductExecutor
@@ -250,7 +245,15 @@ def parse_forest(grammar: IrAst, text: str) -> IrSelf:
 
 
 def derivations(grammar: IrAst, text: str) -> IrSeq:
-    """Enumerate ALL derivation trees of ``text`` — nothing silently discarded.
+    """Enumerate the cycle-free derivation trees of ``text``.
+
+    Every derivation in which no node sits inside itself over its own span — on
+    an acyclic grammar, all of them. A cyclic grammar (``A ⇒+ A``) derives some
+    texts in infinitely many ways, by pumping the cycle; the enumeration ends
+    each such branch where it re-enters, records the cut on its cursor
+    (:attr:`~lexic.parsing.earley.kernel.forest.forest.ForestCtx.cut`), and so
+    returns finitely many complete trees. :func:`is_ambiguous` and :func:`parse`
+    read that record, so a cut cycle counts as a second derivation there.
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
@@ -302,7 +305,7 @@ __all__ = [
     "RootNode",
     "SppfNode",
     "accept_handle",
-    "accept_handle",
+    "accept_handles",
     "accept_item",
     "accept_items",
     "accept_node",
@@ -318,7 +321,6 @@ __all__ = [
     "reset_pools",
     "lift_optional_nullables",
     "normalize",
-    "nullable_names",
     "parse",
     "parse_first",
     "parse_forest",

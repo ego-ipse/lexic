@@ -9,14 +9,14 @@ carries no slots of its own — every attribute it reads is declared by the kern
 
 What a both-viable boundary resolves to — take, stop-forced or fork, asked
 as the forest gate asks it, on completed VALUES — is
-:mod:`~lexic.parsing.pda.runtime.kernel.verdicts`'s, whose host class this one
+:mod:`~lexic.parsing.pda.runtime.kernel.verdicts.verdicts`'s, whose host class this one
 extends.
 """
 
 from __future__ import annotations
 
+import sys
 from functools import partial
-from typing import Any
 
 from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
@@ -29,16 +29,47 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_ISLAND,
 )
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork, Suspended
 from lexic.parsing.pda.runtime.admission import composes
 from lexic.parsing.pda.runtime.build import (
     Frame,
 )
-from lexic.parsing.pda.runtime.islands import IslandEnds
-from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.islands import IslandEnds, claim_ends
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
-__all__ = ["Attempting", "claim"]
+__all__ = [
+    "FRAMES_PER_LEVEL",
+    "STACK_SHARE",
+    "SYNC_DEPTH",
+    "Attempting",
+    "in_place_depth",
+]
+
+FRAMES_PER_LEVEL = 9
+"""The Python frames one sub-run driven where it stands adds, at most: the
+drive, the entry (wrapped once more by the watched run), the substitution, the
+attempt, its audit, the sub-run itself (wrapped once more) and its counted
+drive."""
+
+STACK_SHARE = 8
+"""The share of the recursion limit the in-place sub-runs may take — an eighth,
+the rest left to the caller's stack and the parse's other frames."""
+
+SYNC_DEPTH: int | None = None
+"""A fixed in-place depth in place of :func:`in_place_depth`'s reading — for a
+test comparing 0 (every sub-run past the first suspends) with one past any
+depth (none does). ``None`` everywhere else."""
+
+
+def in_place_depth() -> int:
+    """How many attempt sub-runs deep a caller drives its sub-run where it
+    stands: as many as fit :data:`STACK_SHARE` of the recursion limit as it
+    stands when the parse starts. The one at the depth settles every one past
+    it, which costs no Python frame, so a document of any depth parses."""
+    if SYNC_DEPTH is not None:
+        return SYNC_DEPTH
+    return sys.getrecursionlimit() // STACK_SHARE // FRAMES_PER_LEVEL
 
 
 class Attempting[Carry](Verdicts[Carry]):
@@ -56,6 +87,12 @@ class Attempting[Carry](Verdicts[Carry]):
 
     def _enter(self, clone: FlatClone[Carry], out: list[Carry]) -> bool:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
+        raise NotImplementedError
+
+    def _sub_drive(self, floor: int) -> None:
+        """Provided by the kernel — drive the sub-run rooted at ``floor``:
+        plainly, or counted in a program whose sub-runs nest
+        (``NestingKernel._sub_drive``)."""
         raise NotImplementedError
 
     def _island(self, ref: IslandPayload, sink: list[Carry]) -> None:
@@ -116,11 +153,18 @@ class Attempting[Carry](Verdicts[Carry]):
             return self._attempt_island(frame, arm, i, pos)
         try:
             got = self._attempt_run(arm.payloads[i], pos, pos)
+        except Suspended:  # the drive settles it, as below
+            Suspended.called_by(frame, None)
+            raise
         except IslandEnds as two:
             if two.root is not arm.payloads[i] or two.pos != pos:
                 raise
             got = self._iteration_ends(two, arm, i, pos)
-        return self._attempt_settle(frame, arm, i, pos, got)
+        step = self._attempt_settle(frame, arm, i, pos, got)
+        # Inside a reading the drive's limit is read only between frames: a
+        # settled iteration reports as a push, so a reading stops where it is
+        # sent instead of running its loop out.
+        return -1 if self._caches.probing else step
 
     def _attempt_settle(
         self,
@@ -211,7 +255,11 @@ class Attempting[Carry](Verdicts[Carry]):
                 continue
             if window is not None and window.match(self.text, pos) is None:
                 continue
-            got = self._attempt_run(sub, pos, pos)
+            try:
+                got = self._attempt_run(sub, pos, pos)
+            except Suspended:  # the drive settles it, and goes on from here
+                Suspended.called_by(None, (clone, out, idx, None, None))
+                raise
             if got is not None:
                 if not composes(follow, self.text, got[0]):
                     # It parses, but its own next character is outside the
@@ -227,7 +275,11 @@ class Attempting[Carry](Verdicts[Carry]):
                 break
         if got is None:
             raise PdaFail(f"attempt: no arm matches at {pos}", pos)
-        self._settle_arm(got, self._attempt_audit(clone, ran + 1, got), out)
+        try:
+            self._settle_arm(got, self._attempt_audit(clone, ran, got, None), out)
+        except Suspended:  # an audited entry's: the kept arm splices into `out`
+            Suspended.splicing_into(out)
+            raise
 
     def _settle_arm(
         self,
@@ -258,11 +310,12 @@ class Attempting[Carry](Verdicts[Carry]):
         and no side can be built where no item of the top frame owns ``out``,
         where the run is not over the whole document (a delegate's sub-run,
         whose root may end anywhere in the island's window, or a truncated
-        text: :meth:`RunScope.whole`), or inside a side where :meth:`_nests`
-        allows no verdict.
+        text: :meth:`RunScope.whole`). Inside a reading of a live set the
+        choice is not made here: the reading splits, one child per end.
 
         :raises ProbeFork: In each of those cases, and when the verdict forks:
             the gated engine answers.
+        :raises Split: Inside a reading, with one side per end.
         """
         pos = self.pos
         picks = {won[0]: won[1]}
@@ -273,9 +326,16 @@ class Attempting[Carry](Verdicts[Carry]):
         k = self._descent_item(out)
         kept = None
         if k >= 0 and self._caches.scope.whole():
-            if not self._caches.probing or self._nests():
-                ordered = [(end - pos, picks[end]) for end in sorted(picks)]
-                kept = self._kept_pick(ordered, partial(self._extent_side, k))
+            ordered = [(end - pos, picks[end]) for end in sorted(picks)]
+            if self._caches.probing:
+                raise self._split(
+                    [
+                        self._extent_side(k, end, values, self._recording())
+                        for end, values in ordered
+                    ],
+                    pos,
+                )
+            kept = self._kept_pick(ordered, partial(self._extent_side, k))
         if kept is None:
             raise ProbeFork(
                 f"attempt at {pos}: arm choice spans {sorted(picks)} "
@@ -287,36 +347,30 @@ class Attempting[Carry](Verdicts[Carry]):
     def _attempt_audit(
         self,
         clone: FlatClone[Carry],
-        first: int,
+        ran: int,
         won: tuple[int, list[Carry]],
-        got: tuple[int, list[Carry]] | None = None,
+        rivals: list[tuple[int, list[Carry]]] | None,
     ) -> list[tuple[int, list[Carry]]] | None:
-        """Audit a winner against the later admitted entries before its caller
-        commits it: refuse what the gated engine must decide, and return the
-        entries that end elsewhere and could compose, for the decider to rank
-        against the winner (:meth:`_kept_arm`) — ``None`` when there are none.
+        """Audit a winner against the admitted entries after ``ran`` before
+        its caller commits it: refuse what the gated engine must decide, and
+        return the entries that end elsewhere and could compose, for the
+        decider to rank against the winner (:meth:`_kept_arm`) — ``rivals``,
+        the ones found so far, and every one found here; ``None`` for none.
 
         Runs with the cursor at the attempt position. Each audited entry's
-        sub-run is wrapped in a record of the audit (:data:`Audit`), the one
-        state a fork inside it cannot read off the stack — in a program that
-        can fork (``sub_root``); elsewhere nothing reads one.
+        sub-run is wrapped in a record of the audit (:data:`Audit`) — the
+        winner and the rivals so far, the state a fork inside it cannot read
+        off the stack — in a program that can fork (``sub_root``); elsewhere
+        nothing reads one. A suspended entry keeps its record until the drive
+        settles it, and names itself its floor's caller; the list the kept arm
+        splices into is the caller's to name (``Suspended.splicing_into``).
 
-        :param clone: The attempt clone whose entry ``won``.
-        :param first: The first entry still to audit.
-        :param won: The winner's ``(end, values)``.
-        :param got: The outcome of entry ``first - 1``, already run — how a
-            boundary side resumes an audit it was forked inside; the live
-            audit passes none.
-        :returns: The rivals, as ``(end, values)``, or ``None``.
         :raises ProbeFork: As :meth:`_contest` raises.
         """
-        pos = self.pos
         entries = clone.attempt[1]
-        rivals: list[tuple[int, list[Carry]]] | None = None
-        if got is not None and self._contest(entries[first - 1][-1], won, got, clone):
-            rivals = [got]
+        pos = self.pos  # every entry starts here, where each sub-run leaves it
         char = self.text[pos : pos + 1]
-        for idx in range(first, len(entries)):
+        for idx in range(ran + 1, len(entries)):
             chars, negated, prefix, window, sub = entries[idx]
             if chars is not None and (  # `admits`, read in place
                 (char == "" or char in chars) if negated else (char not in chars)
@@ -327,13 +381,24 @@ class Attempting[Carry](Verdicts[Carry]):
             if window is not None and window.match(self.text, pos) is None:
                 continue
             if not sub.sub_root:  # the program cannot fork: nothing reads it
-                got = self._attempt_run(sub, pos, -1)
-            else:
-                self._caches.audits.append((len(self.stack), clone, idx, pos, won))
                 try:
                     got = self._attempt_run(sub, pos, -1)
-                finally:
+                except Suspended:
+                    Suspended.called_by(None, (clone, None, idx, won, rivals))
+                    raise
+            else:
+                self._caches.audits.append(
+                    (len(self.stack), clone, idx, pos, won, rivals)
+                )
+                try:
+                    got = self._attempt_run(sub, pos, -1)
+                except Suspended:  # the record stays until the drive settles it
+                    Suspended.called_by(None, (clone, None, idx, won, rivals))
+                    raise
+                except BaseException:  # a split's or a failure's: it goes
                     self._caches.audits.pop()
+                    raise
+                self._caches.audits.pop()
             if got is not None and self._contest(sub, won, got, clone):
                 rivals = [got] if rivals is None else [*rivals, got]
         return rivals
@@ -379,13 +444,18 @@ class Attempting[Carry](Verdicts[Carry]):
         the answer cannot be a false positive. Only reachable when the greedy
         extent OVERSHOOTS — an arm that stopped short could not reach ``end``.
         """
-        whole, scope = self.text, self._caches.scope
+        whole, caches = self.text, self._caches
+        scope = caches.scope
         cut, scope.cut = scope.cut, True
+        # Its own drive settles what it suspends: the text it reads is put
+        # back below, so nothing it starts may be settled past that.
+        catching, caches.scope.catching = caches.scope.catching, 0
         self.text = whole[:end]
         try:
             bounded = self._attempt_run(sub, pos, -2)
         finally:
             self.text, scope.cut = whole, cut
+            caches.scope.catching = catching
         return bounded is not None and bounded[0] == end
 
     def _attempt_run(
@@ -400,9 +470,11 @@ class Attempting[Carry](Verdicts[Carry]):
         terminator). EVERY value the arm reports is returned (a transparent
         arm splices several); an EOF completion is a legitimate success; a
         refusing fold (:class:`~lexic.exceptions.LexicError`) fails the ARM,
-        not the parse. Deliberately unmemoized — a sub-run's outcome depends
-        on the enclosing continuation, so ``(clone, pos)`` is not a sound
-        key (and the memo measured zero hits when it was).
+        not the parse, while an island that refuses its text forks
+        (:class:`~lexic.parsing.pda.core.errors.IslandRefusal`). Deliberately
+        unmemoized — a sub-run's outcome depends on the enclosing continuation,
+        so ``(clone, pos)`` is not a sound key (and the memo measured zero hits
+        when it was).
 
         The sub-run's root frame is MARKED with ``mark``
         (:attr:`~lexic.parsing.pda.runtime.build.Frame.start`): the one fact a
@@ -411,12 +483,20 @@ class Attempting[Carry](Verdicts[Carry]):
         Only where the program can fork (``sub_root``): elsewhere nothing reads
         it, and the store is most of what the mark costs.
 
+        The sub-run drives through :meth:`_sub_drive`: the kernel's plain
+        drive, or in a program whose sub-runs nest past the in-place depth
+        (:attr:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram.nests`)
+        the counted one (``NestingKernel._sub_drive``). One that suspends
+        leaves its frames pushed and is recorded as a floor, its caller named
+        by the caller, for the drive below to settle as the caller would.
+
         :param sub: The entry's single-arm clone.
         :param pos: The attempt position.
         :param mark: ``pos`` for a loop iteration or an attempt entry, ``-1``
             for an audit's run (its record is on the caches), ``-2`` for
             :meth:`_spans_exactly`'s, which no side settles.
         :returns: ``(end, values)``, or ``None`` when the arm fails.
+        :raises Suspended: Past the depth, where a drive below settles it.
         """
         saved_pos = self.pos
         floor = len(self.stack)
@@ -426,29 +506,30 @@ class Attempting[Carry](Verdicts[Carry]):
             if self._enter(sub, holder):
                 if sub.sub_root:
                     self.stack[floor].start = mark
-                self._drive(floor)
+                self._sub_drive(floor)
             return self.pos, holder
         except ProbeFork as fork:
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
-            if isinstance(fork, IslandEnds):
-                claim(fork, holder, sub)
+            claim_ends(fork, holder, sub)
             raise
         except PdaFail:
             island = self._stolen_at(floor)
-            if island is None:
-                return None
+        except IslandRefusal as refused:  # no arm's miss: the gated engine's
+            raise ProbeFork(f"attempt at {pos}: an island refuses", pos) from refused
         except LexicError:
             return None
+        except Suspended as up:  # last: a miss never tests for it
+            up.floors.append((floor, pos, holder, [], None, None))
+            # Nothing is unwound: its frames stay pushed, the cursor where
+            # they left it, for the drive that settles it.
+            floor, saved_pos = sys.maxsize, self.pos
+            raise
         finally:
             if len(self.stack) > floor:  # a completed drive left none above
                 del self.stack[floor:]
             self.pos = saved_pos
-        try:
-            return self._stolen_back(island, pos)
-        except IslandEnds as two:  # the island asked for the run is its outcome
-            claim(two, None, sub)
-            raise
+        return None if island is None else self._stolen_back(island, pos, sub)
 
     def _stolen_at(self, floor: int) -> IslandPayload | None:
         """The island to ask for a sub-run that missed, when its root is a
@@ -461,15 +542,23 @@ class Attempting[Carry](Verdicts[Carry]):
         return take.island if take is not None and take.steals else None
 
     def _stolen_back(
-        self, island: IslandPayload, pos: int
+        self, island: IslandPayload | None, pos: int, sub: FlatClone[Carry] | None
     ) -> tuple[int, list[Carry]] | None:
-        """The rule's island at ``pos``, as the sub-run's outcome — ``None``
-        when it derives nothing there."""
+        """The rule's island at ``pos``, as the outcome of ``sub``'s sub-run —
+        ``None`` when it derives nothing there, or there is no island.
+
+        :raises IslandEnds: The island's ends, claimed as that outcome.
+        """
+        if island is None:
+            return None
         saved_pos, self.pos = self.pos, pos
         holder: list[Carry] = []
         try:
             self._island(island, holder)
             return self.pos, holder
+        except IslandEnds as two:  # the island asked for the run is its outcome
+            claim_ends(two, None, sub)
+            raise
         except ProbeFork:
             raise
         except PdaFail:
@@ -485,11 +574,3 @@ def value_question(pos: int, end: int) -> ProbeFork:
         "a value question for the gated engine",
         pos,
     )
-
-
-def claim(two: IslandEnds, holder: list[Any] | None, sub: FlatClone) -> None:
-    """Mark ``two`` the whole outcome of the attempt sub-run of ``sub`` when it
-    was asked straight into that run's ``holder`` (``None``: asked for the run
-    itself)."""
-    if holder is None or two.sink is holder:
-        two.root = sub

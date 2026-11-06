@@ -519,3 +519,27 @@ def test_two_arms_over_one_span_with_one_value_continue_on_the_pda() -> None:
     want = "Root(Int('9'))"
     assert repr(earley_model(pr.instance_grammar, "9e", cg.product, pr.tables)) == want
     assert repr(pda_model(pr.pda, "9e", cg.executor)) == want
+
+
+_PAST_A_REFERENCE = (
+    'root ::= arr\narr ::= "[" first ("," pair)* "]"\n'
+    'first ::= "<" num ("." num)? ">"\n'
+    'pair ::= "(" num ")" "," "(" num ")" | "(" num ")"\nnum ::= [0-9]+\n'
+)
+"""A pair is one long pair or two short ones, ranked first slot longest. The
+choice inside the loop is ranked at ``arr``'s frame, which stands just past the
+exactly-once ``first`` with the loop next: both items are candidates for the
+frame above it, and only that frame's own clone says the loop pushed it."""
+
+
+@pytest.mark.parametrize("text", ["[<0>,(1),(2)]", "[<0.5>,(1),(2)]"])
+def test_an_arm_choice_past_an_exactly_once_reference_is_ranked_on_the_pda(
+    text: str,
+) -> None:
+    """The PDA answers Earley's model itself — the long pair — where reading
+    both candidate items as possible left the rank a tie and the parse forked."""
+    cg = compile_text(_PAST_A_REFERENCE, cache_key="parity-past-a-reference")
+    pr = prod(cg)
+    want = earley_model(pr.instance_grammar, text, cg.product, pr.tables)
+    assert "PairArm1" in repr(want)
+    assert pda_model(pr.pda, text, cg.executor).dump() == want.dump()

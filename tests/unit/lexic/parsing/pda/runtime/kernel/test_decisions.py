@@ -6,7 +6,7 @@ decision half of ``PdaKernel``.
 ``tests/unit/lexic/parsing/pda/test_group_attempt.py`` and the parity suite;
 this file targets the loop-close bookkeeping, an island iteration's bail, and
 what a sub-run writes for the verdict to read. The verdict itself is
-:mod:`lexic.parsing.pda.runtime.kernel.verdicts`'s, and its tests beside it.
+:mod:`lexic.parsing.pda.runtime.kernel.verdicts.verdicts`'s, and its tests beside it.
 """
 
 from __future__ import annotations
@@ -15,12 +15,13 @@ from typing import Never
 
 import pytest
 
+from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
     OP_ISLAND,
 )
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import ProbeFork
+from lexic.parsing.pda.core.errors import IslandRefusal, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import (
@@ -28,6 +29,9 @@ from lexic.parsing.pda.runtime.kernel.decisions import (
 )
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
+    live_kernel,
+)
 from tools.benchmark.cases.grammars import BENCHES
 
 
@@ -67,6 +71,9 @@ class _IslandUndecidable(Attempting[str]):
 
     def _drive(self, floor: int = 0, limit: int = -1) -> None:
         raise AssertionError("an island iteration drives nothing")
+
+    def _sub_drive(self, floor: int) -> None:
+        raise AssertionError("an island iteration drives no sub-run")
 
     def _sink_for(self, frame: Frame[str], arm: FlatArm, i: int) -> list[str]:
         return []
@@ -111,8 +118,8 @@ def test_a_program_that_cannot_fork_marks_no_sub_run(monkeypatch) -> None:
             seen["records"] += 1
             super().append(record)
 
-    def init(self, scope=None) -> None:
-        real_init(self, scope)
+    def init(self, delegate: bool = False) -> None:
+        real_init(self, delegate)
         self.audits = Audits()
 
     def drive(self, floor: int = 0, limit: int = -1) -> None:
@@ -123,6 +130,56 @@ def test_a_program_that_cannot_fork_marks_no_sub_run(monkeypatch) -> None:
 
     monkeypatch.setattr(KernelCaches, "__init__", init)
     monkeypatch.setattr(PdaKernel, "_drive", drive)
+    monkeypatch.setattr(PdaKernel, "_sub_drive", drive)  # its alias, for sub-runs
     bench = next(b for b in BENCHES if b.name == "markdown")
     bench.compiled.parse(bench.corpus, cores=1)
     assert seen["frames"] and not seen["marked"] and not seen["records"], seen
+
+
+ATTEMPT_RUN = vars(Attempting)["_attempt_run"]
+"""One arm's sub-run as ``Attempting`` defines it, driven on a real kernel."""
+
+
+def _attempt_failing(monkeypatch, why: Exception) -> tuple[PdaKernel, list[int]]:
+    """A kernel whose next arm's sub-run raises ``why``; the floors its miss
+    asks the island at are recorded."""
+    kern = live_kernel()
+    asked: list[int] = []
+
+    def drive(_self, _floor: int = 0, _limit: int = -1) -> None:
+        raise why
+
+    def stolen(_self, floor: int) -> None:
+        asked.append(floor)
+
+    monkeypatch.setattr(PdaKernel, "_enter", lambda *_a: True)
+    monkeypatch.setattr(PdaKernel, "_sub_drive", drive)
+    monkeypatch.setattr(PdaKernel, "_stolen_at", stolen)
+    return kern, asked
+
+
+@pytest.mark.parametrize(
+    ("why", "asks"),
+    [(LexicError("refused"), False), (PdaFail("dead", 1), True)],
+    ids=["refusing-fold", "miss"],
+)
+def test_an_arm_whose_sub_run_fails_misses(monkeypatch, why, asks: bool) -> None:
+    """A refusing fold and a plain failure both fail the arm; only the plain
+    failure, a failure of the text, asks the island for the rule."""
+    kern, asked = _attempt_failing(monkeypatch, why)
+    assert ATTEMPT_RUN(kern, flat_clone(), 1, 1) is None
+    assert bool(asked) is asks
+    assert kern.pos == 0
+
+
+def test_an_island_refusing_inside_an_arm_forks(monkeypatch) -> None:
+    """An island that refuses its text as meaning two things is no arm's
+    miss: read as one, a later arm would commit what the gated engine
+    refuses. The arm forks, caused by the refusal, and the cursor is back."""
+    refused = IslandRefusal("derives the same text two ways")
+    kern, asked = _attempt_failing(monkeypatch, refused)
+    with pytest.raises(ProbeFork) as fork:
+        ATTEMPT_RUN(kern, flat_clone(), 1, 1)
+    assert fork.value.__cause__ is refused
+    assert not asked
+    assert kern.pos == 0

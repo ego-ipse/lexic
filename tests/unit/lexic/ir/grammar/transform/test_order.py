@@ -3,6 +3,12 @@ breadth-first-by-edges, unreached-rules-alphabetical-last."""
 
 from __future__ import annotations
 
+from hashlib import blake2b
+
+import pytest
+
+from lexic.grammars import get_flavour
+from lexic.ir import reachable, rule_closure
 from lexic.ir.grammar.nodes import (
     IrAst,
     IrItem,
@@ -11,7 +17,7 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.grammar.transform.order import RuleOrder, order_by_refs, refs_in_order
+from lexic.ir.grammar.transform.order import RuleOrder, order_by_refs
 from lexic.ir.spine.records import IrSeq
 
 
@@ -219,33 +225,21 @@ def test_by_refs_collects_edges_distinct_in_body_order():
     assert [rule.name for rule in order_by_refs(ast).rules] == ["root", "b", "a"]
 
 
-# ── refs_in_order — public direct entry (compile's prelude closure calls it) ──
-
-
-def test_refs_in_order_collects_names_in_pre_order():
-    """refs_in_order walks a subtree and appends each IrRuleRef name, in the
-    order it is first encountered."""
-    out: list[str] = []
-    refs_in_order(rule("root", "b", "a").body, out)
-    assert out == ["b", "a"]
-
-
-def test_refs_in_order_dedupes_a_repeated_ref():
-    """A ref seen more than once appears only at its first occurrence."""
-    out: list[str] = []
-    refs_in_order(rule("root", "b", "a", "b").body, out)
-    assert out == ["b", "a"]
-
-
-def test_refs_in_order_appends_onto_an_existing_accumulator():
-    """The accumulator is not reset — callers may seed it or call repeatedly."""
-    out: list[str] = ["seed"]
-    refs_in_order(rule("root", "a").body, out)
-    assert out == ["seed", "a"]
-
-
-def test_refs_in_order_on_a_ref_free_body_leaves_the_accumulator_untouched():
-    """A body with no IrRuleRef contributes nothing."""
-    out: list[str] = []
-    refs_in_order(rule("root").body, out)
-    assert not out
+@pytest.mark.parametrize("flavour", ["gbnf", "abnf", "ebnf"])
+def test_a_closure_digest_spells_its_reachable_rules_in_name_order(
+    flavour: str,
+) -> None:
+    """A rule's digest is the blake2b of every rule it reaches, itself
+    included, each its repr length-prefixed, in name order; spelling a rule
+    once or once per closure is no part of the value."""
+    ast = get_flavour(flavour).grammar
+    bodies = {str(rule.name): rule for rule in ast.rules}
+    for name, digest in rule_closure(ast).items():
+        texts = [
+            repr(bodies[seen]).encode("utf-8", "surrogatepass")
+            for seen in sorted(reachable(bodies, (name,)))
+        ]
+        packed = b"".join(len(text).to_bytes(8, "little") + text for text in texts)
+        assert digest == int.from_bytes(
+            blake2b(packed, digest_size=8).digest(), "little"
+        ), name

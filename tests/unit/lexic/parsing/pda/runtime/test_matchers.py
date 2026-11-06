@@ -56,7 +56,6 @@ from lexic.parsing.pda.runtime.matchers import (
     vstr_once,
 )
 from lexic.parsing.products import earley_model, model_product
-from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
@@ -385,7 +384,7 @@ def wide_selection_kinds(compiled) -> set[str]:
     product = model_product(compiled.codegen_grammar, compiled.product)
     return {
         type(one.wide_selectors).__name__
-        for one in walk_program_clones(product.pda.program.start).values()
+        for one in all_clones([product.pda.program.start])
         if one.wide_selectors is not None
     }
 
@@ -705,7 +704,7 @@ def test_a_stop_gated_value_loop_never_calls_the_gate(
     product = model_product(compiled.codegen_grammar, compiled.product)
     loops = [
         (arm.payloads[i], arm.gate_data[i][1])
-        for clone in walk_program_clones(product.pda.program.start).values()
+        for clone in all_clones([product.pda.program.start])
         for arm in clone_arms(clone)
         for i in range(arm.n)
         if arm.kinds[i] == OP_VSTR and arm.gate_kinds[i] == GATE_STOP

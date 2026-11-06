@@ -44,7 +44,7 @@ from lexic.parsing.parallel.replicas import (
     worker_parse,
     worker_replica,
 )
-from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
+from lexic.parsing.parallel.roles.derive import Roles, Separator, Terminator, roles
 
 __all__ = [
     "AUTO",

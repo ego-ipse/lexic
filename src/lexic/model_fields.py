@@ -29,13 +29,9 @@ from lexic.ir import (
     IrLiteral,
     IrNamedTuple,
     IrNone,
-    IrQuantifier,
     IrRule,
     IrSelf,
 )
-
-UNIT = IrQuantifier(1, 1)
-"""The quantifier a single, unrepeated item carries."""
 
 
 class FieldCheck(IrNamedTuple[str, object, str]):
@@ -131,9 +127,7 @@ def value_str_literals(rule: IrRule) -> frozenset[str] | None:
     if len(arms) == 1 and len(arms[0]) == 1:
         return None
     if all(
-        len(arm) == 1
-        and isinstance(arm[0].atom, IrLiteral)
-        and arm[0].quantifier == UNIT
+        len(arm) == 1 and isinstance(arm[0].unit_literal(), IrLiteral)
         for arm in rule.body
     ):
         return frozenset(str(arm[0].atom) for arm in arms)

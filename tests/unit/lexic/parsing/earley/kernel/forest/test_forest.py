@@ -40,7 +40,7 @@ from typing import Iterator, NamedTuple
 import pytest
 
 import lexic.parsing.earley.kernel.forest.forest as forest_mod
-from lexic.compile import canonical_grammar
+from lexic.compile import canonical_grammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import (
@@ -91,6 +91,10 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
+from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
+    assert_complete,
+    shape,
+)
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import word_grammar as _word_grammar
 
@@ -809,7 +813,62 @@ def test_nullable_cycle_terminates():
     # If derivations() raised, result is empty; check it succeeded
     assert result, "derivations() raised an exception in the thread"
     assert isinstance(result[0], IrSeq)
-    assert len(result[0]) > 0  # at least one derivation
+    # The one complete derivation; a(b(a())) was the cut's truncated node
+    assert [shape(tree) for tree in result[0]] == ["a(b())"]
+    assert_complete(result[0][0], grammar)
+
+
+CYCLE_STREAMS = {
+    "mutual-pair": ('a ::= b | "x"\nb ::= a | "y"\n', "x", ["a('x')", "a(b(a('x')))"]),
+    "self-unit": (
+        'root ::= s\ns ::= s | "a"\n',
+        "a",
+        ["root(s('a'))", "root(s(s('a')))"],
+    ),
+}
+"""Cycles the stream enumerates: every derivation in which no handle sits
+inside itself over its own span — each arm's lap once, the cycle never."""
+
+
+@pytest.mark.parametrize("label", CYCLE_STREAMS)
+def test_a_cycle_ends_its_branch_and_streams_only_complete_trees(label: str):
+    """A handle re-entered while its own prefix is being produced has no
+    complete derivation there, so the branch ends; nothing truncated is
+    emitted in its place (``a(b(a()))``, ``root(s(s()))``)."""
+    source, text, expected = CYCLE_STREAMS[label]
+    grammar = compile_text(source, cache_key=f"forest-cycle-{label}").grammar
+    trees = derivations(grammar, text)
+    assert [shape(tree) for tree in trees] == expected
+    for tree in trees:
+        assert_complete(tree, grammar)
+
+
+def test_a_suspended_prefix_is_not_an_ancestor():
+    """``a ::= p b`` with ``p`` empty, inside its own ``b``: the inner ``a``'s
+    prefix after ``p`` is the outer one's, left waiting while ``b`` is built.
+    It is a sibling, not an ancestor, so the inner ``a`` keeps its ``p()``."""
+    source = 'a ::= p b | "a"\np ::= ""\nb ::= a "b"\n'
+    grammar = compile_text(source, cache_key="forest-suspended-prefix").grammar
+    (tree,) = derivations(grammar, "abb")
+    assert shape(tree) == "a(p(), b(a(p(), b(a('a'), 'b')), 'b'))"
+    assert_complete(tree, grammar)
+    assert int(is_ambiguous(grammar, "abb")) == 0  # nothing was cut
+
+
+def test_a_cut_cycle_counts_as_a_second_derivation():
+    """One tree streams, but the cut branch completes by putting any derivation
+    of the re-entered handle in its place: the text has more than one
+    derivation, so it is ambiguous and the strict parse refuses."""
+    mutual = 'a ::= b | "x"\nb ::= a | "y"\n'
+    witnesses = (
+        (make_nullable_cycle_grammar(), ""),
+        (compile_text(mutual, cache_key="forest-cut-mutual").grammar, "y"),
+    )
+    for grammar, text in witnesses:
+        assert len(derivations(grammar, text)) == 1
+        assert int(is_ambiguous(grammar, text)) == 1
+        with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+            parse(grammar, text)
 
 
 # ── Lazy short-circuit proofs ─────────────────────────────────────────

@@ -35,7 +35,7 @@ from lexic.ir.action.build import IrEmit, IrRaise, IrRebuild, IrWalk
 from lexic.ir.action.flow.control import IrReturn, IrThis
 from lexic.ir.action.mapping import IrMap, IrTypeMap
 from lexic.ir.grammar.nodes import IrLiteral
-from lexic.ir.spine.records import IrCachingTuple, IrTuple
+from lexic.ir.spine.records import IrCachingTuple, IrTuple, is_plain_tuple
 from lexic.ir.spine.spine import IrNode, IrSelf
 
 
@@ -192,7 +192,7 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
         """
         if isinstance(node, IrSelf):
             return node.children()
-        if isinstance(node, tuple):
+        if is_plain_tuple(node):
             return node
         return ()
 

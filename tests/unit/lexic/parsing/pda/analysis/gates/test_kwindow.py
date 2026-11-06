@@ -34,7 +34,7 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis import analysis as analysis_module
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.pda.analysis.cursors import Notes
+from lexic.parsing.pda.analysis.cursors import Cont, Notes, Scope
 from lexic.parsing.pda.analysis.demote import demote_follow_windows
 from lexic.parsing.pda.analysis.gates.kwindow import (
     FOLLOW_LOOP_K,
@@ -42,8 +42,10 @@ from lexic.parsing.pda.analysis.gates.kwindow import (
     arm_final_loop_depths,
     arm_gate,
     follow_depths,
+    lone_iterations,
     loop_gate,
     rule_references,
+    stop_exit_gate,
     stop_exit_settles,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
@@ -57,12 +59,12 @@ from lexic.parsing.pda.analysis.gates.windows import (
     separable,
     windows_of,
 )
+from lexic.parsing.pda.compiler.program.gating import flat_window, window_admits
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.products import parse_model
 from tests.gate_grammars import ARM_FINAL_LOOP
 from tests.gate_grammars import NULL_ARM as NULL_ARM_GRAMMAR
 from tests.paths import GROUND_TRUTH
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     lifted_analysis as _ground_truth_analysis,
 )
@@ -147,7 +149,7 @@ def test_group_prefixes_memoises_a_node_reached_via_multiple_paths(
     solver = KWindowFirst({}, 3)
     expected: set = set()
     for arm in inner:
-        expected |= solver.arm_prefixes(_rule_items(arm), 3)
+        expected |= solver.arm_prefixes(arm, 3)
 
     calls: list[int] = []
     original = KWindowFirst.arm_prefixes
@@ -370,7 +372,7 @@ def test_soft_follow_contract_hard_follow_would_be_unsound():
     )
     ast = IrAst(rules=IrSeq(root, q, b), start="root")
     analysis = GrammarAnalysis(ast)
-    arms = [_rule_items(arm) for arm in analysis.rules["q"].body]
+    arms = list(analysis.rules["q"].body)
 
     assert analysis.follow["q"].has("q")
     assert not analysis.hard_follow["q"].has("q")
@@ -396,7 +398,7 @@ def self_analysis(name: str) -> GrammarAnalysis:
 
 def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
     """``arm_gate``'s separating ``k`` for rule ``name``'s arms, or ``None``."""
-    arms = [_rule_items(arm) for arm in analysis.rules[name].body]
+    arms = list(analysis.rules[name].body)
     got = arm_gate(arms, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
@@ -404,7 +406,7 @@ def arm_k(analysis: GrammarAnalysis, name: str) -> int | None:
 def loop_k(analysis: GrammarAnalysis, name: str, idx: int) -> int | None:
     """``loop_gate``'s separating ``k`` for item ``idx`` of rule ``name``'s
     (single-arm) body, or ``None``."""
-    items = _rule_items(analysis.rules[name].body[0])
+    items = analysis.rules[name].body[0]
     got = loop_gate(items, idx, follow_depths(analysis.rules, analysis.follow[name]))
     return got[0] if got else None
 
@@ -457,7 +459,7 @@ def test_follow_windows_cc_tail_separates_take_from_escape():
     fw = FollowWindows(an.rules, an.start, 2)
     follow = fw.follow["cc-tail"]
     take = extend_follow(
-        fw.solver.arm_prefixes(_rule_items(an.rules["cc-tail"].body[0]), 2), follow, 2
+        fw.solver.arm_prefixes(an.rules["cc-tail"].body[0], 2), follow, 2
     )
     escape = extend_follow(fw.solver.arm_prefixes([], 2), follow, 2)
     assert separable([take, escape])
@@ -475,7 +477,7 @@ def test_the_follow_window_depths_settle_cc_tail():
     body-arm order (the ``- cc-hi`` take arm, then the ε escape arm), where at
     one FOLLOW character (:func:`follow_depths`) it cannot."""
     an = self_analysis("gbnf")
-    arms = [_rule_items(a) for a in an.rules["cc-tail"].body]
+    arms = list(an.rules["cc-tail"].body)
     assert arm_gate(arms, follow_depths(an.rules, an.follow["cc-tail"])) is None
     gate = an.taxonomy.arm_gates.get("cc-tail")
     assert gate is not None
@@ -585,7 +587,7 @@ def test_the_licence_leaves_the_attempt_gate_unused() -> None:
     """The point of the gate is that the loop stops being decided by running it."""
     analysis = _compiled_analysis(CLASS, "flg-class")
 
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 # ── the withholds ──────────────────────────────────────────────────────
@@ -601,7 +603,7 @@ def test_a_loop_a_stop_set_already_decides_never_reaches_the_gate() -> None:
 
     assert not analysis.conflicts
     assert not analysis.taxonomy.loop_gates
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 def test_a_rule_referenced_twice_is_refused() -> None:
@@ -761,7 +763,7 @@ def test_such_a_grammar_carries_no_island(source: str) -> None:
     analysis = _compiled_analysis(source + "\n", f"kw-pair-{hash(source)}")
 
     assert not analysis.islands
-    assert not analysis.taxonomy.attempt_loops
+    assert not analysis.taxonomy.loops.attempt
 
 
 def test_a_repeated_atom_under_the_optional_still_takes() -> None:
@@ -792,7 +794,7 @@ def _exit_settles(source: str, rule: str, key: str) -> bool:
     """:func:`stop_exit_settles` for the loop that opens ``rule``'s one arm,
     exiting where its FIRST meets the rule's hard FOLLOW."""
     analysis = _compiled_analysis(source, key)
-    items = _rule_items(analysis.rules[rule].body[0])
+    items = analysis.rules[rule].body[0]
     first = analysis.atom_first(items[0].atom)
     hard = analysis.hard_cont_at(items, 0, analysis.hard_follow[rule])
     exits = first.subtract(first.subtract(hard))
@@ -828,6 +830,71 @@ def test_arithmetics_exit_settles_under_the_end_guard() -> None:
     assert _exit_settles(source, "ws", "kw-stop-arithmetic")
 
 
+def _exit_gate(source: str, rule: str, key: str):
+    """:func:`stop_exit_gate` for the loop that opens ``rule``'s one arm, as
+    :func:`_exit_settles` asks it, pre-resolved for :func:`window_admits`."""
+    analysis = _compiled_analysis(source, key)
+    items = analysis.rules[rule].body[0]
+    first = analysis.atom_first(items[0].atom)
+    hard = analysis.hard_cont_at(items, 0, analysis.hard_follow[rule])
+    exits = first.subtract(first.subtract(hard))
+    windows = FollowWindows(analysis.rules, analysis.start, FOLLOW_LOOP_K)
+    gate = stop_exit_gate(windows, (items, 0), rule, first, exits)
+    return None if gate is None else tuple(flat_window(win) for win in gate)
+
+
+@pytest.mark.parametrize(
+    ("text", "takes"),
+    [("ab", True), ("aa", True), ("a!", False), ("b!", True), ("!", False)],
+    ids=["exit-then-loop", "exit-then-rest-or-loop", "exit-then-tail", "run", "none"],
+)
+def test_a_settled_exit_is_gated_by_its_two_characters(text: str, takes: bool) -> None:
+    """``r ::= [ab]* "a" t``, ``t ::= "!"``: a stop set alone stops at every
+    ``a``, and ``aa!`` dies there. The gate takes an ``a`` the loop or the rest
+    goes on after, stops at the ``a`` before ``!``, and takes a ``b`` as the
+    stop set does."""
+    source = 's ::= r ";"\nr ::= [ab]* "a" t\nt ::= "!"\n'
+    gate = _exit_gate(source, "r", "kw-gate-second")
+    assert gate is not None
+    assert window_admits(text, 0, gate) is takes
+
+
+def test_one_gate_for_every_site_needs_the_sites_to_agree() -> None:
+    """Arithmetic's shape settles site by site, but the take after ``= ws``
+    goes on with a letter, which is how the stop at the line's end goes on:
+    one gate serving both sites would take that newline, so none is built."""
+    assert _exit_settles(LINES, "ws", "kw-gate-lines")
+    assert _exit_gate(LINES, "ws", "kw-gate-lines-union") is None
+
+
+def test_lone_iterations_are_the_one_character_iterations() -> None:
+    """``x ::= [a-z] | "-" "-"``: a letter is a whole iteration on its own, a
+    dash only starts one."""
+    analysis = _compiled_analysis('s ::= x* "!"\nx ::= [a-z] | "-" "-"\n', "kw-lone")
+    windows = FollowWindows(analysis.rules, analysis.start, FOLLOW_LOOP_K)
+    lone = lone_iterations(windows, IrRuleRef("x"))
+    assert lone.has("q") and not lone.has("-")
+
+
+@pytest.mark.parametrize(
+    ("unit", "audited"),
+    [('[a-z] | "-"', "-"), ('[a-z] | "-" "-"', "")],
+    ids=["a-lone-exit-stays-audited", "an-exit-that-starts-an-iteration"],
+)
+def test_a_two_deep_audit_set_keeps_its_lone_exits(unit: str, audited: str) -> None:
+    """``s ::= x* "-"`` at the end of the input: the exit ``-`` is decided two
+    deep, so the attempt's audit set drops it — where an iteration that parsed
+    read both characters. A ``-`` that is a whole iteration read one: the
+    stop it might have been stays audited."""
+    analysis = _compiled_analysis(
+        f's ::= x* "-"\nx ::= {unit}\n', f"kw-audit-{audited}"
+    )
+    items = analysis.rules["s"].body[0]
+    follow = analysis.follow["s"]
+    scope = Scope("s", Cont(follow, analysis.hard_follow["s"], follow), body=True)
+    assert analysis.beyond_at(items, 0, scope) == CharSet.from_chars(*audited)
+
+
 def test_a_take_and_a_stop_that_both_end_the_input_do_not_settle() -> None:
     """The guard, fed the site it guards against: ``r ::= [a]*`` where the
     input may end right after the ``a`` that follows ``r``, or right after an
@@ -846,8 +913,36 @@ def test_a_take_and_a_stop_that_both_end_the_input_do_not_settle() -> None:
     windows = FollowWindows(rules, "s", FOLLOW_LOOP_K)
     a = CharSet.from_chars("a")
     windows.follow["s"] = {((), END), ((a,), END)}
-    items = _rule_items(rules["r"].body[0])
+    items = rules["r"].body[0]
     assert not stop_exit_settles(windows, items, 0, "r", a)
+
+
+def test_a_take_that_ends_the_input_is_gated_by_the_end() -> None:
+    """``r ::= [a]*`` where the input may end right after an ``a`` the run
+    takes, or go on with the ``ab`` that follows ``r``. The two are told apart
+    only by what comes after the ``a``: the end of the input is the take's,
+    ``b`` the stop's. So the gate's take window is ``a`` then the end — read
+    as ``a`` alone it would take before the stop's ``b``, and the stop's
+    continuation would die. No grammar's fixpoint builds this site, so it is
+    set on the windows by hand."""
+    rules = {
+        "s": IrRule("s", IrAlternation(IrSequence(IrItem(IrRuleRef("r"))))),
+        "r": IrRule(
+            "r",
+            IrAlternation(
+                IrSequence(IrItem(IrCharClass(IrChr(97)), IrQuantifier(0, IrNone)))
+            ),
+        ),
+    }
+    windows = FollowWindows(rules, "s", FOLLOW_LOOP_K)
+    a, b = CharSet.from_chars("a"), CharSet.from_chars("b")
+    windows.follow["s"] = {((), END), ((a, b), END)}
+    items = rules["r"].body[0]
+    gate = stop_exit_gate(windows, (items, 0), "r", a, a)
+    assert gate is not None
+    flat = tuple(flat_window(win) for win in gate)
+    assert window_admits("a", 0, flat), "the take: an a, then the end"
+    assert not window_admits("ab", 0, flat), "the stop: the a that b follows"
 
 
 def test_an_analysis_builds_each_follow_window_width_once(monkeypatch) -> None:
@@ -882,7 +977,7 @@ def test_demotes_gbnf_self_cc_tail_via_follow_windows():
     assert analysis.demoted["cc-tail"] == [
         "cc-tail: arms FOLLOW-window separable (demoted)"
     ]
-    arms = [_rule_items(arm) for arm in analysis.rules["cc-tail"].body]
+    arms = list(analysis.rules["cc-tail"].body)
     one_deep = follow_depths(analysis.rules, analysis.follow["cc-tail"])
     assert arm_gate(arms, one_deep) is None
     stored = analysis.taxonomy.arm_gates["cc-tail"]

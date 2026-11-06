@@ -19,35 +19,31 @@ answers "can spell" for everything it cannot decide.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 
 from lexic.ir import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrItem,
     IrLiteral,
-    IrNoneType,
     IrNot,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.pda.core.charsets import CharSet
 
-UNIT = IrQuantifier()
-"""The unit quantifier — exactly one occurrence."""
+type RuleTable = Mapping[str, IrRule]
+"""A grammar's rules by name — what every split analysis reads a rule through."""
 
+_TABLES: dict[int, tuple[IrAst, RuleTable]] = memo({})
+"""id(grammar) → (grammar, its rule table); the table is adopted under it."""
 
-def unbounded(item: IrItem) -> bool:
-    """Whether the item repeats without an upper bound."""
-    return isinstance(item.quantifier.hi, IrNoneType)
-
-
-def repeats(item: IrItem) -> bool:
-    """Whether the item may occur more than once, so it stands beside itself."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
+_NULLABLE: dict[int, tuple[RuleTable, IrAst, list[frozenset[str]]]] = memo({})
+"""id(table) → (table, grammar, its nullable rules once asked); goes with the grammar."""
 
 
 def _one_char(text: str) -> bool:
@@ -60,40 +56,55 @@ def _any_text(text: str) -> bool:
     return bool(text)
 
 
-def _spelling(
-    item: IrItem, rule_map: dict[str, IrRule], accept: Callable[[str], bool]
-) -> str | None:
-    """The literal an item spells, through one unit rule reference.
+_NOISE, _MANY = "", None
+"""What an item spells besides one literal: text that varies (a class, a
+quantified item, a choice, a rule spelling no literal), or one fixed spelling of
+several literals, which is no one literal (nor is a single-armed recursion)."""
 
-    A grammar may name its punctuation (``begin-object ::= ws "{" ws``), and
-    the punctuation may sit among noise, so a rule spells one literal when
-    exactly one of its items does.
+
+def _spelling(
+    item: IrItem, rule_map: RuleTable, accept: Callable[[str], bool]
+) -> str | None:
+    """The literal an item spells amid noise, through single-armed references.
+
+    A grammar may name its punctuation (``begin-object ::= ws "{" ws``) and set
+    it among text that varies, so an item spells a literal when that literal is
+    the one its fixed spelling holds, and ``accept`` is asked of that one.
+    ``ws "set " name "\\n"`` spells two literals, and ``member ::= string ":"
+    value`` spells the string's two quotes besides, so neither spells one; a
+    choice varies, as a quantified item does, so ``ws ::= " " ws | ""`` is noise.
     """
-    if item.quantifier != UNIT:
-        return None
+    found = _literal_of(item, rule_map, frozenset())
+    return found if found and accept(found) else None
+
+
+def _literal_of(item: IrItem, rule_map: RuleTable, seen: frozenset[str]) -> str | None:
+    """The one literal an item spells, :data:`_NOISE`, or :data:`_MANY`."""
+    if not item.quantifier.once():
+        return _NOISE
     atom = item.atom
     if isinstance(atom, IrLiteral):
-        return str(atom) if accept(str(atom)) else None
-    if not isinstance(atom, IrRuleRef):
-        return None
-    target = rule_map.get(str(atom))
-    arms = tuple(target.body) if target is not None else ()
+        return str(atom)
+    name = str(atom) if isinstance(atom, IrRuleRef) else ""
+    if name in seen:
+        return _MANY
+    target = rule_map.get(name) if name else None
+    arms = tuple(atom) if isinstance(atom, IrAlternation) else ()
+    arms = tuple(target.body) if target is not None else arms
     if len(arms) != 1:
-        return None
-    spelled = [
-        text
-        for inner in tuple(arms[0])
-        if (text := _spelling(inner, rule_map, accept)) is not None
-    ]
-    return spelled[0] if len(spelled) == 1 else None
+        return _NOISE  # a choice varies, as a quantified item does
+    inner = seen | {name} if name else seen
+    found = (_literal_of(one, rule_map, inner) for one in arms[0])
+    spelled = [got for got in found if got != _NOISE]
+    return spelled[0] if len(spelled) == 1 else (_MANY if spelled else _NOISE)
 
 
-def literal_char(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
+def literal_char(item: IrItem, rule_map: RuleTable) -> str | None:
     """The single character an item spells, through one unit rule reference."""
     return _spelling(item, rule_map, _one_char)
 
 
-def literal_text(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
+def literal_text(item: IrItem, rule_map: RuleTable) -> str | None:
     """The literal string an item spells, through one unit rule reference.
 
     A delimiter is not always one character (```` ``` ```` fences a block), so
@@ -103,7 +114,7 @@ def literal_text(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
     return _spelling(item, rule_map, _any_text)
 
 
-def item_lead(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
+def item_lead(item: IrItem, rule_map: RuleTable) -> str | None:
     """The first character of the literal an item spells, or ``None``.
 
     A region's opening delimiter is reached at its FIRST character and skipped
@@ -148,7 +159,7 @@ def _class_of(atom: IrNot) -> CharSet:
 def emits(
     item: IrItem,
     char: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -178,7 +189,7 @@ def emits(
 def _ref_emits(
     name: str,
     char: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -196,7 +207,7 @@ def _ref_emits(
 def rule_emits(
     rule: IrRule,
     char: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -209,7 +220,7 @@ def rule_emits(
 def leads_with(
     items: tuple[IrItem, ...],
     char: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether an arm can derive a string whose FIRST character is ``char``.
@@ -220,13 +231,13 @@ def leads_with(
     for item in items:
         if _item_leads(item, char, rule_map, path):
             return True
-        if not derives_empty(item, rule_map, frozenset()):
+        if not derives_empty(item, rule_map):
             return False
     return False
 
 
 def _item_leads(
-    item: IrItem, char: str, rule_map: dict[str, IrRule], path: frozenset[str]
+    item: IrItem, char: str, rule_map: RuleTable, path: frozenset[str]
 ) -> bool:
     """Whether one item can derive a string starting with ``char``."""
     atom = item.atom
@@ -243,9 +254,7 @@ def _item_leads(
     return True
 
 
-def _ref_leads(
-    name: str, char: str, rule_map: dict[str, IrRule], path: frozenset[str]
-) -> bool:
+def _ref_leads(name: str, char: str, rule_map: RuleTable, path: frozenset[str]) -> bool:
     """Whether a referenced rule can open with ``char``; unknown names can."""
     target = rule_map.get(name)
     if target is None or name in path:
@@ -255,36 +264,42 @@ def _ref_leads(
     )
 
 
-def derives_empty(
-    item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
-) -> bool:
+def rule_table(grammar: IrAst) -> RuleTable:
+    """The grammar's rules by name — one read-only table per grammar, for every
+    reader, with the rules that derive the empty string settled on first ask."""
+    entry = _TABLES.get(id(grammar))
+    if entry is None:
+        table = MappingProxyType({str(rule.name): rule for rule in grammar.rules})
+        _NULLABLE[id(table)] = (table, grammar, [])
+        entry = _TABLES[id(grammar)] = (grammar, table)
+        adopt(id(grammar), table)
+    return entry[1]
+
+
+def _nullable(rule_map: RuleTable) -> frozenset[str]:
+    """The table's nullable rules: settled once for a grammar's own table, else solved."""
+    entry = _NULLABLE.get(id(rule_map))
+    if entry is None:
+        return IrRule.nullable_among(rule_map.values())
+    _, grammar, held = entry
+    if not held:
+        held.append(grammar.nullable())
+    return held[0]
+
+
+def derives_empty(item: IrItem, rule_map: RuleTable) -> bool:
     """Whether an item can derive the empty string."""
-    if item.quantifier.lo == 0:
-        return True
-    atom = item.atom
-    if isinstance(atom, IrLiteral):
-        return not str(atom)
-    if isinstance(atom, IrAlternation):
-        return any(arm_empty(tuple(arm), rule_map, path) for arm in atom)
-    if not isinstance(atom, IrRuleRef):
-        return False
-    target = rule_map.get(str(atom))
-    if target is None or str(atom) in path:
-        return True
-    return any(
-        arm_empty(tuple(arm), rule_map, path | {str(atom)}) for arm in target.body
-    )
+    return item.vanishes(_nullable(rule_map))
 
 
-def arm_empty(
-    items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
-) -> bool:
+def arm_empty(items: tuple[IrItem, ...], rule_map: RuleTable) -> bool:
     """Whether every item of one arm can derive the empty string."""
-    return all(derives_empty(item, rule_map, path) for item in items)
+    nullable = _nullable(rule_map)
+    return all(item.vanishes(nullable) for item in items)
 
 
 def interior(
-    rule_map: dict[str, IrRule], name: str, path: frozenset[str] = frozenset()
+    rule_map: RuleTable, name: str, path: frozenset[str] = frozenset()
 ) -> CharSet:
     """Every character a rule can emit at a NON-final position of its text.
 
@@ -300,10 +315,10 @@ def interior(
 
 
 def over_arms(
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     name: str,
     path: frozenset[str],
-    of_arm: Callable[[dict[str, IrRule], tuple[IrItem, ...], frozenset[str]], CharSet],
+    of_arm: Callable[[RuleTable, tuple[IrItem, ...], frozenset[str]], CharSet],
 ) -> CharSet:
     """Union ``of_arm`` over every arm of a rule; ``ANY`` when unresolvable.
 
@@ -322,7 +337,7 @@ def over_arms(
 
 
 def _arm_interior(
-    rule_map: dict[str, IrRule], items: tuple[IrItem, ...], path: frozenset[str]
+    rule_map: RuleTable, items: tuple[IrItem, ...], path: frozenset[str]
 ) -> CharSet:
     """Every character one arm can emit before its own last."""
     found = CharSet.EMPTY
@@ -333,16 +348,14 @@ def _arm_interior(
     return found.union(_item_interior(rule_map, items[-1], path))
 
 
-def _item_interior(
-    rule_map: dict[str, IrRule], item: IrItem, path: frozenset[str]
-) -> CharSet:
+def _item_interior(rule_map: RuleTable, item: IrItem, path: frozenset[str]) -> CharSet:
     """What an arm's FINAL item can emit before its own last character.
 
     A repeated item stands beside itself, so every character it spells is an
     interior one; a reference is followed; a literal contributes all but its
     last character; a single-character atom contributes nothing.
     """
-    if repeats(item):
+    if item.quantifier.repeats():
         return emit_charset(item, rule_map, frozenset())
     atom = item.atom
     if isinstance(atom, IrRuleRef):
@@ -376,7 +389,7 @@ def sole_char(found: CharSet) -> str:
 
 def emit_charset(
     item: IrItem,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
     hidden: frozenset[str] = frozenset(),
 ) -> CharSet:
@@ -419,7 +432,7 @@ def _leaf_charset(atom: IrSelf) -> CharSet | None:
 
 def _arms_charset(
     body: IrAlternation,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
     hidden: frozenset[str],
 ) -> CharSet:
@@ -432,7 +445,7 @@ def _arms_charset(
 
 
 def first_charset(
-    items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
+    items: tuple[IrItem, ...], rule_map: RuleTable, path: frozenset[str]
 ) -> CharSet:
     """Every character an arm can begin with — FIRST, as a set.
 
@@ -442,14 +455,12 @@ def first_charset(
     found = CharSet.EMPTY
     for item in items:
         found = found.union(item_first(item, rule_map, path))
-        if not derives_empty(item, rule_map, frozenset()):
+        if not derives_empty(item, rule_map):
             break
     return found
 
 
-def item_first(
-    item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
-) -> CharSet:
+def item_first(item: IrItem, rule_map: RuleTable, path: frozenset[str]) -> CharSet:
     """The characters one item can begin with."""
     atom = item.atom
     if isinstance(atom, IrLiteral):
@@ -466,7 +477,7 @@ def item_first(
 
 
 def _body_first(
-    body: IrAlternation, rule_map: dict[str, IrRule], path: frozenset[str]
+    body: IrAlternation, rule_map: RuleTable, path: frozenset[str]
 ) -> CharSet:
     """The union of what every arm of an alternation can begin with."""
     found = CharSet.EMPTY
@@ -476,7 +487,7 @@ def _body_first(
 
 
 def last_charset(
-    items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
+    items: tuple[IrItem, ...], rule_map: RuleTable, path: frozenset[str]
 ) -> CharSet:
     """Every character an arm can END with — the exact mirror of FIRST.
 
@@ -487,14 +498,12 @@ def last_charset(
     found = CharSet.EMPTY
     for item in reversed(items):
         found = found.union(item_last(item, rule_map, path))
-        if not derives_empty(item, rule_map, frozenset()):
+        if not derives_empty(item, rule_map):
             break
     return found
 
 
-def item_last(
-    item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
-) -> CharSet:
+def item_last(item: IrItem, rule_map: RuleTable, path: frozenset[str]) -> CharSet:
     """The characters one item can end with."""
     atom = item.atom
     if isinstance(atom, IrLiteral):
@@ -511,7 +520,7 @@ def item_last(
 
 
 def _body_last(
-    body: IrAlternation, rule_map: dict[str, IrRule], path: frozenset[str]
+    body: IrAlternation, rule_map: RuleTable, path: frozenset[str]
 ) -> CharSet:
     """The union of what every arm of an alternation can end with."""
     found = CharSet.EMPTY
@@ -520,14 +529,14 @@ def _body_last(
     return found
 
 
-def exact_text(item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]) -> str:
+def exact_text(item: IrItem, rule_map: RuleTable, path: frozenset[str]) -> str:
     """The one fixed string an item ALWAYS derives, or ``""``.
 
     Stricter than :func:`literal_text`, which reads the one anchor literal an
     item spells among noise. A caller reaching leftward for the character
     BEFORE a spelling needs the item's whole text, not its punctuation.
     """
-    if item.quantifier != UNIT:
+    if not item.quantifier.once():
         return ""
     atom = item.atom
     if isinstance(atom, IrLiteral):
@@ -557,7 +566,7 @@ not a character-set question; rather than approximate it, a longer mark answers
 def rule_spells(
     rule: IrRule,
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -586,7 +595,7 @@ def rule_spells(
 def arm_spells(
     items: tuple[IrItem, ...],
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -613,7 +622,7 @@ def joins(
     before: tuple[IrItem, ...],
     after: tuple[IrItem, ...],
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     path: frozenset[str],
 ) -> bool:
     """Whether text ending ``before`` can meet text beginning ``after`` as ``mark``."""
@@ -625,7 +634,7 @@ def joins(
 def item_spells(
     item: IrItem,
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -639,13 +648,13 @@ def item_spells(
         return emits(item, mark, rule_map, hidden, path)
     if len(mark) > MARK_ARITY:
         return True
-    if repeats(item) and _self_joins(item, mark, rule_map, path):
+    if item.quantifier.repeats() and _self_joins(item, mark, rule_map, path):
         return True
     return _atom_spells(item.atom, mark, rule_map, hidden, path)
 
 
 def _self_joins(
-    item: IrItem, mark: str, rule_map: dict[str, IrRule], path: frozenset[str]
+    item: IrItem, mark: str, rule_map: RuleTable, path: frozenset[str]
 ) -> bool:
     """Whether two occurrences of a repeated item spell ``mark`` between them."""
     return item_last(item, rule_map, path).has(mark[0]) and item_first(
@@ -656,7 +665,7 @@ def _self_joins(
 def _atom_spells(
     atom: IrSelf,
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:
@@ -675,7 +684,7 @@ def _atom_spells(
 def _ref_spells(
     name: str,
     mark: str,
-    rule_map: dict[str, IrRule],
+    rule_map: RuleTable,
     hidden: frozenset[str],
     path: frozenset[str],
 ) -> bool:

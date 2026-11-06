@@ -135,7 +135,7 @@ reading ``selectors`` alone sees a wide clone's default and nothing else."""
 
 BUILD_FOLD = 5
 """A rule the left-recursion rewrite turned into a loop
-(:mod:`~lexic.parsing.pda.compiler.leftrec.rewrite`). Its frame completes by
+(:mod:`~lexic.parsing.pda.compiler.descent.leftrec.rewrite`). Its frame completes by
 folding the iterations back through the recursive arm's own build — the base,
 then each iteration left-nested onto it — so the model is the one the original
 arms build. Numbered past :data:`BUILD_DISPATCH` rather than beside its
