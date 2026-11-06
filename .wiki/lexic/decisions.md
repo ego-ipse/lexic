@@ -1025,12 +1025,11 @@ each silently disabling the optimisation while every test stayed green:
 
 **Only the delta is compared.** Both sides are copies of ONE live stack, so
 everything already in a value container at fork time is identical between them
-by construction. `value_shape()` takes that watermark at the boundary and
-`pending_values(stack, shape)` compares past it — O(built-since), not O(built).
-Comparing the whole state was 92% of a large parse and the whole of its residual
-superlinearity. Conservative where the premise fails: a container that comes
-back SHORTER was replaced rather than appended to and is compared whole, and
-frames pushed after the boundary have no watermark and are compared in full.
+by construction. A fork's containers start empty, so what a reading built
+since a split is read down each frame's fork chain to the frame the split was
+taken on (`liveset.built_since`) — O(built-since), not O(built). Comparing the
+whole state was 92% of a large parse and the whole of its residual
+superlinearity.
 
 **Measured**, on a boundary-dense vyx packet: 11,281 chars **73.4s → 0.49s**,
 and the growth is linear — 44 µs/char flat from 719c to 11,281c, where it had

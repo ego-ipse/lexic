@@ -33,8 +33,6 @@ __all__ = [
     "RouteLane",
     "Side",
     "control_signature",
-    "pending_values",
-    "value_shape",
     "KernelCaches",
     "admits",
     "composes",
@@ -302,12 +300,12 @@ def frames_copy[Carry](
 
     **The containers fork EMPTY.** A fork needs the values it BUILDS; the
     prefix it inherited is common to every side by construction, which is the
-    same fact :func:`pending_values` relies on to compare deltas rather than
-    whole states. Copying that prefix made a linear number of forks each copy
-    a linearly-growing sink — and it is a prefix almost nothing goes on to
-    read, so the work was quadratic in the fork count and wasted besides. On a
-    256 KB gbnf-meta document the copies moved 407 M list elements, of which
-    the builds read 14,632 back. That is what the eighth
+    same fact the live set's meetings rely on to compare what each reading
+    built rather than whole states. Copying that prefix made a linear number of
+    forks each copy a linearly-growing sink — and it is a prefix almost nothing
+    goes on to read, so the work was quadratic in the fork count and wasted
+    besides. On a 256 KB gbnf-meta document the copies moved 407 M list
+    elements, of which the builds read 14,632 back. That is what the eighth
     :class:`~lexic.parsing.pda.runtime.build.Frame` slot buys: ``inherited``
     costs one pointer per frame and removes the copy entirely.
 
@@ -548,70 +546,3 @@ def _count_key(frame: Frame) -> int:
     if arm.his[i] >= 0 or count < arm.los[i]:
         return count
     return _COUNT_FREE
-
-
-def value_shape(stack: list[Frame]) -> tuple[Any, ...]:
-    """Every value container's length — the watermark taken AT the boundary.
-
-    Both sides of a boundary are copies of one live stack, so everything
-    already in a container when the fork was taken is identical between them
-    by construction. Only what is appended AFTER can differ, and this is what
-    lets :func:`pending_values` compare the delta instead of the whole
-    accumulated state — the difference between O(built-since) and O(built), and
-    the difference between a linear parse and a quadratic one.
-
-    Taken on the LIVE stack, whose containers hold what they hold. A fork's
-    containers start empty (:func:`frames_copy`), so its own values are
-    everything past a watermark of zero — and :func:`pending_values` reads a
-    container shorter than its watermark as "replaced, compare whole", which
-    on a forked side is exactly its own values and nothing else.
-    """
-    return tuple(
-        (
-            len(frame.out),
-            ()
-            if frame.sinks is None
-            else tuple(0 if slot is None else len(slot) for slot in frame.sinks),
-        )
-        for frame in stack
-    )
-
-
-def pending_values(stack: list[Frame], shape: tuple[Any, ...] = ()) -> tuple[Any, ...]:
-    """Every value a probe side has built SINCE ``shape`` was taken.
-
-    Containers grow by append, so the watermark's prefix is common to both
-    sides and re-comparing it is pure waste — measured as 92% of the parse and
-    the whole of its residual superlinearity. A container that came back
-    SHORTER than its watermark was not appended to but replaced, and there the
-    watermark means nothing: it is compared whole, which is the conservative
-    reading.
-
-    Frames deeper than ``shape`` did not exist at the boundary and are compared
-    in full.
-
-    Aliased containers (a frame's ``out`` IS a parent's sink slot) are read
-    twice; harmless for an equality test, and cheaper than resolving identity.
-    """
-    out: list[Any] = []
-    for depth, frame in enumerate(stack):
-        was_out, was_sinks = shape[depth] if depth < len(shape) else (0, ())
-        out.append(_since(frame.out, was_out))
-        sinks = frame.sinks
-        if sinks is None:
-            out.append(())
-            continue
-        out.append(
-            tuple(
-                ()
-                if slot is None
-                else _since(slot, was_sinks[k] if k < len(was_sinks) else 0)
-                for k, slot in enumerate(sinks)
-            )
-        )
-    return tuple(out)
-
-
-def _since(container: list[Any], mark: int) -> tuple[Any, ...]:
-    """``container``'s tail past ``mark`` — or all of it if it shrank."""
-    return tuple(container) if len(container) < mark else tuple(container[mark:])
