@@ -15,6 +15,7 @@ import pytest
 
 from lexic.exceptions import LexicError
 from lexic.ir import IrNamedTuple, IrStr
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import Floor, Side
 from lexic.parsing.pda.runtime.build import Frame
@@ -248,6 +249,26 @@ def test_readings_meet_only_where_they_share_a_future(
     still trying its entry settle the attempt apart."""
     monkeypatch.setattr(liveset, "control_signature", lambda _stack, pos: pos)
     assert (liveset.meeting(one) == liveset.meeting(other)) is meet
+
+
+@pytest.mark.parametrize(
+    ("theirs", "agree"),
+    [(["x"], True), (["y"], False)],
+    ids=["one-winner", "two-winners"],
+)
+def test_readings_under_audit_are_compared_by_their_winners(
+    monkeypatch, theirs: list[Any], agree: bool
+) -> None:
+    """Two readings in one entry's audit whose winners end alike meet; what
+    they built is their winners too, so winners that differ are ranked, not
+    merged, though the frames they hold are alike."""
+    monkeypatch.setattr(liveset, "control_signature", lambda _stack, pos: pos)
+    root = Level([], 0, {})
+    one = Strand(_auditing((4, ["x"])), (0,), ((),), (root,))
+    other = Strand(_auditing((4, theirs)), (1,), ((),), (root,))
+    assert liveset.meeting(one.side) == liveset.meeting(other.side)
+    built = liveset.built_since(one, 0), liveset.built_since(other, 0)
+    assert same_value(*built) is agree
 
 
 # ── the bounds: each a fork that names itself ──────────────────────────────
