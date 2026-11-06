@@ -300,7 +300,7 @@ def test_an_audit_with_no_record_is_undecidable() -> None:
 
 
 def test_a_fork_inside_a_span_check_is_undecidable() -> None:
-    """``_spans_exactly`` re-runs an entry on the text truncated at the
+    """``_spanned`` re-runs an entry on the text truncated at the
     winner's end, a question about that one span: a side forked inside it has
     no caller to hand an answer back to, so the fork refuses."""
     below: Frame[str] = Frame(flat_arm(1), [], flat_clone(), 0)

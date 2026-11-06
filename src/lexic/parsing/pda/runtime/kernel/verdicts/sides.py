@@ -328,7 +328,7 @@ class Sides[Carry](Floors[Carry]):
         """The live audit whose sub-run roots at ``depth``, or ``None`` when the
         sub-run there is no audit's (``start`` is a position).
 
-        :raises ProbeFork: On :meth:`_spans_exactly`'s sub-run, which no side
+        :raises ProbeFork: On :meth:`_spanned`'s sub-run, which no side
             settles, or an audit with no record.
         """
         if start >= 0:

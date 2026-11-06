@@ -443,17 +443,22 @@ class Attempting[Carry](Verdicts[Carry]):
             if same_value(got[1], won[1]):
                 return False
             raise value_question(pos, end)
-        if alt > end and self._spans_exactly(sub, pos, end):
-            raise value_question(pos, end)
+        if alt > end:
+            spanned = self._spanned(sub, pos, end)
+            if spanned is not None and not same_value(spanned, won[1]):
+                raise value_question(pos, end)
         return composes(clone.attempt[0], self.text, alt)
 
-    def _spans_exactly(self, sub: FlatClone, pos: int, end: int) -> bool:
-        """Whether ``sub`` also derives exactly ``[pos, end)``.
+    def _spanned(self, sub: FlatClone, pos: int, end: int) -> list[Carry] | None:
+        """What ``sub`` builds where it also derives exactly ``[pos, end)``, or
+        ``None`` where it does not.
 
         An arm has a FAMILY of extents, not one: :meth:`_attempt_run` reports
         only the greedy member, so an arm that overshoots the winner may still
-        derive the winner's own span — and two arms over one span is the value
-        question this seam refuses. Asked by re-running the arm against the
+        derive the winner's own span — and two arms over one span with two
+        values is the value question this seam refuses. With the winner's
+        value, it is the winner's reading again: an arm that is also the
+        attempt's nullable default entry, tried twice. Asked by re-running the arm against the
         text TRUNCATED at ``end``, which is what makes the greedy run stop
         there; a completed parse of a prefix is a genuine derivation of it, so
         the answer cannot be a false positive. Only reachable when the greedy
@@ -471,7 +476,7 @@ class Attempting[Carry](Verdicts[Carry]):
         finally:
             self.text, scope.cut = whole, cut
             caches.scope.catching = catching
-        return bounded is not None and bounded[0] == end
+        return bounded[1] if bounded is not None and bounded[0] == end else None
 
     def _attempt_run(
         self, sub: FlatClone[Carry], pos: int, mark: int
@@ -509,7 +514,7 @@ class Attempting[Carry](Verdicts[Carry]):
         :param pos: The attempt position.
         :param mark: ``pos`` for a loop iteration or an attempt entry, ``-1``
             for an audit's run (its record is on the caches), ``-2`` for
-            :meth:`_spans_exactly`'s, which no side settles.
+            :meth:`_spanned`'s, which no side settles.
         :returns: ``(end, values)``, or ``None`` when the arm fails.
         :raises Suspended: Past the depth, where a drive below settles it.
         """

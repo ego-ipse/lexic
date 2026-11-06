@@ -3033,3 +3033,8 @@ reading built down its fork chain.
 
 `decisions.md`'s meeting rule: a reading inside an attempt entry under audit
 meets only one with the same winner and rivals.
+
+## An overshooting audited arm is a value question only with another value (2026-11-06)
+
+`decisions.md`'s attempt-gate entry: `_spanned` compares what the arm builds
+over the winner's span.

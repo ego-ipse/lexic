@@ -182,7 +182,12 @@ tries the arms in order as self-contained sub-runs and commits the first
 success — after an **audit** of the remaining admitted arms. A second success
 on the same span with a different value raises `PdaFail` — the gated engine
 then refuses iff the ambiguity is real — and one with the same value lets the
-winner stand. One on a different span whose next character the rule's soft
+winner stand. An arm whose greedy run overshoots the winner is asked whether it
+also derives the winner's span (`_spanned`); there too only another value is
+the question. The same value is the winner's reading again: a nullable arm is
+both an admitted entry and the rule's default, and audited as the default it
+re-derives the winner's empty span (a fuzz grammar's `x ::= … | z*`, whose 128
+texts declined). One on a different span whose next character the rule's soft
 FOLLOW accepts is a carving the decider ranks against the winner (*"An
 attempt's arms that end apart are ranked by the decider"* below). Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
