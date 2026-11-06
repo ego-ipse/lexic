@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 from functools import partial
+from typing import Any
 
 from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
@@ -39,6 +40,7 @@ from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD
 
 __all__ = [
+    "admitted",
     "FRAMES_PER_LEVEL",
     "STACK_SHARE",
     "SYNC_DEPTH",
@@ -246,19 +248,22 @@ class Attempting[Carry](Verdicts[Carry]):
         if got and not composes(follow, self.text, got[0]):
             got = None
         for idx in range(len(entries) if got else ran + 1, len(entries)):
-            chars, negated, prefix, window, sub = entries[idx]
-            if chars is not None and (  # `admits`, read in place
-                (char == "" or char in chars) if negated else (char not in chars)
-            ):
-                continue
-            if prefix is not None and prefix.match(self.text, pos) is None:
-                continue
-            if window is not None and window.match(self.text, pos) is None:
+            sub = entries[idx][4]
+            if not admitted(entries[idx], self.text, pos, char):
                 continue
             try:
                 got = self._attempt_run(sub, pos, pos)
             except Suspended:  # the drive settles it, and goes on from here
                 Suspended.called_by(None, (clone, out, idx, None, None))
+                raise
+            except IslandEnds as two:
+                # The entry's whole outcome is an island's ends: with no later
+                # entry admitted, they are the attempt's, for its caller.
+                rest = entries[idx + 1 :]
+                if two.root is sub and not any(
+                    admitted(entry, self.text, pos, char) for entry in rest
+                ):
+                    two.sink, two.root = out, None
                 raise
             if got is not None:
                 if not composes(follow, self.text, got[0]):
@@ -371,14 +376,8 @@ class Attempting[Carry](Verdicts[Carry]):
         pos = self.pos  # every entry starts here, where each sub-run leaves it
         char = self.text[pos : pos + 1]
         for idx in range(ran + 1, len(entries)):
-            chars, negated, prefix, window, sub = entries[idx]
-            if chars is not None and (  # `admits`, read in place
-                (char == "" or char in chars) if negated else (char not in chars)
-            ):
-                continue
-            if prefix is not None and prefix.match(self.text, pos) is None:
-                continue
-            if window is not None and window.match(self.text, pos) is None:
+            sub = entries[idx][4]
+            if not admitted(entries[idx], self.text, pos, char):
                 continue
             if not sub.sub_root:  # the program cannot fork: nothing reads it
                 try:
@@ -574,3 +573,16 @@ def value_question(pos: int, end: int) -> ProbeFork:
         "a value question for the gated engine",
         pos,
     )
+
+
+def admitted(entry: tuple[Any, ...], text: str, pos: int, char: str) -> bool:
+    """Whether an attempt ``entry`` admits ``text`` at ``pos``, ``char`` there:
+    its lead characters, its arm's literal prefix, and its window."""
+    chars, negated, prefix, window, _sub = entry
+    if chars is not None and (
+        (char == "" or char in chars) if negated else (char not in chars)
+    ):
+        return False
+    if prefix is not None and prefix.match(text, pos) is None:
+        return False
+    return window is None or window.match(text, pos) is not None

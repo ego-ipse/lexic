@@ -22,6 +22,7 @@ from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
     GREEDY_SPLIT,
     NOISE_GREEDY,
+    STOP_SET,
 )
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
@@ -47,6 +48,40 @@ def file_attempt_loop(
         return
     analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
     notes.covered += 1
+
+
+def defer_stop_set(
+    analysis: Any,
+    at: tuple[Sequence[IrItem], int],
+    scope: Scope,
+    notes: Notes,
+    unexited: bool,
+) -> None:
+    """File the stop-set of item ``k`` (``at`` is ``(items, k)``) that neither
+    two characters nor its run's end decide.
+
+    With no exit in reach it runs longest. Otherwise it is deferred to the
+    rule's longest take (``GrammarAnalysis._settle``), unless the loop meets a
+    loopback: a character in its FIRST that only a repetition's next
+    iteration takes after it (its soft continuation, less its structural one).
+    A take that runs on through that character is not the rule's answer
+    there, since the stop at it may be the carving that completes, and the
+    longest take's span check cannot see past the rule. Such a stop-set reaches
+    FOLLOW, and the rule islands.
+    """
+    items, k = at
+    note = f"{scope.rule}[{k}]: loop stop-set applied"
+    if unexited:
+        notes.picks_extent(f"{note} (runs longest)", STOP_SET)
+        return
+    first = analysis.atom_first(items[k].atom)
+    soft = analysis.cont_at(items, k, scope.tail)
+    if first.overlaps(
+        soft.subtract(analysis.structural_cont_at(items, k, scope.structural_tail))
+    ):
+        notes.hard.append(f"{scope.rule}[{k}]: loop stop-set meets a loopback")
+        return
+    notes.stop_sets.append(note)
 
 
 def soft_gap_conflict(

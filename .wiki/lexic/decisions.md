@@ -1238,6 +1238,18 @@ hard, so its rule islands and Earley answers:
    EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
    same model.
 
+**A deferred stop-set that meets a loopback is filed hard**
+(`conflicts.defer_stop_set`): where a character of the loop's FIRST is in its
+soft continuation and not its structural one, only a repetition's next
+iteration takes it after the loop, so the stop at it may be the carving that
+completes, and a longest take's span check cannot see past the rule. The rule
+islands instead. Vyx's `nl-escape`, `nl-force` and, on the lexical views,
+`unquoted` are the case (the separator `\`). Their islands' ends are ranked
+where they stand; one that is the whole of an attempt's only admitted entry,
+under a pass-through root, is the attempt's outcome and reaches the attempted
+iteration it runs for (`Verdicts._extent`, `Attempting.attempt`), so the
+iteration ranks its ends beside its stop.
+
 `LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the conditions
 refuse costs Earley time where a real grammar's run can hold its closer.
 Vyx's `nl-escape` and `nl-force` are the case: the third character separates

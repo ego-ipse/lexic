@@ -2994,3 +2994,8 @@ W-only string".
 
 `decisions.md`'s P6 licence entry: the follower check, how far the follower
 reads, the walk in `extend/prefix.py`, and where a refused loop lands.
+
+## A deferred stop-set that meets a loopback islands its rule (2026-11-06)
+
+`decisions.md`'s stop-set entry: the loopback check, the vyx rules it islands,
+and how a whole-run island's ends reach the attempted iteration.

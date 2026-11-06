@@ -108,6 +108,8 @@ class Sides[Carry](Floors[Carry]):
                 # the one it inherited: its winner is the side's root.
                 if outer is None or (found and found[0][0] == 0):
                     root = found_root
+                if found:  # the stack re-reads its own sub-runs: none twice
+                    floors = [floor for floor in floors if floor[0] < found[0][0]]
                 floors += found
                 break
         routes = None if self._routes is None else self._routes.forked(forked)

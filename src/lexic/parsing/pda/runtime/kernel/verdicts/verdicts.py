@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     lands_on,
 )
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_TRANSPARENT
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     Side,
@@ -326,13 +327,16 @@ class Verdicts[Carry](LiveSet[Carry]):
         :meth:`_kept_end` ranks them. Inside a reading of a live set the
         reading splits, one child per completion; never at a reference the top
         frame does not stand in (``k < 0``): the island is then left to whoever
-        owns ``sink``.
+        owns ``sink``. Nor where the island is the whole of an attempt sub-run
+        whose root passes its one item's model through (:func:`_whole_run`):
+        its ends are that sub-run's, which its caller carries, beside the
+        boundary it attempts.
 
         :raises IslandEnds: When a verdict forks, or no verdict can be asked.
         :raises Split: Inside a reading.
         """
-        if k < 0:
-            two.sink = sink
+        if k < 0 or (not self._caches.probing and _whole_run(self.stack[-1], self.pos)):
+            two.sink = sink if k < 0 else self.stack[-1].out
             raise two
         if self._caches.probing:  # inside a set: the reading splits
             raise self._split(
@@ -410,3 +414,15 @@ class Verdicts[Carry](LiveSet[Carry]):
         except ProbeFork:
             return None
         return picks[kept]
+
+
+def _whole_run(frame: Frame[Any], pos: int) -> bool:
+    """Whether ``frame`` roots an attempt sub-run begun at ``pos`` whose arm is
+    one item and whose model is that item's: what reports into the item is the
+    sub-run's whole outcome."""
+    return (
+        frame.arm.n == 1
+        and frame.clone.mode in (BUILD_ALT, BUILD_TRANSPARENT)
+        and frame.clone.sub_root
+        and getattr(frame, "start", None) == pos
+    )

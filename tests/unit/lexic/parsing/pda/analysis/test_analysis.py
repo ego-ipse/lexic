@@ -176,19 +176,20 @@ def test_left_recursive_rules_never_attempt():
 def test_ungatable_loops_carry_the_attempt_licence():
     """vyx: every island is attemptable once its ungatable loops carry the
     greedy-take licence — a loop extent is a split with a defined answer
-    (the first slot owns the text), so greedy take + rollback needs no gate.
-    The two stop-sets that reach FOLLOW sit in text-only rules, so they take
-    their longest match rather than island, and no island is left unattempted."""
+    (the first slot owns the text), so greedy take + rollback needs no gate —
+    except the two whose stop-sets meet a loopback: ``nl-escape`` and
+    ``nl-force`` run a loop the separator's next iteration takes from, so a
+    longest take is no answer there, and they island whole."""
     analysis = lifted_analysis("vyx.gbnf")
     taxonomy = analysis.taxonomy
-    stop_sets = {
+    loopbacks = {
         name
         for name, notes in analysis.conflicts.items()
-        if any("stop-set reaches FOLLOW" in note for note in notes)
+        if any("stop-set meets a loopback" in note for note in notes)
     }
-    assert not stop_sets
-    assert {"nl-escape", "nl-force"} <= set(taxonomy.longest)
-    assert set(taxonomy.attempts) == analysis.islands
+    assert loopbacks == {"nl-escape", "nl-force"}
+    assert not taxonomy.longest
+    assert set(taxonomy.attempts) == analysis.islands - loopbacks
     assert taxonomy.loops.attempt
     assert all(isinstance(key, int) for key in taxonomy.loops.attempt)
 

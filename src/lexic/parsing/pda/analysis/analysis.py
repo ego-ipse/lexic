@@ -31,6 +31,7 @@ from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.conflicts import (
     attempt_group,
     attempt_spec,
+    defer_stop_set,
     file_attempt_loop,
     greedy_exact,
     same_ref_extent_split,
@@ -630,8 +631,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     ) -> None:
         """Grant item ``k``'s stop-set where its exit is the split answer: the
         only way on two deep (``stop_exit_gate``, withheld from a delegate),
-        else where its run ends (``run_decides``), else with no exit in reach
-        the longest take. Defer the rest to :meth:`_settle`.
+        else where its run ends (``run_decides``), else as
+        :func:`~.conflicts.defer_stop_set` files it.
 
         Decided two deep, the loop is gated by those two characters at an exit
         (:func:`~.gates.kwindow.stop_exit_gate`): a stop set alone would stop at
@@ -656,12 +657,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.picks_extent(f"{note} (exit decided two deep)", STOP_SET)
             if STOP_SET in notes.grants:
                 demote.store_loop_gate(self, items[k], gate)
-        elif run_decides(self, (items, k), scope, notes, not exits.is_empty()):
-            return
-        elif exits.is_empty():
-            notes.picks_extent(f"{note} (runs longest)", STOP_SET)
-        else:
-            notes.stop_sets.append(note)
+        elif not run_decides(self, (items, k), scope, notes, not exits.is_empty()):
+            defer_stop_set(self, (items, k), scope, notes, exits.is_empty())
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The attempt licence's audit set: every boundary char the stop side
