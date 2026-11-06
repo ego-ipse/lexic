@@ -58,6 +58,7 @@ from tests.unit.lexic.parsing.pda.analysis.gates.test_noise import (
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     lifted_analysis,
     self_grammar_analysis,
+    text_analysis,
 )
 
 
@@ -484,3 +485,26 @@ def test_where_only_the_end_of_the_input_follows_nothing_does() -> None:
     )
     assert follower(analysis, rest, scope) == (rest, None)
     assert not analysis.follows.runs
+
+
+def test_a_loop_whose_body_can_be_its_noise_alone_gets_no_scan_gate():
+    """``y*`` before ``z?``: ``y``'s first arm is a run of ``z`` alone, the very
+    run the skip-then-peek gate would skip, so no ``SG_SCAN`` gate is stored for
+    the loop — the skip would take a whole iteration and leave nothing to peek."""
+    analysis = text_analysis(
+        'root ::= "a" z "a" | [a;] y* z? | y y\nx ::= z "ab" z+ | z "ab" y*\n'
+        'y ::= z* z | z* "ab" z\nz ::= "b"+\n'
+    )
+    loops = [
+        item
+        for rule in analysis.rules.values()
+        for arm in rule.body
+        for item in arm
+        if isinstance(item, IrItem)
+        and str(item.atom) == "y"
+        and item.quantifier.repeats()
+    ]
+    assert loops
+    for loop in loops:
+        gate = analysis.taxonomy.ready_loop_gates.get(id(loop))
+        assert not (isinstance(gate, ScanGate) and gate.kind == SG_SCAN)

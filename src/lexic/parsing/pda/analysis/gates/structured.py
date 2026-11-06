@@ -201,6 +201,38 @@ def _seq_content(
     return out
 
 
+def _noise_alone(
+    analysis: Any, roots: frozenset[str], atom: Any, seen: frozenset[str]
+) -> bool:
+    """Whether ``atom`` derives a run of noise roots and nothing else — text the
+    scanner's skip takes whole, leaving it no content lead to peek at."""
+    if isinstance(atom, IrRuleRef):
+        name = str(atom)
+        if name in roots:
+            return True
+        if name in seen or name not in analysis.rules:
+            return False
+        arms, seen = analysis.rules[name].body, seen | {name}
+    elif isinstance(atom, IrAlternation):
+        arms = atom
+    else:
+        return False
+    return any(_seq_noise_alone(analysis, roots, arm, seen) for arm in arms)
+
+
+def _seq_noise_alone(
+    analysis: Any, roots: frozenset[str], items: Sequence[IrItem], seen: frozenset[str]
+) -> bool:
+    """Whether a sequence derives noise alone: some item noise, the rest empty."""
+    noisy = False
+    for item in items:
+        if _noise_alone(analysis, roots, item.atom, seen):
+            noisy = True
+        elif not analysis.item_nullable(item):
+            return False
+    return noisy
+
+
 def _noise_or_nullable(analysis: Any, roots: frozenset[str], item: IrItem) -> bool:
     """Whether ``item`` is nullable or a noise-root reference (scanner-skipped)."""
     atom = item.atom
@@ -431,8 +463,8 @@ def _scan_or_probe_gate(
     """The skip-then-peek ``SG_SCAN`` gate, escalating to ``SG_PROBE`` when the
     post-noise take and exit content leads overlap."""
     lead = _leading_roots(analysis, roots, items[k].atom, frozenset())
-    if not lead:
-        return None
+    if not lead or _noise_alone(analysis, lead, items[k].atom, frozenset()):
+        return None  # an iteration that is all noise is skipped whole: no peek
     take = _content_first(analysis, lead, items[k].atom, frozenset())
     if take.is_empty() or take.negated:
         return None
