@@ -10,6 +10,8 @@ the group's node identity, counting its notes covered.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
 from lexic.ir import IrAlternation, IrCharClass, IrChr, IrLiteral, IrRange, IrSequence
 from lexic.parsing.lift import lift_optional_nullables
@@ -22,13 +24,11 @@ from lexic.parsing.pda.analysis.conflicts import (
 from lexic.parsing.pda.analysis.cursors import Notes, Site
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.integration.lexic.parity.pda_parity_helpers import pda_and_earley
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
 from tests.unit.lexic.parsing.ir_fixtures import rule_of as _rule
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
-    arm_items,
-    stop_set_notes,
-)
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import stop_set_notes
 
 _LOWER = IrCharClass(IrRange(IrChr(97), IrChr(122)))
 
@@ -44,7 +44,7 @@ def test_attempt_spec_orders_nullable_arms_last_and_is_deterministic():
         IrSequence(_item(IrLiteral("c"))),
     )
     analysis = _analysis(root, start="root")
-    arms = [arm_items(arm) for arm in root.body]
+    arms = list(root.body)
     first = attempt_spec(analysis, arms)
     second = attempt_spec(analysis, arms)
     assert first == second == AttemptSpec((0, 2, 1))
@@ -59,7 +59,7 @@ def test_attempt_spec_keeps_all_nullable_arms_in_authored_order():
         IrSequence(),
     )
     analysis = _analysis(root, start="root")
-    arms = [arm_items(arm) for arm in root.body]
+    arms = list(root.body)
     assert attempt_spec(analysis, arms).order == (1, 0, 2)
 
 
@@ -86,7 +86,7 @@ def test_attempt_group_files_the_licence_and_counts_notes_covered():
     follow = CharSet.from_chars("!")
     site = Site("root[0]grp", id(grp), follow)
 
-    attempt_group(analysis, [arm_items(arm) for arm in grp], site, notes, count=1)
+    attempt_group(analysis, list(grp), site, notes, count=1)
 
     assert notes.covered == 1
     windows, peek, attempt = analysis.taxonomy.grp_arm_gates[id(grp)]
@@ -136,6 +136,29 @@ def test_a_one_item_text_run_that_reaches_its_follow_islands() -> None:
     )
     assert conflicts == ["x[0]: loop stop-set reaches FOLLOW"]
     assert not demoted
+
+
+_LOOPBACK = 's ::= x+ "a" y\nx ::= "b" [ab]*\ny ::= [ab]*\n'
+"""``x``'s run can take the ``b`` that ``x+``'s next iteration starts with:
+whether ``bb`` is one ``x`` or two is the split ``s``'s carving decides."""
+
+
+def test_a_stop_set_that_meets_a_loopback_islands() -> None:
+    """The same text run as the longest take's, but inside a repetition that
+    takes its ``b`` next: the take is no answer there, so it is not deferred to
+    one, and the rule islands."""
+    demoted, conflicts = stop_set_notes(_LOOPBACK, "x")
+    assert conflicts == ["x[1]: loop stop-set meets a loopback"]
+    assert not demoted
+
+
+@pytest.mark.parametrize("text", ["ba", "bba", "bab", "bbab", "babab", "bbaa"])
+def test_a_loopback_run_is_answered_as_earley_answers_it(text: str) -> None:
+    """Taken longest, ``x``'s island saw two ends that could compose and
+    refused: the PDA declined every one of these. Islanded, it answers."""
+    compiled = compile_text(_LOOPBACK, cache_key="loopback-x")
+    got, want = pda_and_earley(compiled, text)
+    assert got == want
 
 
 def _greedy_exact(body: str) -> bool:

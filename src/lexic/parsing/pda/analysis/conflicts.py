@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from typing import Any, Sequence
 
 from lexic.ir import (
-    IrAlternation,
     IrCharClass,
     IrItem,
     IrLiteral,
@@ -17,14 +16,17 @@ from lexic.ir import (
     IrNot,
     IrRule,
     IrRuleRef,
+    has_reference,
 )
 from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
     GREEDY_SPLIT,
     NOISE_GREEDY,
+    STOP_SET,
 )
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
+from lexic.parsing.pda.analysis.gates.kwindow import FOLLOW_LOOP_K
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -35,6 +37,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
 )
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 def file_attempt_loop(
@@ -45,8 +48,89 @@ def file_attempt_loop(
     the decider grants it; otherwise the note stands and the rule islands."""
     if ATTEMPT not in notes.grants:
         return
-    analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(items, k, scope)
+    analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(items, k, scope)
     notes.covered += 1
+
+
+def defer_stop_set(
+    analysis: Any,
+    at: tuple[Sequence[IrItem], int],
+    scope: Scope,
+    notes: Notes,
+    unexited: bool,
+) -> None:
+    """File the stop-set of item ``k`` (``at`` is ``(items, k)``) that neither
+    two characters nor its run's end decide.
+
+    With no exit in reach it runs longest. Otherwise it is deferred to the
+    rule's longest take (``GrammarAnalysis._settle``), unless the loop meets a
+    loopback: a character in its FIRST that only a repetition's next
+    iteration takes after it (its soft continuation, less its structural one).
+    A take that runs on through that character is not the rule's answer
+    there, since the stop at it may be the carving that completes, and the
+    longest take's span check cannot see past the rule. Such a stop-set reaches
+    FOLLOW, and the rule islands.
+    """
+    items, k = at
+    note = f"{scope.rule}[{k}]: loop stop-set applied"
+    if unexited:
+        notes.picks_extent(f"{note} (runs longest)", STOP_SET)
+        return
+    first = analysis.atom_first(items[k].atom)
+    soft = analysis.cont_at(items, k, scope.tail)
+    loopback = soft.subtract(
+        analysis.structural_cont_at(items, k, scope.structural_tail)
+    )
+    if first.overlaps(loopback) and _swallows_a_site(analysis, scope.rule, first):
+        notes.hard.append(f"{scope.rule}[{k}]: loop stop-set meets a loopback")
+        return
+    notes.stop_sets.append(note)
+
+
+def _swallows_a_site(analysis: Any, name: str, first: CharSet) -> bool:
+    """Whether at some site rule ``name`` is followed at, every character that
+    may follow it is one ``first`` takes: there the run swallows the site's
+    closer whole, so the longest take always runs past its end and its span
+    check asks the island every time. A rule that is only ever a whole arm is
+    read at its rule's sites, the closer being theirs. A site the text may end
+    at closes nothing."""
+    windows = analysis.follows.windows(FOLLOW_LOOP_K)
+    return any(
+        site and all(chars and chars[0].within(first) for chars, _state in site)
+        for site in _closing_sites(analysis, windows, name, set())
+    )
+
+
+def _closing_sites(analysis: Any, windows: Any, name: str, seen: set[str]) -> list:
+    """The window sets of every site rule ``name`` is followed at, read through
+    the rules it is a whole arm of where it is nothing else."""
+    seen.add(name)
+    owners = [
+        rule
+        for rule, body in analysis.rules.items()
+        for arm in body.body
+        if any(_names(item, name) for item in arm)
+    ]
+    whole = [
+        rule
+        for rule, body in analysis.rules.items()
+        for arm in body.body
+        if len(arm) == 1 and _names(arm[0], name) and arm[0].quantifier.upper() == 1
+    ]
+    if not owners or len(whole) != len(owners) or seen.intersection(whole):
+        return windows.site_windows(name)
+    return [
+        site for rule in whole for site in _closing_sites(analysis, windows, rule, seen)
+    ]
+
+
+def _names(item: IrItem, name: str) -> bool:
+    """Whether ``item`` references rule ``name``, exactly once."""
+    return (
+        isinstance(item.atom, IrRuleRef)
+        and str(item.atom) == name
+        and int(item.quantifier.lo) == 1
+    )
 
 
 def soft_gap_conflict(
@@ -143,14 +227,7 @@ def sub_conflict(
 def text_only(rule: IrRule) -> bool:
     """Whether no rule reference appears anywhere in ``rule``'s body, inline
     groups included — its model is then its matched text."""
-    pending = [_arm_items(arm) for arm in rule.body]
-    while pending:
-        for item in pending.pop():
-            if isinstance(item.atom, IrRuleRef):
-                return False
-            if isinstance(item.atom, IrAlternation):
-                pending.extend(_arm_items(arm) for arm in item.atom)
-    return True
+    return not has_reference(rule.body)
 
 
 def may_steal(analysis: Any, rule: IrRule) -> bool:
@@ -162,7 +239,7 @@ def may_steal(analysis: Any, rule: IrRule) -> bool:
     return (
         not analysis.taxonomy.delegated
         and text_only(rule)
-        and any(len(_arm_items(arm)) > 1 for arm in rule.body)
+        and any(len(arm) > 1 for arm in rule.body)
         and not greedy_exact(analysis, rule)
     )
 
@@ -181,7 +258,7 @@ def greedy_exact(analysis: Any, rule: IrRule) -> bool:
     matcher's multi-item path, and a one-item arm takes the one-item path,
     which is left as it is.
     """
-    arms = [_arm_items(arm) for arm in rule.body]
+    arms = list(rule.body)
     if any(len(arm) < 2 for arm in arms):
         return False
     firsts = [{((analysis.seq_first(arm),), END)} for arm in arms]
@@ -193,27 +270,20 @@ def _arm_greedy_exact(analysis: Any, items: Sequence[IrItem]) -> bool:
     for j, item in enumerate(items):
         if not isinstance(item.atom, (IrLiteral, IrCharClass, IrNot)):
             return False
-        if j + 1 == len(items) or _fixed(item):
+        if j + 1 == len(items) or item.quantifier.fixed():
             continue
         rest, first = items[j + 1 :], analysis.atom_first(item.atom)
         if not first.overlaps(analysis.seq_first(rest)):
             continue
         last = rest[-1]
-        absorbs = len(rest) == 1 and int(last.quantifier.lo) == 0 and not _fixed(last)
-        if not absorbs or not first.subtract(analysis.atom_first(last.atom)).is_empty():
+        absorbs = (
+            len(rest) == 1
+            and int(last.quantifier.lo) == 0
+            and not last.quantifier.fixed()
+        )
+        if not absorbs or not first.within(analysis.atom_first(last.atom)):
             return False
     return True
-
-
-def _arm_items(arm: Sequence[object]) -> list[IrItem]:
-    """The :class:`IrItem` members of an arm, in order."""
-    return [item for item in arm if isinstance(item, IrItem)]
-
-
-def _fixed(item: IrItem) -> bool:
-    """Whether the item occurs a fixed number of times."""
-    hi = item.quantifier.hi
-    return not isinstance(hi, IrNoneType) and int(hi) == int(item.quantifier.lo)
 
 
 def same_ref_extent_split(

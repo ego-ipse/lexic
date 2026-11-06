@@ -172,6 +172,23 @@ Two traps worth knowing before writing one:
   names an address that is free again on the next line, and CPython hands it
   straight back. Hold the object.
 
+Two rules for the fixtures and guards such a test leans on:
+
+- **A decline witness must be a shape no split route lifts.** The lane's `FLAT`
+  (`concurrency/fixtures.py`) is a bracket around one opaque run of record
+  text, `root ::= "[" body "]"` with `body ::= [a-z0-9:{},]*`. Every character
+  between the brackets belongs to one maximal-munch run, so there is no anchor
+  to cut at and no repeated item to divide. The lane asserts the decline
+  (`test_fork_safety.py::test_a_retained_pool_does_not_prove_a_split_engaged`:
+  "the decline witness engaged"), so a route that learns the witness's shape
+  fails there, and the fix is a new witness, not a weaker assertion.
+- **A guard a test installs goes after the test's setup.** Compiling grammar
+  text runs the self-grammar's own fold, which takes a `PoolLease` of its own
+  wherever the policy grants a few workers. So a guard that raises on any lease
+  must be installed after the compile
+  (`test_orchestrate.py::test_split_model_settles_too_few_workers_before_entering_poollease`,
+  compiled cold on a four-worker policy first).
+
 ---
 
 ## The guarded runner
@@ -197,17 +214,8 @@ moment.
 
 ## Tracing allocations under free threading
 
-Run any `tracemalloc` measurement with `PYTHON_TLBC=0` (or `-X tlbc=0`). With
-thread-local bytecode on, free-threaded CPython 3.14.3 deadlocks: the tracer
-holds its mutex while reading a code object's line table, and a thread running
-that code object for the first time holds the code object's lock while
-allocating its bytecode copy through the tracer. Any thread running a code
-object for the first time while tracing is on can trigger it — new threads
-always do, and warm pool workers do on their exit path — so a parse at
-`cores=1` hangs as well, at thread join, after the parse has finished. The hang
-looks like a thousandfold slowdown when the run is killed at a timeout. The
-trigger needs no lexic: start tracing, then map over a fresh
-`ThreadPoolExecutor`. CPython 3.14.5 removes the lock the tracer waits on
-(gh-148037); until the interpreter is at least that, the flag is the
-workaround. Tracing still costs several times the untraced time (about 3x to 5x
-on small parses), so a traced run reports peak memory, never timing.
+`tracemalloc` needs no flag on CPython 3.14.5 or later: gh-148037 removed the
+lock-order deadlock between the allocation tracer and thread-local bytecode,
+which hung a traced run at thread join, after the parse had finished. On a 3.14 release before 3.14.5, run with `PYTHON_TLBC=0` (or
+`-X tlbc=0`). Tracing still costs several times the untraced time (about 3x to
+5x on small parses), so a traced run reports peak memory, never timing.

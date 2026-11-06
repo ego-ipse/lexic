@@ -9,6 +9,9 @@ Ported unchanged from ``test_fold.py`` when the lift moved out of the deleted
 fold module; the assertions are byte-for-byte what they were.
 """
 
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
     IrAst,
@@ -19,7 +22,9 @@ from lexic.ir import (
     IrRuleRef,
     IrSeq,
     IrSequence,
+    IrStr,
 )
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.lift import lift_optional_nullables
 
 
@@ -84,3 +89,31 @@ def test_lift_is_idempotent():
     once = lift_optional_nullables(ast)
     twice = lift_optional_nullables(once)
     assert twice == once
+
+
+def _stray_arm_grammar() -> IrAst:
+    """``root ::= "a" <IrStr>``: a sequence holding an element that is no item,
+    made the way the emit side's rebuild makes one (``rebuild`` passes an
+    unknown element through)."""
+    items = IrSequence(IrItem(IrLiteral("a")), IrItem(IrLiteral("b")))
+    stray = items.rebuild([items[0], IrStr("b")])
+    assert not isinstance(stray[1], IrItem), "the fixture must hold a stray element"
+    return IrAst(rules=IrSeq(IrRule("root", IrAlternation(stray))), start="root")
+
+
+def test_an_arm_holding_a_non_item_is_refused_by_name_at_the_lift():
+    """Every reader past the lift takes an arm as its items, so the lift is
+    where an arm holding anything else is refused, rule first."""
+    with pytest.raises(
+        UnsupportedConstructError, match="rule `root`: unsupported construct `IrStr`"
+    ):
+        lift_optional_nullables(_stray_arm_grammar())
+
+
+def test_a_parse_over_a_stray_arm_raises_the_named_error():
+    """Both engines' routes reach the lift first, so a parse never gets as far
+    as an AttributeError in a gate."""
+    with pytest.raises(
+        UnsupportedConstructError, match="unsupported construct `IrStr`"
+    ):
+        parse_model(_stray_arm_grammar(), "ab", ModelExecutable())

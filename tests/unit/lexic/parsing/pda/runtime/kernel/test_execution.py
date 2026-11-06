@@ -13,10 +13,24 @@ branches), a nested leaf-in-leaf reference (``OP_LEAF1``), and an all-
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
+from lexic.exceptions import EngineInvariantError, LexicError
+from lexic.parsing.pda.compiler.program.bake.lowering import no_shape_build
+from lexic.parsing.pda.compiler.program.opcodes import BUILD_ALT, BUILD_SEQ
+from lexic.parsing.pda.runtime.build import Frame
+from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
+from tests.unit.lexic.parsing.pda.runtime.kernel.verdicts.side_support import (
+    live_kernel,
+)
+
+COMPLETE = vars(KernelExecutionMixin)["_complete"]
+"""Frame completion as the mixin defines it, driven on a real kernel."""
 
 
 def _model_for(text: str, grammar: str, cache_key: str):
@@ -75,3 +89,36 @@ def test_completion_round_trips_a_realistic_grammar_end_to_end():
     text = "1+2*3=x\n"
     model = compiled.parse(text, cores=1)
     assert model.to_text() == text
+
+
+def test_a_build_that_refuses_its_values_refuses_the_parse(monkeypatch) -> None:
+    """A completion whose build refuses its values raises that refusal itself:
+    on the plain path it is the document's answer. Turned into a decline, the
+    parse fell back to the gated engine, whose own fold need not refuse (the
+    notation's stray comma came back as a value)."""
+    kern = live_kernel()
+    frame = Frame(flat_arm(1), [], flat_clone(BUILD_ALT, name="x"), 0)
+    kern.stack = [frame]
+    refused = LexicError("the build refused")
+    monkeypatch.setattr(Frame, "alt_model", lambda _self: _refuse(refused))
+    with pytest.raises(LexicError) as fail:
+        COMPLETE(kern, frame)
+    assert fail.value is refused
+    assert not frame.out
+
+
+def test_a_build_that_disagrees_with_its_clone_is_no_refusal() -> None:
+    """An arm whose item count matches neither its clone's slots nor the empty
+    arm is a compile/runtime disagreement: it leaves the parse as an engine
+    invariant, never as a refusal a fallback would answer."""
+    kern = live_kernel()
+    clone = flat_clone(BUILD_SEQ, name="x", ctor=None, n_items=2, build=no_shape_build)
+    frame = Frame(flat_arm(1), [], clone, 0)
+    kern.stack = [frame]
+    with pytest.raises(EngineInvariantError, match="match neither"):
+        COMPLETE(kern, frame)
+
+
+def _refuse(why: LexicError) -> None:
+    """Raise from inside a lambda, so the patched build stays one expression."""
+    raise why

@@ -34,7 +34,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
-from lexic.parsing.pda.core.scanner import scan_gate_take
+from lexic.parsing.pda.core.scanner import class_source, scan_gate_take
 
 type FlatWindow = tuple[tuple[frozenset[str], bool], ...]
 """A window as :func:`window_admits` reads it: one ``(chars, negated)`` per
@@ -121,6 +121,32 @@ def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bo
         if ok:
             return True
     return False
+
+
+def window_source(windows: tuple[FlatWindow, ...]) -> str | None:
+    """One character of a loop that :func:`window_admits` gates, as a regex
+    fragment, or ``None`` past two positions.
+
+    Each window is its first position, matched, and its second, looked at: a
+    loop of this fragment takes exactly where the gate does, so a nullable
+    run keeps its one-call match. The EOF sentinel in a second position is the
+    end of the input; a negated one fails there, as the gate's test does.
+    """
+    arms: list[str] = []
+    for window in windows:
+        if len(window) not in (1, 2):
+            return None
+        first, *second = window
+        lead = class_source(*first)
+        if not second:
+            arms.append(lead)
+            continue
+        chars, negated = second[0]
+        ahead = class_source(chars, negated)
+        if not negated and "" in chars:
+            ahead = f"{ahead}|\\Z"
+        arms.append(f"{lead}(?={ahead})")
+    return f"(?:{'|'.join(arms)})"
 
 
 def _skip_noise(text: str, pos: int, chars: frozenset, negated: bool) -> int:

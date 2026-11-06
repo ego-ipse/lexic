@@ -35,7 +35,7 @@ from lexic.parsing.parallel import available_workers, reset_pools
 from lexic.parsing.parallel.pool import IDLE_POOLS
 from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, one_engine
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
-from tools.benchmark.emitters.charsets import CharSet, of_points
+from tools.benchmark.emitters.charsets import CharSet, normalized
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts
@@ -61,8 +61,13 @@ _ALL = frozenset(
     }
 )
 
+_ANTLR = frozenset({"antlr", "antlr-lex", "antlr-py", "antlr-py-lex"})
+"""The ANTLR seats, which rewrite DIRECT left recursion only."""
+
 EXPECTED: dict[str, frozenset[str]] = {
     "arithmetic": _ALL,
+    # The same grammar; only the document is wrapped in one paren group.
+    "paren-arithmetic": _ALL,
     "csv": _ALL,
     "json": _ALL,
     # PEG and pyparsing both have POSSESSIVE repetition and cannot back out of a
@@ -145,6 +150,29 @@ EXPECTED: dict[str, frozenset[str]] = {
     # character, so the folded seats are handed the same grammar as the
     # unfolded ones and there is no zero-width terminal to refuse.
     "dense-earley": _ALL - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    # An envelope whose newline both continues a value and opens the next
+    # entry, known only a line later. The Earley seats and ANTLR's adaptive
+    # prediction hold it. lark-lalr resolves the newline's shift/reduce
+    # conflict as a continuation and refuses the corpus at the next `=`
+    # (`UnexpectedToken`), its -lex seat at the next name. Both PEG seats commit
+    # to the continuation and stop partway (`IncompleteParseError`), and
+    # pyparsing likewise (`Expected end of text`). Each is the tool's own
+    # verdict on a boundary it settles without seeing the next line.
+    "two-mark": _ALL
+    - frozenset(
+        {"lark-lalr", "lark-lalr-lex", "parsimonious", "parsimonious-lex", "pyparsing"}
+    ),
+    # Ambiguous by design — `(0),(1)` is one long pair or two short ones — and
+    # every seat holds the language. The faithfulness gate judges acceptance
+    # only, so a seat that carves the ambiguity differently from lexic's decider
+    # is answering the same question; which carving lexic keeps is pinned
+    # beside the row (`test_live_set_rows`).
+    "reopening": _ALL,
+    # Statements told apart by their first word and closed by `;`: nothing
+    # here is hard for any formalism. The row prices the region split.
+    "terminated-run": _ALL,
+    # Inline spaces and a comma list: every formalism spells them.
+    "captured-spaces": _ALL,
     # The three engine-reach rows are left-recursive by construction — that is
     # what makes them reach the engine they are named for — so they lose the
     # same three seats as the rows above, and for the same reason: PEG cannot
@@ -161,6 +189,20 @@ EXPECTED: dict[str, frozenset[str]] = {
     - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
     "interior-climb": _ALL
     - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"}),
+    # The same three languages written through a relay rule, so the left
+    # recursion is INDIRECT: ANTLR rewrites direct left recursion only and
+    # refuses these, beside the PEG and pyparsing seats above. That is an
+    # expressiveness difference between the tools, not a suppression — the
+    # direct rows carry every one of their seats.
+    "relay-fallback": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
+    "relay-exact": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
+    "relay-climb": _ALL
+    - frozenset({"parsimonious", "parsimonious-lex", "pyparsing"})
+    - _ANTLR,
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width
@@ -256,13 +298,13 @@ def test_lexic_is_not_asked_an_easier_question(bench: Bench) -> None:
 def _licensed_runs(bench: Bench) -> set[CharSet]:
     """Every run terminal lexic's own derivation licenses for one case.
 
-    A `CharSet` on both sides of the equality: `of_points` folds the derived
-    code points into the same interval tuple an emitted run carries in
+    A `CharSet` on both sides of the equality: `normalized` folds the derived
+    unit's intervals into the same interval tuple an emitted run carries in
     `chars`, so the comparison is like with like and not a spelling against a
     structure.
     """
     return {
-        of_points(chars)
+        normalized(chars.intervals())
         for chars, _empty, _unit in run_candidates(
             compile_tables(normalize(bench.ast))
         ).values()

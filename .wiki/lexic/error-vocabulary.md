@@ -13,7 +13,7 @@ Source: `exceptions.py`. No bare `raise ValueError` or `raise Exception` for lib
 | `UnsupportedConstructError` | The Earley engine (no parse / ambiguous parse), the model routes reached by `CompiledGrammar.parse`, reducer bodies and `CompiledGrammar.reduce`, `canonical_grammar`'s boundary checks, atom dispatch tables, codegen passes, and the instance fold | Rule-first: "rule `foo`: unsupported construct `…`" |
 | `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required presence); trusted parse paths (`_from_values`/`fast_construct`) bypass it | Field-path-first |
 
-| `EngineInvariantError` | The engine reaching a state its own construction says cannot happen: the fork guard (`admission.py`), a recognition-only clone's construction and a missing positional licence (`flatten.py`), a wide selection that is absent where one was guaranteed (`flatten.py`), a routed chain naming a slot the model does not have (`stitch/interior.py`) | What was impossible, and where |
+| `EngineInvariantError` | The engine reaching a state its own construction says cannot happen: the fork guard (`admission.py`), a recognition-only clone's construction and a missing positional licence (`flatten.py`), a wide selection that is absent where one was guaranteed (`flatten.py`), a routed chain naming a slot the model does not have (`stitch/interior.py`), a completed arm whose item count matches neither its clone's slots nor the empty arm, or a capture mode outside the build vocabulary (`runtime/build.py`) | What was impossible, and where |
 
 Every class above EXCEPT `EngineInvariantError` inherits from
 `LexicError(Exception)`.

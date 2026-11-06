@@ -9,7 +9,10 @@ silent maximal-munch approximation:
 
 1. **Fixed charset.** The repetition unit resolves to a set of single chars:
    a single-char terminal, or a rule whose every arm is one such atom (or a
-   ref to another charset rule), transitively.
+   ref to another charset rule), transitively. The set is an exact
+   :class:`~lexic.ir.IrCharClass` of any width and either polarity. The
+   scanner lists whichever side is small (``[^"]*`` scans until a quote) and
+   tests a unit too large on both sides by its ranges.
 2. **Derivation uniqueness.** Iterating single-char units splits a run one
    way only, and the charset-rule alternatives are pairwise disjoint — so
    the collapse cannot hide ambiguity from the SPPF.
@@ -17,20 +20,34 @@ silent maximal-munch approximation:
    FIRST/FOLLOW over the compiled tables), so a shorter-than-maximal match
    can never be required by any continuation — maximal munch is *complete*.
 
-A char class too large to expand poisons every set it touches
-(conservative: the affected rules simply stay per-char). Product folds add
-their own licence for whether hidden per-character structure is reconstructible,
-fed by :func:`unit_leaves`.
+FOLLOW is built over TERM IDS, from
+:func:`~lexic.parsing.earley.kernel.tables.builder.first_ids` (the one FIRST
+the seed gates read too), so no terminal can make it unknown. The character
+question is asked once per FOLLOW terminal and unit, on interval covers, by
+:func:`~lexic.parsing.earley.kernel.tables.atoms.may_begin_within` — a token
+answers yes, so a run beside one stays per-char. A grammar with no candidate
+shape asks nothing. Product folds add their own licence for
+whether hidden per-character structure is reconstructible, fed by
+:func:`unit_leaves`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Callable
 
-from lexic.ir import IrAst, IrLeaf, IrLiteral, IrSelf
+from lexic.ir import IrAst, IrCharClass, IrLeaf, IrNone, IrNoneType, IrSelf
 from lexic.parsing.caches import adopt, memo
-from lexic.parsing.earley.kernel.tables.atoms import Charset, RunTerm, expand_atom
-from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
+from lexic.parsing.earley.kernel.tables.atoms import (
+    RunTerm,
+    atom_unit,
+    may_begin_within,
+)
+from lexic.parsing.earley.kernel.tables.builder import (
+    build_tables,
+    compile_tables,
+    first_ids,
+)
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
     RUN_DROP,
@@ -38,38 +55,35 @@ from lexic.parsing.earley.kernel.tables.records import (
 )
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 
-RunShape = tuple[frozenset[str], bool, int]
-"""One detected run rule: ``(charset, has_empty_arm, unit_rid)`` —
-``unit_rid`` is ``-1`` when the unit is a bare terminal atom."""
+RunShape = tuple[IrCharClass, bool, int]
+"""One detected run rule: ``(unit, has_empty_arm, unit_rid)`` — ``unit`` is the
+exact class one iteration matches; ``unit_rid`` is ``-1`` when the unit is a
+bare terminal atom."""
 
 
 class _Analysis(IrLeaf[IrSelf, IrSelf]):
-    """One grammar's run analysis — arm symbols, FIRST/FOLLOW, shapes.
+    """One grammar's run analysis — arm symbols, shapes, FOLLOW over term ids.
 
     :ivar tables: The compiled grammar under analysis.
     :ivar arm_syms: rule_id → its arms as symbol lists (``next_sym`` values).
-    :ivar nullable: rule_id → derives the empty string.
-    :ivar first: rule_id → FIRST char set (``None`` = poisoned).
-    :ivar follow: rule_id → FOLLOW char set (``None`` = poisoned).
+    :ivar nullable: The ids of the rules deriving the empty string.
     """
 
-    __slots__ = ("tables", "arm_syms", "nullable", "first", "follow")
+    __slots__ = ("tables", "arm_syms", "nullable")
 
     tables: ParserTables
     arm_syms: list[list[list[int]]]
-    nullable: list[bool]
-    first: list[set[str] | None]
-    follow: list[set[str] | None]
+    nullable: frozenset[int]
 
     def __init__(self, tables: ParserTables) -> None:
-        """Run the full analysis over ``tables``."""
+        """Read the arms and nullability; FOLLOW waits for a candidate."""
         self.tables = tables
         codes = tables.codes
         dot0 = codes.rule_dot0  # derived property — bind the rebuild once
         self.arm_syms = [[self._syms_from(base) for base in bases] for bases in dot0]
-        self.nullable = [bool(n) for n in codes.nullable_completes]
-        self.first = self._first_sets()
-        self.follow = self._follow_sets()
+        self.nullable = frozenset(
+            rid for rid, done in enumerate(codes.nullable_completes) if done
+        )
 
     def _syms_from(self, base: int) -> list[int]:
         """The symbol run of the arm starting at code ``base``."""
@@ -81,128 +95,73 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
             code += 1
         return syms
 
-    def _term_first(self, sym: int) -> Charset:
-        """Begin-chars of terminal symbol ``sym`` (< 0), or poisoned."""
-        atom = self.tables.terms.atoms[-sym - 1]
-        if isinstance(atom, IrLiteral):
-            return frozenset(atom[0]) if atom else frozenset()
-        return expand_atom(atom)
-
-    def _first_sets(self) -> list[set[str] | None]:
-        """Per-rule FIRST char sets by least fixpoint (poison propagates)."""
-        first: list[set[str] | None] = [set() for _ in self.arm_syms]
-        changed = True
-        while changed:
-            changed = False
-            for rid, arms in enumerate(self.arm_syms):
-                if first[rid] is None:
-                    continue
-                grown = self._first_of_rule(rid, arms, first)
-                if grown:
-                    changed = True
-        return first
-
-    def _first_of_rule(
-        self, rid: int, arms: list[list[int]], first: list[set[str] | None]
-    ) -> bool:
-        """Grow ``first[rid]`` from its arms; ``True`` when it changed."""
-        mine = first[rid]
-        assert mine is not None
-        before = len(mine)
-        for syms in arms:
-            for sym in syms:
-                if sym < 0:
-                    add = self._term_first(sym)
-                    if add is None:
-                        first[rid] = None
-                        return True
-                    mine |= add
-                    break
-                target = first[sym - 1]
-                if target is None:
-                    first[rid] = None
-                    return True
-                mine |= target
-                if not self.nullable[sym - 1]:
-                    break
-        return len(mine) != before
-
-    def _follow_sets(self) -> list[set[str] | None]:
-        """Per-rule FOLLOW char sets: direct tail-FIRST + owner-edge fixpoint."""
-        self.follow = [set() for _ in self.arm_syms]
+    def _follow_sets(self) -> list[set[int]]:
+        """Per-rule FOLLOW term ids: direct tail-FIRST + owner-edge fixpoint."""
+        codes = self.tables.codes
+        first = first_ids(codes.next_sym, codes.rule_dot0, self.nullable)
+        follow: list[set[int]] = [set() for _ in self.arm_syms]
         edges: set[tuple[int, int]] = set()  # (owner, target): follow ⊇ follow
         for rid, arms in enumerate(self.arm_syms):
             for syms in arms:
                 for k, sym in enumerate(syms):
-                    if sym > 0:
-                        self._follow_direct(rid, syms, k, edges)
-        follow = self.follow
+                    if sym > 0 and self._follow_direct(syms, k, first, follow):
+                        edges.add((rid, sym - 1))
         changed = True
         while changed:
             changed = False
             for owner, target in edges:
-                target_set = follow[target]
-                if target_set is None:
-                    continue
-                owner_set = follow[owner]
-                if owner_set is None:
-                    follow[target] = None
-                    changed = True
-                    continue
-                before = len(target_set)
-                target_set |= owner_set
-                if len(target_set) != before:
-                    changed = True
+                before = len(follow[target])
+                follow[target] |= follow[owner]
+                changed = changed or len(follow[target]) != before
         return follow
 
     def _follow_direct(
-        self, owner: int, syms: list[int], k: int, edges: set[tuple[int, int]]
-    ) -> None:
-        """Add the tail-FIRST after position ``k`` to the target's FOLLOW.
-
-        The target is the rule ``syms[k]`` references. When the whole tail
-        is nullable, the target also inherits ``FOLLOW(owner)`` (recorded as
-        an edge for the fixpoint).
-        """
-        follow = self.follow
-        target = syms[k] - 1
+        self,
+        syms: list[int],
+        k: int,
+        first: list[frozenset[int]],
+        follow: list[set[int]],
+    ) -> bool:
+        """Add the tail-FIRST after position ``k`` to the FOLLOW of the rule
+        ``syms[k]`` references; ``True`` when the whole tail is nullable, so
+        that rule also inherits its owner's FOLLOW."""
+        target = follow[syms[k] - 1]
         for sym in syms[k + 1 :]:
-            add = self._term_first(sym) if sym < 0 else self.first[sym - 1]
-            if add is None:
-                follow[target] = None
-                return
-            target_set = follow[target]
-            if target_set is not None:
-                target_set |= add
-            if sym < 0 or not self.nullable[sym - 1]:
-                return
-        edges.add((owner, target))
+            if sym < 0:
+                target.add(-sym - 1)
+                return False
+            target |= first[sym - 1]
+            if sym - 1 not in self.nullable:
+                return False
+        return True
 
-    def _rule_charset(self, rid: int, visiting: frozenset[int]) -> Charset:
-        """The exact char set rule ``rid`` matches as a single-char unit.
+    def _rule_unit(
+        self, rid: int, visiting: frozenset[int]
+    ) -> IrCharClass | IrNoneType:
+        """The exact class rule ``rid`` matches as a single-char unit.
 
         Requires every arm to be one single-char atom (or a ref to another
-        charset rule) with **pairwise-disjoint** alternatives — the
-        derivation-uniqueness half of the collapse proof. ``None`` otherwise.
+        unit rule) with **pairwise-disjoint** alternatives — the
+        derivation-uniqueness half of the collapse proof. ``IrNone`` otherwise.
         """
-        if rid in visiting:
-            return None
         arms = self.arm_syms[rid]
-        if not arms:
-            return None
-        union: set[str] = set()
+        if rid in visiting or not arms:
+            return IrNone
+        union = IrCharClass()
         for syms in arms:
             if len(syms) != 1:
-                return None
-            sym = syms[0]
-            if sym < 0:
-                charset = expand_atom(self.tables.terms.atoms[-sym - 1])
-            else:
-                charset = self._rule_charset(sym - 1, visiting | {rid})
-            if charset is None or union & charset:
-                return None  # unresolvable, or ambiguous alternatives
-            union |= charset
-        return frozenset(union)
+                return IrNone
+            unit = self._sym_unit(syms[0], visiting | {rid})
+            if isinstance(unit, IrNoneType) or union.meets(unit):
+                return IrNone  # unresolvable, or ambiguous alternatives
+            union = IrCharClass.from_intervals(union.intervals() + unit.intervals())
+        return union
+
+    def _sym_unit(self, sym: int, visiting: frozenset[int]) -> IrCharClass | IrNoneType:
+        """The unit of one arm symbol: a terminal's own, or a unit rule's."""
+        if sym < 0:
+            return atom_unit(self.tables.terms.atoms[-sym - 1])
+        return self._rule_unit(sym - 1, visiting)
 
     def _run_shape(self, rid: int) -> RunShape | None:
         """Detect the star/plus desugar shape for synthetic rule ``rid``."""
@@ -216,34 +175,48 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
             has_empty = False
         else:
             return None
-        if unit < 0:
-            atom = self.tables.terms.atoms[-unit - 1]
-            charset = expand_atom(atom)
-            unit_rid = -1
-        else:
-            unit_rid = unit - 1
-            charset = self._rule_charset(unit_rid, frozenset())
-        if charset is None or not charset:
+        unit_rid = unit - 1 if unit > 0 else -1
+        chars = self._sym_unit(unit, frozenset())
+        if isinstance(chars, IrNoneType) or chars.is_empty:
             return None
-        return (charset, has_empty, unit_rid)
+        return (chars, has_empty, unit_rid)
 
     def candidates(self) -> dict[str, RunShape]:
         """Every synthetic run rule whose collapse is proved safe.
 
-        :returns: rule name → ``(charset, has_empty, unit_rid)``.
+        :returns: rule name → ``(unit, has_empty, unit_rid)``.
         """
+        names = self.tables.decode.rule_names
+        shapes: dict[int, RunShape] = {}
+        for rid, name in enumerate(names):
+            if name.startswith(SYNTHETIC_PREFIX):
+                shape = self._run_shape(rid)
+                if shape is not None:
+                    shapes[rid] = shape
+        if not shapes:
+            return {}
+        follow = self._follow_sets()
+        atoms = self.tables.terms.atoms
+        meets: dict[tuple[int, IrCharClass], bool] = {}
         out: dict[str, RunShape] = {}
-        for rid, name in enumerate(self.tables.decode.rule_names):
-            if not name.startswith(SYNTHETIC_PREFIX):
-                continue
-            shape = self._run_shape(rid)
-            if shape is None:
-                continue
-            fol = self.follow[rid]
-            if fol is None or fol & shape[0]:
-                continue  # poisoned or overlapping follow — stay per-char
-            out[name] = shape
+        for rid, shape in shapes.items():
+            if any(_meets(atoms, tid, shape[0], meets) for tid in follow[rid]):
+                continue  # a continuation can begin inside the run — per-char
+            out[names[rid]] = shape
         return out
+
+
+def _meets(
+    atoms: Sequence[IrSelf],
+    tid: int,
+    unit: IrCharClass,
+    meets: dict[tuple[int, IrCharClass], bool],
+) -> bool:
+    """Whether terminal ``tid`` may begin inside ``unit``, memoised per pair."""
+    key = (tid, unit)
+    if key not in meets:
+        meets[key] = may_begin_within(atoms[tid], unit)
+    return meets[key]
 
 
 _CANDIDATES: dict[int, tuple[ParserTables, dict[str, RunShape]]] = memo({})
@@ -255,7 +228,7 @@ def run_candidates(tables: ParserTables) -> dict[str, RunShape]:
     """The proved-safe run collapses for ``tables``, memoised per grammar.
 
     :param tables: Plain (uncollapsed) compiled tables.
-    :returns: rule name → ``(charset, has_empty_arm, unit_rid)``.
+    :returns: rule name → ``(unit, has_empty_arm, unit_rid)``.
     """
     entry = _CANDIDATES.get(id(tables))
     if entry is None:
@@ -283,10 +256,10 @@ def collapse_runs(
     """
     plain = compile_tables(grammar, bits)
     runs: dict[str, tuple[RunTerm, bool]] = {}
-    for name, (charset, has_empty, unit_rid) in run_candidates(plain).items():
+    for name, (unit, has_empty, unit_rid) in run_candidates(plain).items():
         mode = run_mode(plain, unit_rid)
         if mode is not None:
-            runs[name] = (RunTerm(charset, 1, mode), has_empty)
+            runs[name] = (RunTerm.over(unit, mode), has_empty)
     if not runs:
         return plain
     tables = build_tables(grammar, runs, bits)

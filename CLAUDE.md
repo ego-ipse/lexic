@@ -221,7 +221,9 @@ src/lexic/
         control.py                 Control — pipe, cond, each, return
     grammar/                      The grammar AST and the language-preserving passes over it
       __init__.py                the group's package marker; the façade is the import surface
+      charclass.py                  the character-set node and its interval algebra — IrCharClass, IrRange, MAX_CODEPOINT
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
+      graph.py                      the rule-reference graph — references, reachability, cycles
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
       transform/
@@ -306,7 +308,10 @@ src/lexic/
         routed.py                  Route-derived interiors — a region the character sweep cannot see
         speculation.py             When a cut may be PROPOSED — the precondition speculation runs under
         split.py                   SplitPlan — one grammar's cut shape, reused across documents
-      roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
+      roles/                       Role derivation — opener/closer pairs and repetition separators, per grammar
+        __init__.py                the group's package marker
+        derive.py                  Pairs, separator and terminator records, and the leads or terminators a bracket's run reads from them
+        runs.py                    Where a bracket's own run stands — arm sites, repeated bodies, whether an arm holds a run
       discovery/
         __init__.py                Region-discovery package marker
         anchors.py                 Structural anchor analysis
@@ -331,8 +336,20 @@ src/lexic/
         conflicts.py               Late conflict classifiers split from the oracle
         demote.py                  The demotion cascade — what a conflicted decision may be demoted TO
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
+        extend/                    What can lengthen a match, or stand past its start — the charset fixpoints
+          __init__.py              the group's package marker
+          maps.py                  Extensions — the fixpoints' working maps, and the atom bodies they share
+          lengthen.py              EXTEND — item, sequence and arm rules, the shifting bound, R3's confinement, rule_extensions
+          runs.py                  Runs — what a run lets EXTEND drop, read off the grammar alone
+          inner.py                 NON_INITIAL — every character a string can carry past its first
+          prefix.py                Prefixes — whether a loop's complete units can spell into what follows the loop
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
+          ends/               Where a run ends — a one-class loop decided at its run's end, per context
+            __init__.py       the group's package marker
+            contexts.py       Run contexts — what the clone compiler threads for a decided loop
+            leads.py          Leads — where a class's run can end, read off what follows it, and whether that is closed
+            sites.py          Run sites — every context a run's end is read in, and the cascade step it decides
           greedy.py           The split-greedy licence — a loop the split rule settles, not lookahead
           kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
           leftrec.py          Left-recursion detection — the predictive-descent impossibility check
@@ -349,11 +366,14 @@ src/lexic/
         eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
-        leftrec/
-          __init__.py              The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
-          build.py                 Folding the iterations back into the model the grammar's arms build
-          rewrite.py               `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
-          shape.py                 Which rules the fold can take, and what their pieces are
+        descent/
+          __init__.py              The grammar the predictive descent runs — the PDA's own rewrites of the lifted grammar
+          fusion.py                Adjacent same-class items of a text-only rule as one — the PDA's own view
+          leftrec/
+            __init__.py            The left-recursion fold — parse `A ::= A β | γ` as `(γ)(β)*`, build it back
+            build.py               Folding the iterations back into the model the grammar's arms build
+            rewrite.py             `A ::= A β | γ` as `A ::= γ (β)*` — the grammar the predictive descent runs
+            shape.py               Which rules the fold can take, and what their pieces are
         program/
           __init__.py              Flat-program package marker
           flatten.py               The flat int-coded records a compiled PDA IS
@@ -383,8 +403,12 @@ src/lexic/
           __init__.py              the group's package marker
           attempt_inline.py        Frame-less attempt-aware value-string loops
           decisions.py             The attempt/probe method group — the kernel's decision half
-          sides.py                 Boundary sides — the stack copies a verdict is asked on, and the sub-runs they settle
-          verdicts.py              The boundary verdict — take, stop or fork, ranked by the decider
+          verdicts/                Boundary decisions — the verdict, the sides it is asked on, and what settles them
+            __init__.py            the group's package marker
+            floors.py              Floors — attempt sub-runs settled where their frames drain back to, as their caller would
+            liveset.py             The live set — the readings a boundary carries forward, pruned, merged and ranked
+            sides.py               Boundary sides — the stack copies a verdict is asked on, and the sub-runs they settle
+            verdicts.py            The boundary verdict — take, stop or fork, ranked by the decider
           execution.py             Leaf execution, island delegation, and completion
           kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree
 tests/

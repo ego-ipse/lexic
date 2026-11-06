@@ -69,6 +69,10 @@ already-transpiled children) and gates the contract on every run:
   the table, refused with the class named.
 - **Membership and fidelity** — the emitted text parses under B, back to the
   very models the transform built.
+- **Every synthesized class is a model** — indexing an artefact that holds a
+  class that is not one refuses and names it, rather than dropping it to
+  resurface as a rule the target does not define
+  (`test_transpile.py::test_an_artefact_holding_a_non_model_class_refuses_by_name`).
 
 A's models are the lossless account of the source (a JSON `Number` keeps its
 exact spelling — no float type needed; `true` and `1` are different rules;

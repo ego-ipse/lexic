@@ -397,3 +397,25 @@ def test_the_default_path_is_the_one_before_size_targeting(name, seed, depth):
     text = generate(str(ast.start), rules, rng=rng, **extra)
     digest = hashlib.sha256(text.encode()).hexdigest()[:16]
     assert (digest, rng.random()) == HEAD_DEFAULT_PATH[(name, seed, depth)]
+
+
+def _chain(n: int) -> dict:
+    """``r0 ::= "[" r1 "]"`` … ``rn ::= "x"`` by name: every string nests ``n`` deep."""
+    rules = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(n)]
+    source = "\n".join([*rules, f'r{n} ::= "x"']) + "\n"
+    return {r.name: r for r in canonical_grammar(source, GBNF_FLAVOUR).rules}
+
+
+def test_a_string_nested_past_the_stack_is_refused_with_words():
+    """Four hundred required references: every string the rule derives nests
+    that deep, so no depth budget helps, and the walk refuses with words
+    rather than raising the interpreter's RecursionError."""
+    with pytest.raises(
+        UnsupportedConstructError, match="deeper nesting than the stack"
+    ):
+        generate("r0", _chain(400), rng=random.Random(0))
+
+
+def test_a_string_nested_within_the_stack_is_spelled():
+    """Forty required references: the one string, nested forty deep."""
+    assert generate("r0", _chain(40), rng=random.Random(0)) == "[" * 40 + "x" + "]" * 40

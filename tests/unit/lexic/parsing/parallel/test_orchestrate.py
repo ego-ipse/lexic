@@ -32,7 +32,7 @@ from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.planner import certified_plan, safe_plans, split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
-from lexic.parsing.parallel.roles import roles
+from lexic.parsing.parallel.roles.derive import roles
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
@@ -322,14 +322,17 @@ def test_direct_group_recurrence_stitches_below_a_wrapper_start():
     assert parallel.to_text() == text
 
 
-def test_true_root_group_recurrence_has_no_replaceable_route():
-    """A region that is itself the start model declines without a wrapper."""
+def test_true_root_group_recurrence_stitches_over_the_start_model():
+    """A region that is itself the start model splits without a wrapper: its
+    merged node is the whole result."""
     compiled = compile_text(TRUE_GROUP)
     text = "(" + ",".join("a" * 20 for _ in range(1000)) + ")"
     grammar, binding = compiled.codegen_grammar, compiled.product
+    split = split_model(parse_model, grammar, Request(text, binding), 8)
 
-    assert split_model(parse_model, grammar, Request(text, binding), 8) is None
-    assert compiled.parse(text, cores=2).to_text() == text
+    assert split is not None
+    assert split == parse_model(grammar, text, binding)
+    assert split.to_text() == text
 
 
 def test_a_bare_literal_lead_splits_too():
@@ -537,14 +540,23 @@ def test_split_model_settles_too_few_workers_before_entering_poollease(
     Monkeypatching ``PoolLease.__enter__`` to raise makes "never entered"
     loud: if a future change moved the ``workers < 2`` guard to after the
     lease, this fails outright instead of merely deadlocking under load.
+
+    The patch covers ``split_model`` and nothing else. Compiling grammar TEXT
+    runs the self-grammar's own fold, which takes a lease of its own wherever
+    the policy grants a few workers and the grammar offers twice as many
+    units — so the compile runs first, cold and on a four-worker policy, the
+    case that tripped the patch when it ran inside it (a 4-core runner, this
+    test first in its worker). The patch raises on ANY thread: a split_model
+    that handed the lease to a worker thread would still be taking one.
     """
+    monkeypatch.setattr(policy_module, "available_workers", lambda: 4)
+    compiled = compile_text(LEAD_RULE, cache_key="obligation-b-cold-four-workers")
+    grammar, binding = compiled.codegen_grammar, compiled.product
 
     def _entered_the_lease(self):
         raise AssertionError("PoolLease entered despite workers < 2")
 
     monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
-    compiled = compile_text(LEAD_RULE)
-    grammar, binding = compiled.codegen_grammar, compiled.product
     assert split_model(parse_model, grammar, Request(sample_doc(), binding), 1) is None
 
 

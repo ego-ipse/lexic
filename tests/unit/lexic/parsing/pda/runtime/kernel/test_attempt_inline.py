@@ -5,10 +5,11 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import Directives, compile_text
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import IslandEscape, ProbeFork
+from lexic.parsing.pda.core.errors import IslandEscape, IslandRefusal, ProbeFork
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel import attempt_inline as attempt_inline_module
@@ -116,3 +117,31 @@ def test_an_undecidable_dispatch_iteration_is_not_read_as_a_miss(
     frame: Frame[str] = Frame(arm, [], flat_clone(), 0)
     with pytest.raises(ProbeFork):
         _UndecidableBelow("a").attempt_inline_loop(frame, arm, 0, 0)
+
+
+class _RefusingIsland(_UndecidableBelow):
+    """A loop whose iteration's longest take asks an island, and the island
+    refuses its text as meaning two things."""
+
+    __slots__ = ()
+
+    _inline_once = vars(AttemptInlineMixin)["_inline_once"]  # the real match
+
+    def _islanded(self, escape: IslandEscape[IslandPayload], sink: list[str]) -> int:
+        raise IslandRefusal("derives the same text two ways")
+
+
+def test_an_island_refusing_inside_an_iteration_forks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read as a failed iteration, the refusal closed the loop and committed
+    a reading the gated engine refuses: the iteration forks, caused by it."""
+
+    def escaping(*_args: object) -> int:
+        raise IslandEscape(None, 0)
+
+    monkeypatch.setattr(attempt_inline_module, "vstr_once", escaping)
+    kern = _RefusingIsland("a")
+    with pytest.raises(ProbeFork) as fork:
+        vars(AttemptInlineMixin)["attempt_inline"](kern, _one_loop_arm(OP_AVSTR), 0, 0)
+    assert isinstance(fork.value.__cause__, UnsupportedConstructError)

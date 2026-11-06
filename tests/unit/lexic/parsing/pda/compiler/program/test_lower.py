@@ -11,13 +11,13 @@ assignment and per-item quantifier/gate flattening, through the same
 
 from __future__ import annotations
 
+from lexic.parsing.pda.compiler.program.flatten import all_clones
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_SEQ,
     BUILD_VALUE_STR,
     GATE_STOP,
     HI_UNBOUNDED,
 )
-from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 
 
@@ -67,7 +67,7 @@ def test_a_stealing_rules_sole_arm_is_entered_where_its_span_is_checked():
     island. The one-item arm stays framed, carrying the take too, so a
     sub-run it roots that misses asks the island as well."""
     pda = pda_from_text('root ::= item+ ";"?\nitem ::= [a;] | "a"+ "a"\n')
-    clones = walk_program_clones(pda.program.start).values()
+    clones = all_clones([pda.program.start])
     item = next(one for one in clones if one.name == "item" and one.attempt)
     subs = {entry[4].selectors[0][2].n: entry[4] for entry in item.attempt[1]}
     assert item.longest is not None and item.longest.steals

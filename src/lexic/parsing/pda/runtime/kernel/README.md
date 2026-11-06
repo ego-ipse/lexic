@@ -3,8 +3,9 @@
 The kernel is one cursor split by responsibility: `kernel.py` holds
 `PdaKernel`, the paid loop, island splice, and public `pda_model` entry;
 `decisions.py` holds the attempt/probe method group it inherits;
-`verdicts.py` holds the boundary verdict that group inherits in turn;
-`sides.py` holds the sides that verdict is asked on; and
+`verdicts/` holds the boundary verdict that group inherits in turn, the
+sides that verdict is asked on, and the floor drive both settle sub-runs with;
+and
 `attempt_inline.py` holds frame-less loops for attempt-aware value strings.
 
 ## `kernel.py`
@@ -25,23 +26,16 @@ folded model into the live frame.
 `Attempting` provides ordered speculative entries and watermarked sub-runs. An
 attempted iteration whose boundary is both viable asks the verdict. An
 undecidable result is `ProbeFork`, which returns control to the ordinary Earley
-completion.
+completion. Sub-runs are driven where their caller stands up to the parse's
+in-place depth; past it they suspend (`Suspended`) and are settled at their
+floors (`verdicts/floors.py`), so attempt nesting never reaches Python
+recursion either. Only a program that can nest that deep counts: it parses on
+`NestingKernel`, every other on `PdaKernel`'s plain sub-run drive.
 
-## `verdicts.py`
+## `verdicts/`
 
-`Verdicts` decides a both-viable boundary — take, stop or fork — on two sides
-advanced in lockstep until they converge or run to end of input. Equal values
-take; differing values are ranked as the gated engine ranks them, by the
-decider's slots at the first step whose carving differs. An island whose
-reference may follow several of its completions is settled the same way, one
-side per completion.
-
-## `sides.py`
-
-`Sides` builds a side — a structural copy of the live stack with one decision
-taken — and drives it one copied frame at a time, recording where each frame
-completes (its ledger, which the rank reads) and settling each attempt sub-run
-it stands inside as the sub-run's caller would, recovered from the stack.
+The boundary decisions the attempt group asks for: the verdict and the sides
+it is asked on. See `verdicts/README.md`.
 
 ## `attempt_inline.py`
 

@@ -13,6 +13,7 @@ from lexic.compile import compile_from_path
 from lexic.compile.notation.emit import ir_doc
 from lexic.grammars.abnf import ABNF_GRAMMAR
 from lexic.grammars.gbnf import GBNF_GRAMMAR
+from lexic.ir import action, grammar, spine, text
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
 from lexic.ir.spine.spine import IrNone
@@ -259,87 +260,110 @@ def test_the_facade_exports_every_public_name_in_the_package() -> None:
     assert not missing, f"public but not on the façade: {missing}"
 
 
-def _facade_source() -> tuple[dict[str, str], set[str]]:
-    """The façade's ``_HOMES`` map and its eagerly-bound names, read structurally.
+_GROUPS = {"spine": spine, "action": action, "grammar": grammar, "text": text}
 
-    From the SOURCE, as the package root's own pin does: the map is private, and
-    a test that reads it as an attribute asserts against something the module
-    does not offer.
-    """
-    tree = pyast.parse(
-        (PROJECT_ROOT / "src" / "lexic" / "ir" / "__init__.py").read_text("utf-8")
+
+def _facade_tree() -> pyast.Module:
+    """The façade's source, parsed — its own surface is private, so it is read
+    structurally, as the package root's pin reads that façade."""
+    path = PROJECT_ROOT / "src" / "lexic" / "ir" / "__init__.py"
+    return pyast.parse(path.read_text("utf-8"))
+
+
+def _surfaces() -> dict[str, dict[str, str]]:
+    """Every surface by owner — ``""`` for the façade's own direct modules, then
+    each group marker's — as name → defining module."""
+    own = next(
+        node.value
+        for node in _facade_tree().body
+        if isinstance(node, pyast.AnnAssign)
+        and isinstance(node.target, pyast.Name)
+        and node.target.id == "_SURFACE"
     )
-    homed: dict[str, str] = {}
-    for node in pyast.walk(tree):
-        if not isinstance(node, pyast.Assign) or not isinstance(node.value, pyast.Dict):
-            continue
-        if not any(
-            isinstance(t, pyast.Name) and t.id == "_HOMES" for t in node.targets
-        ):
-            continue
-        for key, home in zip(node.value.keys, node.value.values):
-            if isinstance(key, pyast.Constant) and isinstance(home, pyast.Constant):
-                homed[str(key.value)] = str(home.value)
-    eager = {
+    assert own is not None, "the façade states no _SURFACE"
+    out = {"": pyast.literal_eval(own)}
+    out.update((name, group.SURFACE) for name, group in _GROUPS.items())
+    return out
+
+
+def _homes() -> dict[str, str]:
+    """Every lazy export and the module its surface records."""
+    return {
+        name: home for surface in _surfaces().values() for name, home in surface.items()
+    }
+
+
+def _eager() -> set[str]:
+    """The names the façade binds at import rather than on first access —
+    ``IrSelf`` among them, which its ``__getattr__`` signature needs anyway."""
+    return {
         alias.name
-        for node in tree.body
+        for node in _facade_tree().body
         if isinstance(node, pyast.ImportFrom)
         and node.module
-        and node.module.startswith("lexic.ir")
+        and node.module.startswith("lexic.ir.")
         for alias in node.names
-    } - {"IrSelf"}
-    return homed, eager
+    }
 
 
-def test_the_type_checking_block_names_the_same_modules_as_homes() -> None:
+def test_the_type_checking_block_states_every_surface_module_by_module() -> None:
     """The static declarations and the runtime lookup must point at one module.
 
     They can disagree silently: a ``TYPE_CHECKING`` import of a module that no
     longer exists costs NOTHING at runtime — ``__getattr__`` still resolves the
     name — and only a type checker notices, by quietly widening every one of
     those names to the façade's return type. It happened to 15 names the moment
-    ``base`` split into three, because ``_HOMES`` was repointed and the block
-    was not.
+    ``base`` split into three, because the lookup was repointed and the block
+    was not. Asked in both directions, so a name a surface forgets is as red as
+    one the block forgets.
     """
-    tree = pyast.parse(
-        (PROJECT_ROOT / "src" / "lexic" / "ir" / "__init__.py").read_text("utf-8")
+    declared: dict[str, set[str]] = {}
+    for block in _facade_tree().body:
+        if isinstance(block, pyast.If):
+            for node in pyast.walk(block):
+                if isinstance(node, pyast.ImportFrom) and node.module:
+                    names = {alias.name for alias in node.names}
+                    declared.setdefault(node.module, set()).update(names)
+    stated: dict[str, set[str]] = {}
+    for name, home in _homes().items():
+        stated.setdefault(home, set()).add(name)
+    assert declared == stated
+
+
+def test_all_is_the_surfaces_and_the_eager_names() -> None:
+    """``__all__``, the surfaces and the eager bindings are one surface.
+
+    ``__all__`` is stated for the tools that read only a literal; the lookup is
+    derived from the surfaces. A name joins by joining both, or the façade lies
+    to one reader.
+    """
+    homed, eager = set(_homes()), _eager()
+    assert set(ir.__all__) == homed | eager
+    assert not homed & eager, "a name is both lazy and eager"
+
+
+def test_no_name_is_on_two_surfaces() -> None:
+    """One name, one home — a second listing would let the derived lookup pick
+    whichever surface it read last."""
+    listed = [name for surface in _surfaces().values() for name in surface]
+    assert len(listed) == len(set(listed)), sorted(
+        {name for name in listed if listed.count(name) > 1}
     )
-    declared = {
-        alias.name: node.module
-        for block in tree.body
-        if isinstance(block, pyast.If)
-        for node in pyast.walk(block)
-        if isinstance(node, pyast.ImportFrom) and node.module
-        for alias in node.names
-    }
-    homed, _ = _facade_source()
-    disagree = {
-        n: (declared[n], homed[n])
-        for n in declared
-        if homed.get(n, declared[n]) != declared[n]
-    }
-    assert not disagree, f"declared vs _HOMES: {disagree}"
 
 
-def test_the_three_statements_of_the_surface_agree() -> None:
-    """``__all__``, ``_HOMES`` and the eager bindings are one surface.
-
-    It is stated three times because three consumers read it — the type
-    checker, the export machinery, and the runtime lookup — so a name joins by
-    joining all three or the façade lies to one of them.
-    """
-    homed, eager = _facade_source()
-    assert set(ir.__all__) == set(homed) | eager
-    assert not (set(homed) & eager), "a name is both lazy and eager"
+def test_the_facades_own_surface_lists_only_its_direct_modules() -> None:
+    """The façade is the marker of its own level: ``flavour``, ``identity``,
+    ``reduction`` — each group states its own names in its own marker."""
+    own = _surfaces()[""]
+    assert all(home.count(".") == 2 for home in own.values()), own
 
 
 def test_every_exported_name_resolves_to_its_recorded_module() -> None:
-    """``_HOMES`` says where each name lives; that module has to define it.
+    """A surface says where each name lives; that module has to define it.
 
     Asked of the MODULE, not of the value's ``__module__``: a type alias like
     ``IrDoc`` reports ``typing`` as its module and is still exactly what
     ``lexic.ir.text.layout`` defines under that name.
     """
-    homed, _ = _facade_source()
-    for name, home in homed.items():
+    for name, home in _homes().items():
         assert getattr(import_module(home), name) is getattr(ir, name), (name, home)
