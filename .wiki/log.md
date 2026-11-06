@@ -3038,3 +3038,8 @@ meets only one with the same winner and rivals.
 
 `decisions.md`'s attempt-gate entry: `_spanned` compares what the arm builds
 over the winner's span.
+
+## A set past its bound steps its crowded places first (2026-11-06)
+
+`decisions.md`'s live-set entry: `_relieved`, before the set forks past
+`SET_MAX`.

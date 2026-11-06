@@ -941,7 +941,15 @@ so readings that can meet do, the smallest way's first, and a step ends once
 one way is left. At a loop boundary the reading ahead leads one step first
 (`LEAD_STEP`), so a take that dies a character later costs the stop nothing.
 The set is bounded — `SET_MAX` readings, `SET_STEPS` steps, `NESTING_DEPTH`
-splits deep — and past any bound it raises a `ProbeFork` that names it.
+splits deep — and past any bound it raises a `ProbeFork` that names it. Before
+it forks past `SET_MAX`, the readings that stand together ahead without
+meeting are each driven one character on (`_relieved`): two readings at one
+place can differ only in a frame about to close, and the step keeps them
+waiting for the readings behind. A run of vyx lines that each run on through
+every separator added two readings a separator, one per body-line arm that
+reads the line, and declined. Driven on every step instead, the readings ahead
+skip meetings with those arriving from behind and the set grows elsewhere, so
+it is the bound's last resort.
 
 **What a set pays is what it needs**, measured on vyx (the bench row that asks
 boundaries, three sets a parse), where the first build cost the decision path

@@ -246,12 +246,14 @@ class LiveSet[Carry](Sides[Carry]):
         ]
         for _step in range(SET_STEPS):
             readings = self._merged(readings)
-            ways = {reading.path[0] for reading in readings}
+            ways = _ways(readings)
             if len(ways) <= 1:
                 self._caches.scope.answers = planned(readings)
                 return next(iter(ways))
             readings = self._stepped(readings, ahead_first and not _step)
             if len(readings) > SET_MAX:
+                readings = self._merged(self._relieved(readings))
+            if len(readings) > SET_MAX and len(_ways(readings)) > 1:
                 raise ProbeFork(
                     f"live set at {self.pos}: {len(readings)} readings exceed"
                     f" {SET_MAX}; the gated engine decides",
@@ -277,6 +279,18 @@ class LiveSet[Carry](Sides[Carry]):
         behind = places[0]
         target = places[1] if len(places) > 1 else behind + STEP
         return self._driven(readings, lambda at: at == behind, target)
+
+    def _relieved(self, readings: list[Strand]) -> list[Strand]:
+        """A set past its bound, before it forks: the readings that stand
+        together ahead without meeting, each place's driven one character on,
+        where they can meet. The step keeps them waiting for the readings
+        behind, and a run of island ends grows the set by two a place."""
+        behind = min(reading.side[1] for reading in readings)
+        for place in _crowded(readings, behind):
+            readings = self._driven(
+                readings, lambda at, at_=place: at == at_, place + 1
+            )
+        return readings
 
     def _driven(
         self, readings: list[Strand], chosen: Callable[[int], bool], target: int
@@ -403,6 +417,20 @@ def planned(survivors: list[Strand]) -> list[tuple[tuple[Any, ...], int]]:
         at += 1
     plan.reverse()
     return plan
+
+
+def _ways(readings: list[Strand]) -> set[int]:
+    """The ways of the set's own boundary its readings still stand for."""
+    return {reading.path[0] for reading in readings}
+
+
+def _crowded(readings: list[Strand], behind: int) -> list[int]:
+    """The places ahead of ``behind`` where readings that did not merge stand
+    together."""
+    count: dict[int, int] = {}
+    for reading in readings:
+        count[reading.side[1]] = count.get(reading.side[1], 0) + 1
+    return sorted(at for at, n in count.items() if n > 1 and at != behind)
 
 
 def _near(side: Side) -> tuple[Any, ...]:

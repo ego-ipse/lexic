@@ -68,3 +68,17 @@ def test_readings_that_met_are_compared_by_what_they_built(
     """Each packet's predictive model is Earley's, on every view."""
     got, want = pda_and_earley(vyx_view(view, "vyx-separated"), text)
     assert got == want
+
+
+SEPARATED_ENDS = "!X:Y }\\n# n\\\\n\\#\\n\\n\\n\\n >"
+"""Escaped lines run on through every separator after them, so a set holds two
+readings at each one: the line read as ``nl-escape`` and as ``nl-force``.
+They stand at one place without meeting until a character on, and the readings
+behind keep adding pairs ahead; the set passed its bound and the packet
+declined."""
+
+
+def test_readings_crowded_ahead_meet_before_the_set_forks() -> None:
+    """The packet's predictive model is Earley's, on plain."""
+    got, want = pda_and_earley(vyx_view("plain", "vyx-separated"), SEPARATED_ENDS)
+    assert got == want

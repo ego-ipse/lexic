@@ -5,7 +5,7 @@
 completes on a whole-input engine reparse on any
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`. This module pins one input that
 genuinely forces that completion on a real ground-truth grammar (vyx's
-``nl-escape`` island seeing two ends that both compose) and proves it
+readings split past the live set's nesting bound) and proves it
 both fires and returns the engine-correct model — ``PdaFail`` never leaks to the
 public ``parse()`` caller.
 """
@@ -24,14 +24,13 @@ from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
-# The pinned fallback input: an inline body of escaped lines. ``nl-escape``'s
-# tail takes every printable character, the ``\n`` separator's included, so the
-# first line can end after ``\#`` or run on through the separators to the last
-# line's end. The rule is an island, and its two ends both compose with what
-# follows; the island refuses rather than pick one, and the PDA reports the
-# refusal.
+# The pinned fallback input: an inline body whose value and escaped line each
+# run on through every separator after them. ``k=``'s value and the ``\#``
+# line can end at each ``\n``, so a boundary inside a reading splits it again
+# at every separator, and past the nesting bound the PDA reports the refusal
+# rather than guess.
 FALLBACK_GRAMMAR = GROUND_TRUTH / "vyx.gbnf"
-FALLBACK_INPUT = "!R \\#\\n# \\n\\#\\n\\#\\n >"
+FALLBACK_INPUT = "!R k=\\n\\#\\na\\n\\\\\\n\\n\\n\\n# >"
 
 
 def test_a_run_that_takes_its_separator_forces_pda_fallback():
