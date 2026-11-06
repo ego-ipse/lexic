@@ -28,9 +28,9 @@ import re
 import pytest
 
 from lexic.compile import compile_from_path
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, no_shape_build
+from lexic.parsing.pda.compiler.program.flatten import all_clones, no_shape_build
 from lexic.parsing.products import pda_tables
-from tests.build_tail_helpers import every_clone, plan_means
+from tests.build_tail_helpers import plan_means
 from tests.paths import (
     ABNF_GRAMMARS,
     GBNF_GRAMMARS,
@@ -199,11 +199,10 @@ def test_every_clone_s_build_agrees_with_its_own_plan(name: str) -> None:
     """Across the whole corpus, no builder reads a plan other than its own."""
     compiled = compile_from_path(GROUND_TRUTH / name)
     tables = pda_tables(compiled.codegen_grammar, compiled.product)
-    seen: dict[int, FlatClone] = {}
-    every_clone(tables.program.start, seen)
+    clones = all_clones([tables.program.start])
 
     checked = 0
-    for clone in seen.values():
+    for clone in clones:
         if clone.build is no_shape_build or not clone.plan:
             continue
         width = max(item for _m, item, _lo, _d in clone.plan) + 1

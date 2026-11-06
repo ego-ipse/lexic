@@ -20,7 +20,7 @@ advance. The IR seams sit at the edges: :func:`~lexic.parsing.earley.kernel.tabl
   ``rule_id`` / ``term_id`` ints — no packed keys on the per-item path.
 
 **What is preserved.** The full Scott (2008) SPPF (a key reached two ways
-files an additional family; identical families dedup), Aycock-Horspool
+files an additional family, and no family is filed twice), Aycock-Horspool
 nullable advance (recording the completer's own empty-completion handle so
 the two provenances collapse), and Leo right-recursion with the deferred
 ``leo_links`` chain rebuild — all ported 1:1 from the IR-dispatch engine, on
@@ -29,6 +29,7 @@ ints.
 
 from __future__ import annotations
 
+import sys
 from itertools import islice
 from typing import Callable, Self
 
@@ -41,15 +42,38 @@ from lexic.parsing.earley.kernel.loop.state import (
     PROMOTED,
     KernelState,
     KLink,
+    late_head,
+    lazy_head,
 )
 from lexic.parsing.earley.kernel.tables.atoms import FamilyReader, RunTerm
 from lexic.parsing.earley.kernel.tables.records import ParserTables
+
+LAZY_PROMOTION = 3
+"""How many families a key facing a nullable rule holds before it promotes:
+the ski-rental crossover ``(P + R) / a`` ≈ 2.7 of an explicit family's cost
+``a`` ≈ 117 ns against a promotion's ``P`` ≈ 136 ns plus ``R`` ≈ 181 ns of
+group reads over the key's life (at this threshold, 126 of 63,251 promoted
+keys read, on the vyx ``!R`` body whose words span separators). A key holding two families, as an
+alternation's pairs do, stays explicit."""
 
 Delegate = Callable[[str, int], tuple[int, object] | None]
 """An island-interior delegate: ``(window_text, pos) -> (end, payload) | None``.
 Opaque to the kernel (the ``pda`` package builds and populates it); ``None``
 means the delegate declined, so the predictor falls through to normal
 prediction (the fail-soft safety net). See :meth:`Kernel._seed`."""
+
+
+def _check_capacity(tables: ParserTables, columns: int) -> None:
+    """Refuse a parse wider than the packed column capacity.
+
+    :raises UnsupportedConstructError: When ``columns`` reaches
+        ``tables.packing.advance``.
+    """
+    if columns >= tables.packing.advance:
+        raise UnsupportedConstructError(
+            f"parsing: input of {columns} chars exceeds the packed "
+            f"column capacity ({tables.packing.advance - 1})"
+        )
 
 
 class Kernel(IrLeaf[IrSelf, IrSelf]):
@@ -115,11 +139,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :raises UnsupportedConstructError: If ``text`` exceeds the packed
             column capacity (``tables.packing.advance - 1`` chars).
         """
-        if len(text) >= tables.packing.advance:
-            raise UnsupportedConstructError(
-                f"parsing: input of {len(text)} chars exceeds the packed "
-                f"column capacity ({tables.packing.advance - 1})"
-            )
+        _check_capacity(tables, len(text))
         self.tables = tables
         self.text = text
         self.record_links = record_links
@@ -127,6 +147,34 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         self.st = KernelState(len(text) + 1)
         self.delegates = delegates or {}
         self.delegated = {}
+
+    # ── the columns ───────────────────────────────────────────────────
+
+    def open_columns(self, end: int) -> None:
+        """Every per-column lane, :attr:`cols` included, open to column ``end``.
+
+        :raises UnsupportedConstructError: When ``end`` is past the packed
+            column capacity.
+        """
+        _check_capacity(self.tables, end)
+        cols = self.cols
+        cols.extend([[] for _ in range(len(cols), end + 1)])
+        self.st.open_to(end)
+
+    def cut_columns(self, keep: int) -> tuple[list[list[int]], list[list]]:
+        """Every per-column lane, :attr:`cols` included, cut back to its first
+        ``keep`` columns.
+
+        :returns: What was cut, for :meth:`restore_columns`.
+        """
+        held = self.cols[keep:]
+        del self.cols[keep:]
+        return held, self.st.cut(keep)
+
+    def restore_columns(self, held: tuple[list[list[int]], list[list]]) -> None:
+        """Put back what :meth:`cut_columns` took."""
+        self.cols.extend(held[0])
+        self.st.restore(held[1])
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -137,13 +185,19 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         reader: native lookups, no wrapper, no marker check. A chart that
         factored gets a :class:`FamilyTable` that resolves promoted keys. The
         choice holds for the reader's lifetime because only recognition
-        promotes — Leo expansion appends to buckets but never promotes, and
-        ``ResumableKernel.extend`` refuses under ``record_links``.
+        promotes — Leo expansion appends to buckets but never promotes,
+        ``ResumableKernel.extend`` refuses under ``record_links``, and a growing
+        ``WindowKernel`` is read for families only once it has stopped growing.
         """
         return FamilyTable(self) if self.st.groups else self.st.links
 
     def run(self) -> Self:
         """Build the chart: close each column to a fixpoint, scan one char.
+
+        An empty column is skipped, never a stop: a multi-char literal, a run
+        terminal or a token lands past the columns it consumes, and those hold
+        nothing to close or scan — every item a column will ever hold arrives
+        from an earlier column's scan, so emptiness at its turn is final.
 
         :returns: ``self``, with :attr:`accept` resolved.
         """
@@ -151,9 +205,11 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         if self.tables.start_id >= 0:
             self.st.predicted[0].add(self.tables.start_id)
             self._seed(0, self.tables.start_id)
+        cols = self.cols
         for i in range(n):
-            self._close(i)
-            self._scan(i)
+            if cols[i]:
+                self._close(i)
+                self._scan(i)
         self._close(n)
         return self
 
@@ -186,9 +242,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
                 # every waiter facing a nullable rule is advanced (and its
                 # family recorded) by _nullable_advance at its own visit in
                 # this same fixpoint pass, and Leo never engages on an empty
-                # span (_leo_resolve stops on same-column steps), so the
-                # completer would only re-derive deduped items and identical
-                # families.
+                # span: a climb starts at a completion that crosses columns,
+                # and the one same-column step it passes (a unit arm whose own
+                # waiter crosses) lies inside that span. So the completer would
+                # only re-derive deduped items and identical families.
                 if delegated:  # island-interior delegation (empty otherwise)
                     payload = delegated.get((it << bits) | i)
                     if payload is not None:
@@ -312,8 +369,9 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         """Aycock-Horspool: advance ``it`` over its nullable target at once.
 
         Records, per empty-deriving arm, the **same** handle the completer
-        files for that arm's empty completion — so the two provenances dedup
-        into one family (no spurious ambiguity).
+        would file for that arm's empty completion, which the completer skips.
+        A column closes once on every chart that records links, so this runs
+        once per key, and what its bucket holds began before ``i``.
         """
         pk = self.tables.packing
         bits = pk.bits
@@ -331,21 +389,18 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             bucket = links.get(key)
             if bucket is None:  # completes is never empty — no empty bucket
                 bucket = links[key] = []
+            elif bucket[0] is PROMOTED:
+                self._place_late(i, it, bucket)
             for done_code in completes:
-                entry: KLink = (
-                    it,
-                    i,
-                    (((done_code << bits) | i) << bits) | i,
-                )
-                if entry not in bucket:
-                    bucket.append(entry)
+                bucket.append((it, i, (((done_code << bits) | i) << bits) | i))
 
     def _complete(self, i: int, it: int) -> None:
         """Earley completer: advance every item waiting on the finished rule."""
         c = self.tables.codes
         bits = self.tables.packing.bits
         origin = it & self.tables.packing.mask
-        wl = self.st.waiting[origin].get(c.arm_rule[c.code_arm[it >> bits]])
+        rid = c.arm_rule[c.code_arm[it >> bits]]
+        wl = self.st.waiting[origin].get(rid)
         if not wl:
             return
         if (
@@ -360,79 +415,110 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         # same-pass appends (advancing files a new waiter when origin == i).
         self._advance_all(i, wl)
         if self.record_links:
-            self._index_completion(i, it, wl, origin)
+            self._index_completion(i, (it << bits) | i, wl, origin, rid)
 
-    def _index_completion(self, i: int, it: int, wl: list[int], origin: int) -> None:
+    def _index_completion(
+        self, i: int, child: int, wl: list[int], origin: int, rid: int
+    ) -> None:
         """File one completion's families — the first directly, the rest not.
 
         `wl` is the waiter list `_complete` already holds, so this is the same
-        second iteration over one list the engine has always had.
+        second iteration over one list the engine has always had. Every waiter
+        in it faces ``rid``, so the whole completion has one CAP, the families
+        an occupied key holds before the next promotes it, decided at its first
+        occupied bucket and held for the rest of the list:
+
+        - **1** (a rule with no empty arm): the second family promotes.
+        - :data:`LAZY_PROMOTION` (a NULLABLE rule, where
+          :meth:`_nullable_advance` files too): :meth:`_promote_lazy`.
+        - **unbounded** (a rule this kernel delegates, behind
+          ``if self.delegates``): `_complete_delegated` files payloads no group
+          holds, so the key never promotes.
 
         A fresh key costs what the old recorder paid: one link, one `get`, one
-        insert. The group lookup waits behind ``if st.groups`` — empty on every
-        chart that never promotes — and everything a promotion needs waits
-        behind an OCCUPIED bucket, which a chart of fanout one never meets. A
-        PROMOTED bucket allocates nothing: the family tuple is built only
-        where a bucket still records families, so the factored chart does not
-        pay one per waiter per completion.
+        insert, and decides nothing. A PROMOTED bucket, longer than its cap,
+        allocates nothing. No family filed here is already in its bucket: each
+        completion is processed once, its waiters are distinct, and so are their
+        keys.
+
+        :param child: The completed item's handle, ``(it << bits) | i``.
         """
         links = self.st.links
-        pk = self.tables.packing
-        bits, advance = pk.bits, pk.advance
-        child = (it << bits) | i
-        group = self._join_group(i, it) if self.st.groups else None
+        bits, advance = self.tables.packing.bits, self.tables.packing.advance
+        group = self._join_group(i, child >> bits, rid) if self.st.groups else None
+        cap = 0
         for w in wl:
             key = ((w + advance) << bits) | i
             bucket = links.get(key)
             if bucket is None:
                 links[key] = [(w, origin, child)]
-            elif bucket[0] is not PROMOTED:
-                entry: KLink = (w, origin, child)
-                if entry not in bucket:
-                    group = self._promote(i, it, entry, bucket, group)
+                continue
+            if not cap:
+                cap = self._cap(rid)
+            if len(bucket) < cap:
+                bucket.append((w, origin, child))
+            elif bucket[0] is not PROMOTED:  # once per key: the rule decides how
+                promote = (
+                    self._promote_lazy
+                    if self.tables.codes.nullable_completes[rid]
+                    else self._promote
+                )
+                group = promote(i, child >> bits, rid, bucket, group)
 
-    def _join_group(self, i: int, it: int) -> list[int] | None:
-        """Record completion ``it`` in its ``(rule, i)`` group, if one exists."""
-        c = self.tables.codes
-        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
+    def _cap(self, rid: int) -> int:
+        """How many families a key facing ``rid`` holds before it promotes."""
+        if self.delegates and rid in self.delegates:
+            return sys.maxsize
+        return LAZY_PROMOTION if self.tables.codes.nullable_completes[rid] else 1
+
+    def _join_group(self, i: int, it: int, rid: int) -> list[int] | None:
+        """Record completion ``it`` in its ``(rid, i)`` group, if one exists."""
         group = self.st.groups.get((rid, i))
         if group is not None:
             group.append(it)
         return group
 
     def _promote(
-        self,
-        i: int,
-        it: int,
-        entry: KLink,
-        bucket: list[KLink],
-        group: list[int] | None,
-    ) -> list[int] | None:
-        """A key's second distinct family: hand its record to the shared group.
+        self, i: int, it: int, rid: int, bucket: list[KLink], group: list[int] | None
+    ) -> list[int]:
+        """A factoring key's second distinct family: hand its record to the group.
 
-        A key facing a NULLABLE rule, or one the island delegates, is never
-        factored and keeps every family as the old recorder did: those keys
-        also receive families from `_nullable_advance` or `_complete_delegated`,
-        interleaved with ordinary ones in event order, and only the bucket
-        records that interleaving.
-
-        Otherwise the bucket becomes ``[PROMOTED, first]``. Its first family
-        stays because the group may not hold it — it can predate the group —
-        and it needs no position: every other family the key reads from the
-        group was filed after it.
+        The bucket becomes ``[PROMOTED, first]``. Its first family stays because
+        the group may not hold it — it can predate the group — and it needs no
+        position: every other family the key reads from the group was filed
+        after it.
 
         :returns: the group, created here on the first promotion at its
-            ``(rule, end)``; ``None`` if this key is not one to factor.
+            ``(rid, i)``.
         """
-        c = self.tables.codes
-        rid = c.arm_rule[c.code_arm[it >> self.tables.packing.bits]]
-        if c.nullable_completes[rid] or rid in self.delegates:
-            bucket.append(entry)
-            return group
         if group is None:
             group = self.st.groups[(rid, i)] = [it]
         bucket.insert(0, PROMOTED)
         return group
+
+    def _promote_lazy(
+        self, i: int, it: int, rid: int, bucket: list[KLink], group: list[int] | None
+    ) -> list[int]:
+        """A lazy key's family past :data:`LAZY_PROMOTION`: the rest from the group.
+
+        The bucket becomes ``[PROMOTED, head, *held]``, the families held kept
+        in order, and the key reads the rest from ``it``'s place in the group
+        (:func:`~lexic.parsing.earley.kernel.loop.state.lazy_head`).
+
+        :returns: the group, created here on the first promotion at its
+            ``(rid, i)``.
+        """
+        if group is None:
+            group = self.st.groups[(rid, i)] = [it]
+        bucket[0:0] = (PROMOTED, lazy_head(len(group) - 1, len(bucket)))
+        return group
+
+    def _place_late(self, i: int, it: int, bucket: list[KLink]) -> None:
+        """Record where a promoted key's empty families stand in its group: at
+        the group's length now, the one moment ``it`` is visited. They are
+        appended after what it holds, as recognition files nothing else there."""
+        rid = self.tables.codes.next_sym[it >> self.tables.packing.bits] - 1
+        bucket[1] = late_head(bucket[1], len(self.st.groups[(rid, i)]))
 
     def _inject_delegate(self, i: int, rid: int, end: int, payload: object) -> None:
         """File a delegated completion of ``rid`` over ``[i, end]`` (origin ``i``).
@@ -562,53 +648,16 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             elif entry not in fam:
                 fam.append(entry)
 
-    # ── windowed prefix completion (islands) ──────────────────────────
-
-    def longest_start_completion(self) -> tuple[int, int] | None:
-        """Longest whole-prefix completion of the start rule (origin 0).
-
-        The islands seam (:mod:`lexic.parsing.pda.runtime.kernel.kernel`): seed the start
-        rule at column 0, drive the chart column by column over the window,
-        and after closing each reachable column record the widest completed
-        start item spanning ``[0, j]``. A later column overwrites an earlier
-        one, so the result is the *longest* completion; empty columns are
-        skipped rather than terminal, since a multi-char literal scan can land
-        past one. Additive to :meth:`run` — the main-loop fast path is
-        untouched; a fresh kernel calls this *instead of* :meth:`run` (with
-        ``record_links=True`` so :class:`FastTree` can decode the winner).
-
-        :returns: ``(accepting_item, end_column)`` for the longest origin-0
-            completion of the start rule, or ``None`` if it never completes.
-        """
-        tables = self.tables
-        if tables.start_id < 0:
-            return None
-        self.st.predicted[0].add(tables.start_id)
-        self._seed(0, tables.start_id)
-        accepts = tables.codes.accept_codes
-        bits, mask = tables.packing.bits, tables.packing.mask
-        best: tuple[int, int] | None = None
-        n = len(self.text)
-        for j in range(n + 1):
-            col = self.cols[j]
-            if not col:
-                continue
-            self._close(j)
-            for it in col:
-                if it >> bits in accepts and it & mask == 0:
-                    best = (it, j)
-            if j < n:
-                self._scan(j)
-        return best
-
     # ── Leo right-recursion ───────────────────────────────────────────
 
     def _try_leo(self, i: int, done: int, sole: int) -> bool:
         """Leo fast path: jump a deterministic right-recursion to its top.
 
-        Engages only for chains of length ≥ 2 (the one-level pre-check keeps
-        shallow right-recursions on the normal completer); a nullable cycle
-        (no topmost item) falls back too.
+        Engages only for chains of two steps or more (the pre-check keeps
+        shallow right-recursions on the normal completer). A same-column
+        ``sole`` is the unit step the climb passes, which is free, so the two
+        are counted past it: its rule's own sole waiter must cross columns and
+        have one of its own. A nullable cycle (no topmost item) falls back too.
 
         :returns: ``True`` when Leo handled the completion.
         """
@@ -616,8 +665,14 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         c = t.codes
         bits, mask = t.packing.bits, t.packing.mask
         st = self.st
-        if leo_sole(st, t, sole & mask, c.arm_rule[c.code_arm[sole >> bits]]) < 0:
+        above = leo_sole(st, t, sole & mask, c.arm_rule[c.code_arm[sole >> bits]])
+        if above < 0:
             return False  # chain length 1 — normal completion is cheaper
+        if sole & mask == done & mask and (
+            above & mask == done & mask
+            or leo_sole(st, t, above & mask, c.arm_rule[c.code_arm[above >> bits]]) < 0
+        ):
+            return False  # past a unit step, one step is all the climb has
         top = leo_resolve(st, t, i, done & mask, c.arm_rule[c.code_arm[done >> bits]])
         if top < 0:  # nullable cycle — run the normal completer
             return False
@@ -629,11 +684,10 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
             if s:
                 st.file_item(i, top, s)
         if self.record_links:
-            key = (top << bits) | i
             entry: KLink = (sole, done & mask, (done << bits) | i)
-            bucket = st.leo_links.get(key)
+            bucket = st.leo_links.get((top << bits) | i)
             if bucket is None:
-                st.leo_links[key] = [entry]
+                st.leo_links[(top << bits) | i] = [entry]
             elif entry not in bucket:  # a second chain to the same top
                 bucket.append(entry)
         return True

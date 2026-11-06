@@ -24,17 +24,26 @@ from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from typing import NamedTuple
 
-from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
+    Site,
     Skip,
     hides,
     interiors,
     skip_delimited,
     skip_leads,
+    stray_spellings,
 )
-from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import (
+    edge_char,
+    literal_char,
+    rule_table,
+)
 from lexic.parsing.parallel.policy import MIN_PIECE
 from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.roles.derive import run_ends, run_leads, standing_pairs
+from lexic.parsing.parallel.roles.runs import BracketArm, bracket_arms, repeated_bodies
 
 
 class Region(NamedTuple):
@@ -44,12 +53,16 @@ class Region(NamedTuple):
     :ivar closer: Offset of the bracket closing it.
     :ivar rule: The rule a piece of it parses under (``object``, ``array``).
     :ivar marks: Offsets of the separators directly inside it.
+    :ivar ends: Whether its marks END items (a terminated run, ``"[" entry+
+        "]"`` with each entry closed by ``;``) rather than lead them, so a
+        piece keeps the mark it is cut after.
     """
 
     opener: int
     closer: int
     rule: str
     marks: tuple[int, ...]
+    ends: bool = False
 
     @property
     def span(self) -> int:
@@ -57,55 +70,50 @@ class Region(NamedTuple):
         return self.closer - self.opener
 
 
+_PAIRS: dict[int, tuple[IrAst, dict[str, tuple[str, str]]]] = memo({})
+"""Pair memo — id(grammar) → (grammar, pairs), pinned like the anchor memo."""
+
+
 def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
-    """opener → ``(closer, rule)`` for every derived bracketing rule.
+    """opener → ``(closer, rule)`` for every bracketing rule the scan reads exactly.
 
     A piece of a region parses under the rule whose arm spells that pair, so
-    the split needs the RULE, not just the characters.
+    the split needs the RULE, not just the characters. A pair stands only
+    while every site the scan reads spelling either character is a delimiter
+    of a standing arm (:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`).
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
-    out: dict[str, tuple[str, str]] = {}
-    for rule in grammar.rules:
-        for arm in rule.body:
-            items = tuple(arm)
-            if len(items) < 3:
-                continue
-            opener = literal_char(items[0], rule_map)
-            closers = [
-                char
-                for item in items[1:]
-                if (char := literal_char(item, rule_map)) is not None
-            ]
-            if opener is None or not closers or closers[-1] == opener:
-                continue
-            out.setdefault(opener, (closers[-1], str(rule.name)))
-    return out
+    entry = _PAIRS.get(id(grammar))
+    if entry is None:
+        read = partial(literal_char, rule_map=rule_table(grammar))
+        arms = bracket_arms(grammar, read, enclosing=False)
+        pairs = list(dict.fromkeys((arm.opener, arm.closer) for arm in arms))
+        out: dict[str, tuple[str, str]] = {}
+        for opener, closer in standing_pairs(pairs, partial(_strays, grammar, arms)):
+            rule = next(arm.rule for arm in arms if arm[:2] == (opener, closer))
+            out.setdefault(opener, (closer, rule))
+        entry = (grammar, out)
+        _PAIRS[id(grammar)] = entry
+    return entry[1]
 
 
-def _repeated_bodies(
-    items: tuple[IrItem, ...], rule_map: dict[str, IrRule]
-) -> list[IrAlternation]:
-    """Every unbounded body reachable from these items, nesting included.
+def _strays(
+    grammar: IrAst, arms: list[BracketArm], standing: list[tuple[str, str]]
+) -> frozenset[str]:
+    """The standing pairs' characters a scan-read site spells off their arms.
 
-    A repetition is often written inside another group — RFC json spells its
-    member list ``[ member *( value-separator member ) ]`` — so a walk that
-    reads only an arm's top-level items finds nothing that repeats.
+    An arm whose opener another pair already claims delimits nothing: the scan
+    would close it on the other pair's closer.
     """
-    out: list[IrAlternation] = []
-    for item in items:
-        atom = item.atom
-        body = None
-        if isinstance(atom, IrRuleRef):
-            target = rule_map.get(str(atom))
-            body = target.body if target is not None else None
-        elif isinstance(atom, IrAlternation):
-            body = atom
-        if body is not None and unbounded(item):
-            out.append(body)
-        if isinstance(atom, IrAlternation):
-            for arm in atom:
-                out.extend(_repeated_bodies(tuple(arm), rule_map))
-    return out
+    first: dict[str, str] = {}
+    for opener, closer in standing:
+        first.setdefault(opener, closer)
+    held: dict[str, set[Site]] = {char: set() for pair in standing for char in pair}
+    for arm in arms:
+        if first.get(arm.opener) == arm.closer:
+            held[arm.opener].add((arm.rule, arm.arm, 0))
+            held[arm.closer].add((arm.rule, arm.arm, arm.closes))
+    watched = frozenset(held) | (separators(grammar) - set(first))
+    return stray_spellings(grammar, watched, held)
 
 
 def separators(grammar: IrAst) -> frozenset[str]:
@@ -114,24 +122,41 @@ def separators(grammar: IrAst) -> frozenset[str]:
     Derived, never named: the single character every arm of a repeated body
     begins with is what stands between one item and the next.
     """
-    rule_map = {str(rule.name): rule for rule in grammar.rules}
-    spells = partial(literal_char, rule_map=rule_map)
-    found: set[str] = set()
-    for rule in grammar.rules:
-        for arm in rule.body:
-            for body in _repeated_bodies(tuple(arm), rule_map):
-                char = edge_char(body, 0, spells)
-                if char is not None:
-                    found.add(char)
-    return frozenset(found)
+    spells = partial(literal_char, rule_map=rule_table(grammar))
+    found = (
+        edge_char(r.body, 0, spells) for r in repeated_bodies(grammar, nested=True)
+    )
+    return frozenset(char for char in found if char is not None)
+
+
+def own_marks(text: str, found: list[Region], vocab: Vocab) -> list[Region]:
+    """Keep each region's marks to the ones its own run separates by
+    (:attr:`Vocab.leads`): a frame records every mark at its depth, and another
+    run's lead there (its terms' ``*/``, a sum's ``+-`` inside a list's item)
+    stands inside an item. Free where no pair's set differs from the marks."""
+    if not vocab.ends and all(own == vocab.marks for own in vocab.leads.values()):
+        return found
+    kept = []
+    for region in found:
+        opener = text[region.opener]
+        own, ends = vocab.leads[opener], opener in vocab.ends
+        if marks := tuple(at for at in region.marks if text[at] in own):
+            kept.append(region._replace(marks=marks, ends=ends))
+    return kept
 
 
 class Vocab(NamedTuple):
     """What the sweep watches for, and what each character means to it.
 
     :ivar pairs: opener → ``(closer, rule)`` for the tracked bracket pairs.
-    :ivar closers: closer → its opener.
+    :ivar closers: closer → every opener it closes, each once — two standing
+        pairs may share one closer (``"(" … ")"`` and ``"[" … ")"``).
     :ivar marks: The separator characters.
+    :ivar leads: opener → the marks its own run separates by: its lead set
+        (:func:`~...roles.derive.run_leads`), else the one-literal separators, which
+        are every mark a pair without a lead set ever had (:func:`own_marks`).
+    :ivar ends: The openers whose run is TERMINATED (:func:`run_ends`): their
+        marks are its terminators, and a piece keeps the one it is cut after.
     :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
         pays one dict miss. A single-character fast path beside it was built
         and MEASURED in-process at 0.98x — twice, results exact — and
@@ -142,6 +167,8 @@ class Vocab(NamedTuple):
     pairs: dict[str, tuple[str, str]]
     closers: dict[str, str]
     marks: frozenset[str]
+    leads: dict[str, frozenset[str]]
+    ends: frozenset[str]
     skips: dict[str, Skip]
 
     @property
@@ -158,13 +185,16 @@ class Roles(NamedTuple):
     an interior's lead character for the skips — so the four tables concatenate
     into a single spelling and ``str.find`` classifies a character in one pass.
     Which ROLE it found is which section the index landed in, and the same
-    index reads :attr:`names` (or :attr:`skips`) for whatever that role needs.
+    index reads :attr:`names`, :attr:`closes` (or :attr:`skips`) for whatever
+    that role needs.
 
-    **The section order IS the branch precedence.** ``find`` returns the
-    earliest match, and the sections are laid out skips, openers, closers,
-    marks — the order the walk's branches used to be written in — so a
-    character carrying two roles resolves exactly as it did when each table
-    was tested in turn.
+    **No character holds two roles**, so a character is spelled once and its
+    one position is its role: the openers key one table and the closers
+    another, :func:`~lexic.parsing.parallel.roles.derive.standing_pairs` drops a pair
+    whose character also delimits another in the other role, the marks
+    exclude every pair character (:func:`scan_vocabulary`), and a skip's lead
+    is never a watched character. The sections are laid out skips, openers,
+    closers, marks.
 
     This is not a micro-preference. Shared-dict membership in this loop does
     not scale across threads on this build — measured at 0.53x on sixteen
@@ -173,47 +203,43 @@ class Roles(NamedTuple):
     is also faster serially, so the change does not rest on that explanation
     holding.
 
+    **A frame waits for its own closer.** An opener's frame carries the closer
+    its pair ends on, read off :attr:`closes` at OPEN, and a closer closes the
+    top frame when it is that character. So two pairs sharing one closer
+    (``"(" … ")"`` and ``"[" … ")"``) each close their own frame: keyed by the
+    closer alone, one opener would win and the other's frames never close.
+
     **Closers and marks share a section**, and no boundary separates them,
-    because one test already does: a closer's value is its opener and a mark's
-    is ``""``. An unmatched closer therefore falls through to the mark branch
-    exactly as the elif chain let it, and the mark spelling is consulted only
-    there — the one question a single find cannot answer.
+    because one test already does: a closer's name is non-empty and a mark's is
+    ``""``, so a closer the top frame does not wait for is simply dropped.
 
-    :ivar spelling: Every watched character: skips, openers, then closers and
-        marks together. A character carrying two roles appears ONCE PER ROLE,
-        which is what lets ``find`` classify it by precedence — so this is a
-        classification table and never a set of characters to look for.
-    :ivar watched: The same characters, each ONCE. What a sweep iterates. The
-        two differ exactly when a character holds two roles, and sweeping
-        :attr:`spelling` then finds every one of its offsets twice.
-
-        Derived FROM :attr:`spelling`, which is what makes ``spelling.find``
-        total over swept offsets: every offset a sweep reports holds a
-        character of this string, so the find can never miss. Both walks rely
-        on that and neither tests for ``-1``. A sweep alphabet built from
-        anything else would break the assumption silently.
+    :ivar spelling: Every watched character, once: skips, openers, then
+        closers and marks together. It is both the classification table and
+        what a window sweeps, which is what makes ``spelling.find`` total over
+        swept offsets — every offset a sweep reports holds a character of this
+        string, so neither walk tests for ``-1``.
     :ivar skips: Parallel to the skip section, which starts at zero.
     :ivar names: Parallel to the WHOLE spelling — the bracket rule under an
-        opener, the owning opener under a closer, ``""`` under a mark, and
+        opener, the openers it closes under a closer, ``""`` under a mark, and
         ``""`` under the skip section, which is padded so the walk indexes by
         position and never subtracts.
+    :ivar closes: Parallel to the whole spelling like :attr:`names` — the
+        closer an opener's frame waits for, ``""`` everywhere else.
     :ivar n_skip: Where the opener section begins.
     :ivar n_open: Where the closers and marks begin.
-    :ivar mark_at: The mark characters, read only to decide whether an
-        unmatched closer is also a separator.
     """
 
     spelling: str
-    watched: str
     skips: tuple[Skip, ...]
     names: tuple[str, ...]
+    closes: tuple[str, ...]
     n_skip: int
     n_open: int
-    mark_at: str
 
 
 type Frame = tuple[int, str, list[int], str]
-"""One open bracket on the walk's stack: where, which, its marks, its rule.
+"""One open bracket on the walk's stack: where, the closer it waits for, its
+marks, its rule.
 
 The rule travels ON the frame because the index that named it was already in
 hand at OPEN time; re-deriving it at close would be the lookup this spelling
@@ -222,7 +248,7 @@ removes.
 
 
 def walk_roles(vocab: Vocab) -> Roles:
-    """Spell a vocabulary for the walk, sections in precedence order.
+    """Spell a vocabulary for the walk, one section per role.
 
     Each section's characters and its values come from ONE iteration of the
     same mapping, so position ``i`` of the spelling and entry ``i`` of the
@@ -235,7 +261,6 @@ def walk_roles(vocab: Vocab) -> Roles:
     )
     return Roles(
         spelling=spelling,
-        watched="".join(dict.fromkeys(spelling)),
         skips=tuple(vocab.skips.values()),
         names=(
             ("",) * n_skip  # the skip section, so `names` indexes by `pos`
@@ -243,9 +268,16 @@ def walk_roles(vocab: Vocab) -> Roles:
             + tuple(vocab.closers.values())
             + ("",) * len(marks)
         ),
+        # `closer[0]` is the shared one-character object `spelling[pos]` also
+        # hands out (CPython shares those below U+0100), so a close test is an
+        # identity hit: measured 1-1.5% off the window walk at the mt seats.
+        closes=(
+            ("",) * n_skip
+            + tuple(closer[0] for closer, _rule in vocab.pairs.values())
+            + ("",) * (len(vocab.closers) + len(marks))
+        ),
         n_skip=n_skip,
         n_open=n_skip + len(vocab.pairs),
-        mark_at=marks,
     )
 
 
@@ -259,15 +291,27 @@ def scan_vocabulary(grammar: IrAst) -> Vocab:
     handed to the skip unconditionally the way the sweep does.
     """
     pairs = pair_rules(grammar)
-    marks = separators(grammar) - set(pairs)
-    watched = frozenset(pairs) | {closer for closer, _rule in pairs.values()} | marks
+    closers: dict[str, str] = {}
+    for opener, (closer, _rule) in pairs.items():
+        closers[closer] = closers.get(closer, "") + opener
+    ended = run_ends(grammar, pairs)
+    leads = run_leads(grammar, pairs) | ended
+    # No pair character is a mark. A standing pair's closer can still spell a
+    # separator, but only at a site the scan never reads (an unreachable rule,
+    # or inside an interior the walk skips): a READ separator site spelling it
+    # is no delimiter of the pair's arm, so :func:`pair_rules` would have let
+    # the pair fall. The mark role is therefore never met, and dropping it
+    # leaves every closer with one role.
+    plain = separators(grammar) - set(pairs) - set(closers)
+    marks = plain.union(*leads.values()) - set(pairs) - set(closers)
+    watched = frozenset(pairs) | frozenset(closers) | marks
     skips = tuple(
         region
         for region in interiors(grammar)
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
-    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
-    return Vocab(pairs, closers, marks, skip_leads(skips))
+    own = {opener: leads.get(opener, plain) for opener in pairs}
+    return Vocab(pairs, closers, marks, own, frozenset(ended), skip_leads(skips))
 
 
 def sweep_offsets(text: str, watched: set[str]) -> list[int]:
@@ -305,9 +349,10 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     :returns: The regions, in closing order.
     """
     vocab = scan_vocabulary(grammar)
-    return walk_regions(
+    found = walk_regions(
         text, sweep_offsets(text, vocab.watched), walk_roles(vocab), min_span
     )
+    return own_marks(text, found, vocab)
 
 
 def walk_regions(
@@ -318,37 +363,38 @@ def walk_regions(
     ONE ``find`` per structural character classifies it: which section of
     :attr:`Roles.spelling` the index lands in is the role, and the same index
     reads the value that role needs. See :class:`Roles` for why the tables are
-    one string rather than four dicts, and why the section order reproduces the
-    branch precedence the walk used to spell out.
+    one string rather than four dicts, and why each character has one section.
 
     The tables are aliased into locals before the loop, deliberately: reading
     them off the record inside it measured 10-30% slower across the roster,
-    18% on the grammar that walks the most offsets.
+    18% on the grammar that walks the most offsets. One unpack of the record
+    aliases them all, cheaper than a field read each.
 
     The opening bracket's rule is read at OPEN time, off the index the find
     already produced, and carried on the stack — so closing needs no lookup.
+    The closer the frame waits for is read at OPEN time too, so a closer
+    closes the top frame by comparing itself with it — read back off the
+    spelling, where it is the same object as in :attr:`Roles.closes`.
     """
-    spelling, skips, names = roles.spelling, roles.skips, roles.names
-    n_skip, n_open = roles.n_skip, roles.n_open
+    spelling, skips, names, closes, n_skip, n_open = roles
     found: list[Region] = []
     stack: list[Frame] = []
     skip_to = 0
     for at in offsets:
         if at < skip_to:
             continue  # inside an opaque interior — never read
-        char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.watched
+        pos = spelling.find(text[at])  # never -1: see Roles.spelling
         if pos < n_skip:
             skip_to = skip_delimited(text, at, skips[pos])
         elif pos < n_open:
-            stack.append((at, char, [], names[pos]))
-        elif stack and stack[-1][1] == names[pos]:
+            stack.append((at, closes[pos], [], names[pos]))
+        elif stack and stack[-1][1] == spelling[pos]:
             if stack[-1][2] and at - stack[-1][0] >= min_span:
                 found.append(_region(stack.pop(), at))
             else:
                 stack.pop()
-        elif stack and (not names[pos] or char in roles.mark_at):
-            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+        elif stack and not names[pos]:
+            stack[-1][2].append(at)  # a mark; a closer nothing wanted is dropped
     return found
 
 
@@ -382,11 +428,10 @@ one. Everything it can settle alone is settled; everything else becomes an
 ordered event the merge replays against the one real stack.
 
 ``R_DONE`` is a region opened and closed inside the window — already final.
-``R_CLOSE`` is a closer that underflowed, carrying the opener it wants and
-whether it is also a separator, which is the one thing the merge would
-otherwise have to look up. ``R_MARK`` is a separator at the underflow level.
-``R_OPEN`` is an opener still standing at the window's end, whose mark list
-later windows keep appending to.
+``R_CLOSE`` is a closer that underflowed, carrying its character, which the
+merge compares with the closer its top frame waits for. ``R_MARK`` is a
+separator at the underflow level. ``R_OPEN`` is an opener still standing at
+the window's end, whose mark list later windows keep appending to.
 """
 
 
@@ -420,11 +465,12 @@ def par_find(
     roles = walk_roles(vocab)
     windows = max(1, min(workers, len(text)))
     if vocab.skips or windows < 2:
-        return walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+        found = walk_regions(text, sweep_offsets(text, vocab.watched), roles, min_span)
+        return own_marks(text, found, vocab)
     spans = window_bounds(len(text), windows)
     run = partial(_run_window, text, roles, min_span)
     chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]
-    return merge_windows(chunks, min_span)
+    return own_marks(text, merge_windows(chunks, min_span), vocab)
 
 
 def _run_window(
@@ -480,26 +526,23 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
     that has one, so ``n_skip`` is zero here and the opener section starts at
     the first position.
     """
-    spelling, names, n_open = roles.spelling, roles.names, roles.n_open
+    spelling, _skips, names, closes, _n_skip, n_open = roles
     events: list[tuple] = []
     stack: list[Frame] = []
-    for at in _sweep_window(text, roles.watched, lo, hi):
-        char = text[at]
-        pos = spelling.find(char)  # never -1: see Roles.watched
+    for at in _sweep_window(text, spelling, lo, hi):
+        pos = spelling.find(text[at])  # never -1: see Roles.spelling
         if pos < n_open:
-            stack.append((at, char, [], names[pos]))
-        elif stack and stack[-1][1] == names[pos]:
+            stack.append((at, closes[pos], [], names[pos]))
+        elif stack and stack[-1][1] == spelling[pos]:
             if stack[-1][2] and at - stack[-1][0] >= min_span:
                 events.append((R_DONE, at, _region(stack.pop(), at)))
             else:
                 stack.pop()
-        elif stack and (not names[pos] or char in roles.mark_at):
-            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+        elif stack and not names[pos]:
+            stack[-1][2].append(at)  # a mark; a closer nothing wanted is dropped
         elif not stack:
             events.append(
-                (R_MARK, at)
-                if not names[pos]
-                else (R_CLOSE, at, names[pos], char in roles.mark_at)
+                (R_MARK, at) if not names[pos] else (R_CLOSE, at, spelling[pos])
             )
     # Already in document order, and the residual openers belong at the end:
     # the loop appends as it sweeps, which is ascending, and every frame still
@@ -530,8 +573,6 @@ def merge_windows(chunks: list[list[tuple]], min_span: int) -> list[Region]:
             elif kind == R_CLOSE:
                 if stack and stack[-1][1] == event[2]:
                     _close(stack, found, event[1], min_span)
-                elif stack and event[3]:
-                    stack[-1][2].append(event[1])
             elif stack:  # R_MARK
                 stack[-1][2].append(event[1])
     return found
@@ -552,7 +593,8 @@ list the rest."""
 
 def listed(marks: Sequence[int], want: float, lo: int, hi: int) -> Iterator[int]:
     """The ascending ``marks`` in ``[lo, hi)``, nearest ``want`` first, the
-    earlier on a tie — an :data:`Around` over a list, by bisection."""
+    earlier on a tie — an :data:`Around` over a list, by bisection. Read by
+    index: two generators into :func:`nearest_first` cost 1.4–1.7× an ask."""
     first, end = bisect_left(marks, lo), bisect_left(marks, hi)
     right = bisect_left(marks, want, first, end)
     left = right - 1
@@ -565,6 +607,17 @@ def listed(marks: Sequence[int], want: float, lo: int, hi: int) -> Iterator[int]
         else:
             yield marks[right]
             right += 1
+
+
+def nearest_first(down: Iterator[int], up: Iterator[int], want: float) -> Iterator[int]:
+    """Offsets walking ``down`` from ``want`` and ``up`` from it, nearest it first."""
+    before, after = next(down, -1), next(up, -1)
+    while before >= 0 or after >= 0:
+        if after < 0 or (before >= 0 and want - before <= after - want):
+            at, before = before, next(down, -1)
+        else:
+            at, after = after, next(up, -1)
+        yield at
 
 
 type Cutting = tuple[Around, tuple[int, int], Starts, tuple[bool, int]]

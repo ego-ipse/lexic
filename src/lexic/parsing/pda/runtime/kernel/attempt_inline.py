@@ -13,7 +13,12 @@ from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.compiler.specs import IslandPayload
-from lexic.parsing.pda.core.errors import IslandEscape, PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import (
+    IslandEscape,
+    IslandRefusal,
+    PdaFail,
+    ProbeFork,
+)
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
@@ -198,11 +203,16 @@ class AttemptInlineMixin[Carry]:
         self, arm: FlatArm, i: int, pos: int
     ) -> tuple[int, list[Carry]] | None:
         """Try one frame-less value-string iteration, fail-soft — except where
-        the iteration is undecidable, which is the gated engine's question."""
+        the iteration is undecidable, which is the gated engine's question, as
+        is an island its longest take asks that refuses its text."""
         try:
             return self._inline_once(arm, i, pos)
         except ProbeFork:
             raise
+        except IslandRefusal as refused:  # its longest take's island
+            raise ProbeFork(
+                f"inline attempt at {pos}: an island refuses", pos
+            ) from refused
         except PdaFail, LexicError:
             return None
 

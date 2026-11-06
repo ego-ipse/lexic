@@ -12,22 +12,24 @@ import random
 from collections.abc import Iterator
 from itertools import count, islice
 from threading import Lock
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.ir import Bound, IrAst, IrRule
+from lexic.ir import Bound, IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ParseConfig
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.partition import Division, Unit, units
+from lexic.parsing.parallel.discovery.shapes import RuleTable, rule_table
 from lexic.parsing.parallel.stitch.model import (
+    FOUND,
     ModelStep,
     head_rest,
     held_route,
-    model_at,
     overlaid,
+    read_route,
     region_items,
     sole_routes,
     splice,
@@ -77,9 +79,10 @@ def _template_lead(template: GrammarModel, plan: RegionPlan) -> str | None:
         else:
             return None
     rendered = "".join(parts)
-    return (
-        rendered if rendered.startswith(plan.separator) else plan.separator + rendered
-    )
+    if rendered[:1] in plan.separators:
+        return rendered
+    # A lead the model does not keep: only a one-character set can say which.
+    return next(iter(plan.separators)) + rendered if len(plan.separators) == 1 else None
 
 
 def template_tail(
@@ -95,8 +98,12 @@ def template_tail(
 def _boundary_lead(
     work: RegionWork, later: GrammarModel, text: str, cut: int
 ) -> str | None:
-    """The cut separator plus noise owned by the later piece's fake opener."""
-    lead = work.plan.separator
+    """The cut separator plus noise owned by the later piece's fake opener.
+
+    The separator is the character the document holds at the cut: a run led by
+    a set (``+`` or ``-``) is rebuilt with the lead it actually had.
+    """
+    lead = text[cut]
     begin_at = work.plan.outer_begin
     if begin_at is None:
         return lead
@@ -238,6 +245,31 @@ def _merge_items[M](
     return out if out.__class__ is work.plan.items_type else None
 
 
+def _joined_run(work: RegionWork, models: list[GrammarModel]) -> GrammarModel | None:
+    """A terminated run's node: its first piece's, the run slot the pieces' runs
+    in order and the closing edge its last piece's. Each piece kept the
+    terminator it was cut after, so nothing between two units is rebuilt."""
+    plan, run = work.plan, []
+    for model in models:
+        part = (
+            _child(model, plan.items_rest)
+            if model.__class__ is plan.outer_type
+            else None
+        )
+        if not isinstance(part, tuple):
+            return None
+        run.extend(part)
+    children: list[Bound] = list(models[0].children())
+    children[plan.items_rest] = tuple(run)
+    if plan.outer_end is not None:
+        children[plan.outer_end] = _child(models[-1], plan.outer_end)
+    try:
+        out = models[0].rebuild(children)
+    except TypeError, ValueError, LexicError:
+        return None
+    return out if out.__class__ is plan.outer_type else None
+
+
 _DEPTHS, _SEEDS, _LONGEST = 6, 256, 256
 """The witness draw: depth-major, seed-minor, heads of at most 256 characters.
 Wide enough that a head shared by dozens of regions still has distinct texts —
@@ -249,7 +281,7 @@ class _Draw(NamedTuple):
     lock that makes both one step — so the stream is the same whatever threads
     read it, and witness choice never depends on their timing."""
 
-    rules: dict[str, IrRule]
+    rules: RuleTable
     texts: list[str]
     at: list[int]
     lock: Lock
@@ -264,7 +296,7 @@ def witnesses(plan: RegionPlan) -> Iterator[str]:
     key = (id(plan.root), plan.head_rule)
     entry = _WITNESSES.get(key)
     if entry is None:
-        rules = {str(rule.name): rule for rule in plan.root.rules}
+        rules = rule_table(plan.root)
         entry = _WITNESSES.setdefault(key, (plan.root, _Draw(rules, [], [0], Lock())))
     draw = entry[1]
     for index in count():
@@ -439,8 +471,11 @@ def _finish[M](
 ) -> Attached | None:
     """What the region's pieces decide about its node: the merged items, and
     — through its first and last pieces — its edges inside the brackets."""
-    items = _merge_items(request, work, models)
     plan = work.plan
+    if plan.ends:
+        items = _joined_run(work, models)
+    else:
+        items = _merge_items(request, work, models)
     if items is None:
         return None
     ends = (models[0], models[-1])
@@ -473,7 +508,7 @@ def _attach[M, T: GrammarModel](
         return None
     found = [needle for needle in needles if needle is not None]
     routes = (
-        sole_routes(model, found)
+        _shell_routes(model, ready, found)
         if plan is None
         else [
             held_route(model, plan, item, needle)
@@ -483,12 +518,39 @@ def _attach[M, T: GrammarModel](
     out: T | None = model
     for route, done in zip(routes, ready, strict=True):
         cut = len(route) - len(done.up) if route is not None else -1
-        if route is None or out is None or cut < 1 or route[cut:] != done.up:
+        # Only the shell can hold a region at its own root (``_shell_routes``);
+        # a piece's region always sits below the item that holds it.
+        if route is None or out is None or cut < (0 if plan is None else 1):
             return None
-        node = model_at(out, route[:cut])
+        if route[cut:] != done.up:
+            return None
+        node = read_route(out, route[:cut], FOUND)
         laid = _laid(request, done, node) if node is not None else None
-        out = splice(out, route[:cut], laid) if laid is not None else None
+        if laid is None:
+            return None
+        out = splice(out, route[:cut], laid) if cut else cast(T, laid)
     return out
+
+
+def _shell_routes(
+    model: GrammarModel, ready: list[Attached], needles: list[GrammarModel]
+) -> list[tuple[ModelStep, ...] | None]:
+    """Each held region's route in the shell. The start rule's own region's
+    node is the shell's model itself, so its needle's route is the region's own
+    step down to it (``up``, empty when the bracket rule holds its items).
+
+    That region opens the document and its plan's outer class is the shell's,
+    which no other region can do: a nested region of a recursive start rule
+    opens later. Its stand-in is not compared — the shell's model also holds
+    what follows the closer, which :func:`_laid` takes from the holder.
+    """
+    routes = sole_routes(model, needles)
+    return [
+        done.up
+        if done.work.region.opener == 0 and done.work.plan.outer_type is model.__class__
+        else route
+        for route, done in zip(routes, ready, strict=True)
+    ]
 
 
 def _laid[M](
@@ -501,17 +563,16 @@ def _laid[M](
     never saw what follows the closer, and the stand-in's own noise may sit
     inside where a real item absorbed the source's. Each edge is built from
     the two slots' children, split at the bracket, and taken only when it
-    spells exactly that truth.
+    spells exactly that truth. An inline capture between the delimiters
+    (:attr:`~...plan.RegionPlan.edges`) holds no bracket, so its truth is the
+    first piece's before the run and the last piece's after it.
     """
     plan, text = done.work.plan, request.text
     region = done.work.region
     overlay = dict(done.overlay)
-    for slot, piece, bracket, opening in (
-        (plan.outer_begin, done.ends[0], text[region.opener], True),
-        (plan.outer_end, done.ends[1], text[region.closer], False),
-    ):
-        if slot is None:
-            continue
+    for slot, opening in plan.edges:
+        piece = done.ends[0] if opening else done.ends[1]
+        bracket = text[region.opener] if opening else text[region.closer]
         edge = _true_edge(_child(node, slot), _child(piece, slot), bracket, opening)
         if edge is None:
             return None
@@ -526,10 +587,13 @@ def _child(model: GrammarModel, slot: int) -> Bound:
 
 
 def _spelled(value: Bound) -> str | None:
-    """An edge slot's text: empty when unset, ``None`` when not a model."""
+    """An edge slot's text: empty when unset, ``None`` when neither a model nor
+    a captured string."""
     if value is None:
         return ""
-    return value.to_text() if isinstance(value, GrammarModel) else None
+    if isinstance(value, GrammarModel):
+        return value.to_text()
+    return value if isinstance(value, str) else None
 
 
 def _true_edge(

@@ -1,20 +1,33 @@
 """Tests for ``lexic.parsing.parallel.discovery.shapes`` — the arm-shape questions.
 
-Three facts the split analyses ask a grammar for: what an item spells,
-whether it repeats, and what every arm of an alternation carries at one end.
+Two facts the split analyses ask a grammar for: what an item spells, and
+what every arm of an alternation carries at one end. Whether an item repeats
+is its quantifier's own question (``IrQuantifier``).
 Every case here goes through the standard pipeline — nothing is hardcoded per
 formulation.
 """
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from functools import partial
 
-from lexic.compile import parse_grammar
+import pytest
+
+from lexic.compile import compile_from_path, parse_grammar
+from lexic.exceptions import LexicError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrAlphabet, IrAlternation, IrAst, IrItem, IrLiteral, IrRule
+from lexic.ir import (
+    IrAlphabet,
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+)
+from lexic.parsing.caches import cached_entries, release
 from lexic.parsing.parallel.discovery.shapes import (
-    UNIT,
     arm_spells,
     derives_empty,
     edge_char,
@@ -28,10 +41,11 @@ from lexic.parsing.parallel.discovery.shapes import (
     literal_text,
     rule_emits,
     rule_spells,
+    rule_table,
     sole_char,
-    unbounded,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.paths import GROUND_TRUTH
 
 
 def _rule_map(source: str) -> dict[str, IrRule]:
@@ -45,34 +59,6 @@ def _arm_items(rule_map: dict[str, IrRule], name: str) -> tuple[IrItem, ...]:
 
 def _body(rule_map: dict[str, IrRule], name: str) -> IrAlternation:
     return rule_map[name].body
-
-
-# ── unbounded ─────────────────────────────────────────────────────────────
-
-
-def test_a_starred_item_is_unbounded():
-    """``x*`` has no upper bound."""
-    items = _arm_items(_rule_map('root ::= x*\nx ::= "a"'), "root")
-    assert unbounded(items[0])
-
-
-def test_a_plussed_item_is_unbounded():
-    """``x+`` has no upper bound either — ``lo`` is not what is asked."""
-    items = _arm_items(_rule_map('root ::= x+\nx ::= "a"'), "root")
-    assert unbounded(items[0])
-
-
-def test_a_unit_item_is_not_unbounded():
-    """Exactly-once is bounded above."""
-    items = _arm_items(_rule_map('root ::= x\nx ::= "a"'), "root")
-    assert not unbounded(items[0])
-    assert items[0].quantifier == UNIT
-
-
-def test_an_optional_item_is_not_unbounded():
-    """``x?`` is bounded above at one."""
-    items = _arm_items(_rule_map('root ::= x?\nx ::= "a"'), "root")
-    assert not unbounded(items[0])
 
 
 # ── literal_char ──────────────────────────────────────────────────────────
@@ -104,6 +90,87 @@ def test_a_rule_spelling_two_characters_spells_neither():
     """Two spelled items in the target leave the reference ambiguous."""
     rule_map = _rule_map('root ::= pair x\npair ::= "{" "}"\nx ::= "a"')
     assert literal_char(_arm_items(rule_map, "root")[0], rule_map) is None
+
+
+def test_a_rule_spelling_several_literals_spells_none_of_their_characters():
+    """``ws "set " name "\\n"`` spells two literals, so the reference spells no
+    one character: not the only ONE-character literal among them, the line's
+    end, which a separator search would read as the line's lead."""
+    rule_map = _rule_map(
+        'root ::= entry x\nentry ::= ws "set " name "\\n"\n'
+        'ws ::= " "*\nname ::= [a-z]+\nx ::= "a"'
+    )
+    entry = _arm_items(rule_map, "root")[0]
+    assert literal_char(entry, rule_map) is None
+    assert literal_text(entry, rule_map) is None
+
+
+@pytest.mark.parametrize("ws", ['" " ws | ""', '" " | "\\t" | ""', '" "*', "[ \\t]*"])
+def test_punctuation_named_through_varying_whitespace_spells_its_character(ws: str):
+    """A choice varies, as a quantified item does, so whitespace written as a
+    recursion or a choice of literals is noise beside the ``{`` it frames."""
+    rule_map = _rule_map(
+        f'root ::= lbrace x\nlbrace ::= ws "{{" ws\nws ::= {ws}\nx ::= "a"'
+    )
+    assert literal_char(_arm_items(rule_map, "root")[0], rule_map) == "{"
+
+
+def test_a_choice_beside_a_literal_leaves_the_literal_spelled():
+    """``"(" pick`` holds the fixed ``(`` and then text that varies."""
+    rule_map = _rule_map(
+        'root ::= wrap x\nwrap ::= "(" pick\npick ::= "a" | "b"\nx ::= "a"'
+    )
+    assert literal_char(_arm_items(rule_map, "root")[0], rule_map) == "("
+
+
+def test_a_recursion_spells_no_one_character():
+    """``wrap ::= "(" more`` / ``more ::= wrap`` spells ``(`` once for every
+    lap, so the reference spells no one character."""
+    rule_map = _rule_map('root ::= wrap x\nwrap ::= "(" more\nmore ::= wrap\nx ::= "a"')
+    assert literal_char(_arm_items(rule_map, "root")[0], rule_map) is None
+
+
+def _literal_items(
+    item: IrItem, rule_map: dict[str, IrRule], seen: frozenset[str]
+) -> int:
+    """How many literals an item spells, through single-armed rule references
+    and counted the long way: an independent reading of what ``literal_char``
+    resolves."""
+    atom = item.atom
+    if not item.quantifier.once():
+        return 0
+    if isinstance(atom, IrLiteral):
+        return 1 if str(atom) else 0
+    target = rule_map.get(str(atom)) if isinstance(atom, IrRuleRef) else None
+    if target is None or len(target.body) != 1 or str(atom) in seen:
+        return 0
+    inner = [
+        _literal_items(one, rule_map, seen | {str(atom)}) for one in target.body[0]
+    ]
+    return sum(inner)
+
+
+def test_no_corpus_reference_spells_a_character_its_rule_does_not_alone():
+    """Over every ground-truth grammar, an item reads as one character only
+    where its rule spells exactly one literal. Such items exist (vyx's
+    ``template-def`` among them) and read as nothing."""
+    several = 0
+    for path in sorted(GROUND_TRUTH.glob("*.*bnf")):
+        try:
+            grammar = compile_from_path(path).codegen_grammar
+        except LexicError:
+            continue
+        rule_map = dict(rule_table(grammar))
+        for rule in grammar.rules:
+            for arm in rule.body:
+                for item in arm:
+                    if _literal_items(item, rule_map, frozenset()) > 1:
+                        several += 1
+                        assert literal_char(item, rule_map) is None, (
+                            path.name,
+                            rule.name,
+                        )
+    assert several >= 10, f"only {several} several-literal references; the pin is thin"
 
 
 def test_a_repeated_item_spells_nothing():
@@ -215,13 +282,49 @@ def test_a_nullable_prefix_lets_the_scan_reach_the_next_items_lead():
     assert leads_with(items, "!", rule_map, frozenset())
 
 
-def test_a_cyclic_rule_derives_empty_conservatively():
-    """A rule whose only arm is a bare self-reference never proves it is
-    non-empty either, so the unresolved cycle answers yes here too — more
-    candidate leading arms for ``leads_with`` to scan past, not fewer."""
+def test_a_cycle_with_no_empty_way_out_does_not_derive_empty():
+    """A rule whose only arm is a bare self-reference derives no string at
+    all, the empty one included: the answer is the grammar's exact fixpoint,
+    not a guess at the cycle."""
     rule_map = _rule_map("root ::= loop\nloop ::= loop")
     item = _arm_items(rule_map, "loop")[0]
-    assert derives_empty(item, rule_map, frozenset())
+    assert not derives_empty(item, rule_map)
+
+
+def test_a_mutual_cycle_with_an_exit_on_each_side_does_not_derive_empty():
+    """``r ::= "a" | s`` / ``s ::= r | "x"`` ends every derivation on a letter."""
+    rule_map = _rule_map('root ::= r\nr ::= "a" | s\ns ::= r | "x"')
+    item = _arm_items(rule_map, "root")[0]
+    assert not derives_empty(item, rule_map)
+
+
+def test_a_rule_table_is_one_read_only_map_per_grammar():
+    """Every reader gets the same table, and none of them can write to it."""
+    grammar = parse_grammar('root ::= "a" ws\nws ::= " "*', GBNF_FLAVOUR)
+    table = rule_table(grammar)
+    assert rule_table(grammar) is table
+    assert dict(table) == {str(rule.name): rule for rule in grammar.rules}
+    assert not isinstance(table, MutableMapping)
+
+
+def test_a_rule_tables_nullable_rules_are_its_grammars():
+    """``derives_empty`` over the shared table reads the grammar's own set."""
+    grammar = parse_grammar('root ::= ws "a"\nws ::= " "*', GBNF_FLAVOUR)
+    table = rule_table(grammar)
+    root, ws = (IrItem(IrRuleRef(name)) for name in ("root", "ws"))
+    assert grammar.nullable() == frozenset({"ws"})
+    assert derives_empty(ws, table) and not derives_empty(root, table)
+
+
+def test_a_rule_table_goes_when_its_grammar_does():
+    """The table and its nullable set are released with the grammar."""
+    grammar = parse_grammar('root ::= "a"', GBNF_FLAVOUR)
+    held = cached_entries()
+    table = rule_table(grammar)
+    assert cached_entries() == held + 2
+    release((id(grammar),))
+    assert cached_entries() == held
+    assert rule_table(grammar) is not table
 
 
 # ── last_charset / exact_text / sole_char ─────────────────────────────────

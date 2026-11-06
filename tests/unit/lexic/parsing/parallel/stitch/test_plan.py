@@ -9,7 +9,13 @@ rather than a fallback that indexes past the end of a malformed arm.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.parsing.parallel.stitch.plan import derive_plan, field_slot, model_type
+from lexic.parsing.parallel.stitch.plan import (
+    bracket_rule,
+    derive_plan,
+    field_slot,
+    model_type,
+)
+from tests.split_helpers import PAREN_SUM
 
 
 def test_direct_candidate_short_tail_arm_declines_without_index_error() -> None:
@@ -36,7 +42,7 @@ def test_a_configured_recurrence_binds_to_real_classes_and_slots() -> None:
 
     assert plan is not None
     assert plan.head_rule == "node"
-    assert plan.separator == ","
+    assert plan.separators == frozenset({","})
     assert plan.outer_items >= 0
 
 
@@ -75,3 +81,29 @@ def test_model_type_and_field_slot_refuse_rather_than_assume() -> None:
 
     assert model_type(None) is None
     assert field_slot(routine, 99) is None
+
+
+def test_a_run_led_by_a_set_carries_the_set() -> None:
+    """``(addop term)*`` with ``addop ::= "+" | "-"`` separates by either: the
+    plan names both, and never the terms' own ``*/``."""
+    compiled = compile_text(PAREN_SUM, cache_key="lead-set-plan")
+    grammar = compiled.codegen_grammar
+    plan = derive_plan(grammar, compiled.product, bracket_rule(grammar, "factor", "("))
+
+    assert plan is not None
+    assert plan.head_rule == "term"
+    assert plan.separators == frozenset("+-")
+
+
+def test_around_holds_what_the_bracket_arm_emits_beside_its_run() -> None:
+    """The delimiters, and a wrapper's characters where the arm has one."""
+    compiled = compile_text(
+        PAREN_SUM.replace('"(" expr ")"', '"(" pad expr ")"') + 'pad ::= " "*\n',
+        cache_key="lead-set-around",
+    )
+    grammar = compiled.codegen_grammar
+    plan = derive_plan(grammar, compiled.product, bracket_rule(grammar, "factor", "("))
+
+    assert plan is not None
+    assert all(plan.around.has(char) for char in "( )")
+    assert not any(plan.around.has(char) for char in plan.separators)

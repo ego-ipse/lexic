@@ -8,6 +8,7 @@ mechanism has a witness that fails when the mechanism is removed.
 from __future__ import annotations
 
 import random
+import time
 
 import pytest
 
@@ -153,6 +154,31 @@ def test_a_target_deeper_than_the_stack_is_refused_with_words(source, depth):
         generate("root", rules, rng=random.Random(1), max_depth=depth, size=5_000)
 
 
+def chain(n: int) -> str:
+    """``r0 ::= "[" r1 "]"`` … ``rn ::= "x"``: every string nests ``n`` deep."""
+    rules = [f'r{i} ::= "[" r{i + 1} "]"' for i in range(n)]
+    return "\n".join([*rules, f'r{n} ::= "x"']) + "\n"
+
+
+@pytest.mark.parametrize("depth", [5, 48])
+def test_a_chain_of_required_references_past_the_stack_is_refused(depth) -> None:
+    """Where a depth is spent a required reference is still sized, so the
+    sizing recurses as deep as the chain: 400 references are refused with
+    words, as the fill is, rather than raising from the sizing."""
+    rules = {r.name: r for r in canonical_grammar(chain(400), GBNF_FLAVOUR).rules}
+    with pytest.raises(
+        UnsupportedConstructError, match="deeper nesting than the stack"
+    ):
+        generate("r0", rules, rng=random.Random(0), max_depth=depth, size=64)
+
+
+def test_a_chain_the_stack_carries_is_sized_and_spelled() -> None:
+    """Forty required references nest forty deep: spelled whole."""
+    rules = {r.name: r for r in canonical_grammar(chain(40), GBNF_FLAVOUR).rules}
+    out = generate("r0", rules, rng=random.Random(0), max_depth=5, size=64)
+    assert out == "[" * 40 + "x" + "]" * 40
+
+
 NESTED_LISTS = 'value ::= "[" (value ("," value)*)? "]" | "x"\n'
 """A self-reference inside an OPTIONAL group, on an arm as cheap as the
 terminal one — sized eagerly, it recursed to negative depths before a character
@@ -197,3 +223,152 @@ def test_a_grammar_without_room_is_walked_freely_whatever_the_target(seed):
     sized = generate(start, rules, rng=random.Random(seed), max_depth=48, size=10**6)
     free = generate(start, rules, rng=random.Random(seed), max_depth=3)
     assert sized == free
+
+
+def _lengths(
+    source: str, sizes, seeds, depth: int = 5, parsed=None
+) -> list[tuple[int, int]]:
+    """``(target, length)`` per call — each a document of the grammar, parsed
+    back at every size or only at those in ``parsed``."""
+    ast = canonical_grammar(source, GBNF_FLAVOUR)
+    rules = {rule.name: rule for rule in ast.rules}
+    model = compile_text(source)
+    got = []
+    for size in sizes:
+        for seed in seeds:
+            rng = random.Random(seed)
+            text = generate(str(ast.start), rules, rng=rng, max_depth=depth, size=size)
+            if parsed is None or size in parsed:
+                assert model.parse(text, cores=1) is not None
+            got.append((size, len(text)))
+    return got
+
+
+@pytest.mark.parametrize(
+    "source", ['root ::= x+\nx ::= "a"*\n', 'root ::= x*\nx ::= [ab]* ";"?\n']
+)
+def test_a_repeated_unit_that_may_spell_nothing_meets_a_small_target(source):
+    """Each piece is steered at the unit's natural size of exactly one, so the
+    one character of budget it gets must be spent, not dropped as spare —
+    dropped, every piece came back empty and the repetition never ended."""
+    for size, length in _lengths(source, (2, 4, 64), range(5)):
+        assert length == size, (size, length)
+
+
+def test_repetitions_sharing_a_fractional_budget_end_and_meet_it():
+    """Two repetitions share the budget by weight, so a piece can be steered with
+    less than one character it can spend: its fill is empty, and so is every
+    retry at that budget. The rest of the item is walked freely instead."""
+    lengths = _lengths(
+        'root ::= x+ x+\nx ::= "a"*\n', (1, 2, 3, 4, 7, 16, 64), range(8)
+    )
+    for size, length in lengths:
+        assert abs(length - size) <= 1, (size, length)
+
+
+def test_an_empty_steered_piece_does_not_end_the_repetition():
+    """A steered piece within the unit's natural size is walked freely, so it is
+    empty at random — the repetition must go on to its target, one two-character
+    unit over at most, as an unsteered piece can overshoot."""
+    source = 'root ::= x+\nx ::= "ab"? "cd"?\n'
+    for size, length in _lengths(source, (4, 16, 64, 256, 1_024), range(8)):
+        assert size <= length <= size + 2, (size, length)
+
+
+@pytest.mark.parametrize("depth", [5, 12])
+@pytest.mark.parametrize(
+    ("source", "unit"),
+    [
+        ('root ::= x*\nx ::= "a"?\n', 1),
+        ('root ::= ("a"?)*\n', 1),
+        ('root ::= x*\nx ::= "a" "b"?\n', 2),
+    ],
+)
+def test_a_repeated_unit_the_free_walk_can_spell_meets_its_target(source, unit, depth):
+    """Where a piece's free walk can spell at its natural depth, pieces are
+    walked freely to the target: over by less than the last piece at most."""
+    for size, length in _lengths(source, (2, 4, 64), range(5), depth=depth):
+        assert size <= length <= size + unit - 1, (size, length)
+
+
+def _chain(op: str) -> str:
+    """A repetition whose unit spells its one character four references down."""
+    rules = [f"root ::= x{op}", "x ::= a1", "a1 ::= a2", "a2 ::= a3", "a3 ::= a4"]
+    return "\n".join([*rules, "a4 ::= y?", 'y ::= "z"']) + "\n"
+
+
+@pytest.mark.parametrize("op", ["+", "*"])
+def test_a_unit_that_spells_only_past_the_free_depth_is_walked_where_it_can(op):
+    """The free walk of a piece runs four references deep, where this unit is
+    always empty though deeper it is not: the pieces walk at the shallowest depth
+    that can spell, and meet the target. At a depth that cannot reach the
+    character at all the document is empty, as without steering."""
+    for size, length in _lengths(_chain(op), (2, 16, 64), range(5), depth=12):
+        assert length == size, (size, length)
+    for _size, length in _lengths(_chain(op), (2, 16, 64), range(5), depth=5):
+        assert length == 0
+
+
+def _optional_chain(op: str, k: int = 10) -> str:
+    """A repetition whose one character lies past ``k`` optional references."""
+    rules = [f"root ::= x{op}", "x ::= b1"]
+    rules += [f"b{i} ::= b{i + 1}?" for i in range(1, k)]
+    return "\n".join([*rules, f'b{k} ::= "z"']) + "\n"
+
+
+@pytest.mark.parametrize("op", ["+", "*"])
+def test_a_deep_walk_spells_every_piece_past_optional_rolls(op):
+    """Ten optional rolls stand between a piece and its character, so a free
+    piece is non-empty 0.3**10 of the time: a deep walk must reach on every
+    piece, or the repetition draws millions of empty ones."""
+    start = time.process_time()
+    for size, length in _lengths(_optional_chain(op), (16, 64), range(5), depth=24):
+        assert length == size, (size, length)
+    assert time.process_time() - start < 5.0
+
+
+def _arm_chain(k: int = 20, dead: int = 40) -> str:
+    """``k`` alternations on the way to the one character, each with an arm
+    that ends in an optional chain longer than any walk's depth."""
+    rules = ["root ::= x+", "x ::= b1", "d ::= d1?"]
+    rules += [f"b{i} ::= b{i + 1} | d" for i in range(1, k)] + [f'b{k} ::= "z"']
+    rules += [f"d{i} ::= d{i + 1}?" for i in range(1, dead)] + [f'd{dead} ::= "q"']
+    return "\n".join(rules) + "\n"
+
+
+def test_a_deep_walk_takes_the_arm_that_can_still_spell():
+    """Each of twenty choices offers an arm that cannot spell within the depth:
+    taken at random, a piece is non-empty one time in a million. A deep walk
+    keeps to the arms that can still spell while nothing is spelled."""
+    start = time.process_time()
+    for size, length in _lengths(_arm_chain(), (16, 64), range(3), depth=24):
+        assert length == size, (size, length)
+    assert time.process_time() - start < 5.0
+
+
+SECTIONED = [
+    'doc ::= sec* tail?\nsec ::= part* sepr?\npart ::= [ab]\ntail ::= ("a")+\nsepr ::= ";"\n',
+    'top ::= "[" doc "]"\ndoc ::= sec* tail\nsec ::= part* sepr?\npart ::= "a"\n'
+    'tail ::= ([a;])\nsepr ::= ";"\n',
+    'top ::= "[" doc "]"\ndoc ::= sec* tail+\nsec ::= part* sepr\npart ::= "b"\n'
+    'tail ::= ("a")*\nsepr ::= ";"\n',
+]
+"""Repetitions of repetitions whose units may be empty — each never returned
+once a steered piece came back empty."""
+
+
+@pytest.mark.parametrize("depth", [5, 48])
+@pytest.mark.parametrize("source", SECTIONED)
+def test_nested_repetitions_of_nullable_units_meet_the_target(source, depth):
+    """Every call returns, within three characters of the target at any size.
+
+    The documents are parsed back only at 64 characters: these grammars are
+    ambiguous by construction (empty units nest in empty units), so a parse
+    of a thousand characters or more costs the gated engine minutes and
+    gigabytes, and the length is what the steering promises. The largest
+    target is generated from one seed: a twenty-thousand-character walk takes
+    about a second and a half."""
+    got = _lengths(source, (64, 1_024), range(3), depth=depth, parsed=(64,))
+    got += _lengths(source, (20_000,), range(1), depth=depth, parsed=())
+    for size, length in got:
+        assert abs(length - size) <= 3, (size, length)

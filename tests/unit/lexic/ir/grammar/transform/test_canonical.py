@@ -16,16 +16,15 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import census, inline_refs
+from lexic.ir.grammar.charclass import IrCharClass, IrRange
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
     IrAlternation,
     IrAst,
-    IrCharClass,
     IrChr,
     IrItem,
     IrLiteral,
     IrQuantifier,
-    IrRange,
     IrRule,
     IrRuleRef,
     IrSequence,

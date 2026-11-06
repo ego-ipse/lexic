@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    all_clones,
     clone_arms,
     no_construction,
     no_fast_construction,
@@ -34,6 +35,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     GATE_ATTEMPT,
+    GATE_KWIN,
     GATE_STOP,
     HI_UNBOUNDED,
     OP_AVDISP,
@@ -71,7 +73,6 @@ from lexic.parsing.pda.compiler.program.specialize.passes import (
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import match_cc, run_span_once
-from tests.clone_walk import walk_program_clones
 from tests.paths import GROUND_TRUTH
 from tests.specialize_helpers import ATTEMPT_GATED_VSTR
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
@@ -542,10 +543,45 @@ def test_a_nullable_run_matches_as_one_pattern_where_its_loop_would_end():
             assert run_span_once(doc, ws, [], at) == looped
 
 
+def _window_run(windows) -> FlatArm:
+    """A nullable one-class run over ``[ab-]`` gated by ``windows``."""
+    run = FlatArm.__new__(FlatArm)
+    run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab-"), False),)
+    run.los, run.his = (0,), (HI_UNBOUNDED,)
+    run.gate_kinds, run.gate_data = (GATE_KWIN,), (windows,)
+    return run
+
+
+def test_a_two_deep_window_run_is_one_pattern():
+    """A stop set decided two deep (:func:`~...kwindow.stop_exit_gate`) keeps
+    its one-call match: the pattern takes what the window loop takes, and the
+    arm's first-character set answers an empty run as the loop does — a dash
+    only where the next character lets it be taken."""
+    ab, dash = (frozenset("ab"), False), (frozenset("-"), False)
+    loop = _window_run(((ab,), (dash, ab)))
+    arm = run_pattern(loop)
+    assert arm is not None and arm.kinds == (OP_RUNPAT,)
+    chars, negated = arm.gate_data[0]
+    assert not negated and chars == frozenset("ab-")
+    for doc in ("", "a", "ab-a", "a-", "-a", "--a", "a-b-", "b--"):
+        for at in range(len(doc) + 1):
+            looped = match_cc(doc, loop, 0, at)
+            taken = doc[at : at + 1] in chars and doc[at : at + 1] != ""
+            matched = arm.payloads[0].match(doc, at).end() if taken else at
+            assert matched == looped, (doc, at)
+
+
+def test_a_window_run_three_deep_keeps_its_loop():
+    """Past two positions a window is no run's character."""
+    ab, dash = (frozenset("ab"), False), (frozenset("-"), False)
+    loop = _window_run(((dash, ab, ab),))
+    assert run_pattern(loop) is loop
+
+
 def test_a_run_that_can_refuse_keeps_its_loop():
     """A mandatory iteration's miss is a refusal in the loop's own words, and
-    a gate other than a stop set decides more than membership: both keep the
-    run arm as it is."""
+    a gate other than a stop set or a two-deep window decides more than
+    membership: both keep the run arm as it is."""
     run = FlatArm.__new__(FlatArm)
     run.n, run.kinds, run.payloads = 1, (OP_CC,), ((frozenset("ab"), False),)
     run.los, run.his = (1,), (HI_UNBOUNDED,)
@@ -782,10 +818,13 @@ def test_island_ref_flattens_to_op_island_carrying_the_name_and_continuation():
 
 
 def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
-    """A ref to a fail-island (the F1 soft-follower-escape shape) flattens
-    to OP_FAIL, never spliced by the pure-PDA runtime.
+    """A ref to a fail-island (the F1 soft-follower-escape shape, under a
+    decider that withholds the attempt licence) flattens to OP_FAIL, never
+    spliced by the pure-PDA runtime. Under leftmost-longest it is attempted.
     """
-    pda = pda_from_text('root ::= x "ab"?\nx ::= [a-c]*\n')
+    text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
+    assert only_arm(pda_from_text(text).program.start).kinds[0] != OP_FAIL
+    pda = pda_from_text(text, frozenset())
     arm = only_arm(pda.program.start)
     assert arm.kinds[0] == OP_FAIL
     assert arm.payloads[0][0] == "x"
@@ -842,51 +881,6 @@ def test_every_exactly_once_terminal_is_specialised_across_ground_truth():
                     stack.append(payload)
 
 
-_CLONE_VALUED_OPS = frozenset(
-    (
-        OP_GRP,
-        OP_REF,
-        OP_REF1,
-        OP_VSTR,
-        OP_VRUN,
-        OP_V1,
-        OP_VDISP,
-        OP_LEAF1,
-        OP_AVSTR,
-        OP_AVDISP,
-    )
-)
-"""Every op-code whose payload is a :class:`FlatClone` — a full clone-graph
-walk's edges. Wider than :func:`~...specialize.all_clones`'s own worklist,
-which only follows :data:`OP_GRP` (its callers only ever need a clone's
-DIRECTLY nested groups); counting a program-wide opcode like the number of
-:data:`OP_AVSTR`/:data:`OP_AVDISP` sites needs every reference kind followed."""
-
-
-def _reachable_clones(root: object) -> list[FlatClone]:
-    """Every :class:`FlatClone` reachable from ``root``, through every
-    clone-valued op-code (dispatch selectors included)."""
-    seen: set[int] = set()
-    out: list[FlatClone] = []
-    work = [root]
-    while work:
-        clone = work.pop()
-        if not isinstance(clone, FlatClone) or id(clone) in seen:
-            continue
-        seen.add(id(clone))
-        out.append(clone)
-        if clone.mode == BUILD_DISPATCH:
-            work.extend(target for _chars, _negated, target in clone.selectors)
-            if clone.default is not None:
-                work.append(clone.default)
-            continue
-        for arm in clone_arms(clone):
-            for kind, payload in zip(arm.kinds, arm.payloads):
-                if kind in _CLONE_VALUED_OPS:
-                    work.append(payload)
-    return out
-
-
 def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
     """Vyx's own regression witness, held as a program-shape count.
 
@@ -904,7 +898,7 @@ def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
     :meth:`~lexic.compile.artifact.CompiledGrammar.parse` would.
     """
     pda = pda_for(GROUND_TRUTH / "vyx.gbnf")
-    clones = _reachable_clones(pda.program.start)
+    clones = all_clones([pda.program.start])
     kinds = [
         kind for clone in clones for arm in clone_arms(clone) for kind in arm.kinds
     ]
@@ -925,11 +919,7 @@ ENTERED = 'root ::= "<" pair ">"\npair ::= w w\nw ::= [a-z]+ " "?\n'
 
 def _clone_named(pda, name: str) -> FlatClone:
     """The program's clone for rule ``name``."""
-    return next(
-        one
-        for one in walk_program_clones(pda.program.start).values()
-        if one.name == name
-    )
+    return next(one for one in all_clones([pda.program.start]) if one.name == name)
 
 
 def test_a_one_arm_clone_opening_on_a_terminal_is_entered_straight() -> None:
@@ -951,9 +941,7 @@ def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> N
     """Wherever an entry is set, the walk it skips could only have found that
     arm or refused: one selector, no default, no other selection, not a
     dispatch — and the arm opens on an item that refuses alone."""
-    for clone in walk_program_clones(
-        pda_for(GROUND_TRUTH / name).program.start
-    ).values():
+    for clone in all_clones([pda_for(GROUND_TRUTH / name).program.start]):
         if clone.entry is None:
             continue
         assert clone.mode != BUILD_DISPATCH, clone.name
@@ -967,7 +955,7 @@ def test_an_entry_is_only_ever_the_sole_arm_of_an_undecided_walk(name: str) -> N
 def test_a_walk_that_can_choose_or_descend_first_keeps_its_selectors(name: str) -> None:
     """A default, a dispatch, several arms, or an arm opening on a reference
     (whose descent refuses deeper, after a push): no entry."""
-    clones = walk_program_clones(pda_for(GROUND_TRUTH / name).program.start).values()
+    clones = all_clones([pda_for(GROUND_TRUTH / name).program.start])
     for clone in clones:
         choosing = (
             clone.default is not None
@@ -984,7 +972,7 @@ def test_a_walk_that_can_choose_or_descend_first_keeps_its_selectors(name: str) 
 
 def test_marking_twice_grants_nothing_new() -> None:
     """The pass reads only the clone, so re-asking it answers the same."""
-    for clone in walk_program_clones(pda_from_text(ENTERED).program.start).values():
+    for clone in all_clones([pda_from_text(ENTERED).program.start]):
         before = clone.entry
         mark_entry(clone)
         assert clone.entry is before

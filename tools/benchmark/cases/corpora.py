@@ -19,6 +19,37 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[3]
 
 
+def two_mark_corpus(entries: int) -> str:
+    """``name = value`` entries, one per line: two-letter names over the
+    alphabet, so every newline is a boundary the next line settles."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    return "\n".join(
+        f"k{letters[n % 26]}{letters[(n // 26) % 26]} = v" for n in range(entries)
+    )
+
+
+def reopening_corpus(pairs: int) -> str:
+    """An array of short pairs, each its own number: every adjacent two could
+    reopen as one long pair, which the decider keeps."""
+    return "[" + ",".join(f"({n})" for n in range(pairs)) + "]"
+
+
+def terminated_run_corpus(entries: int) -> str:
+    """A bracketed run of ``set``/``get`` statements, each closed by ``;``."""
+    keys = "abcdefgh"
+    body = "".join(
+        f"set k{keys[k % 8]} = {k};" if k % 3 else f"get k{keys[k % 8]};"
+        for k in range(entries)
+    )
+    return f"[{body}]"
+
+
+def captured_spaces_corpus(items: int) -> str:
+    """One paren group of comma-separated words, spaces captured either side."""
+    words = ",".join("abcdefgh"[: k % 8 + 1] for k in range(items))
+    return f"(  {words} )"
+
+
 def split_nullable_corpus(paras: int) -> str:
     """Paragraphs of three lines, including empty ones, each closed by a blank."""
     letters = "abcdefghijklmnopqrstuvwxyz"
@@ -207,6 +238,24 @@ def arith_corpus(target: int) -> str:
         parts.append(term)
         size += 1 + len(term)
     return "".join(parts)
+
+
+def paren_arith_corpus(target: int) -> str:
+    """One paren group holding a long SUM of roughly ``target`` characters.
+
+    Its terms are products with a small group among them, and the leads between
+    terms alternate ``+`` and ``-``, so the group's own run is long and led by
+    both characters while every term carries ``*`` and ``/`` of its own.
+    """
+    parts: list[str] = []
+    size, step = 2, 0
+    while size < target:
+        lead = "" if not parts else "+-"[step % 2]
+        term = f"{step % 97 + 1}*({step % 89 + 2}-{step % 7 + 1})/{step % 13 + 1}"
+        parts.append(lead + term)
+        size += len(lead) + len(term)
+        step += 1
+    return "(" + "".join(parts) + ")"
 
 
 def csv_corpus(rows: int) -> str:

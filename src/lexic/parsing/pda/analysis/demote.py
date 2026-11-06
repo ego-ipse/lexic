@@ -156,7 +156,7 @@ def demote_loop(
     # it reproduces is leftmost-longest's, proven for that order alone.
     if analysis.taxonomy.delegated or SPLIT_GREEDY not in notes.grants:
         return False
-    greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
+    greedy = greedy_loop_gate(analysis, scope.rule, items, k)
     if greedy is not None:
         analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
         notes.picks_extent(
@@ -183,7 +183,7 @@ def _separable_loop(
         notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
         return True
     w = noise_alphabet(analysis)
-    take = peek_loop_gate(analysis, items, k, analysis.cont_at(items, k, scope.tail), w)
+    take = peek_loop_gate(analysis, items, k, scope, w)
     if take is not None:
         key = id(items[k])
         prior = analysis.taxonomy.pn_loop_gates.get(key)

@@ -25,6 +25,7 @@ from lexic.parsing.pda.compiler.program.gating import (
     select_gated,
     window_admits,
     window_select,
+    window_source,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
@@ -34,6 +35,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.scanner import compile_source
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
 EOF_GATE = (";", "", None)
@@ -356,3 +358,42 @@ def test_select_arm_refuses_when_no_arm_matches_and_no_default() -> None:
     assert start.default is None  # else the refusal below could not fire
     with pytest.raises(PdaFail, match="no arm at 3"):
         select_arm(start, "q", 3)
+
+
+# ── a window gate as one pattern ────────────────────────────────────────────
+
+_AB, _NOT_AB = (frozenset("ab"), False), (frozenset("ab"), True)
+_DASH, _EOF_OR_X = (frozenset("-"), False), (frozenset({"", "x"}), False)
+WINDOW_GATES = {
+    "one position": ((_AB,),),
+    "run then exit": ((_AB,), (_DASH, _AB)),
+    "exit before the end": ((_AB,), (_DASH, _EOF_OR_X)),
+    "negated second": ((_AB,), (_DASH, _NOT_AB)),
+    "negated first": ((_NOT_AB,),),
+}
+"""Gates two characters deep, as :func:`~...kwindow.stop_exit_gate` builds
+them: the EOF sentinel and both polarities in each position."""
+TEXTS = ("", "a", "ab-", "a-b", "a-", "a-x", "a--", "-", "c-", "ba-ax", "x-a")
+
+
+@pytest.mark.parametrize("case", sorted(WINDOW_GATES))
+def test_a_window_pattern_takes_where_the_gate_does(case: str) -> None:
+    """The run a loop of :func:`window_source` matches is the run
+    :func:`window_admits` takes, character by character: at every start, on
+    texts that end mid-window and after an exit."""
+    windows = WINDOW_GATES[case]
+    source = window_source(windows)
+    assert source is not None
+    pattern = compile_source(source + "*")
+    for text in TEXTS:
+        for start in range(len(text) + 1):
+            end = start
+            while window_admits(text, end, windows):
+                end += 1
+            matched = pattern.match(text, start)
+            assert matched is not None and matched.end() == end, (case, text, start)
+
+
+def test_a_window_past_two_positions_has_no_pattern() -> None:
+    """Three positions deep is not a run's character: the gate keeps its loop."""
+    assert window_source(((_AB, _DASH, _AB),)) is None

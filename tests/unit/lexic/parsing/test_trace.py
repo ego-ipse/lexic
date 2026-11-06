@@ -86,9 +86,10 @@ def test_a_forking_input_probes_and_ranks() -> None:
 
     ``item`` can end after ``a`` or after ``ab``, and ``tail`` follows either,
     so both entries are tried; the THIRD probe is the split fix exploring one
-    more extent of an arm. The candidates' text is no scan: the account picks
-    up where the committed reading reads, so the one scan covers the whole
-    document.
+    more extent of an arm. The two ends that could compose are then settled
+    by a live set over both, the decider ranking them. The candidates' text
+    is no scan: the account picks up where the committed reading reads, so
+    the one scan covers the whole document.
     """
     run = watched(forking(), "abc")
     assert [event.kind for event in run.events] == [
@@ -97,9 +98,11 @@ def test_a_forking_input_probes_and_ranks() -> None:
         "probe",
         "probe",
         "rollback",
+        "probe",
         "scan",
     ]
     assert run.events[0].verdict == "attempt over 2 entries"
+    assert run.events[5].verdict == "live set over 2 ways"
     assert run.derived
 
 

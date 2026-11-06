@@ -21,6 +21,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     interiors,
     skip_leads,
     skip_table,
+    stray_spellings,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 from tests.paths import GROUND_TRUTH
@@ -551,3 +552,19 @@ def test_disagreeing_escapes_across_the_three_items_decline_the_region():
     )
 
     assert _interiors_shapes(source) == ()
+
+
+# ── stray spellings ─────────────────────────────────────────────────────────
+
+
+def test_a_spelling_inside_a_region_is_stray_only_while_its_lead_is_watched():
+    """A scan skips a region whose lead it does not watch, so ``[^"]`` cannot
+    spell ``[`` at it; watching the quote too, the scan reads the string."""
+    grammar = parse_grammar(
+        'root ::= arr\narr ::= "[" val ("," val)* "]"\n'
+        'val ::= str | [0-9]+\nstr ::= "\\"" [^"]* "\\""\n',
+        GBNF_FLAVOUR,
+    )
+    held = {"[": {("arr", 0, 0)}, "]": {("arr", 0, 3)}}
+    assert stray_spellings(grammar, frozenset("[],"), held) == frozenset()
+    assert stray_spellings(grammar, frozenset('[],"'), held) == frozenset("[]")
