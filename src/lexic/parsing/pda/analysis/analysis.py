@@ -662,7 +662,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The attempt licence's audit set: every boundary char the stop side
-        can also go on with, the same-arm rest included.
+        can also go on with, the same-arm rest and a repetition's next iteration included.
 
         A stop side continuing into the rest of its own arm is a carving of
         that arm the decider ranks, as much as one continuing past it, so both
@@ -677,7 +677,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         cont = self.cont_at(items, k, scope.structural_tail)
         rest = items[k + 1 :]
         if all(self.item_nullable(i) for i in rest) or not scope.body:
-            return cont
+            return self.cont_at(items, k, scope.tail)
         if self.taxonomy.delegated:
             return cont
         first = self.atom_first(items[k].atom)

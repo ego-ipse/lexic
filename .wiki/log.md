@@ -2999,3 +2999,8 @@ reads, the walk in `extend/prefix.py`, and where a refused loop lands.
 
 `decisions.md`'s stop-set entry: the loopback check, the vyx rules it islands,
 and how a whole-run island's ends reach the attempted iteration.
+
+## An attempt loop at its arm's end audits repeated followers (2026-11-06)
+
+`decisions.md` gains the entry: `beyond_at` reads the soft tail where the arm
+can end at the loop, so a repetition's next iteration is audited.

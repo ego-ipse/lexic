@@ -1553,6 +1553,24 @@ takes greedily because the audit set never names the same-arm rest:
 `sec ::= stmt+ end` with `stmt ::= "!" | ";"? [a;]` on `a;`, where `stmt` now
 derives `;` and the loop takes it from `end`.
 
+## An attempt loop at its arm's end audits what follows the rule, repetitions included
+
+**Decision:** where the rest of the arm can vanish, the attempt licence's audit
+set (`beyond_at`) is the loop's soft continuation: what follows the rule at its
+sites, a repetition's next iteration included. The structural tail, which leaves
+a repeated follower out, stays the set for the rest of the arm.
+
+**Why:** a character outside the audit set is taken without asking whether
+stopping there goes on, so a repeated follower left out of the set is taken
+from the repetition that needs it. vyx's `nl-head ::= nl-first nl-inner*` ends
+a body line, and `inline-content ::= body-line ("\\" "n" body-line)*`
+separates lines with `\n`; `\` is in `nl-inner`, and with it outside the set
+`x\nD:{}` read as one line that could not end at `:`. Inside the fork of the
+optional budget in `!X:A L1< x\nD:{} >`, that failure killed the reading that
+takes the budget, and the predictive engine answered the body without it where
+Earley keeps the budget. On the @lexical views the same loop is a stop-set that
+runs longest, a site of its own.
+
 ## A gate that reads a run whole is a leftmost-longest licence
 
 **Decision:** a structured gate that skips a run of rules before it peeks
