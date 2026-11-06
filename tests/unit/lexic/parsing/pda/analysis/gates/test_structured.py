@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+import pytest
+
+from lexic.compile import compile_text
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAlternation,
@@ -29,7 +32,9 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.structured import (
+    exact_against_follower,
     exit_is_noise,
+    follower,
     noise_roots,
     probe_candidate,
     root_candidates,
@@ -394,3 +399,88 @@ def test_structured_arm_gate_denies_on_two_nullable_arms():
     analysis = make_analysis(top, a, ws, start="top")
     arms = [[i for i in arm if isinstance(i, IrItem)] for arm in (arm0, arm1)]
     assert structured_arm_gate(analysis, arms, "a") is None
+
+
+# ── exact_against_follower ─────────────────────────────────────────────────
+
+
+def _loop(
+    source: str, rule: str = "root"
+) -> tuple[GrammarAnalysis, IrRuleRef, list[IrItem], Scope]:
+    """``source``'s analysis, the unbounded loop's unit in ``rule``'s first arm,
+    the items after it, and the arm's scope."""
+    analysis = GrammarAnalysis(
+        lift_optional_nullables(compile_text(source, flavour="gbnf").codegen_grammar)
+    )
+    arm = list(analysis.rules[rule].body[0])
+    k = next(i for i, it in enumerate(arm) if it.quantifier.upper() is None)
+    unit = arm[k].atom
+    assert isinstance(unit, IrRuleRef)
+    return analysis, unit, arm[k + 1 :], Scope(rule, analysis.follow[rule])
+
+
+@pytest.mark.parametrize(
+    ("units", "exact"),
+    [
+        ('ws ::= [ ]+\nnl ::= " " "\\n"\n', False),
+        ('ws ::= "#" "#"?\nnl ::= "#" "x"\n', False),
+        ('ws ::= " " | cl\ncl ::= "#" [a-z]* "\\n"\nnl ::= cl\n', False),
+        ('ws ::= " " | cm\ncm ::= "#" [a-z]*\nnl ::= cm "\\n"\n', False),
+        ('ws ::= " " | cl\ncl ::= "#" [a-z]* "\\n"\nnl ::= ";"\n', True),
+        ('ws ::= " " | nl " "\nnl ::= "\\n"\n', True),
+    ],
+    ids=[
+        "run",
+        "bounded",
+        "whole",
+        "prefix",
+        "leads-apart",
+        "unit-is-follower-and-more",
+    ],
+)
+def test_exact_against_follower(units: str, exact: bool) -> None:
+    """Refused where a unit runs on past a shorter one into the follower, or
+    is the whole of, or a proper prefix of, one of its strings; kept where
+    their leads are apart, or where the only unit sharing the follower's
+    start is a whole follower and more (``c-wsp ::= WSP | c-nl WSP`` before
+    ``c-nl``)."""
+    analysis, unit, rest, scope = _loop(
+        '# @non-semantic ws nl cl cm\nroot ::= "a" ws* nl "b"\n' + units
+    )
+    assert exact_against_follower(analysis, unit, rest, scope) is exact
+
+
+@pytest.mark.parametrize(
+    ("source", "rule", "length", "runs_on"),
+    [
+        ('root ::= "a" ws* e nl "b"\ne ::= "!"?\n', "root", 2, False),
+        ('root ::= "a" ws* e nl "b"\ne ::= "!"*\n', "root", 2, False),
+        ('root ::= x nl "b"\nx ::= "a" ws*\n', "x", 0, True),
+    ],
+    ids=["vanishing-optional", "vanishing-run", "into-the-caller"],
+)
+def test_the_follower_reads_past_what_can_vanish(
+    source: str, rule: str, length: int, runs_on: bool
+) -> None:
+    """The follower ends at its first required item that cannot vanish, and
+    where the arm runs out first it reads on into what follows the rule;
+    either way ``#x`` begins ``nl``'s ``#x\\n``, and the gate is refused."""
+    analysis, unit, rest, scope = _loop(
+        "# @non-semantic ws nl cm e\n"
+        + source
+        + 'ws ::= " " | cm\ncm ::= "#" [a-z]*\nnl ::= cm "\\n"\n',
+        rule,
+    )
+    items, after = follower(analysis, rest, scope)
+    assert (len(items), after is not None) == (length, runs_on)
+    assert exact_against_follower(analysis, unit, rest, scope) is False
+
+
+def test_where_only_the_end_of_the_input_follows_nothing_does() -> None:
+    """An arm that ends the input reads nothing past it, and asks for no site
+    index."""
+    analysis, _unit, rest, scope = _loop(
+        '# @non-semantic ws\nroot ::= "a" ws*\nws ::= " " | "#" [a-z]*\n'
+    )
+    assert follower(analysis, rest, scope) == (rest, None)
+    assert not analysis.follows.runs

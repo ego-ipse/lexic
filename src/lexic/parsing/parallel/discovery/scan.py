@@ -18,14 +18,23 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrAst
+from lexic.ir import IrAst, IrItem, IrLiteral, IrRule
 from lexic.parsing.parallel.discovery.interiors import (
     Interior,
+    interiors,
     skip_opaque,
     skip_table,
 )
-from lexic.parsing.parallel.discovery.shapes import first_charset, last_charset
-from lexic.parsing.parallel.roles import Roles
+from lexic.parsing.parallel.discovery.regions import pair_rules
+from lexic.parsing.parallel.discovery.shapes import (
+    RuleTable,
+    emit_charset,
+    first_charset,
+    last_charset,
+    literal_char,
+    rule_table,
+)
+from lexic.parsing.parallel.roles.derive import Roles, roles
 
 
 def spelling_offsets(text: str, spelling: str, lo: int, hi: int) -> list[int]:
@@ -182,7 +191,7 @@ def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
     """
     if len(mark) < 2 or mark[0] != mark[1]:
         return Overlap(True, False)
-    rules = {str(rule.name): rule for rule in grammar.rules}
+    rules = rule_table(grammar)
     target = rules.get(owner)
     if target is None:
         return Overlap(False, False)
@@ -194,3 +203,131 @@ def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
         first_charset(tuple(arm), rules, path).has(mark[1]) for arm in target.body
     )
     return Overlap(False, False) if ends and begins else Overlap(True, ends)
+
+
+class Delimiting(NamedTuple):
+    """What a scan counts depth with and skips whole — the spans it owns.
+
+    :ivar pairs: ``(opener, closer, rule)`` for the pairs it counts.
+    :ivar regions: The interiors it skips (the region scan only).
+    """
+
+    pairs: frozenset[tuple[str, str, str]]
+    regions: tuple[Interior, ...]
+
+    def rules(self) -> set[str]:
+        """Every rule whose arms delimit a span this scan owns."""
+        return {rule for *_chars, rule in self.pairs} | {r.rule for r in self.regions}
+
+
+def delimiting(grammar: IrAst, region_scan: bool) -> Delimiting:
+    """The spans one scan owns: the region scan counts every derived bracket
+    pair and skips the certified interiors; the windowed scan counts only the
+    pairs :func:`~lexic.parsing.parallel.roles.derive.roles` tracks."""
+    tracked = None if region_scan else set(roles(grammar).pairs)
+    pairs = frozenset(
+        (opener, closer, rule)
+        for opener, (closer, rule) in pair_rules(grammar).items()
+        if tracked is None or (opener, closer) in tracked
+    )
+    return Delimiting(pairs, interiors(grammar) if region_scan else ())
+
+
+def read_outside(
+    seen: Delimiting, rule: IrRule, rules: RuleTable, joined: bool
+) -> list[tuple[IrItem, ...]]:
+    """The stretches of ``rule``'s arms this scan reads at the rule's own depth.
+
+    Around an interior region, its closing included (it stays scan-visible).
+    Otherwise the arm is walked counting depth over the rule's own openers and
+    closers on one counter, as the scan counts them, and every item standing at
+    depth 0 is read: an arm may close and reopen (``"(" a ")" "," "(" b ")"``).
+    A literal is walked character by character, so a merged ``"),("`` shows its
+    comma. No quantified literal spells a delimiter — a pair stands only while
+    every read site spelling it delimits
+    (:func:`~lexic.parsing.parallel.roles.derive.standing_pairs`) — but an item at
+    depth 0 that may emit one leaves the depth unknown, and then the whole arm
+    is read. A reference inside a span keeps its brackets to a nested region,
+    as the scan reads them. With ``joined`` the delimiters bordering a read
+    stretch belong to it, so a mark wider than one character spelled across one
+    counts.
+    """
+    name = str(rule.name)
+    own = {(opener, closer) for opener, closer, owner in seen.pairs if owner == name}
+    spans = {region.arm: region for region in seen.regions if region.rule == name}
+    out: list[tuple[IrItem, ...]] = []
+    for at, arm in enumerate(rule.body):
+        items = tuple(arm)
+        region = spans.get(at)
+        if region is not None:
+            out += [items[: region.opens], items[region.closes :]]
+        else:
+            out += _depth_walk(items, own, rules, joined)
+    return out
+
+
+def _depth_walk(
+    items: tuple[IrItem, ...],
+    own: set[tuple[str, str]],
+    rules: RuleTable,
+    joined: bool,
+) -> list[tuple[IrItem, ...]]:
+    """One arm's depth-0 stretches (see :func:`read_outside`)."""
+    delimiters = {char for pair in own for char in pair}
+    walk = _DepthWalk({opener for opener, _closer in own}, {c for _o, c in own})
+    for item in items:
+        literal = item.unit_literal()
+        if isinstance(literal, IrLiteral):
+            walk.spell(item, str(literal), joined)
+            continue
+        char = literal_char(item, rules)
+        if char in delimiters:
+            walk.spell(item, str(char), True)
+            continue
+        if walk.depth == 0:
+            emitted = emit_charset(item, rules, frozenset())
+            if any(emitted.has(c) for c in delimiters):
+                return [items]
+        walk.plain(item)
+    return walk.done()
+
+
+class _DepthWalk:
+    """One arm's depth walk: the stretches read at depth 0, as they close."""
+
+    __slots__ = ("openers", "closers", "depth", "stretch", "parts")
+
+    def __init__(self, openers: set[str], closers: set[str]) -> None:
+        """Start at the rule's own depth with nothing read."""
+        self.openers = openers
+        self.closers = closers
+        self.depth = 0
+        self.stretch: list[IrItem] = []
+        self.parts: list[tuple[IrItem, ...]] = []
+
+    def plain(self, item: IrItem) -> None:
+        """An item that neither opens nor closes: read when at depth 0."""
+        if self.depth == 0:
+            self.stretch.append(item)
+
+    def spell(self, item: IrItem, text: str, border: bool) -> None:
+        """An item spelling ``text``: move the depth character by character,
+        and read the item when any of its own characters stands at depth 0 —
+        or when it borders a read stretch and ``border`` asks for its edges."""
+        seen = border and self.depth == 0
+        for char in text:
+            if char in self.openers:
+                self.depth += 1
+            elif char in self.closers and self.depth > 0:
+                self.depth -= 1
+            elif self.depth == 0:
+                seen = True
+        if seen or (border and self.depth == 0):
+            self.stretch.append(item)
+        if self.depth > 0:
+            self.parts.append(tuple(self.stretch))
+            self.stretch = []
+
+    def done(self) -> list[tuple[IrItem, ...]]:
+        """Every stretch read, the last one closed."""
+        return [*self.parts, tuple(self.stretch)]

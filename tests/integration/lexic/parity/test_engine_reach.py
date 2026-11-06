@@ -1,13 +1,18 @@
 """Which engine each shape REACHES — asserted, so a witness cannot go quiet.
 
 Three benchmark rows exist to hold three different routes to the gated engine,
-and this file is what makes them witnesses rather than labels:
+and this file is what makes them witnesses rather than labels. Each is
+left-recursive through a relay rule, which the fold does not read through:
 
-* ``start-fallback`` — the product's own whole-parse fallback. No island.
-* ``interior-exact`` — an island whose width the continuation analysis proves,
+* ``relay-fallback`` — the product's own whole-parse fallback. No island.
+* ``relay-exact`` — an island whose width the continuation analysis proves,
   so the sub-parse runs once.
-* ``interior-climb`` — an island whose width it cannot prove, so the window
-  doubles from :data:`ISLAND_WINDOW` until the chart stops extending.
+* ``relay-climb`` — an island whose width it cannot prove, so the window
+  doubles from :data:`ISLAND_WINDOW` until the chart stops reaching past it.
+
+The same three languages written directly (``start-fallback``,
+``interior-exact``, ``interior-climb``) reach NO engine: the fold takes their
+two recursive arms, and that is asserted here too.
 
 A fourth witness, ``INTERIOR_DELEGATE``, is not a row: it holds the one route
 no roster kernel takes — an island whose sub-parse delegates an interior rule.
@@ -36,10 +41,11 @@ import lexic.parsing.pda.runtime.matchers as matchers_mod
 import lexic.parsing.products as products_mod
 from lexic.compile import compile_text
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.resume import WindowKernel
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, all_clones
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
 from lexic.parsing.pda.runtime.islands import ISLAND_WINDOW
 from lexic.parsing.products import model_product
-from tests.clone_walk import walk_program_clones
 from tests.parity_helpers import answers
 from tools.benchmark.cases.engine_reach import INTERIOR_DELEGATE
 from tools.benchmark.cases.grammars import BENCHES
@@ -57,6 +63,7 @@ def reach_counts(monkeypatch) -> Counter[str]:
     counts: Counter[str] = Counter()
     real_parse = execution_mod.island_parse
     real_run = islands_mod.island_run
+    real_grow = vars(WindowKernel)["grow"]
     real_earley = products_mod.earley_model
     real_delegated = vars(Kernel)["_complete_delegated"]
 
@@ -65,10 +72,14 @@ def reach_counts(monkeypatch) -> Counter[str]:
         counts["exact"] += policy.window is not None
         return real_parse(tables, text, pos, name, policy)
 
-    def island_run(tables, window, delegates=None):
+    def island_run(tables, text, pos, width, delegates=None):
         counts["runs"] += 1
         counts["delegates"] = max(counts["delegates"], len(delegates or {}))
-        return real_run(tables, window, delegates)
+        return real_run(tables, text, pos, width, delegates)
+
+    def grow(self, stop):
+        counts["runs"] += 1  # a window, on the chart the last one left
+        return real_grow(self, stop)
 
     def earley_model(*args, **kwargs):
         counts["earley"] += 1
@@ -80,6 +91,7 @@ def reach_counts(monkeypatch) -> Counter[str]:
 
     monkeypatch.setattr(execution_mod, "island_parse", island_parse)
     monkeypatch.setattr(islands_mod, "island_run", island_run)
+    monkeypatch.setattr(WindowKernel, "grow", grow)
     monkeypatch.setattr(products_mod, "earley_model", earley_model)
     monkeypatch.setattr(Kernel, "_complete_delegated", complete_delegated)
     return counts
@@ -129,7 +141,7 @@ def test_start_fallback_reaches_earley_without_an_island(reach):
     catches the predictive failure and parses the document whole on the gated
     engine. This is the route no other row takes.
     """
-    row = bench("start-fallback")
+    row = bench("relay-fallback")
     model = row.compiled.parse(row.corpus, cores=1)
 
     assert reach["earley"] == 1, "the product's fallback did not run"
@@ -139,7 +151,7 @@ def test_start_fallback_reaches_earley_without_an_island(reach):
 
 def test_interior_exact_islands_once_without_falling_back(reach):
     """A provable width means ONE sub-parse and no whole-document re-parse."""
-    row = bench("interior-exact")
+    row = bench("relay-exact")
     model = row.compiled.parse(row.corpus, cores=1)
 
     assert reach["islands"] == 1
@@ -157,7 +169,7 @@ def test_interior_climb_doubles_its_window_and_still_answers(reach):
     refuses, so exactly one end composes and the climb terminates on an answer
     rather than on a refusal.
     """
-    row = bench("interior-climb")
+    row = bench("relay-climb")
     model = row.compiled.parse(row.corpus, cores=1)
 
     assert reach["islands"] == 1
@@ -184,7 +196,7 @@ def test_the_climb_count_tracks_the_document_not_a_constant(reach):
     ever stop separating, the pair has been resized into agreeing and this
     assertion says so before the counts are read.
     """
-    row = bench("interior-climb")
+    row = bench("relay-climb")
     small = climbs(len(row.corpus))
     large = climbs(len(row.full))
     assert large > small, "the two samples do not separate — widen the pair"
@@ -204,7 +216,23 @@ def test_every_engine_reach_row_asserts_a_live_counter():
     a lookup error somewhere less obvious.
     """
     names = {b.name for b in BENCHES}
+    assert {"relay-fallback", "relay-exact", "relay-climb"} <= names
     assert {"start-fallback", "interior-exact", "interior-climb"} <= names
+
+
+@pytest.mark.parametrize("name", ["start-fallback", "interior-exact", "interior-climb"])
+def test_the_direct_rows_fold_their_two_recursive_arms(reach, name: str):
+    """Written directly, the three languages run on the predictive path: the
+    fold takes both recursive arms, so nothing islands and nothing falls back,
+    and the model is the gated engine's."""
+    row = bench(name)
+    model = row.compiled.parse(row.corpus, cores=1)
+
+    assert (reach["islands"], reach["earley"]) == (0, 0), dict(reach)
+    assert model.to_text() == row.corpus
+    for text in row.accepts:  # short enough to compare whole models
+        predictive, gated = answers(row.source, f"engine-reach-direct-{name}", text)
+        assert predictive == gated, text
 
 
 # ── the delegating island, not a row ───────────────────────────────────
@@ -265,7 +293,7 @@ def test_two_ends_after_a_climb_are_ranked_on_the_predictive_path(reach):
     compose. The climb runs to the document's size, and the verdict ranks the
     two completions there: the predictive answer is the gated engine's model,
     with no fallback."""
-    # Sized like `interior-climb`: several doublings, so the row keeps
+    # Sized like `relay-climb`: several doublings, so the row keeps
     # climbing even if the initial window widens once.
     text = "q" * 2400 + "zz\n"
     compiled = compile_text(_REFUSAL, cache_key="engine-reach-refusal")
@@ -305,11 +333,13 @@ without saying so.
 
 
 def wide_dispatch_clones(compiled) -> int:
-    """Wide-selecting dispatch clones reachable in the final program."""
+    """Wide-selecting dispatch clones reachable in the final program (none
+    where the start rule is islanded, and so no clone)."""
     product = model_product(compiled.codegen_grammar, compiled.product)
+    start = product.pda.program.start
     return sum(
         1
-        for one in walk_program_clones(product.pda.program.start).values()
+        for one in all_clones([start] if isinstance(start, FlatClone) else [])
         if one.wide_selectors is not None and one.mode == BUILD_DISPATCH
     )
 

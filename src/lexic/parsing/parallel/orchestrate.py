@@ -394,17 +394,11 @@ def split_regions[M: IrNamedTuple](
     # per worker left a woken worker queued behind the rest for a CPU, and
     # the find waited on its window.
     pieces = piece_count(pool.workers)
-    # A bracket span may cover the whole source while still sit BELOW a
-    # wrapper start model (``root ::= node``). Routing, not byte position,
-    # decides whether it has a replaceable owner; a true root-region model
-    # yields no non-empty route and declines in ``stitch_units``.
-    found = [
-        region
-        for region in par_find(
-            analysis or grammar, ask.text, 2 * MIN_CHUNK, pieces, pool
-        )
-        if region.rule != str(grammar.start)
-    ]
+    # A region may be the start rule's own: its node is then the whole result,
+    # laid over the shell's model rather than spliced into an owner
+    # (``merge._shell_routes``), so ``root ::= "[" ... "]"`` divides exactly as
+    # ``root ::= arr`` does.
+    found = par_find(analysis or grammar, ask.text, 2 * MIN_CHUNK, pieces, pool)
     divided = partition(ask.text, found, pieces)
     merge = MergeRequest(parse, ask.text, ask.binding, ask.config)
     bound = bound_works(merge, grammar, divided, analysis or grammar)

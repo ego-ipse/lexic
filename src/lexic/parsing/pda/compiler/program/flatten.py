@@ -24,12 +24,16 @@ specs it reads.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, Never, Protocol
+from typing import Any, NamedTuple, Never, Protocol
 
 from lexic.exceptions import EngineInvariantError
-from lexic.ir import IrLeaf, IrSelf
+from lexic.ir import IrLeaf, IrSelf, components
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
-from lexic.parsing.pda.compiler.program.bake.lowering import ShapeBuild, no_shape_build
+from lexic.parsing.pda.compiler.program.bake.lowering import (
+    FoldStep,
+    ShapeBuild,
+    no_shape_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
@@ -314,25 +318,32 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
     :ivar grants: The licence kinds the program was compiled under: a decider
         must grant them all for the program to run its parse
         (:meth:`~lexic.parsing.earley.kernel.tables.decider.Decider.grants_all`).
+    :ivar nests: Whether its attempt sub-runs can nest past the in-place depth
+        (:func:`can_nest`): the parse then counts them, and drives one past
+        the depth by settling it at its floor. Read once, to choose the kernel.
     """
 
-    __slots__ = ("start", "delegates", "grants")
+    __slots__ = ("start", "delegates", "grants", "nests")
 
     start: Any  # FlatClone | IslandRef — the island marker lives in pda_tables
     delegates: Any  # DelegateSource | None — the delegate_compile leaf
     grants: frozenset[str]
+    nests: bool
 
     def __init__(
         self,
         start: Any,
         delegates: Any = None,
         grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+        nests: bool = False,
     ) -> None:
         """Bind the entry clone (or island opt-out marker), the delegate
-        source and the licences the program was compiled under."""
+        source, the licences the program was compiled under and whether its
+        sub-runs nest."""
         self.start = start
         self.delegates = delegates
         self.grants = grants
+        self.nests = nests
 
 
 def clear_build[Carry](clone: FlatClone[Carry]) -> None:
@@ -378,6 +389,45 @@ character are alphabets (digits, letters, a token's glyphs), and those fit.
 """
 
 
+class FoldIteration[Carry](NamedTuple):
+    """One iteration of a fold over several recursive arms: the arm it took,
+    and the values it captured, item by item.
+
+    :ivar step: The arm's iteration build.
+    :ivar sinks: The iteration's per-item values, as the step group's frame
+        collected them, or ``None`` where it captured nothing.
+    """
+
+    step: FoldStep[Carry]
+    sinks: list[list[Carry] | None] | None
+
+
+class FoldArms[Carry](NamedTuple):
+    """The construction a several-armed fold's step group completes with.
+
+    A fold over several recursive arms parses ``(γ)(β1 | β2 …)*``; the step
+    group is that alternation, and the frame running it holds the arm the next
+    character chose. Called with that arm and the frame's own captures, it
+    reports the arm's build and those captures as one :class:`FoldIteration`
+    into the folding frame's step sink, so the fold builds each iteration
+    through the arm that matched it.
+
+    A record rather than a bound function: a worker's private table copy
+    rebuilds records and their mappings field by field, and refuses a
+    ``functools.partial``, which it cannot see inside.
+
+    :ivar steps: Each step-group arm → its recursive arm's build.
+    """
+
+    steps: Mapping[FlatArm, FoldStep[Carry]]
+
+    def __call__(
+        self, arm: FlatArm, sinks: list[list[Carry] | None] | None
+    ) -> FoldIteration[Carry]:
+        """The iteration a completed step-group frame stands for."""
+        return FoldIteration(self.steps[arm], sinks)
+
+
 # ── post-flatten optimizer passes ──────────────────────────────────────────
 
 
@@ -405,8 +455,15 @@ def clone_arms(clone: FlatClone) -> list[FlatArm]:
 
 
 def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
-    """Every clone reachable from ``roots``, groups and attempt entries'
-    sub-clones included (worklist walk).
+    """Every clone reachable from ``roots`` (worklist walk): through every
+    clone-valued arm payload, whatever its op code, and through every landing
+    target (:func:`landing_targets`: a dispatch clone's targets, an attempt
+    clone's entry sub-clones).
+
+    Whatever the op code: call specialisation rewrites an exactly-once group's
+    ``OP_GRP`` to ``OP_REF1`` and later codes, and a walk that followed
+    ``OP_GRP`` alone stopped seeing such a group once the program was
+    optimised — a sub-run root inside one would have stayed unmarked.
 
     :param roots: The clones to start from.
     :returns: Every reachable clone, each once.
@@ -420,12 +477,7 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
-        for arm in clone_arms(clone):
-            for kind, payload in zip(arm.kinds, arm.payloads):
-                if kind == OP_GRP:
-                    work.append(payload)
+        work.extend(_reached(clone))
     return out
 
 
@@ -444,23 +496,134 @@ def mark_sub_roots(roots: list[FlatClone]) -> None:
     forks = False
     for clone in clones:
         clone.sub_root = False
-        if clone.attempt is not None:
-            work.extend(entry[-1] for entry in clone.attempt[1])
-        for arm in clone_arms(clone):
-            forks = forks or GATE_ATTEMPT in arm.gate_kinds
-            work.extend(
-                payload
-                for kind, gate, payload in zip(arm.kinds, arm.gate_kinds, arm.payloads)
-                if gate == GATE_ATTEMPT and kind in (OP_REF, OP_GRP)
-            )
+        work.extend(attempt_subs(clone))
+        forks = forks or any(
+            GATE_ATTEMPT in arm.gate_kinds for arm in clone_arms(clone)
+        )
     while forks and work:
         clone = work.pop()
         if not clone.sub_root:
             clone.sub_root = True
-            work.extend(_landing_targets(clone))
+            work.extend(landing_targets(clone))
 
 
-def _landing_targets(clone: FlatClone) -> list[FlatClone]:
+NESTING_CHAIN = 13
+"""The most attempt sub-runs one chain may nest in a clone set that is never
+counted: the in-place depth at the default recursion limit. Past it, or on a
+cycle, a document can nest them as deep as it likes."""
+
+
+def can_nest(roots: list[FlatClone]) -> bool:
+    """Whether the attempt sub-runs of the clones reachable from ``roots`` can
+    nest past :data:`NESTING_CHAIN` (:attr:`PdaProgram.nests`).
+
+    A sub-run of ``sub`` nests one of every attempt sub-clone the clones
+    ``sub`` reaches can start. Read on the clone graph's strongly connected
+    components (:func:`~lexic.ir.grammar.graph.components`): an attempt edge
+    inside one is a cycle, so the nesting has no bound; across them, the most
+    attempt edges on one path is the deepest a document can nest.
+    """
+    clones = all_clones(roots)
+    names = {id(clone): str(at) for at, clone in enumerate(clones)}
+    graph = {
+        names[id(clone)]: [names[id(t)] for t in _reached(clone)] for clone in clones
+    }
+    owner: dict[str, int] = {}
+    deepest: list[int] = []
+    for root in graph:
+        for component in components(graph, root, owner):
+            deep = 0
+            for name in component:
+                owner[name] = len(deepest)
+            for name in component:
+                deep = max(deep, _chain_from(clones[int(name)], names, owner, deepest))
+            deepest.append(deep)
+    return max(deepest, default=0) > NESTING_CHAIN
+
+
+def _chain_from(
+    clone: FlatClone, names: dict[int, str], owner: dict[str, int], deepest: list[int]
+) -> int:
+    """The most attempt edges on a path out of ``clone``, its component's
+    other members aside; past :data:`NESTING_CHAIN` for an attempt edge back
+    into its own component."""
+    here, attempts = owner[names[id(clone)]], {id(sub) for sub in attempt_subs(clone)}
+    deep = 0
+    for target in _reached(clone):
+        there = owner[names[id(target)]]
+        step = 1 if id(target) in attempts else 0
+        if there == here:
+            deep = max(deep, step * (NESTING_CHAIN + 1))
+        else:
+            deep = max(deep, deepest[there] + step)
+    return deep
+
+
+def _reached(clone: FlatClone) -> list[FlatClone]:
+    """The clones entering ``clone`` can enter next: its landing targets and
+    every clone-valued arm payload (:func:`all_clones`' step)."""
+    found = landing_targets(clone)
+    for arm in clone_arms(clone):
+        found.extend(p for p in arm.payloads if isinstance(p, FlatClone))
+    return found
+
+
+def attempt_subs(clone: FlatClone) -> list[FlatClone]:
+    """The clones a sub-run of ``clone``'s own starts at: its attempt entries'
+    sub-clones, and the payloads of its arms' attempt-gated references."""
+    found = [] if clone.attempt is None else [entry[-1] for entry in clone.attempt[1]]
+    for arm in clone_arms(clone):
+        found.extend(
+            payload
+            for kind, gate, payload in zip(arm.kinds, arm.gate_kinds, arm.payloads)
+            if gate == GATE_ATTEMPT and kind in (OP_REF, OP_GRP)
+        )
+    return found
+
+
+def check_entry_shape(clone: FlatClone) -> None:
+    """Refuse a clone whose entry is more than one shape.
+
+    A dispatch clone is chased, and the chase reads its own selection, so it
+    may carry a wide one (the gbnf self-grammar's ``cc-neg`` does): every other
+    shape is its target's. Any other clone is at most one of an attempt, a
+    gated selection (wide, or a struct gate) and a leaf.
+
+    :raises EngineInvariantError: Naming the clone and its shapes.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        return
+    shapes = [
+        name
+        for name, has in (
+            ("attempt", clone.attempt is not None),
+            ("gated", clone.wide_selectors is not None or clone.struct_arm is not None),
+            ("leaf", bool(clone.leaf)),
+        )
+        if has
+    ]
+    if len(shapes) > 1:
+        raise EngineInvariantError(
+            f"clone {clone.name!r} enters as {shapes}: at most one is one entry"
+        )
+
+
+def lands_on(clone: FlatClone, target: FlatClone) -> bool:
+    """Whether entering ``clone`` can push a frame of ``target``: ``clone``
+    itself, or a clone its landings reach (:func:`landing_targets`)."""
+    seen: set[int] = set()
+    work = [clone]
+    while work:
+        found = work.pop()
+        if found is target:
+            return True
+        if id(found) not in seen:
+            seen.add(id(found))
+            work.extend(landing_targets(found))
+    return False
+
+
+def landing_targets(clone: FlatClone) -> list[FlatClone]:
     """The clones entering ``clone`` can land on next: a dispatch clone's
     targets, or an attempt clone's entry sub-clones."""
     if clone.mode == BUILD_DISPATCH:

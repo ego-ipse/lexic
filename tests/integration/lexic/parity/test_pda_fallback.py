@@ -4,10 +4,10 @@
 :func:`~lexic.parsing.parse_model`, which runs the predictive PDA first and
 completes on a whole-input engine reparse on any
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`. This module pins one input that
-genuinely forces that completion on a real ground-truth grammar (arithmetic's
-trailing-whitespace stop-set residue, pivot 4) and proves it both fires and
-returns the engine-correct model — ``PdaFail`` never leaks to the public
-``parse()`` caller.
+genuinely forces that completion on a real ground-truth grammar (vyx's
+readings split past the live set's nesting bound) and proves it
+both fires and returns the engine-correct model — ``PdaFail`` never leaks to the
+public ``parse()`` caller.
 """
 
 from __future__ import annotations
@@ -24,31 +24,40 @@ from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
-# The pinned fallback input: a valid assignment followed by extra blank lines.
-# arithmetic's ``ident``/``num``/``term`` all end in their own ``ws ::= [ \t\n]*``,
-# whose stop-gate excludes ``\n`` at this call site (it must leave one ``\n`` for
-# the mandatory literal after ``term`` in ``root``'s ``(expr "=" ws term "\n")+``)
-# — so the loop refuses to consume *any* newline. A single trailing ``\n`` is
-# then matched by the mandatory literal, but a second one has no repetition left
-# to consume it (there is no ident/num/"(" to start another iteration), so the
-# PDA reports unconsumed trailing input rather than guess. The engine parses it
-# fine — its ``ws`` isn't cut to one clone's hard tail.
-FALLBACK_INPUT = "x=1\n\n\n"
+# The pinned fallback input: an inline body whose value and escaped line each
+# run on through every separator after them. ``k=``'s value and the ``\#``
+# line can end at each ``\n``, so a boundary inside a reading splits it again
+# at every separator, and past the nesting bound the PDA reports the refusal
+# rather than guess.
+FALLBACK_GRAMMAR = GROUND_TRUTH / "vyx.gbnf"
+FALLBACK_INPUT = "!R k=\\n\\#\\na\\n\\\\\\n\\n\\n\\n# >"
 
 
-def test_arithmetic_stop_set_residue_forces_pda_fallback():
+def test_a_run_that_takes_its_separator_forces_pda_fallback():
     """The pinned input genuinely PdaFails the direct PDA call.
 
     Confirms the premise before trusting the fallback assertions below: this
     input is not merely "some edge case" but one the deterministic PDA cannot
     resolve at all.
     """
-    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    cg = compile_from_path(FALLBACK_GRAMMAR)
     p = prod(cg)
-    # arithmetic compiles a real clone start — no whole-grammar opt-out.
+    # vyx compiles a real clone start — no whole-grammar opt-out.
     assert not isinstance(p.pda.start_key, IslandRef)
     with pytest.raises(PdaFail):
         pda_model(p.pda, FALLBACK_INPUT, cg.executor)
+
+
+def test_arithmetic_blank_lines_derive_on_the_pda():
+    """arithmetic's trailing blank lines stay on the predictive engine: its
+    ``ws`` run is decided where the run ends, so it takes every newline but the
+    line's own ``"\\n"``, and the model is Earley's."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    p = prod(cg)
+    text = "x=1\n\n\n"
+    got = pda_model(p.pda, text, cg.executor)
+    want = earley_model(p.instance_grammar, text, cg.product, p.tables)
+    assert got.semantic_dump() == want.semantic_dump()
 
 
 def test_pda_fallback_returns_engine_correct_model():
@@ -58,7 +67,7 @@ def test_pda_fallback_returns_engine_correct_model():
     instance grammar) on ``semantic_dump()`` and asserts the round-trip,
     proving the completion is both silent and correct.
     """
-    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    cg = compile_from_path(FALLBACK_GRAMMAR)
     p = prod(cg)
 
     model = cg.parse(FALLBACK_INPUT)

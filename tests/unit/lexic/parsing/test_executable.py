@@ -24,6 +24,7 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrItem, IrRuleRef
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
+from lexic.parsing.earley.kernel.tables.atoms import Excluding, RunTerm, Spans
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.product import (
@@ -277,6 +278,31 @@ def test_a_copy_moves_the_binding_and_its_executor_to_the_replica() -> None:
         binding.routines["a"],
     )
     assert copy[0] is replica and copy[1] is replica.executor
+
+
+def test_a_copy_keeps_a_negated_run_scanning_by_exclusion() -> None:
+    """A replica's tables hold their own run terminals: a ``[^"]*`` run's
+    exclusion set is copied as an ``Excluding``, a new object that still
+    answers membership by what it does NOT list."""
+    run = RunTerm(frozenset('"'), 1, 0, negated=True)
+    binding = ModelExecutable(_RULES)
+
+    made = binding.copied([run], binding.replica())[0]
+
+    assert made is not run and made.charset is not run.charset
+    assert isinstance(made.charset, Excluding) and made.negated
+    assert "x" in made.charset and '"' not in made.charset
+
+
+def test_a_copy_keeps_a_ranged_run_testing_its_bounds() -> None:
+    """A run too wide to list carries its ranges, copied as a new record."""
+    run = RunTerm(Spans(((0x3041, 0x309F), (0x4E00, 0x9FFF))), 1, 0)
+    binding = ModelExecutable(_RULES)
+
+    made = binding.copied([run], binding.replica())[0]
+
+    assert made is not run and made.charset == run.charset
+    assert "\u65e5" in made.charset and "a" not in made.charset
 
 
 @pytest.mark.parametrize("opaque", [threading.Lock(), array("i", [1])])

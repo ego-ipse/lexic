@@ -5,15 +5,16 @@ window computation.
 exhaustively pinned (against a real fixed-review regression) in
 ``tests/unit/lexic/parsing/pda/analysis/gates/test_kwindow.py``, which reads
 this module's own exports directly; this file targets ``windows_of``'s
-dedup/sort contract and ``FollowWindows``'s EOF seeding on a small hand-built
-grammar.
+dedup/sort contract, ``FollowWindows``'s EOF seeding on a small hand-built
+grammar, and ``KWindowFirst.shifts`` — whether an item's surplus can begin
+what follows it.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_from_path
+from lexic.compile import compile_from_path, compile_text
 from lexic.ir import (
     IrAlternation,
     IrItem,
@@ -27,6 +28,7 @@ from lexic.parsing.pda.analysis.gates.windows import (
     END,
     MORE,
     FollowWindows,
+    KWindowFirst,
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -143,3 +145,46 @@ def test_only_rules_that_can_end_the_input_hold_an_end_window(stem: str):
     fw = _follow_2(stem)
     ends = [n for n, found in fw.follow.items() if ((), END) in found and n != fw.start]
     assert len(ends) == PINNED_ENDS[stem]
+
+
+def _arm(source: str) -> tuple[KWindowFirst, IrSequence]:
+    """``x``'s one arm in ``source``'s codegen grammar, and a FIRST_2 solver."""
+    grammar = compile_text(source, cache_key=f"shifts-{hash(source)}").codegen_grammar
+    rules = {str(r.name): r for r in grammar.rules}
+    return KWindowFirst(rules, 2), rules["x"].body[0]
+
+
+def test_a_surplus_that_cannot_begin_what_follows_does_not_shift():
+    """``[a-b] "z"`` once more cannot begin ``[a-b] [0-1]``: its second
+    character is a ``z``, never a digit."""
+    solver, arm = _arm('x ::= ([a-b] "z")? [a-b] [0-1]\n')
+    assert not solver.shifts(arm, 0, CharSet.EMPTY)
+    assert solver.shifts(arm, 0, CharSet.from_chars("a"))
+
+
+def test_several_further_occurrences_can_begin_what_follows():
+    """``[a-c]*`` grows by ``b`` then ``a``, which is how ``"b" "a"+`` begins."""
+    solver, arm = _arm('x ::= [a-c]* "b" "a"+\n')
+    assert solver.shifts(arm, 0, CharSet.EMPTY)
+
+
+def test_shifts_reads_an_items_windows_once():
+    """The windows at one item of one arm are computed once and kept."""
+    solver, arm = _arm('x ::= ([a-b] "z")? [a-b] [0-1]\n')
+    solver.shifts(arm, 0, CharSet.EMPTY)
+    kept = solver.rests[tuple(arm)]
+    solver.shifts(arm, 0, CharSet.from_chars("a"))
+    assert solver.rests[tuple(arm)] is kept
+
+
+def test_one_list_holding_another_arm_reads_that_arms_windows():
+    """A caller's list is no identity: refilled with another arm's items, the
+    same list object must read the new arm's windows, never the first's."""
+    source = 'x ::= ([a-b] "z")? [a-b] [0-1]\ny ::= [a-c]* "b" "a"+\n'
+    grammar = compile_text(source, cache_key="shifts-refill").codegen_grammar
+    rules = {str(r.name): r for r in grammar.rules}
+    solver = KWindowFirst(rules, 2)
+    items = list(rules["x"].body[0])
+    assert not solver.shifts(items, 0, CharSet.EMPTY)
+    items[:] = rules["y"].body[0]
+    assert solver.shifts(items, 0, CharSet.EMPTY)

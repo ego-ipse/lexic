@@ -23,6 +23,7 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.executable import ModelExecutable
@@ -47,6 +48,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
+from lexic.parsing.pda.compiler.program.gating import flat_window, window_admits
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
@@ -92,7 +94,9 @@ def only_arm(clone: FlatClone) -> FlatArm:
     return clone.default
 
 
-def pda_from_text(text: str) -> PdaTables:
+def pda_from_text(
+    text: str, grants: frozenset[str] = LEFTMOST_LONGEST.grants
+) -> PdaTables:
     """Compile a hand-authored GBNF snippet to its :class:`PdaTables`."""
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
@@ -101,6 +105,7 @@ def pda_from_text(text: str) -> PdaTables:
         lifted,
         model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
         compiled.product,
+        grants,
     )
 
 
@@ -117,11 +122,14 @@ def specs_for(path: Path) -> PdaCompiler:
     return compile_clones(lifted, compile_from_path(path).product)[0]
 
 
-def specs_from_text(text: str) -> PdaCompiler:
+def specs_from_text(
+    text: str, grants: frozenset[str] = LEFTMOST_LONGEST.grants
+) -> PdaCompiler:
     """The clone compiler run over a hand-authored GBNF snippet."""
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
-    return compile_clones(lifted, compile_text(text, flavour="gbnf").product)[0]
+    product = compile_text(text, flavour="gbnf").product
+    return compile_clones(lifted, product, grants)[0]
 
 
 def clones_named(specs: PdaCompiler, name: str) -> list[CloneSpec]:
@@ -278,27 +286,33 @@ def test_refs_carry_islandref_iff_their_target_is_an_island(stem: str):
 # ── gate/stop-set correctness on named fixture shapes (pivots 2/4) ─────────
 
 
-def test_arithmetic_ws_stopgate_excludes_newline_only_when_the_tail_reaches_it():
-    """arithmetic's ``ws`` loop excludes ``\\n`` from its stop-set exactly when
-    the clone's own hard continuation could begin with ``\\n`` (the trailing
-    ``ws term "\\n"`` shape) — otherwise ``\\n`` stays in the stop-set since the
-    loop may safely keep consuming it (the ``ws "=" ...`` shape, pivot 4).
-    """
+def test_arithmetic_ws_takes_a_newline_only_where_its_run_goes_on():
+    """arithmetic's ``ws`` loop takes ``\\n`` freely where the clone's own hard
+    continuation cannot begin with it (the ``ws "=" ...`` shape, pivot 4): a
+    stop set holding it. Where it can (the trailing ``ws term "\\n"`` shape),
+    the run's end decides — another newline or blank goes on, a term or the
+    end of the input stops — so a blank line is the run's, and the line's own
+    ``"\\n"`` is the last one."""
     specs = specs_for(GROUND_TRUTH / "arithmetic.gbnf")
     ws_clones = [(k, s) for k, s in specs.clones.items() if k.name == "ws"]
     assert ws_clones
-    saw_excluding = saw_including = False
+    saw_ending = saw_free = False
     for key, spec in ws_clones:
         gate = spec.arms[0].specs[0].gate
-        assert isinstance(gate, StopGate)
         if key.tail.has("\n"):
-            assert not gate.charset.has("\n")
-            saw_excluding = True
+            assert isinstance(gate, KTupleGate)
+            windows = tuple(flat_window(win) for win in gate.windows)
+            assert window_admits("\n\n", 0, windows)
+            assert window_admits("\n ", 0, windows)
+            assert not window_admits("\nx", 0, windows)
+            assert not window_admits("\n", 0, windows)
+            saw_ending = True
         else:
+            assert isinstance(gate, StopGate)
             assert gate.charset.has("\n")
-            saw_including = True
-        assert gate.charset.has(" ") and gate.charset.has("\t")
-    assert saw_excluding and saw_including
+            assert gate.charset.has(" ") and gate.charset.has("\t")
+            saw_free = True
+    assert saw_ending and saw_free
 
 
 def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
@@ -390,15 +404,19 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     ``x``'s trailing ``[a-c]*`` loop runs up to ``x``'s FOLLOW, which at the
     ``root`` call site includes the *optional* ``"ab"?``'s ``'a'``. That ``'a'``
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
-    non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
-    routes the ref through an :class:`IslandRef`, so the pure-PDA
+    non-greedy stop-set would greedily eat it — ``x`` must island. Where the
+    decider withholds the attempt licence, islanding routes the ref through a
+    fail :class:`IslandRef`, so the pure-PDA
     :func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` refuses
     ("ab" and "cab") with a
     :exc:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` (→ engine fallback) rather than
-    returning the wrong model.
+    returning the wrong model. Under leftmost-longest the loop is attempted
+    instead, and the ref is no island reference.
     """
     text = 'root ::= x "ab"?\nx ::= [a-c]*\n'
-    specs = specs_from_text(text)
+    attempted = sole_clone(specs_from_text(text), "root").arms[0].specs[0]
+    assert not isinstance(attempted.payload, IslandRef)
+    specs = specs_from_text(text, frozenset())
     assert "x" in specs.islands
     root = sole_clone(specs, "root")
     ref_spec = root.arms[0].specs[0]
@@ -410,7 +428,10 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
         build_codegen_grammar(canonical_grammar(text, GBNF_FLAVOUR))
     )
     live = compile_pda(
-        lifted, normalize(lifted), compile_text(text, flavour="gbnf").product
+        lifted,
+        normalize(lifted),
+        compile_text(text, flavour="gbnf").product,
+        frozenset(),
     )
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):

@@ -10,13 +10,28 @@ resolves to a NAMED derivation when a choice is pinned.
 
 from __future__ import annotations
 
-from lexic.ir import IrNone
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.compile import compile_text
+from lexic.ir import IrNone, IrRuleRef, IrSeq
+from lexic.parsing.earley.kernel.forest.fasttree import (
+    FastTree,
+    first_tree,
+    streamed_first,
+)
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_handles,
+    accept_node,
+    to_chart,
+)
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
+from lexic.parsing.products import model_product
 from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
     kernel_and_handle,
+    twin_arm_grammar,
 )
 
 UNAMBIGUOUS = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
@@ -63,3 +78,57 @@ def test_a_fresh_fasttree_instance_starts_with_an_empty_memo():
     tree = FastTree(kernel, None, LEFTMOST_LONGEST)
     assert not tree.memo
     assert tree.choices is None
+
+
+def _arm(tree: ParseTree) -> IrRuleRef:
+    """Which production of the twin-arm root a derivation went through."""
+    child = tree.kids[0]
+    assert isinstance(child, ParseTree)
+    return child.symbol
+
+
+def test_first_tree_takes_the_first_handle_that_builds_in_the_order_given():
+    """The reader keeps the caller's order: reversed handles, the other arm."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    handles = accept_handles(kernel)
+    first = first_tree(kernel, handles, LEFTMOST_LONGEST)
+    last = first_tree(kernel, handles[::-1], LEFTMOST_LONGEST)
+    assert first is not None and last is not None
+    assert (first.handle, _arm(first.tree)) == (handles[0], IrRuleRef("a"))
+    assert (last.handle, _arm(last.tree)) == (handles[1], IrRuleRef("b"))
+
+
+def test_first_tree_keeps_the_builds_memo_with_the_root_in_it():
+    """The memo is the build's own: the root handle maps to the very tree."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    first = first_tree(kernel, accept_handles(kernel), LEFTMOST_LONGEST)
+    assert first is not None
+    assert first.memo[first.handle] is first.tree
+
+
+def test_first_tree_is_none_when_no_handle_is_offered():
+    """Nothing accepted, nothing built."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "z", record_links=True).run()
+    assert first_tree(kernel, accept_handles(kernel), LEFTMOST_LONGEST) is None
+
+
+def test_streamed_first_reads_the_chart_and_keeps_no_handles():
+    """The decoded chart's first derivation, under the handle it is given, with
+    the empty memo that tells a meaning comparison nothing was fast-built."""
+    kernel = Kernel(compile_tables(twin_arm_grammar()), "x", record_links=True).run()
+    handle = accept_handle(kernel)
+    got = streamed_first(accept_node(kernel), to_chart(kernel), handle)
+    assert got is not None
+    assert (got.handle, got.memo, _arm(got.tree)) == (handle, {}, IrRuleRef("a"))
+
+
+def test_a_zero_width_root_builds_its_shared_empty_tree():
+    """An empty input under ``root ::= root "a" | ""`` derives one empty tree:
+    the build hands back that tree rather than reporting a miss, so the parse
+    never falls to the chart for want of a memo entry."""
+    grammar = compile_text('root ::= root "a" | ""\n', cache_key="fasttree-zero-width")
+    product = model_product(grammar.codegen_grammar, grammar.product)
+    kernel = Kernel(product.tables, "", True).run()
+    first = first_tree(kernel, accept_handles(kernel), LEFTMOST_LONGEST)
+    assert first is not None
+    assert first.tree == ParseTree(IrRuleRef("root"), IrSeq())

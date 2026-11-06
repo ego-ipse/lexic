@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from lexic.compile import compile_ast, compile_from_path
+from lexic.compile import compile_ast, compile_from_path, compile_text
 from lexic.compile.reduction import derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
@@ -192,3 +192,26 @@ def test_keep_raw_literal_channel_rebuilds_each_character():
     text = "abc:de"
     got = artifact.reduce(text, reducer, cores=1)
     assert got == IrTuple(IrStr("abc"), IrLiteral(":"), IrStr("de"))
+
+
+_REPEATED_GROUP_FORMS = {
+    "group-plus": 'root ::= p ";"\np ::= ("<" w ">")+\nw ::= [a-z]+\n',
+    "unrolled": 'root ::= p ";"\np ::= "<" w ">" ("<" w ">")*\nw ::= [a-z]+\n',
+}
+"""One language two ways: ``p``'s sole arm a repeated group, or the group
+written once and then repeated. The group is inline in both, so it splices."""
+
+
+@pytest.mark.parametrize("text", ["<ab>;", "<ab><c>;", "<a><b><c><d>;"])
+def test_a_repeated_group_arm_reduces_like_its_unrolled_form(text):
+    """A reference repeated under ``*``/``+`` is not an arm's rule: folding
+    each group instance through ``p`` as if it were an arm wrapped every one
+    in a tuple of its own, so the two forms reduced to different values."""
+    reducer = Reducer(actions=IrMap(), default=IrBuild(IrTuple))
+    values = {
+        form: compile_text(source, cache_key=f"parity-reduce-group-{form}").reduce(
+            text, reducer, cores=1
+        )
+        for form, source in _REPEATED_GROUP_FORMS.items()
+    }
+    assert values["group-plus"] == values["unrolled"]

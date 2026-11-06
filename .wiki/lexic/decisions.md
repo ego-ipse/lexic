@@ -50,12 +50,17 @@ handed both derivations and picks; how it picks is the caller's concern. That
 decision, and the tree route asks nothing (`first_meaning` returns the
 deterministic first, and only the value route can answer what a span MEANS).
 
-**A flipped point is consumed at its first visit.** A unit cycle's same-span
-completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a
-pin that re-applied at its own key would name no finite derivation — the
-pinned build walked `a → b → a` forever. Consumed
-(`splits._descend` pops it; `FastTree` copies the caller's map), a pin names
-the one-lap unroll, exactly the alternative whose value answers the question.
+**A flipped point is consumed where a chain first takes it.** A unit cycle's
+same-span completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`),
+and a pin that re-applied at its own key would name no finite derivation — the
+pinned build walked `a → b → a` forever. Consumed (`splits.leftmost_chain`
+spends the pins on the chain it chose; `FastTree` copies the caller's map), a
+pin names the one-lap unroll, exactly the alternative whose value answers the
+question. A key a level DAG only passes through keeps its pin: one arm's
+handles with one origin share their prefix keys, so an outer handle's splits
+can pass a key that only an inner handle's chain takes, and spending the pin
+there flipped nothing (`a ::= y z w` / `y ::= a | ""` / `z ::= "" | "x"` /
+`w ::= "" | "x"` over "xx" answered without a resolver).
 Family 0 needs no guard: the first family recorded for a key can only
 reference completions recorded strictly earlier, so the default walk is
 acyclic by causality.
@@ -177,7 +182,12 @@ tries the arms in order as self-contained sub-runs and commits the first
 success — after an **audit** of the remaining admitted arms. A second success
 on the same span with a different value raises `PdaFail` — the gated engine
 then refuses iff the ambiguity is real — and one with the same value lets the
-winner stand. One on a different span whose next character the rule's soft
+winner stand. An arm whose greedy run overshoots the winner is asked whether it
+also derives the winner's span (`_spanned`); there too only another value is
+the question. The same value is the winner's reading again: a nullable arm is
+both an admitted entry and the rule's default, and audited as the default it
+re-derives the winner's empty span (a fuzz grammar's `x ::= … | z*`, whose 128
+texts declined). One on a different span whose next character the rule's soft
 FOLLOW accepts is a carving the decider ranks against the winner (*"An
 attempt's arms that end apart are ranked by the decider"* below). Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
@@ -194,13 +204,11 @@ is settled by convergence"* below.
   live stack (`_drive(floor)`); nested viability walks and probes see the true
   continuation. A severed fresh stack mis-resolves any fork whose alternative
   lives in an enclosing frame.
-- **Probes nest only on a retry.** Inside a probe, both-viable boundaries
-  resolve greedily by viability class and mark the outcome `uncertain`, which
-  forks the verdict that reads it. Only a forked verdict asked again
-  (`_retried`) settles them by verdicts of their own, `NESTING_DEPTH` sides
-  deep and 64 verdicts at most: nesting everywhere is exponential (measured — a
-  24-deep probe chain), and a verdict that settles without it never pays for it.
-  Before either, a boundary whose stop side the TEXT refutes is no guess at all:
+- **A boundary inside a reading splits it.** Nothing inside a live set's
+  reading guesses: a both-viable boundary there replaces the reading by one
+  child per way, and the set prunes, merges and ranks them (*"A both-viable
+  boundary is settled by a live set of its readings"*). Before that, a boundary
+  whose stop side the TEXT refutes needs no split at all:
   `matchers.stop_side_dead` reads the stop side's continuation against the
   text — literals and once-only classes matched, optional ones both ways, the
   walk undecided at anything wider — and a dead stop side makes taking forced.
@@ -233,6 +241,16 @@ is settled by convergence"* below.
   arm miss must not swallow it, or a later arm commits what the gated engine
   may refuse. Public soundness is unchanged: `parse_model` falls back on any
   `PdaFail` to gated Earley.
+- **An island's refusal inside an attempt forks; a refusing build misses.**
+  An island refuses a span that derives two ways meaning different things
+  with `IslandRefusal`, an `UnsupportedConstructError`. On the plain path that
+  is the document's refusal. An attempted arm or iteration, or a live set's
+  reading, that meets it raises `ProbeFork` from it, and the document declines
+  to gated Earley, which refuses it. A build that refuses the values it was
+  handed raises its own `LexicError`: the arm's or the reading's miss inside an
+  attempt, and the document's refusal on the plain path. It is never a
+  decline: the gated engine's fold need not refuse what the predictive one
+  did, so declining a refusal can turn it into a model.
 
 ## 2026-07-29 — The island seam declares cross-span uncertainty instead of longest-matching through it
 
@@ -336,7 +354,100 @@ followable end and still delegates.
 **Cost:** vyx loses `nl-escape` and `nl-force` as delegates in each of its 25
 islands. No other bench or ground-truth grammar loses one.
 
+## 2026-10-28 — The left-recursion fold takes several recursive arms
+
+**Decision:** `A ::= A β1 | A β2 | … | γ` folds over every recursive arm, each
+iteration built through the arm it took, by that arm's own routine. The boundary
+proof (`leftrec.shape.settled`) already makes one character choose between the
+arms: two βs whose FIRST sets meet put their alphabets into the pieces' EXTEND
+(`extend.lengthen.arms_extension`), which then meets the βs' FIRST.
+
+**How the arm is known:** the rewritten rule is `(γ)(β1 | β2 …)*`, and each
+iteration of the step group runs one of its arms. The step group is baked
+`BUILD_FOLD` with `n_items` −1 (`bake.product._bake_fold_arms`), so it keeps its
+own captures and completes as a `flatten.FoldIteration`: that arm's build and its
+per-item values, through `flatten.FoldArms`, a record mapping each arm to its
+`FoldStep` (a worker's private table copy rebuilds a record; a `partial` it
+refuses). The folded
+clone (`n_items` 0) folds those records left-nested (`execution._folded_arms`).
+A flat sink could not say which arm an iteration took — two arms can capture the
+same number of values of the same kinds — so the record carries it.
+
+**Why one character matters:** with disjoint FIRSTs the step group's arms lower
+to plain selectors in authored order, which is how a FlatArm maps back to its
+recursive arm. Overlapping βs would be windowed or tried by attempt, and
+reordered; such a rule is refused by the boundary proof and islands, and the bake
+raises `EngineInvariantError` if the proof and the compiler ever disagree.
+
+**What does not change:** a fold over ONE recursive arm keeps the flat sink, the
+width cut and the count path — no record per iteration on the rows that fold one
+arm (dense-earley, arithmetic). No mode, opcode or FlatClone slot is added: the
+step group reuses `BUILD_FOLD`, whose completion branch already exists.
+
+**The bench:** `start-fallback`, `interior-exact` and `interior-climb` keep their
+grammars, corpora and every competitor seat, and now fold; they price this. The
+engine routes they witnessed move to `relay-fallback`, `relay-exact` and
+`relay-climb` — the same languages, left-recursive through a relay rule the fold
+does not read through. ANTLR rewrites direct left recursion only, so the relay
+rows carry no ANTLR seat; PEG and pyparsing fail them as they fail the direct
+rows.
+
+## 2026-10-28 — An island climbs on one chart
+
+**Decision:** an island whose width no continuation proves climbs by growing one
+chart, `resume.WindowKernel`, rather than re-parsing the same characters at every
+width. The window opens at `ISLAND_WINDOW` and doubles while the chart reaches
+past its stop. Each width drives only the columns it adds.
+
+**Why:** the climb re-parsed its prefix at every width. On interior-climb that
+was 6,242 characters scanned per parse against the 2,404 the island holds, and
+the four discarded windows were a quarter of the PDA seat's parse, which lost to
+the Earley seat it islands into.
+
+**Why growing equals re-parsing:** a window's chart is exactly the one a wider
+window builds over the same columns, so a growth is a continuation, not a
+repair.
+
+- **No rollback, so the families stay.** `ResumableKernel.extend` refuses SPPF
+  families because a rollback cannot truncate them. A window only grows, so
+  nothing is ever truncated, and every family recorded stays true of the wider
+  window.
+- **The stop column is closed as an interior one.** Its seeds are gated on the
+  document's next character, not on the empty slice of an input end, so the
+  column the next width scans from is already the one a wider window closes.
+  There is nothing to re-open.
+- **A scan near the stop reads past it.** The window's text carries the longest
+  literal's reach beyond the stop, so no literal is cut short there.
+- **A delegate reads the document.** Its sub-run decides its own extent whatever
+  the width, and its completion is filed where it lands, past the stop too.
+- **What lands past the stop is held aside** while the window stands, so between
+  widths every reader sees a parse of the window's text: the text ends at the
+  stop, and no column past it is in sight.
+- **No run terminal can occur.** A run's maximal munch depends on input past any
+  stop, but island tables are compiled plain (`PdaTables._island_miss` →
+  `compile_tables`; only the tree route collapses runs). The window refuses
+  run-collapsed tables loudly rather than handle a case that cannot arise.
+
+**When it grows:** the chart reaches past the stop when something landed beyond
+it, or an item at the stop faces a terminal the next character starts. That is
+exact where the edge-zone test below was conservative: it read a zone of columns
+short of an input end, because a cut literal filed nothing. Some islands stop a
+width sooner.
+
+**What moved:** over the parsing, parity, token and adversarial suites, 10,559
+island parses answer the same end and value. Four carry a delegated leaf where
+the re-run walked the chart: a delegate that needed lookahead past its window
+declined there and now reads it.
+
+**Pinned:** every climb the suites drive, regrown width by width, equals a window
+opened at its final width — columns, families and delegated completions, in
+order (`test_island_windows`), with a delegate whose word lands past the first
+stop. Every roster island's tables are plain.
+
 ## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
+
+**Superseded** by the entry above: the window grows on one chart and reads
+liveness past its stop, so `_may_extend` and the edge zone are gone.
 
 **Decision:** `island_parse` grows its doubling window iff the windowed chart
 has an item filed in the edge zone — the last `max(terms.lens)` columns
@@ -344,7 +455,7 @@ has an item filed in the edge zone — the last `max(terms.lens)` columns
 completion yet; completion touches the edge; `can_extend_at` at the completion
 column) are deleted, along with `can_extend_at` itself.
 
-**Why it is sound:** `longest_start_completion` scans the whole window, so
+**Why it is sound:** the island's run scans the whole window, so
 every completion inside it is already known — more input can only add a
 completion that consumes past the edge, and any derivation doing so leaves
 visible evidence: a scanner filed at the edge column, or a multi-char literal
@@ -413,11 +524,11 @@ fold-refusal reroute stays as the last line of defence.
 
 ## 2026-07-11 — P6/P3 noise levers: attribution over hardcoding; peeks are fail-soft (Task 6.4)
 
-**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it.
+**Decision 1 — the P6 licence carries a third clause.** SIM_60's pinned two-clause condition (`hard_follow ∩ FIRST = ∅` ∧ `gap ⊆ FIRST`) is sufficient for json but unsound in general: it would license a non-semantic loop eating into a *semantic* optional follower (`root ::= x "ab"?`, `x ::= [a-c]*` noise — `semantic_dump` changes). The plan's own risk note demands precision, so the licence adds `gap ∩ sem_follow(rule) = ∅`, where `sem_follow` is a FOLLOW fixpoint over *semantically-attributable* chars only (`pda/noise.py`): terminals count only inside semantic rules; a ref to a non-semantic rule contributes nothing (its subtree is excluded from `semantic_dump` wholesale, so chars stolen from it are noise↔noise by construction); a ref to a semantic rule contributes its *decomposition*, not its noise-polluted raw FIRST. This reproduces the SIM's json justification ("ws is the sole whitespace-leading rule") without hardcoding it. The greedy licence (`noise_greedy_licensed`, through `noise_split_safe`) carries a fourth: no eatable char may start a follower that cannot give it back — the same fixpoints under a *rigid* attribution, where every terminal counts and an optional or repeated single-character class counts nothing, since the run it is shortens. Without it a noise run eats the first character of a required noise token (`ws ::= [ \n]*` before `sep ::= "\n" "-"`), and a reading that dies of it is pruned as certain. The exact-match gate (`_match_gate`) keeps the semantic clause and adds a follower check (`exact_against_follower`): it takes another iteration wherever a complete unit matches, so it takes the follower F's text where a complete unit is the whole of, or a proper prefix of, an F string (`ws ::= " " | cl` before `nl ::= cl`; `ws ::= " " | cm` before `nl ::= cm "\n"`), or runs on past a shorter complete unit into one (`[ ]+` before `" " "\n"`), the exact, local form of EXTEND. F ends at its first item that is required and cannot vanish; where the arm runs out first it reads on into what follows the rule at its reference sites (`RunIndex.rests`, built only when a walk needs it), past an inline group into one character of its FOLLOW and then anything, and past an end of the input into nothing. `extend/prefix.py` decides it as one walk over Thompson NFAs of both sides, built only as far as the walk goes, with `Σ*` where a reference recurs on its path, so it errs only toward refusing; a unit's side is built once per analysis (`Follows.spelled`) with its lead characters, and a follower starting with none is answered unbuilt. A refused loop falls to the attempt licence, and the attempt verdict settles take against stop; that landing is pinned, not structural. abnf-meta's `c-wsp ::= WSP | c-nl WSP` before `c-nl` keeps its gate. The reverse case, an F string that is a proper prefix of a unit running on into what follows F, is not read.
 
 **Decision 2 — W is grammar-derived, not per-flavour.** The P3 skippable alphabet is ⋃FIRST over **nullable** non-semantic rules: nullability is what separates a noise *run* (ws, filler) from a required-but-dropped token marker (dquote, defined) — exactly the ⚠ 6.0 constraint, with W itself derived. Gives json whitespace, ABNF ws+`;`, GBNF ws+`#` (matching the SIM's hand-pinned sets).
 
-**Decision 3 — the P3 peek is non-consuming, hence fail-soft by construction.** The runtime skips the maximal W run only to *look*; the winning arm/iteration re-parses its noise from the original position. A wrong pick can therefore only fail-then-fallback, never silently mis-build — so the analysis separability conditions are a *determinism* (zero-fallback perf) guarantee, and mixed-terminal poisoning / end-open bailing in `ResidualFirst` err conservative without soundness pressure. Corollary: comment-bearing noise (GBNF `#…`, ABNF `;…`) poisons the char-set residual FIRST (the skip could land inside a comment body), so the GBNF/ABNF spine's P3 decisions stay islands until the folding-aware structured scanner lands with P5 (which needs it regardless).
+**Decision 3 — the P3 peek is non-consuming, hence fail-soft by construction.** The runtime skips the maximal W run only to *look*; the winning arm/iteration re-parses its noise from the original position. A wrong pick can therefore only fail-then-fallback, never silently mis-build — so the analysis separability conditions are a *determinism* (zero-fallback perf) guarantee, and mixed-terminal poisoning / end-open bailing in `ResidualFirst` err conservative without soundness pressure. Corollary: comment-bearing noise (GBNF `#…`, ABNF `;…`) poisons the char-set residual FIRST (the skip could land inside a comment body), so the GBNF/ABNF spine's P3 decisions stay islands until the folding-aware structured scanner lands with P5 (which needs it regardless). The loop gate reads both sides alike: the take as one more iteration's residual FIRST, the exit as the rest of the arm's own, so a required W character on the exit (`tag? " " content`) is skipped as the runtime skips it, not subtracted away, which left nothing to meet the take. Past the arm's end the exit reads a W-free tail as it stands, a rule body's residual FOLLOW (`residual_follow`, read at the rule's sites through `RunIndex.rests` and solved over the rules above it) where the tail holds W, and nothing inside an inline group, whose tail is one char set. An item is transparent wherever it can derive a W-only string (`ResidualFirst.pure`), not only where its FIRST lies within W: `x ::= "dd" | " "` can be noise, and a walk that closed at it granted a gate whose take parses an iteration and dies later, which fail-soft does not cover. A literal shows its first non-W character, where the skip stops.
 
 **Decision 4 — stored gates are honored in every clone.** The compiler consulted taxonomy gates only under its per-clone hard-cont overlap heuristic; a clone whose hard tail didn't overlap the loop FIRST silently baked a stop-set that ate the soft-only noise run the gate exists to adjudicate (caught live by a `\t`-bearing json input). Rule: a stored gate is the analysis's decision for that node — judged against the rule's soft FOLLOW, which covers every clone — and is read back unconditionally.
 
@@ -451,6 +562,21 @@ fold-refusal reroute stays as the last line of defence.
 **Impact:** `CompiledGrammar.fold` → `CompiledGrammar.product`; `parse_model(grammar, text, binding)`, `pda_tables(grammar, binding)`, `watch(tables, text, executor)`; new packages `parsing/product/`, `compile/product/`; `pipeline/binding.py` → `pipeline/rulemap.py`, `module/bind.py` → `module/attach.py`; `parsing/lift.py` split out; `stitch/plan.py` split out of `stitch/model.py`. The 2026-07-06 decision below is superseded.
 
 ---
+
+## A completion's memo holds each value as it is
+
+**Decision:** the product completion's memo (`parsing/product/tree.py`,
+`ResultMemo`) keeps each tree node's completed value as it is, with
+`EMPTY_RESULT` standing for a node that completes to no value. `Completed`
+wraps only the one result a caller receives, and a ONE capture reads its
+slot's value directly, without a one-item list.
+
+**Why:** the memo is filled once per tree node. A `Completed` per node, and a
+list per ONE capture, are tracked objects the free-threaded collector counts:
+on a 9.6 k-character document they are about 28.8 k wrappers and as many lists,
+against a peak of about 230 k tracked objects. That is enough to move a
+long-document seat from two collector passes a round to three, which reads as
+a wall-clock slowdown with no change in the parse.
 
 ## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3) — SUPERSEDED 2026-09-04
 
@@ -759,9 +885,8 @@ nullability condition is what buys it the same standing.
 **Nullability is solved on the INCOMING grammar,** never the result — relaxing
 `n ::= nunit+` to `nunit*` makes `n` nullable, which would then license
 relaxing every reference to it. The pass would bootstrap its own licence.
-`nullable_names` (the repo's only nullability fixpoint, in
-`parsing/pda/analysis/predicates.py`) is exported from `lexic.parsing` for this,
-following `lift_optional_nullables`.
+The set is `IrAst.nullable()`, the grammar's one exact nullability fact, which
+`lift_optional_nullables` reads too.
 
 **Cost, accepted:** a grammar whose noise rule is non-nullable narrows. With
 `ws ::= [ \t]+` and `root ::= "a" ws "b"`, the text `ab` was silently accepted
@@ -780,7 +905,88 @@ island. Narrowing the pass removed the trigger, not the mechanism.
 
 ---
 
+## A both-viable boundary is settled by a live set of its readings
+
+**Decision:** a both-viable boundary in the live drive (a loop's take or stop,
+an attempt's arms that end apart, an island's followable ends) is settled by
+carrying every way it can go forward at once, as a flat set of readings
+(`verdicts/liveset.py`). A boundary met INSIDE a reading does not decide and is
+not guessed: the reading splits (`Split`), one child per way, built where it
+stood. Three rules settle the set:
+
+- **a reading that dies is pruned** — certainly, since nothing in a set
+  guesses;
+- **readings that meet merge** — at one position, in one control state, inside
+  the same sub-runs, they share their future. Equal values keep the take.
+  Values are what each built since the split they parted at and still holds
+  (`built_since`): a copy's containers start empty, so a reading that came
+  through later splits keeps what it built before them in the frames it was
+  forked from, and is read down that fork chain. Read from its own containers
+  alone, a vyx reading that kept `k=`'s value and one that settled `value?`
+  without it met as equal past a later split, and the merge kept the one
+  without (`!R k=\n-:\n# c >`). A sub-run left to settle is part of the
+  future too: an attempt entry under audit meets only one with the same winner
+  and rivals, else a reading whose entry had missed stood for one whose entry
+  had won, and the attempt lost an arm Earley derives (a fuzz grammar's
+  `babb`). Different values are ranked at the split where they parted, on ledgers kept
+  through every split since (`Level`): the composite of the frames frozen as
+  they completed and the reading's own. A split whose frames both readings
+  rolled back (equal completions below, unreadable on both from one depth up)
+  decided nothing, and the next split they part at is ranked, if it is the same
+  split on both (one position, one control state). A tie forks by name;
+- **the boundary is decided** once every survivor descends from one way.
+
+Readings step in sync: those furthest behind go to where the next one stands,
+so readings that can meet do, the smallest way's first, and a step ends once
+one way is left. At a loop boundary the reading ahead leads one step first
+(`LEAD_STEP`), so a take that dies a character later costs the stop nothing.
+The set is bounded — `SET_MAX` readings, `SET_STEPS` steps, `NESTING_DEPTH`
+splits deep — and past any bound it raises a `ProbeFork` that names it. Before
+it forks past `SET_MAX`, the readings that stand together ahead without
+meeting are each driven one character on (`_relieved`): two readings at one
+place can differ only in a frame about to close, and the step keeps them
+waiting for the readings behind. A run of vyx lines that each run on through
+every separator added two readings a separator, one per body-line arm that
+reads the line, and declined. Driven on every step instead, the readings ahead
+skip meetings with those arriving from behind and the set grows elsewhere, so
+it is the bound's last resort.
+
+**What a set pays is what it needs**, measured on vyx (the bench row that asks
+boundaries, three sets a parse), where the first build cost the decision path
++117 µs a parse over the lockstep and now costs 10–25 µs less:
+
+- **ledgers on demand** — a set runs keeping none; the first meeting that
+  needs a rank restarts it keeping them (`Unrecorded`), and later sets of the
+  parse keep them from the start (`RunScope.ranks`);
+- **the plan** — a decided set's survivors are the live parse's own
+  continuation, so the splits they all came through the same way are the next
+  boundaries the live drive meets, already answered (`planned`, keyed by the
+  split's control signature and number of ways; a mismatch drops the plan);
+- **the lead step once** — leading on every step split the take at each
+  boundary before the stop's death decided the set;
+- **the smallest way first**, and the step ends once one way is left.
+
+**Why:** the lockstep it replaces settled a nested boundary greedily and
+marked the outcome `uncertain`, so any convergence reached through a guess
+forked, and a forked verdict was asked again with verdicts nested inside its
+sides. Two shapes defeated that: an envelope whose every line carries two
+marks (W1), and pairs that reopen (W2), where the nested verdicts multiplied
+and the predictive engine handed the document to Earley. A set keeps each way
+a guess would have dropped, so every death and meeting is certain. Measured on
+the PDA against whole-document Earley, models equal: W1 at 2,600 entries
+0.64 s vs 0.78 s; W2 at 3,200 pairs 0.34 s vs 13.7 s, linear.
+
+**Why the rank needed the pushing item named.** A frame just past an
+exactly-once item with a loop next may stand in either; the frame above it is
+named by identity (`_pushed_by`) where no other candidate's payload can land on
+that clone (`flatten.lands_on`: dispatch targets and attempt entries, chased).
+W2's second and later pairs rank only with it.
+
 ## A both-viable boundary is settled by convergence, not by running to end-of-input
+
+> **Superseded** by the live set (entry above): the lockstep, its long way and
+> its retry are gone; the control-signature notes below still describe how two
+> readings meet.
 
 **Decision:** when taking and stopping are both viable at a licensed loop
 boundary (`GATE_ATTEMPT`), the two sides are driven in LOCKSTEP and the verdict
@@ -805,7 +1011,14 @@ decidable, and each is the answer the end-of-input comparison would have given:
 |---|---|---|
 | values agree | TAKE | one value; a benign split. The common case, now O(1) |
 | values differ | run the COMMON remainder once | completing makes it a real fork; dying means neither side completes, which was already TAKE |
-| a side died first | forced | unchanged |
+| the STOP side died first, no guess | TAKE | stopping derives nothing |
+| the TAKE side died first, no guess, outside a side | STOP_FORCED | taking derives nothing; whether stopping completes is the live drive's next question |
+| either died through a guess, or the take side inside a side | not settled here | a guessed stop death forks; the rest takes the long way |
+
+Settling the dead TAKE side here spares the long way, which would drive the
+stop side to end of input only to reach the same STOP. Inside a side it stays
+unsettled, because a take side's seed — the iteration's own sub-run — may have
+been guessed there, and its death would then be the guess's.
 
 Everything else — no convergence inside the budget, a `ProbeFork` from deeper —
 falls through to the untouched comparison. **That escape is what makes the
@@ -829,12 +1042,11 @@ each silently disabling the optimisation while every test stayed green:
 
 **Only the delta is compared.** Both sides are copies of ONE live stack, so
 everything already in a value container at fork time is identical between them
-by construction. `value_shape()` takes that watermark at the boundary and
-`pending_values(stack, shape)` compares past it — O(built-since), not O(built).
-Comparing the whole state was 92% of a large parse and the whole of its residual
-superlinearity. Conservative where the premise fails: a container that comes
-back SHORTER was replaced rather than appended to and is compared whole, and
-frames pushed after the boundary have no watermark and are compared in full.
+by construction. A fork's containers start empty, so what a reading built
+since a split is read down each frame's fork chain to the frame the split was
+taken on (`liveset.built_since`) — O(built-since), not O(built). Comparing the
+whole state was 92% of a large parse and the whole of its residual
+superlinearity.
 
 **Measured**, on a boundary-dense vyx packet: 11,281 chars **73.4s → 0.49s**,
 and the growth is linear — 44 µs/char flat from 719c to 11,281c, where it had
@@ -947,9 +1159,11 @@ through the original binding. That is why it is a third source beside
 `plan/routed.py`'s two shapes and not a third way to split.
 
 It does NOT share `routed.py`'s extent arithmetic. A whole-extent terminated
-interior ends at the LAST mark, because its units own their final character; on
-a separated spine that offset is the last OPERATOR, and everything past it is
-the final term. Reusing it would drop that term silently rather than decline.
+interior ends where its enclosing node's tail begins, with every unit's final
+mark inside it, because its units own their final character; a separated spine
+has no such tail, and the offset nearest it is the last OPERATOR, with
+everything past it the final term. Reusing it would drop that term silently
+rather than decline.
 
 **The boundary proof is per character, deliberately.** `rule_spells` answers
 "can spell" for any mark wider than `MARK_ARITY`, so a three-character mark
@@ -966,7 +1180,7 @@ greedily, as it settles a split. That matches the grammar only when the text
 fixes every boundary. `leftrec/shape.settled` asks for that by analysis: the
 EXTEND of γ, and of the steps, must be disjoint from FIRST(β). EXTEND is the
 set of characters at which a complete match can be lengthened and still match
-(`analysis/predicates.rule_extensions`, a least fixpoint bounded by ALPHABET).
+(`analysis/extend/lengthen.rule_extensions`, a least fixpoint bounded by ALPHABET).
 Take the first boundary where two carvings differ. The shorter piece there is
 lengthened by the character that starts a β, so disjointness leaves one
 carving at every width. A rule that fails it is not folded and islands, where
@@ -980,43 +1194,151 @@ the character at `len - k` — is sound and NOT taken. It is what a grammar whos
 owners legitimately emit a mark character (`"->"` over a term emitting `"-"`)
 would need, and nothing on the roster does.
 
+**A spine of bare steps is a RUN, cut before the character that begins a
+step.** `item ::= item "a" | item "b" | "z"` has no separator rule: nothing
+spells a removable mark and nothing re-parses one, so the led proof above has
+nothing to ask. `folded._run` asks instead whether a step's first character
+can only stand FIRST: `starts`, the union of the βs' FIRST sets, must miss
+NON_INITIAL of every base arm and every β (`extend.inner.rule_non_initials`, the
+characters a string of the language carries past its first position, a least
+fixpoint bounded by ALPHABET), and no base arm may be nullable. Then every
+`starts` character past the spine's start begins an iteration, and `settled`
+already says the iteration before it ends there. The cut KEEPS that character;
+a later piece re-wears the shell and the base's own text (the text before the
+spine's first `starts` character), and the join drops that stand-in base and
+rebuilds the piece's left edge through each node's own class
+(`stitch.interior.fold_runs`). The left fold is associative over the iteration
+sequence, so the result is the sequential model by construction. The proof is
+read once per grammar, in the plan's memo.
+
+It is the fallback when the led proof refuses, and it needs no shell
+exclusion: it removes no mark, and the extent is the shell's fixed widths, so a
+tail the spine can also spell does not move it. The join rebuilds every node on
+a later piece's left edge, which is all of that piece's nodes: one tuple
+construction each, serial after the pieces parse. Immutable left-nested records
+leave no cheaper join, so the run's MT seats are priced with it against their
+sequential seats.
+
 ## A stop-set is granted only where its first exit is the split answer
 
 A stop-set loop leaves at the first character its continuation can start with:
 the SHORTEST take. The split answer is the longest take that completes. The
 analysis (`analysis/analysis.py`, `_stop_set` then `_settle`) grants a stop-set
-under one of three conditions and files every other one hard, so its rule
-islands and Earley answers:
+under one of four conditions, tried in this order, and files every other one
+hard, so its rule islands and Earley answers:
 
-1. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
-   so no clone subtracts anything and the loop takes every character it can.
-   An overlap reached only through a soft follower, such as the loopback of
-   `item+`, is this case.
-2. **The exit is decided two deep** (`gates/kwindow.stop_exit_settles`). No text
+1. **The exit is decided two deep** (`gates/kwindow.stop_exit_gate`). No text
    continues both ways: with `c` an exit character, no window `(c, d)` of the
    continuation also fits a take of `c`. Then at most one of the two completes,
-   and the PDA's exit is the answer or a failure that bails. Each reference site
-   of the rule is judged alone, through `FollowWindows.site_windows`: the other
+   and the two characters say which, so the loop is gated by them: at an exit
+   it takes iff `(c, d)` fits a take window, elsewhere it takes as the stop set
+   does. A stop set alone would stop at every exit, and the take a later
+   character needs would die there; inside a live set's reading that death is a
+   prune, and the reading kept is the wrong one. Each reference site is proved
+   alone, through `FollowWindows.site_windows` (`stop_exit_settles`): the other
    carving differs only in where this loop ends, so it keeps the enclosing arm
-   and continues through the same site. Unioning the sites loses arithmetic's
-   `ws`, whose take at the end of `e` would be continued by the letter after
-   `= ws` at another site. A take and a stop that both end the input right
-   after `c` are refused as a guard. That is never realised, since `c` is a
+   and continues through the same site. The gate is one per item across every
+   clone, so the sites' windows must also separate as a union. Arithmetic's
+   `ws` does not — its take at the end of `e` is continued by the letter after
+   `= ws` at another site — and is decided where its run ends (2) instead. A
+   nullable one-class run keeps its one-call match: a two-deep window is a
+   regex lookahead (`gating.window_source`). The audit set an attempt loop keeps
+   reads the same proof (`beyond_at`): where it holds, an iteration that parsed
+   read both characters, except one that is a single exit character
+   (`kwindow.lone_iterations`), which stays audited. A take and a stop that
+   both end the input right after `c` are refused as a guard. That is never realised, since `c` is a
    hard continuation character of the clone that exits. It costs nothing
    because the FOLLOW_k fixpoint treats an empty tail as its bottom rather than
    as "the input may end here": a rule only gets an end window if the input
    can really end after it. A delegate's analysis withholds this grant,
    because its end is not the document's.
-3. **The carving is invisible** (`_settle`). The rule's model is its text (no
+2. **It is decided where its run ends** (`gates/sites.run_decides`, below).
+3. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
+   so no clone subtracts anything and the loop takes every character it can.
+4. **The carving is invisible** (`_settle`). The rule's model is its text (no
    reference anywhere in its body, groups included), and its end is fixed:
    EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
    same model.
 
-`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the three conditions
+**A deferred stop-set that meets a loopback is filed hard**
+(`conflicts.defer_stop_set`): where a character of the loop's FIRST is in its
+soft continuation and not its structural one, only a repetition's next
+iteration takes it after the loop, so the stop at it may be the carving that
+completes, and a longest take's span check cannot see past the rule. The rule
+islands instead, where at some site it is followed at every character that may
+follow is one the loop takes, so its run swallows that closer whole
+(`_swallows_a_site`; a rule that is only ever a whole arm is read at its owner's
+sites, and a site the text may end at closes nothing). Vyx's `nl-escape` and
+`nl-force` before ` >` are the case (the separator `\`); `unquoted` swallows no
+closer and keeps its longest take, which as an island had cost the @lexical
+rows about ten times. Their islands' ends are ranked
+where they stand; one that is the whole of an attempt's only admitted entry,
+under a pass-through root, is the attempt's outcome and reaches the attempted
+iteration it runs for (`Verdicts._extent`, `Attempting.attempt`), so the
+iteration ranks its ends beside its stop.
+
+**A longest take's island settles its own ends.** Where an exactly-once
+value-string item's longest take asks its island (`_match_once`), the island's
+undecided ends go to the extent verdict as the item's own reference would send
+them, with the frame moved past the item first, so each end's side goes on from
+there instead of matching the item again.
+
+`LEFTMOST_LONGEST` grants `STOP_SET` on that basis. What the conditions
 refuse costs Earley time where a real grammar's run can hold its closer.
 Vyx's `nl-escape` and `nl-force` are the case: the third character separates
 the exit from the take there, and `FOLLOW_LOOP_K` is 2 by measurement, not by
 budget. So those runs island rather than widen the window.
+
+### A loop decided where its run ends
+
+An unbounded loop over one class `C` meets the rest of the parse at the end of
+its maximal `C`-run, at a character `t` outside `C`. A follower reached only
+through a soft edge — `entry+`'s loopback after a tail's `"," e`, where the
+next entry is `e ";"` again — may need part of the run before `t`: taking it
+whole leaves the next entry nothing, the predictive parse fails, and the whole
+document falls back to Earley, at quadratic cost. If every follower needs at least `j` of the
+run before `t`, the leftmost answer leaves exactly `j` — **but only where the
+prefixes followers accept before `t` are closed under keeping their last `j`
+characters, with the same text accepted after `t`.**
+
+`gates/leads.py` tracks that closure as a kind per ending character: FIXED
+(every derivation reaches `t` at one length), FULL (and accepts every
+`C`-string of it), FREE (every `C`-string of length `j` or more), or MIXED —
+`t` reached at two lengths, or after a restricted prefix of varying length.
+MIXED is unknown, and no gate stops for it: `[0-9] [a-z]* ";"` on `q5ab;`
+needs `5ab` where its minimum would leave `b`, and `[a-z] ";" "!" | [a-z] [a-z]
+";" "?"` on `qab;?` needs `ab`. Passages (how a construct is crossed on `C`
+alone) carry the same kinds, since they shift a later `t`.
+
+The lead is read per context: `gates/sites.py` walks every reference chain a
+loop can see past its rule's end and solves the contexts each rule is reached
+in. A clone key carries the context (`CloneKey.runs`) only for the rules a
+decided loop can see, so every other key, and every program with no closed
+`t`, is as before. The gate (`compiler/contexts.py`) is a k-window whose
+width is the grammar's own — one more than the largest closed `j` — and a
+context no follower needs the run in keeps the plain whole-run stop-set.
+
+Two refusals keep a loop on its route:
+
+- **A context is unknown.** An island interior's end is not the document's;
+  anything may follow it, `t` at once included.
+- **Contexts keep multiplying.** A recursion that consumes `C` after itself
+  needs one more of the run per level; past `CONTEXT_CAP` contexts for one
+  rule the class is refused with a note — a refusal, not a depth.
+
+What the loop's own arm still needs after it (`[a-z]* x`, `x ::= [a-z]`) is
+part of each context's lead, read first, as what follows the rule is: it is
+no reason to keep the route. A text-only rule's adjacent items of one class
+are one item on the predictive side (`compiler/descent/fusion.py`), so `[a-z]* [a-z]`,
+`[a-z] [a-z]*` and `[a-z]+` compile to one program: the value is the matched
+text, and where one run ends inside it is read by nothing. The canonical
+grammar keeps the authored items, as does Earley; fusing there would change
+the grammar's normal form for speed.
+
+A loop whose route was an island or a fail-island (a deferred stop-set, an
+escape into soft FOLLOW) is decided only where no context is unknown and no
+ending character is MIXED; one that ran longest is decided wherever some
+closed `t` needs the run, and keeps the whole run for every other `t`.
 
 ## Earley keeps the decider's carving, and judges only that derivation
 
@@ -1047,6 +1369,16 @@ DECIDED derivation: for each of its handles, a family at a key on its chain
 from the same predecessor, naming another arm. A family reaching another
 predecessor is a carving the decider rejected. The old walk over every
 reachable family is kept only where no decided build exists.
+
+Whether any arm choice is reached at all, the gate that decides whether a
+decided build is needed, walks the same rule: a key holding several families
+is entered only through the families a reader of it is shown
+(`splits.canonical_indices`), the kept carving at a split and each arm's at an
+arm choice. An arm choice inside a carving the decider dropped is in no
+derivation this engine produces. Walking every family instead visits the whole
+forest, and a nullable unit under a repetition keeps a cubic one:
+`doc ::= sec* tail?`, `sec ::= part* sepr?` took 95 s and 734 MB at 1,024
+characters, 4.7 s and 604 MB with the decided walk.
 
 Consequence, ruled with the design: a choice whose boundaries differ is
 decided, not refused. ``e ::= e "+" e`` groups `n+n+n` leftmost-longest;
@@ -1140,12 +1472,10 @@ which no side settles.
 boundary, so a program with no item gated `GATE_ATTEMPT` flags no clone
 `sub_root`: its sub-runs write no start and its audits push no record.
 
-**A guess decides nothing.** A side's own drive resolves nested boundaries
-greedily, and a death or a mid-parse agreement it reached through such a guess
-(`uncertain`) forks instead of settling. The stop side's death is judged by its
-own drive alone. Sides that converge by completing are exempt: both hold empty
-stacks, so they agree, and comparing two completed carvings is the ranked
-verdict's question, not convergence's.
+**Nothing in a reading guesses.** A boundary inside a side's drive splits the
+reading rather than resolving greedily (*"A both-viable boundary is settled by a
+live set of its readings"*), so every death and meeting in a set is certain.
+Completed readings meet on their roots, which the rank compares.
 
 **Values compare by class and fields** (`same_value`), at a convergence and at
 end of input alike. Sides converged mid-parse on one control state cannot build
@@ -1157,6 +1487,68 @@ outputs are compared.
 through a sub-run's root without settling it as the caller would is a different
 parse, and a verdict asked on it answers a different question; the ranked
 verdict compares sides' values, so they must be the values the parse builds.
+
+## A sub-run nested past the in-place depth suspends, and is settled at its floor
+
+**Decision:** an attempt sub-run is driven where its Python caller stands only
+while fewer than the parse's in-place depth stand on the Python stack
+(`in_place_depth`: an eighth of the recursion limit, over the frames one level
+costs). The one at the depth drives by settling (`Floors._catch`): every
+sub-run started inside it leaves its frames pushed and raises `Suspended`, a
+`BaseException` no `PdaFail` handler catches. Each caller it passes names
+itself on the floor's record (`Suspended.called_by`), and the catching drive
+settles the floor as that caller would, through the same `_drive_floors` a side
+settles its floors with (*"A boundary's side settles the sub-runs it stands
+inside as their callers would"*). There is no second settle path.
+
+The floor settle therefore does everything the live caller does: a miss asks
+the rule's island where its root steals (`_stolen_at`) — at a live floor only:
+a side's miss is that reading's death, and the sub-run misses only when every
+reading does, so its live caller asks then; asked at a side, the island
+would answer for the sub-run beside the reading that took the other way, and
+the two would meet where the decider cannot separate them, sending a document
+the parse answers to the gated engine. An island's ends raised
+for the sub-run are claimed for it (`claim_ends`) and taken by the
+iteration they are the whole outcome of, and an audit resumed at a floor keeps
+the rivals found before it (the audit record carries them).
+
+Ends a floor's own steal raises are claimed by `_stolen_back`; ends that reach
+a floor from its drive are not claimed there, and are raised on. An island
+asked straight into a sub-run's holder raises its ends as the sub-run is
+entered, where the live call claims them before the sub-run can suspend: in
+every grammar the parity searches reach, at an in-place depth of 0 and
+unbounded, the floor's claim met none. **The condition:** a sub-run whose root
+is a framed transparent clone with an island item straight in its arm would
+raise its ends from the floor's drive, into the holder. If anyone builds that
+shape, the claim comes back in `Floors._missed_at`, for live floors only, with
+that document as its pin. A context that
+restores state in a `finally` — a side's `_advance`, `_spans_exactly`'s
+truncated text, `prefix_run` — clears `RunScope.catching`, so what suspends
+inside it is settled inside it.
+
+`same_value` walks a stack of container pairs rather than recursing: a right
+recursion builds a value as deep as its document, and the audit compares two.
+
+**Only a program that can nest past the depth counts, and the kernel says so
+once.** Lowering sets `PdaProgram.nests` (`can_nest`) where an attempt edge
+lies on a cycle of the clone graph, or where one chain holds more than
+`NESTING_CHAIN` (the default in-place depth). Such a program parses on
+`NestingKernel`, whose `_sub_drive` counts; every other on `PdaKernel`, whose
+`_sub_drive` is an alias of `_drive`, so its sub-runs run exactly the plain
+drive and pay nothing per sub-run. No bench program's chain is longer than
+ten, and none has such a cycle. A `Suspended` handler stands last in each
+`except` chain, so a miss never tests for it. The catcher is
+per drive: `RunScope.catching` holds the probing level it drives at, so a
+side's drive (a level of its own) settles what suspends inside it without a
+save on every advance.
+
+**Why:** a right recursion through an attempt (`root ::= x root | x`) nests one
+sub-run per unit, five Python frames or more each, so without a floor about two
+hundred units would exceed the recursion limit on the predictive engine. Past
+the depth a unit costs no frame. A count on every sub-run costs about 1% on
+vyx's predictive seats, and even a per-sub-run test of a clone flag 0.18% of
+vyx's instructions; chosen per program, vyx runs within 0.02% of the
+instructions it runs without the floors.
 
 ## A text extent has one answerer, and a declined proof checks every match
 
@@ -1193,6 +1585,90 @@ the two followable ends wait on the decider's ranking, or the loop before them
 takes greedily because the audit set never names the same-arm rest:
 `sec ::= stmt+ end` with `stmt ::= "!" | ";"? [a;]` on `a;`, where `stmt` now
 derives `;` and the loop takes it from `end`.
+
+## An attempt loop at its arm's end audits what follows the rule, repetitions included
+
+**Decision:** where the rest of the arm can vanish, the attempt licence's audit
+set (`beyond_at`) is the loop's soft continuation: what follows the rule at its
+sites, a repetition's next iteration included. The structural tail, which leaves
+a repeated follower out, stays the set for the rest of the arm.
+
+**Why:** a character outside the audit set is taken without asking whether
+stopping there goes on, so a repeated follower left out of the set is taken
+from the repetition that needs it. vyx's `nl-head ::= nl-first nl-inner*` ends
+a body line, and `inline-content ::= body-line ("\\" "n" body-line)*`
+separates lines with `\n`; `\` is in `nl-inner`, and with it outside the set
+`x\nD:{}` read as one line that could not end at `:`. Inside the fork of the
+optional budget in `!X:A L1< x\nD:{} >`, that failure killed the reading that
+takes the budget, and the predictive engine answered the body without it where
+Earley keeps the budget. On the @lexical views the same loop is a stop-set that
+runs longest, a site of its own.
+
+The set is the rule's **audit FOLLOW** (`Follows.audit`). That is the soft
+fixpoint, minus one kind of loopback: a repeated reference, at most once
+required, to a *unit run* (`predicates.unit_runs`). A unit run is a rule with
+one arm, every item over one reference-free atom `B`, and minimums that sum to
+one, so it derives `B{1,M}`. Each reading of its next occurrence is `B`
+followed by complete occurrences, so taking `B` covers whatever the stop side
+goes on with, and the split rule's take stands unasked. Under
+`y ::= "a" "a"?` in `y+` and `x ::= [a]+` in `x+`, auditing that `a` made the
+terminal loop bail where the split rule answers. Any other loopback stays
+audited. `x ::= [ab] | "ab"+` in `x*` can begin its next occurrence with `a`
+alone, and another `ab` does not cover that. Forced, the take read `;aaba` as
+`a, a, b, a` where Earley reads `a, ab, a`. Requiring two occurrences (`w{2,}`)
+keeps the loopback too: the take can leave too few.
+
+At run time the boundary's class (`Verdicts._beyond_class`) reads what
+follows up the live chain: each enclosing frame's rest from the item it
+stands in, and, where that item repeats, its next iteration, as
+`stop_side_dead` already read it. Without it, a later line's `nl-head` stands
+inside `inline-content`'s repeated `("\\" "n" body-line)`, its stop read as
+dead at `\`, and the run took the separator: `!R -:\na\nk= >` declined, and
+under a budget the reading without it survived as a wrong model.
+
+## A semantic stop-set that escapes into soft FOLLOW is attempted, not failed
+
+**Decision:** where a semantic rule's stop-set escapes into its soft FOLLOW, and
+neither the noise-greedy licence nor its run's end settles it, the conflict note
+is covered by the attempt licence (`conflicts.file_attempt_loop`), as an
+ungatable loop's note is. The rule becomes a fail-island only where the decider
+withholds `ATTEMPT`.
+
+**Why:** a fail-island makes every reference decline to the gated engine. The
+attempt licence takes with rollback and audits each character the stop side can
+also go on with. That set holds the escape gap, so the over-eat a fail-island
+guarded against (`x ::= [a-c]*` before `"ab"?`) is never taken unasked. Against
+the soft-tail audit tree, 1,258 fuzz parses that declined build Earley's model,
+and none builds a wrong one.
+
+The escape check still reads the structural tail. With the rule's audit FOLLOW
+there instead, vyx's `nl-head` escapes on the @lexical views. That repairs the
+budget witness, but it costs answers everywhere:
+- as a fail-island: 4 new wrong fuzz models, and 344, 344 and 244 of 450 vyx
+  packets declining on @lex, @lex-ns and plain;
+- attempted: 6 new wrong fuzz models, an arm choice Earley refuses, and 99, 99
+  and 94 vyx packets declining.
+
+So the @lexical views of `test_vyx_budget_body.py` stay pinned with a strict
+xfail.
+
+## A reading that splits on an attempted iteration's ends keeps the loop's stop
+
+**Decision:** inside a live set's reading, an attempted iteration whose whole
+sub-run is an island with several followable ends (`Verdicts._iteration_ends`)
+splits into one child per end *and* the loop's stop side at the iteration's
+start, unless stopping is dead there. That is the same test
+`_attempt_choice` asks of a single completion (`_boundary_class`,
+`_stop_dead`).
+
+**Why:** outside a reading, the kept end goes back to `_attempt_settle`, and
+`_attempt_choice` then asks take or stop. Inside one, every child was already a
+take, so the stop was never a reading. Under `root ::= x? ";" "a"* | ";"? z+`
+with `x ::= [a;]+ z | z+`, root's attempted first arm reaches `z+`'s iteration
+at `;` with the ends `;` and `;a`. Without the stop, the arm cannot read its own
+`;`, so it rolls back, and the second arm is built for `b;a`, where Earley
+refuses. `_attempt_choice` keeps its own inline read of the class (its
+hottest path); `_boundary_class` serves the cold split.
 
 ## A gate that reads a run whole is a leftmost-longest licence
 
@@ -1241,7 +1717,10 @@ engine reads a carving:
 - **Steps are compared raw.** A node's step that ends where the one before it
   did is still a step, as Earley's chain boundaries are. The one exception is
   an iteration at a boundary whose loop had taken nothing: it may be
-  zero-width, which the loop's carving drops, so it forks.
+  zero-width, which the loop's carving drops, so it forks. It cannot be where
+  a frame from the iteration up passed a mandatory literal or class, so there
+  the step is ranked: a later vyx line, whose iteration read the `\n`
+  separator before its run forked, is ranked like the first.
 - **An open child** at a convergence ends somewhere in the sides' common
   future; it is ranked only where every end it can reach ranks the same way
   (`_kept_open`), whatever the decider. Leftmost-longest's slot is the end
@@ -1259,6 +1738,10 @@ decider those sides fork and the gated engine answers. An island's two ends are
 ranked under every decider: the gates that read a run as leftmost-longest
 carves it are that decider's licence alone (the entry above), so no side is
 killed by a reading the decider does not share.
+
+> **Superseded in part** by the live set: every reading keeps its ledger from
+> the split that made it, and a rank reads the readings at hand — the
+> re-drive and the retry described below are gone.
 
 **Ledgers are paid only by a rank.** A side keeps no ledger while it drives; a
 verdict that ranks builds both sides again keeping ledgers and drives them to
@@ -1602,3 +2085,660 @@ find the run's end, two for the commonest run of one instance. On gbnf-meta
 every scan gate races one root, 0.25 gates per character, 96% of runs one
 instance long. A pin holds the two forms to the same end for every regular rule
 of the GBNF, ABNF and EBNF self-grammars over the corpus's own files.
+
+## A pair stands only where every site of its characters delimits
+
+**Decision:** both scans derive an opener/closer pair only when every site
+spelling either character is a delimiter of a standing pair's arm, and a fallen
+pair's delimiters are stray sites too, so the check repeats until no pair falls
+(`roles.derive.standing_pairs`, one fixpoint for both). The window scan's `roles`
+counts sites with `anchors.anchor_site_counts`, the same site walk that
+certifies anchors. The region scan's `regions.pair_rules` asks
+`interiors.stray_spellings`: it reads every site reachable from the start
+outside the certified interiors it skips, so `[` inside a string's `[^"]`
+is not stray, and a punctuation rule's literal (`begin-array ::= ws "[" ws`)
+delimits while every read reference to the rule does. An opener two pairs
+claim delimits neither.
+
+A consequence: no character is both a closer and a separator, since a
+separator's site never delimits an arm. The walk's branch for a closer that is
+also a mark is unreachable from any grammar.
+
+**Why:** the scan counts depth one character at a time over the whole text, so
+a closer also spelled elsewhere — `>` as the tail of `"=>"`, or as a comparison
+— moves the count where no bracket closes. The pair was derived from its arm
+alone, so such grammars carried a depth count that was wrong on their own text.
+No case tried changes its model or its engagement without it. Over the benches (three
+compiles each) and the ground-truth corpus no pair changes; among the split
+tests' grammars two lose theirs, both with a stray site (`ROUTED_GRAMMAR`'s
+`\n`/`>`, `_CLASSY`'s `[` inside `"<["`). The region scan counted its pairs
+the same way: `pair ::= "(" [a-z),]* ")" | …` read the `)` of `(a),b)` as the
+pair's end and cut on the comma after it, returning a different model.
+
+## A start rule's own bracket divides like any other
+
+**Decision:** a region whose rule is the start rule is divided and stitched
+like any other. Its node is the whole result, so the stitch lays the merged
+items over the shell's own model instead of splicing them into an owner
+(`merge._shell_routes`: the region that opens the document with the shell's
+own class).
+
+**Why:** `root ::= "[" value ("," value)* "]"` and `root ::= arr` over the
+same bracket derive the same strings, and only the second divided — the region
+filter dropped every start-rule region because the stitch had no owner to
+splice it into. A language-preserving wrapper flipping the split is a
+privileged formulation. A recursive start rule's nested regions open later in
+the document, so they keep being spliced into the region that holds them.
+
+## A delimited rule hides only what lies inside its delimiters
+
+**Decision:** the ownership proof (`stitch.safety.owner_excludes`, and the
+terminator proof beside it) hides a paired or interior rule from a mark only
+when nothing it spells OUTSIDE its delimiters can spell that mark: whatever an
+arm spells at depth 0 of a walk over the rule's own openers and closers (an arm
+may close and reopen, `"(" a ")" "," "(" b ")"`), around an interior region,
+or anywhere in an arm that delimits nothing (`safety._protected`, mark by
+mark).
+
+**Why:** a scan owns a delimited rule only between its delimiters. A rule that
+closes and keeps going — `row ::= "{" … "}" ("," note)*` — spells the list's
+own separator at the list's depth, and hiding it wholesale licensed a cut on
+the comma before a note. The pieces then parsed, and the stitch rebuilt the
+note as a list item: the split returned a different model with the same text.
+The proof, not the stitch, is where this is decided; the stitch's boundary
+reparse builds a node from a drawn witness and proves nothing about the real
+text at the cut.
+
+## A region's plan is the plan of the arm its bracket opens
+
+**Decision:** a divided region's plan is derived for the rule that holds its
+bracket ARM, resolved from the rule it was found under and its own opening
+character (`stitch.plan.bracket_rule`).
+
+**Why:** regions are found over the authored grammar, where one rule may
+bracket several ways beside other arms (`val ::= "[" … "]" | "{" … "}" | num`);
+the codegen grammar hoists each multi-item arm into a single-arm rule of its
+own, and a plan binds to that rule's class and slots. Asked for the authored
+rule, the plan found two arms of references and declined, so a bracket that
+shares its rule never split while the same bracket in a rule of its own did.
+The opening character picks the arm, so two bracket arms in one rule each
+divide under their own plan.
+
+## The speculation licence reads the PDA's EXTEND, built once per analysis
+
+**Decision:** the exclusive-opening clause of `parallel/plan/speculation`
+reads `analysis/extend/lengthen.rule_extensions` over the one `GrammarAnalysis` the
+determinism clause builds, and runs last, after determinism, vanishing and
+visibility, so only a unit every other clause passes asks for it.
+`rule_extensions` builds EXTEND once per analysis, on the first ask, and keeps
+it in `Follows.extended` beside the FOLLOW windows; the stop-set settle, the
+island steal, the left-recursion fold and the licence all read that one copy.
+The walk the clause read before (`continues`) is deleted.
+
+**Why:** `continues` was not a sound EXTEND. It misses an extension that
+re-reads the prefix: `r3 ::= [ab]* "ab"` lengthens `ab` to `abab`, and the
+walk answered nothing, and on chess.gbnf it licensed `move` although `Nd2` and
+`Nd2f3` are both complete moves. `rule_extensions` is the least fixpoint, sound
+by induction, but coarser: on a repetition whose iteration's EXTEND meets its
+own FIRST it falls back to the rule's ALPHABET. Over every bench compile and
+the ground-truth corpus, the 24 units a planner asks are licensed identically
+(one licence, `#` on announced's `section`), and 6 unplanned units (json
+`member`/`object-item2` in three flavours) keep `"` through a shift confined
+to a run (below). Chess `move` is the licence the swap revokes, and its pin
+parses both moves.
+
+## A sequence's EXTEND is bounded at its leftmost shifting item
+
+**Decision:** `seq_extension` scans a sequence's items from the right, keeping
+each item's EXTEND while everything after it can vanish, and noting every item
+whose EXTEND meets the FIRST of what follows. Of those, the leftmost whose
+boundary can really shift (`_may_shift`) bounds the rest: the sequence's
+EXTEND is the kept part plus the ALPHABET of the items from that one on. With
+no such item, the kept part is all of it.
+
+`_may_shift` answers at once where a longer last occurrence of the item (its
+atom's EXTEND, or the atom's whole ALPHABET where occurrences may split
+another way: `_splits_alike`) meets what follows, or where what follows can
+vanish. Otherwise `KWindowFirst.shifts` asks FIRST_2 windows (the solver
+rides `Extensions`, and reads each item's windows once across the fixpoint's
+passes, keyed by the items themselves: a caller may pass a transient list): some window of what follows must `collide` with a window of the
+item's surplus followed by what follows (`extend_follow`). The surplus is up
+to the count's upper bound of whole further occurrences, or a longer last
+one. A window the solver cannot see past is compared on what it knows.
+
+**Why:** take `u` and `uw` in the sequence's language, and the first item
+where two readings of them differ in length; before it, they coincide. If the
+longer reading there is `uw`'s, its item is `u`'s plus a surplus `x`, and `u`'s
+rest is a prefix of `x` followed by `uw`'s rest. If it is `u`'s, swap the two.
+Either way, unless `u`'s rest is empty, the surplus's first character is in
+the item's EXTEND and in the FIRST of what follows, which is the overlap the
+scan notes, and the rest is prefix-compatible with surplus-then-rest, which is
+the window test. If the rest is empty, `w` extends the item itself with a
+vanishing suffix, which the kept part counts. And `w[0]` stands at an offset at
+or past where that item starts, so the ALPHABET from the leftmost shifting
+item on bounds it. The alphabet of the whole sequence, the bound this replaces,
+held every character before the first shift as well: chess `nonpawn`'s piece
+letter, and so its licence. The window test frees an item whose surplus cannot
+begin what follows: chess `pawn`'s `([a-h] "x")?` against a square `[a-h]
+[1-8]`.
+
+Two-occurrence and lengthening surpluses are each needed: `x ::= [a-c]* "b"
+"a"+` shifts only through two further occurrences (`ba`), and `x ::= y* "b"`
+with `y ::= "a" "ab"?` only through `"a" "a"` re-read as `"aab"`, whose `b` is
+neither in `y`'s EXTEND nor its FIRST. Both are pinned against the enumerated
+language in `extend/test_lengthen.py`, with a random-rule soak behind them.
+
+## A shift confined to a run adds no ALPHABET (R3)
+
+**Decision:** where two readings may part at an item whose surplus K meets
+what follows, `seq_extension` keeps the ALPHABET fallback out when the shift is
+confined to a run. A run is `C*` over one character set, directly or as a unit
+rule's sole item (`extend/runs.is_run`). The conditions, read off the grammar
+and the maps alone:
+- the rest begins with runs of a class S covering K (`leading_run`);
+- every string of the rest beginning in S is a droppable S-prefix, then a
+  character outside S (`led`), and `heads` are those characters;
+- every extension of the item beginning in S is all S, or leaves S on a
+  character outside `heads`: the item's TAILS miss them.
+
+The same reading frees a repetition whose iterations re-split
+(`item_extension`, the rest being one more iteration), and two arms sharing a
+first character (`arms_extension`, `runs.apart`: both led by the shared run,
+heads disjoint). `led` and `heads` read an arm followed by the rest, never a
+further occurrence: an arm reaches what follows it only through items that
+vanish, so the item is nullable, and its remaining occurrences vanish exactly
+when the rest does and read the same arms again. TAILS is a least fixpoint per
+rule and run class
+(`_tails_ruleref`): one ask's solve reads each key it meets depth-first, and
+passes settle only a cycle among them. Verdicts carry across the EXTEND passes;
+a False one is kept for good, since it falls back to the sound bound. Once the
+maps stand, every True one is re-asked on them (`_still_confined`), and the
+build ends when all hold.
+
+**Why:** let `uw` be the longer reading at the item, so the item's text is
+`u`'s plus an extension x, and `u`'s rest β is a prefix of x followed by `uw`'s
+rest. If x is all S, β is an S-run then a non-S character (led), which cannot
+fall inside x. So β is x then β with part of its leading run dropped, still a
+string of the rest, and `w[0]` is in the rest's EXTEND. If x leaves S on c, β's
+first non-S character would be c, which TAILS against `heads` rules out. The
+mirror case is the same. Any fixpoint of sound rules is sound by induction on
+derivation height, so carrying a verdict is safe once the final maps confirm
+it. What R3 buys: the 6 json units keep their licence, and 26 rule EXTENDs
+shrink over the ground-truth and bench grammars (json's 8 rules × 3 flavours,
+commands' `entry` and `root`); none grows. What it costs is analysis time,
+never a timed parse: ground-truth json.gbnf's EXTEND build goes from 2.78 to
+6.71 ms, vyx's analysis gains 2.1 to 2.3 ms of 91, and a grammar without a run
+pays only the gate (one in-process A/B against the base, every bench row and
+seat). Pinned in `extend/test_lengthen.py`: three tightenings and seven
+near misses, each against the enumerated language. One near miss holds on an
+early pass's maps and fails on the final ones, so only the closing re-ask turns
+it. A TAILS cycle there settles to its least fixpoint. Further pins are in
+`extend/test_runs.py` and `test_speculation_licences.py`'s run witnesses.
+
+## A bound field's document order is read, never assumed
+
+**Decision:** a rule's bound fields have two orders and each has one reader.
+`RuleMap.fields` (and the `__binds__` table synthesis builds from it) is the
+constructor's DECLARATION order — required first, optional after — and
+`RuleMap.in_slot_order()` on the binding view, `GrammarModel.child_order()`
+(`.names`, `.slots`) on a class, are the DOCUMENT order, by item slot.
+Whatever means "as the source spells it" reads one of the two; nothing sorts
+the table again or reads `fields` as if it were the source.
+
+**Why:** templating read `fields` as document order in two places. With an
+optional key (`pair ::= key? "=" val`) the key is declared after the value, so
+`MapShape.for_entry` swapped them and a template kept nothing; with an
+optional field before a required one (`sect ::= "{" extra? pairs "}"`) the span
+collect read the later entries first, and the first value of a repeated key
+was the second in the document. Both answered differently from a language-equal
+formulation holding the optionality in a rule of its own.
+
+## Earley's FIRST is one set of term ids; a run's unit is an exact class
+
+**Decision:** `tables/builder.first_ids` computes, per rule, the term ids it can
+begin with: one exact fixpoint, stored nowhere. The seed gates read it as
+characters (the union of each terminal's listed first chars, poisoned when one
+is unlistable), the same gates their old char-set fixpoint built. The run
+proofs (`earley/lexruns.py`) build FOLLOW over the same ids, and a run's unit is
+an exact `IrCharClass` of any width and either polarity (`atoms.atom_unit`: a
+negated class is its complement). The character question is asked once per
+FOLLOW terminal and unit, through `atoms.may_begin_within`, on the class's own
+interval cover (`IrCharClass.holds` / `meets` / `within`): a token always may.
+A `RunTerm` lists whichever side of its unit is small (`IrCharClass.listed`,
+the same choice `CharSet.from_charclass` makes) and scans by membership or, for
+`[^"]*`, by exclusion (`Excluding`, a frozenset answering by what it does not
+list), so the scan loop and every positive listed run run main's code. A unit
+too large on both sides — japanese.gbnf's 21,244-member `jp-char` — tests
+membership by its ranges (`Spans`, one bisect) rather than holding a listed set
+per replica. A negated or ranged run's seed is ungated, as its per-char form
+was. A grammar with no
+candidate run does no FOLLOW work at all.
+
+**Why:** both analyses ran their own FIRST over character sets, and any
+terminal they could not list — a negated class, one wider than 4,096 code
+points, a token — poisoned every set it reached, so a narrow run (vyx's
+`indent ::= " "*`) stayed per-char because of an unrelated wide class, and a
+string body `[^"]*` or vyx's `key ::= [A-Za-z\x80-\U0010FFFF]+` could never be a
+run at all. Term ids are exact, intervals are exact at any width, and
+characters are listed only where the scanner needs them. The interval questions
+are `IrCharClass` methods because a unit IS a class: the dispatch carries the
+node itself, and nothing beside the IR keeps a second interval vocabulary. A
+newly proved run also leaves the MT anchor set (`parallel/discovery/anchors.py`,
+which drops every anchor a run's unit holds).
+
+## The rule-reference graph is asked in one place
+
+**Decision:** `lexic.ir.grammar.graph` owns every question about the graph a
+grammar's references draw: `references` (every occurrence, pre-order — the one
+walk), `has_reference`, `refs_in_order`, `reach` (each rule's closure),
+`reachable` (from roots, roots included) and `reaching` (to an entry); a rule
+is on a cycle exactly when its `reach` holds itself, read where it is asked. Every walker and closure that answered one of
+these on its own reads it: the codegen's ref test, the PDA analysis' text-only
+and reference-count tests, the scanner's recognizer closure, the region
+scan's reachability, the reduction's closures, the generator's recursion set,
+templating's reverse closure, the variant's elision and the class closure
+digest.
+
+**Why:** eleven walkers and seven closures answered the same handful of
+questions, and the reduction's closure was cut short inside a cycle — it
+memoised a rule's closure while an ancestor sat on the walk's stack (`b` in
+`a ::= "x" b | c`, `b ::= "y" a` reached only `a`); no reduce value was found
+to move with it, because the text-equivalence walk refuses cycles itself. Kept
+apart on purpose: the PDA's left-recursion detection (a left corner through
+nullable prefixes, not cycle membership — `r ::= "a" r | "b"` is on a cycle and
+not left-recursive), the region scan's visible-site walk (it reads `references`
+for its edges and keeps its own visibility), the scanner's grey/black
+topological order, and the codegen rule map's parent-alternation closures (a
+different graph).
+
+## Nullability is the grammar's one exact fact
+
+**Decision:** whether a rule derives the empty string is `IrAst.nullable()`.
+That is the least fixpoint `IrRule.nullable_among` grows from nothing, with
+each atom answering for itself through `vanishes(nullable)`. Every reader
+reads it:
+
+- the PDA analysis (`GrammarAnalysis.nullable`);
+- the optional-nullable lift;
+- the `@non-semantic` relax;
+- the Earley tables (`TableBuilder.nullable_rules`);
+- the split-greedy gate (`greedy_loop_gate` takes the analysis);
+- the parallel layer's `derives_empty` and `arm_empty`. These read the set
+  off the grammar's one read-only `shapes.rule_table`, memoised per grammar
+  and released with it, which every split analysis now reads instead of
+  building a table of its own.
+
+**Why:** five computations answered the one question, and two of them
+answered wrongly.
+
+- The analysis' `nullable_names` and the tables' int-arm fixpoint were exact
+  and agreed on every rule.
+- The parallel layer's walk answered a cycle "yes". On `r ::= "a" | s` /
+  `s ::= r | "x"` it said both rules derive ε, though every derivation ends
+  on a letter.
+- The split-greedy gate's depth-bounded walk answered "unknown" on 99 roster
+  rules where the answer is no.
+
+The regular-language proof keeps its own reading (END with an empty window).
+It is a property of the k-window FIRST set that proof already holds, not a
+nullability fixpoint.
+
+**What moved:** over 2,565 rules of 196 grammars (every ground-truth file,
+every bench row at three seats, every grammar the split tests define), only
+the walk's answer on the witness's two rules changes. Every reader agrees on
+every rule, and the PDA's split-greedy licences, conflicts, attempts and
+demotions are identical on every grammar. The gate's switch cannot move a
+licence: wherever the old walk answered "unknown" (a cycle, a negation, a
+token, depth, an undefined name), the gate's own alphabet reader had already
+declined. A name no rule defines stays "unknown" there.
+
+## The IR façade's lookup is the groups' own data
+
+**Decision:** each IR group marker (`spine`, `action`, `grammar`, `text`)
+holds a public `SURFACE`, mapping every name the group puts on `lexic.ir` to the
+module that defines it. The façade keeps one of the same shape, `_SURFACE`, for
+its own direct modules (`flavour`, `identity`, `reduction`). Its `_HOMES` lookup
+is the union of those five and is never written by hand. The markers hold data
+only: Python runs a package marker before any of its submodules, so
+`import lexic` already loads all four, and a marker that imported anything
+would charge every consumer for it.
+
+A surface is keyed by name, not by module. Keyed by module, its runs of names
+repeat `__all__`'s line for line, and pylint's duplicate-code check reads that
+as copied code.
+
+**Why the other two statements stay per name in the façade:** the
+`TYPE_CHECKING` imports and the literal `__all__` are read by tools that see
+only a literal in the module itself.
+
+- ruff 0.15 reads no other module's `__all__`. With
+  `__all__ += group.__all__`, every `TYPE_CHECKING` import is F401.
+- A star re-export would satisfy the type checker. A star re-export is F403,
+  in a `.py` and in a `.pyi` stub alike.
+- A group `__all__` that names what the group does not bind is pylint E0603,
+  and pyright reports `reportUnsupportedDunderAll`.
+
+PEP 810's lazy imports would replace all of it, but they are not on 3.14. The
+drift pins in `test_init_ir` hold the three statements to one another: module
+by module and in both directions for the `TYPE_CHECKING` block, by set equality
+for `__all__`, and by resolution for every name.
+
+## A span's first derivation is read in one place
+
+**Decision:** the char, token and island routes read a span's first
+derivation through the fast build's own module, `forest/fasttree.py`:
+
+- `first_tree(kernel, handles, decide)` returns the first accepting handle
+  whose resolving fast build succeeds, in the order the caller gives, as a
+  `FirstTree` (handle, tree, and that build's memo).
+- `streamed_first(node, chart, handle)` is its fallback. It reads the decoded
+  chart in chart order when no handle builds, and leaves the memo empty.
+- `different_meaning` takes the `FirstTree`, and `remembered` folds it seeded
+  from its memo instead of building the same tree a second time. A streamed
+  tree folds fresh.
+- The sibling comparison reads a sibling production the fast build declines
+  off the chart too. Skipping it let chart order settle a tie the values
+  never did.
+
+**Where things live:** `readout` stays the read-only decode seam.
+`accept_handles` and `handle_node` are readouts and live there. The two
+readers BUILD derivations, so they live beside the fast build. The stream
+fallback lives in `fasttree` rather than `forest.py` because it returns a
+`FirstTree`, and `fasttree` already imports `forest`.
+
+**Why:** three readers each built "the fast tree, else the chart" their own
+way, and the token route refused outright on a miss.
+
+The char route keeps its plain re-parse between the two readers: run
+terminals shape the chart, a fact about the tables. The island's bail-mode
+build is handed on with its memo. It reaches `remembered` only through an arm
+choice, and a bail build declines on every key that packs two families, so
+that memo is never replayed.
+
+## A span's flips share one parent index
+
+**Decision:** `ambiguity.parent_edges(kernel, root)` walks a span's link table
+forward once, and `dirty_cone(parents, root, flipped)` reads each flip's cone
+backwards off that index.
+
+**Why:** the cone used to be recomputed by a whole forward walk on every flip.
+That is linear in the span's link table each time, so a span that flips many
+points without its value changing paid the walk once per point. The index
+depends only on the root, so one walk serves every flip.
+
+## One Earley fill; the island's span is a readout
+
+**Decision:** `Kernel.run` is the only fill loop. It skips an empty column,
+which a multi-char literal, a run terminal or a token steps over. A skipped
+column is never a stop. The island sub-parse runs its window and reads the
+longest origin-0 start completion off the chart with
+`readout.longest_start_completion`, which is `start_completions`' latest end
+and the last accepting item there.
+
+**Why:** `longest_start_completion` was a second copy of `run`'s seeding and
+column loop, differing in two ways. It skipped empty columns, and it read the
+start completions as it went. The read belongs to the readout seam. The skip
+belongs in `run` too. Every item a column will ever hold arrives from an
+earlier column's scan, so a column that is empty at its turn stays empty. On
+run-collapsed tables most columns of a long run are such columns.
+
+## The fast build stops at a cycle and builds only complete derivations
+
+**Decision:** the tables know whether their grammar is cyclic.
+`DecodeTables.cyclic` is computed once per compile from the same-span steps
+between rules: a rule steps to another when that rule sits in one of its arms
+whose every other position predicts a nullable rule. A node can hold itself
+only where those steps close a loop (`A ⇒+ A`).
+
+- **An acyclic grammar** builds exactly as before: one plain loop, nothing
+  tracked, nothing watched.
+- **A cyclic grammar's resolving build** tracks each handle whose kids are
+  still being built, together with the pins left before its own key took one.
+  - **(i) A pin's unroll proceeds.** A re-entry after a pin was consumed
+    since the handle opened is that pin's one-lap unroll. The inner
+    occurrence is a fresh visit under the default choices, and the outer
+    occurrence keeps the pinned family.
+  - **(ii) The default choices take only families that complete.** The
+    chain reader (`splits._edges_at`, through a `Steering` pins map that
+    carries a `fasttree.Stalled`) drops a family that cannot complete beneath
+    the handles still being built, wherever another family remains: its
+    child cannot, or its predecessor no longer reaches dot 0 through families
+    that can. A split can leave a family sound in its own child and stalled in
+    its predecessor's (`a ::= y z` / `y ::= a | ""` / `z ::= "" | "x"` over
+    "x", where the longest split hands `y` the whole span). Only a child over
+    the same span as the handle being read is asked, so only a predecessor
+    ending where the handle ends is walked: it
+    completes when some family of its chain leads only to children that
+    complete in turn, without meeting that handle or an open one over the
+    span (an open one a pin was spent beneath since it opened is exempt: (i)
+    re-enters it). The answer reads the chart alone and is memoised by the
+    handles avoided.
+  - **(iii) A pin no complete derivation honours refuses.** Any other
+    re-entry raises the "cannot be compared" refusal, resolver or not. An
+    unpinned build never reaches it.
+- **Bail mode** never tracks. A cycle's keys cannot all hold one family,
+  because a completed item has a finite derivation, so some key on its cycle
+  offers another, and bail mode declines at the first key that holds two.
+
+**Why every tree is complete:**
+
+- The build emits a node only from that node's full predecessor chain, so its
+  children tile its span.
+- (ii) drops only families that cannot complete there: every derivation
+  through one closes a cycle on the handle or an ancestor over the same span,
+  and a build that memoises by handle cannot finish one. A child over a
+  shorter span always completes, so no other family is ever dropped, and on
+  an acyclic grammar nothing is asked. The decider ranks the remaining
+  families exactly as it ranks any bucket, so the choice is the decider's own
+  among the families that can complete. The meaning check reads the chains
+  the build took (`FirstTree.steered`), so the family steered away from is
+  one of the alternatives it compares.
+- (i)'s two occurrences each come from a whole chain.
+- Nothing is put in a refused key's place. The build never reads the
+  derivation stream.
+
+**The two readers draw "cycle-free" over different sets.** The build forbids a
+completed handle inside itself over its span; the derivation stream forbids
+any key inside itself, prefix keys included. So the value route can answer a
+tree `derivations()` does not list: for `a ::= y z` / `y ::= a | ""` /
+`z ::= "" | "x"` over "x", the prefix key `(a ::= y • z, 0, 0)` sits inside
+itself in `A(Y(A(Y(), Z(''))), Z('x'))`, the resolver's answer, and the stream
+lists only `a(y(), z('x'))`. Both are complete derivations, and the stream's
+cut keeps `is_ambiguous` at 1.
+
+**Why the grammar decides:** detecting a re-entry while building costs every
+step something. A per-step check, a round counter on the hot loop and a
+stack-growth test each measured 0.1–4% of the build in-process. Asking the
+tables costs a cyclic grammar its tracking and every other grammar nothing.
+None of the bench rows is cyclic.
+
+**Why the test looks below the key:** a family that re-enters only further
+down cannot be dropped by looking at its own child. Completed handles are per
+arm, so `f ::= e | ""` gives `e`'s one key two children, `f`'s `e` arm and
+`f`'s empty arm, and `f`'s `e`-arm key has one family to avoid: the choice
+that leaves the cycle is made at `e`. Avoiding only a child that was itself
+still being built refused `root ::= "<" e ">"` / `e ::= f` / `f ::= e | ""`
+over "<>", and 793 of the 2,888 small cyclic grammar/text cases that parse
+(`e`, `f` and `g` each with one or two arms from `e`, `f`, `g`, `""`, `"n"`,
+over "<>" and "<n>"), every one of which has a complete derivation. With the
+test below the key, 649 of those refuse as ambiguous without a resolver,
+since a pumped derivation builds another value, and build with one. The other
+144 build either way, since their cycle runs through an arm that builds no
+node (`e ::= e | f` / `f ::= ""` answers `Root(F(''))`). Every case that did
+not refuse a cycle before answers exactly as it did.
+
+## The derivation stream ends a cycle's branch, and tracks only ancestors
+
+**Decision:** `ForestCtx.open` holds exactly the handles whose prefixes are
+being produced, which are the ancestors of whatever is being expanded. A
+`PrefixSource` opens its handle while it waits on a predecessor or a child. It
+closes the handle while it is suspended after emitting a prefix, and reopens it
+on resume. A request on an open handle is a node inside itself over its own
+span, and that branch ends: the stream yields nothing for it.
+
+**Why:** two defects came from one set.
+
+- **Truncated trees at a cycle.** The cut emitted the empty prefix to stay
+  finite. Over a non-empty span that is a truncated node, not a derivation:
+  `a(b(a()))` for `a ::= b | "x"` / `b ::= a | "y"` over "x", and
+  `root(s(s()))` for `s ::= s | "a"`.
+- **Cuts on grammars with no cycle.** A suspended prefix kept its handle open,
+  so the cut also fired where nothing cycles, dropping an empty child.
+  `a ::= p b | "a"` / `p ::= ""` / `b ::= a "b"` over "abb" streamed
+  `a(p(), b(a(b(a('a'), 'b')), 'b'))`: the inner `a` lost its `p()`, because
+  its prefix after `p` is the same handle as the outer one's, which was left
+  waiting while `b` was built. That prefix is a sibling of the inner `a`, not
+  its ancestor.
+
+**Why it is right:**
+
+- A derivation in which some handle recurs on its own ancestor path contains
+  a shorter derivation of the same span: replace the outer occurrence by the
+  inner one. So ending such a branch loses no derivation that is not an
+  unrolled cycle.
+- An accepting handle has a finite derivation, and its smallest one repeats
+  no handle on any path, so the stream for a parse is never empty. Inside it, a
+  handle whose only derivations pass back through an ancestor yields nothing
+  there, and that ancestor's other families carry the parse.
+
+So the stream is finite and every tree it emits is complete. Each emitted
+tree's children are one of its rule's arms, empty children included.
+
+**The cut is recorded, not dropped.** The stream holds the cycle-free
+derivations, and a cyclic text has infinitely many more: pump the cycle. A
+branch that ends at an open handle proves one. Every node on its path is in
+the chart, so each has a finite derivation, and putting one of the handle's
+in the inner occurrence's place completes the branch. That tree repeats the
+handle on a path, so no cycle-free tree equals it. So the cursor records the
+cut (`ForestCtx.cut`), and the readers that count read it: `is_ambiguous`
+answers 1, and the strict `parse` (`BuildTree`) refuses as ambiguous, when the
+stream ends with one tree and a cut. `a ::= b` / `b ::= a | ""` over "" and
+`a ::= b | "x"` / `b ::= a | "y"` over "y" each stream one tree and stay
+ambiguous, as they were when the cut emitted a truncated node.
+
+**The check:** spelling the input is too weak to test this, because a dropped
+empty child spells the same text. The pins check structure (`assert_complete`):
+each node's children match one of its rule's arms, in order.
+
+**Measured:** no bench row reads the stream. Over the parsing, parity, token
+and adversarial suites, 83 reader returns are unchanged but one,
+`test_nullable_cycle_terminates`, whose truncated `a(b(a()))` is gone.
+
+## The fast build builds a zero-width root
+
+**Decision:** `FastTree.build` hands back the tree it built, its holder,
+rather than reading the root out of its memo.
+
+**Why:** a zero-width handle takes its rule's shared empty tree without a
+memo entry, so a zero-width root (an empty island or empty input) was built
+and then reported as a miss. The parse then read the chart in its own order
+instead of the decider's carving. A search of the bench roster and the unit,
+integration and adversarial suites found 54 natural fast-build misses, and
+every one was this zero-width root. After the fix, nothing reads the chart
+unless a fast build is forced to miss.
+
+**What a chart-read span meets:** with no decided derivation to flip, the
+meaning check compares one family per arm at each arm choice
+(`_canonical_flips`, chart-ordered under the decider's carving). A supplied
+resolver settles the result, and without one the span is refused.
+
+## A head that declines a wrong base split is untimed, not failed (2026-10-29)
+
+**Decision:** when a head stops splitting where its base
+split, the gate refuses the pair only if the base's split was right. If the
+base's own split departs from the base's own sequential model at any worker
+count from 2 to the row's, the row is recorded untimed as "base split unsound:
+head declines a wrong split" with the count and the text offset. It is not
+failed, not timed, and not hidden.
+
+**Witness:** the `reopening` row (`arr ::= "[" pair ("," pair)* "]"`, a pair
+being `(n),(n)` or `(n)`) on main `800fc6d9`. Its region split carved
+`(2578),(2579)` as two short pairs where the sequential parse reads one long
+one: wrong at 2, 3, 6, 8 and 16 workers, right at 4 and 5. `4e9d4cea` made the
+head decline it for want of an ownership proof, and the runner's 4-core A/B then
+refused the head for "no longer splits".
+
+**Why every count:** a check at the row's own count passed the witness at 4. A
+model equal at one count can be right by where that count's cuts land, so only
+a departure at no count from 2 to N lets the refusal stand. **Why a fresh
+process per count:** the base's sequential route on such a shape can be a
+whole-document chart, about 10 GB on the witness, and attempts sharing a
+process stack their high-water marks.
+
+**Why not a weaker rule:** a ratio against a wrong model measures nothing, and
+failing the head for correcting it blocks the correction. Anything that proves
+nothing keeps the refusal: a base whose sequential parse refuses, or a probe
+that dies. The rule reads models, never row names. The gate's page is
+`tools/benchmark/README.md`; the pins are listed there.
+
+## A key facing a nullable rule promotes once it holds many families (2026-11-05)
+
+**Decision:** the Earley family store promotes a key facing a nullable rule
+only once its bucket holds `LAZY_PROMOTION` families (3). It keeps those, in
+order, and reads the rest from its `(rule, end)` completion group from the
+place where it promoted. Empty families `_nullable_advance` files after that
+are stored explicitly at the group's length at that moment. A key facing a rule
+with no empty arm still promotes at its second family; one facing a rule its
+kernel delegates never promotes.
+
+**Why:** a key facing a nullable rule used to keep every family, deduped by a
+linear scan, because its empty families interleave with the completions'. On
+the vyx `!R` body, whose prose words admit the two-character separator and so
+span any run of separators, that cost n³ families and an n⁴ scan: 15.9 s and
+668 MB at 128 lines, now 2.7 s and 273 MB. Promoting every such key at its second family undid the
+recovery that deciding a completion's tier once had made on rows whose keys
+each hold two families. Promoting past a threshold keeps those rows explicit.
+
+**Why 3:** the ski-rental crossover `(P + R) / a`. An explicit family costs
+`a` ≈ 117 ns; a promotion costs `P` ≈ 136 ns at the kernel plus `R` ≈ 181 ns
+of group reads over the key's life (126 of 63,251 promoted keys read at 3) (a group entry is tested against its
+column's `seen`, one lookup). Times from 2 to 8 lie within 4%, and 16 is
+slower; a key holding two families still stays explicit.
+
+**No dedup at filing:** a column closes once whenever links are recorded
+(`extend` refuses under `record_links`, and a window grows without re-closing).
+So each completion files once, its waiters' keys are distinct, and
+`_nullable_advance` runs once per key. No filing site can meet its own family
+twice, and the scans that checked are gone. Leo expansion, after recognition,
+keeps its own.
+
+**What it does not change:** the recognizer's own cost. Every completion still
+advances every waiter, about n^2.3 on that body; the family store now stays
+under that floor rather than above it.
+
+**Pins:** `test_families.py` compares every key's complete ordered bucket
+against the pre-factoring recorder at thresholds 1, 2 and the default. Its
+witnesses include a key whose empty families stand between group entries
+filed before and after them, and groups opened before a later key promotes.
+
+## A Leo climb passes one same-column step through a unit arm (2026-11-05)
+
+**Decision:** `leo_resolve` passes one empty-span step, the one whose waiter
+opens a single-item arm `A → • B` (`CodeTables.unit_start`), and only where
+`A`'s own sole waiter in that column crosses columns. A second same-column
+step is refused, and the level reached by the pass keeps no memo, so a unit
+cycle cannot loop and a memo filled without the pass is never read with it.
+`_try_leo`'s precheck counts the two steps a jump must
+climb past that unit step, so a chain one real step long still completes
+normally.
+
+**Why:** the arm hoist turns `root ::= x root | x` into a unit arm over the
+recursive one, so each level's climb met `root → • root-arm1` in the column
+that level began in and stopped there. Every level re-climbed from its own
+completion: n(n−1)/2 climbs, 1.3 s and 269 MB at 800 units, against 52 ms and
+8 MB now. Every alternation's arms are unit references after the hoist, so
+the step is passed by shape, not by name.
+
+**Why the precheck counts past it:** counting the free unit step as one made
+chains of one real step jump, and a jump costs its bookkeeping and an
+expansion on readback. Arithmetic's jumps rose by a third, and it read 1.7%
+slower, until the precheck stopped counting the unit step.
+
+**Safe:** the passed step's column is closed (a climb starts below the
+current column and descends; `EngineInvariantError` otherwise), so its
+waiters are final, and leo_sole's single waiter means the two skipped
+completions have no other consumer. Expansion files their families back.
+
+**The limit:** two unit arms stacked in one column (`root ::= u | x`,
+`u ::= w`) refuse the second step and stay quadratic, correctly.
+

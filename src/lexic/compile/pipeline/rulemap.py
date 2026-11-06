@@ -41,9 +41,7 @@ from lexic.ir import (
     IrItem,
     IrLambda,
     IrLiteral,
-    IrNone,
     IrNoneType,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
@@ -54,8 +52,6 @@ from lexic.ir import (
 )
 
 RuleKind = Literal["sequence", "alternation", "value_str"]
-
-_UNIT = IrQuantifier(1, 1)
 
 
 # ── field-naming lookup tables ────────────────────────────────────────
@@ -90,6 +86,11 @@ class RuleMap:
     parent_class_names: tuple[str, ...]
     kind: RuleKind
     fields: dict[str, IrBind]
+
+    def in_slot_order(self) -> tuple[tuple[str, IrBind], ...]:
+        """The bound fields in DOCUMENT order — by item slot, as the arm spells
+        them — where :attr:`fields` is the constructor's declaration order."""
+        return tuple(sorted(self.fields.items(), key=lambda pair: pair[1].item))
 
 
 # ── class naming (absorbed to_pascal) ─────────────────────────────────
@@ -127,18 +128,6 @@ def classify_rule(rule: IrRule) -> RuleKind:
 # ── parent inference ──────────────────────────────────────────────────
 
 
-def unit_ref_arm(arm: IrSequence) -> IrRuleRef | IrNoneType:
-    """The ref of a single-item, unit-quantified ruleref arm, else ``IrNone``.
-
-    :param arm: An alternation arm.
-    :returns: The arm's lone ``IrRuleRef``, or :data:`IrNone`.
-    """
-    if len(arm) != 1 or arm[0].quantifier != _UNIT:
-        return IrNone
-    atom = arm[0].atom
-    return atom if isinstance(atom, IrRuleRef) else IrNone
-
-
 def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
     """Map each unit-ref alternation arm to its owning alternations, in grammar order.
 
@@ -156,7 +145,7 @@ def _direct_parents(rules: Sequence[IrRule]) -> dict[str, list[str]]:
         if classify_rule(rule) != "alternation":
             continue
         for arm in non_empty_arms(rule.body):
-            ref = unit_ref_arm(arm)
+            ref = arm.sole_ref()
             if isinstance(ref, IrNoneType):
                 continue
             parents = parents_of.setdefault(str(ref), [])
@@ -321,17 +310,11 @@ def _alphabet_mode(_d: IrSelf, _n: IrSelf, _nc: Sequence[IrSelf]) -> IrStr:
 # ── fold-mode derivation ──────────────────────────────────────────────
 
 
-def _many(item: IrItem) -> bool:
-    """Whether the item repeats (``hi`` unbounded or above one)."""
-    hi = item.quantifier.hi
-    return isinstance(hi, IrNoneType) or int(hi) > 1
-
-
 def _ref_mode(_d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf]) -> IrStr:
     """Mode body: a rule ref folds to its sub-model(s)."""
     item = nc[0]
     assert isinstance(item, IrItem)
-    return IrStr("models" if _many(item) else "model")
+    return IrStr("models" if item.quantifier.repeats() else "model")
 
 
 def _all_unit_ref_arms(alt: IrAlternation) -> bool:
@@ -339,7 +322,7 @@ def _all_unit_ref_arms(alt: IrAlternation) -> bool:
 
     The only group shape that folds cleanly to a sub-model (or list of them):
     each arm yields exactly one child model that identifies itself. An empty
-    arm, a multi-item arm, or any literal arm fails the test (``unit_ref_arm``
+    arm, a multi-item arm, or any literal arm fails the test (``sole_ref``
     returns :data:`IrNone` for each), routing the group to ``gtext``.
 
     :param alt: The inline group alternation.
@@ -347,7 +330,7 @@ def _all_unit_ref_arms(alt: IrAlternation) -> bool:
         one arm).
     """
     return len(alt) > 0 and all(
-        not isinstance(unit_ref_arm(arm), IrNoneType) for arm in alt
+        not isinstance(arm.sole_ref(), IrNoneType) for arm in alt
     )
 
 
@@ -388,11 +371,6 @@ def mode_for(item: IrItem) -> str:
 
 
 # ── field binding ─────────────────────────────────────────────────────
-
-
-def _is_structural_literal(item: IrItem) -> bool:
-    """Unit-quantified literal — matched text with no field of its own."""
-    return isinstance(item.atom, IrLiteral) and item.quantifier == _UNIT
 
 
 def _is_semantic_field(item: IrItem, non_semantic: frozenset[str]) -> bool:
@@ -442,7 +420,7 @@ def bind_fields(
     counts: defaultdict[str, int] = defaultdict(int)
     pattern_pos = 0
     for index, item in enumerate(items):
-        if _is_structural_literal(item):
+        if isinstance(item.unit_literal(), IrLiteral):  # matched text, no field
             continue
         base = TIER2.apply(item.atom)
         if isinstance(base, IrNoneType):

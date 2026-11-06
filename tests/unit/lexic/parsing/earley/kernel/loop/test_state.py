@@ -8,7 +8,12 @@ faces, into ``waiting`` (a rule) or ``scannable`` (an atom).
 
 from __future__ import annotations
 
-from lexic.parsing.earley.kernel.loop.state import KernelState
+from lexic.parsing.earley.kernel.loop.state import (
+    KernelState,
+    late_head,
+    lazy_head,
+    lazy_parts,
+)
 
 
 def test_seeds_one_container_per_column() -> None:
@@ -71,3 +76,13 @@ def test_file_item_keeps_symbols_in_separate_buckets() -> None:
     st.file_item(0, 10, 1)
     st.file_item(0, 20, 2)
     assert st.waiting[0] == {0: [10], 1: [20]}
+
+
+def test_a_lazy_head_reads_back_its_cursor_held_count_and_place() -> None:
+    """A head names where its key's group read starts and how many families
+    it holds, negated so no first family (a non-negative item) reads as one;
+    its place stays unset until the key's empty families are filed late."""
+    head = lazy_head(0, 8)
+    assert head[0] < 0
+    assert lazy_parts(head) == (0, 8, -1)
+    assert lazy_parts(late_head(lazy_head(5, 3), 9)) == (5, 3, 9)

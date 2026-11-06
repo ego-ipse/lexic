@@ -17,7 +17,7 @@ import pytest
 from lexic.compile import compile_text
 from lexic.parsing.pda.compiler.program.opcodes import OP_CC, OP_LIT1, OP_REF, OP_REF1
 from lexic.parsing.pda.runtime.build import Frame
-from lexic.parsing.pda.runtime.kernel.verdicts import Verdicts
+from lexic.parsing.pda.runtime.kernel.verdicts.verdicts import Verdicts
 from lexic.parsing.pda.runtime.matchers import REST_ADMITS, REST_ADMITS_HARD, REST_DEAD
 from tests.parity_helpers import DECLINED, REFUSED, answers
 from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
@@ -84,6 +84,7 @@ def test_a_frame_suspended_by_an_exactly_once_reference_reads_after_it() -> None
         kinds=(OP_REF1, OP_LIT1, OP_LIT1),
         payloads=(None, " ", ">"),
         los=(1, 1, 1),
+        his=(1, 1, 1),
     )
     parent = Frame(arm, [], flat_clone(), 0)
     parent.i, parent.count = 1, 0
@@ -100,9 +101,30 @@ def test_a_frame_suspended_in_a_quantified_descent_reads_after_its_own_item() ->
         kinds=(OP_REF1, OP_CC, OP_LIT1),
         payloads=(None, (frozenset("z"), False), "q"),
         los=(1, 0, 1),
+        his=(1, 1, 1),
     )
     parent = Frame(arm, [], flat_clone(), 0)
     parent.i, parent.count = 1, 1
     assert _boundary_class(parent, "az", 1) == REST_DEAD
     parent.count = 0
     assert _boundary_class(parent, "az", 1) == REST_ADMITS
+
+
+@pytest.mark.parametrize(("his", "verdict"), [(-1, REST_ADMITS), (1, REST_DEAD)])
+def test_a_frame_suspended_in_a_repeated_item_reads_its_next_iteration(
+    his: int, verdict: int
+) -> None:
+    """The stop side continues into the next iteration of the item a frame
+    stands in, where that item repeats: ``z`` starts one, though the mandatory
+    ``q`` after the item refuses it. An item that occurs at most once has no
+    next iteration, and the stop side is dead."""
+    arm = flat_arm(
+        2,
+        kinds=(OP_CC, OP_LIT1),
+        payloads=((frozenset("z"), False), "q"),
+        los=(0, 1),
+        his=(his, 1),
+    )
+    parent = Frame(arm, [], flat_clone(), 0)
+    parent.i, parent.count = 0, 1
+    assert _boundary_class(parent, "az", 1) == verdict

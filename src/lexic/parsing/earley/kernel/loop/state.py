@@ -8,6 +8,9 @@ the kernel, so ``kernel``, ``leo`` and ``readout`` all sit above it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
 
@@ -32,6 +35,53 @@ file this triple. Compared by IDENTITY against this one module-level object,
 never by value."""
 
 
+def lazy_head(cursor: int, held: int) -> KLink:
+    """A lazily promoted bucket's second entry: where its group read starts.
+
+    Its bucket is ``[PROMOTED, head, *held, *late, *leo]``. ``cursor`` is
+    the place in the ``(rule, end)`` group from which the key reads its
+    families, ``held`` the families it kept before that. Stored negated, so
+    a reader tells it from the first family a factoring key keeps there,
+    whose predecessor item is never negative; no empty families yet
+    (:func:`late_head`).
+    """
+    return (-1 - cursor, held, -1)
+
+
+def late_head(head: KLink, place: int) -> KLink:
+    """``head`` with the group's length when the key's empty families were filed."""
+    return (head[0], head[1], place)
+
+
+def lazy_parts(head: KLink) -> tuple[int, int, int]:
+    """A :func:`lazy_head`'s ``(cursor, held, place)``, ``place`` ``-1`` before
+    any empty family. The head holds ints in all three places."""
+    return -1 - head[0], head[1], cast(int, head[2])
+
+
+def _sets(count: int) -> list[set]:
+    """``count`` empty sets — a set-valued lane's fresh columns."""
+    return [set() for _ in range(count)]
+
+
+def _maps(count: int) -> list[dict]:
+    """``count`` empty dicts — a map-valued lane's fresh columns (a literal,
+    which builds faster than calling ``dict``)."""
+    return [{} for _ in range(count)]
+
+
+COLUMN_LANES: tuple[tuple[str, Callable[[int], list]], ...] = (
+    ("seen", _sets),
+    ("waiting", _maps),
+    ("scannable", _maps),
+    ("predicted", _sets),
+    ("leo", _maps),
+)
+"""The per-parse lanes indexed by column, and what each column starts as —
+spelled once, so opening, cutting and restoring a span of columns cannot leave
+one lane behind and misalign the rest."""
+
+
 class KernelState(IrLeaf[IrSelf, IrSelf]):
     """Per-parse index state — the kernel's mutable-chart exception.
 
@@ -49,7 +99,10 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
         ending there that the COMPLETER ACTUALLY PROCESSED, in event order,
         from the first promotion at that ``(rule, end)`` on. Created only then,
         so a chart that never promotes never builds one — and an empty
-        ``groups`` is how a reader knows no key promoted at all.
+        ``groups`` is how a reader knows no key promoted at all. A key facing
+        a nullable rule promotes only once it holds many families, and its
+        head (:func:`lazy_head`) names where in the group its own read
+        starts.
 
         It exists because ``cols[end]`` is NOT a record of what the completer
         processed: ``_complete`` returns early when ``_try_leo`` takes a
@@ -101,14 +154,34 @@ class KernelState(IrLeaf[IrSelf, IrSelf]):
 
     def __init__(self, columns: int) -> None:
         """Seed empty per-parse state for ``columns`` columns."""
-        self.seen = [set() for _ in range(columns)]
-        self.waiting = [{} for _ in range(columns)]
-        self.scannable = [{} for _ in range(columns)]
-        self.predicted = [set() for _ in range(columns)]
-        self.leo = [{} for _ in range(columns)]
+        for name, make in COLUMN_LANES:
+            setattr(self, name, make(columns))
         self.links = {}
         self.leo_links = {}
         self.groups = {}
+
+    def open_to(self, end: int) -> None:
+        """Every per-column lane long enough to index column ``end``."""
+        for name, make in COLUMN_LANES:
+            lane = getattr(self, name)
+            lane.extend(make(end + 1 - len(lane)))
+
+    def cut(self, keep: int) -> list[list]:
+        """Every per-column lane cut back to its first ``keep`` columns.
+
+        :returns: What was cut, lane by lane, for :meth:`restore`.
+        """
+        held = []
+        for name, _make in COLUMN_LANES:
+            lane = getattr(self, name)
+            held.append(lane[keep:])
+            del lane[keep:]
+        return held
+
+    def restore(self, held: list[list]) -> None:
+        """Put back what :meth:`cut` took, lane by lane."""
+        for (name, _make), part in zip(COLUMN_LANES, held):
+            getattr(self, name).extend(part)
 
     def file_item(self, i: int, item: int, s: int) -> None:
         """File a just-inserted item under the symbol its dot faces.

@@ -18,15 +18,24 @@ decided once and the same way, whichever engine is asking.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from operator import ne
 from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNamedTuple, IrNone, IrNoneType
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.fasttree import (
+    FastTree,
+    FirstTree,
+    first_tree,
+    streamed_first,
+)
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.support.readout import accept_items
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handles,
+    handle_node,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST, Decider
 from lexic.parsing.earley.kernel.tables.splits import (
     ChainSpec,
@@ -51,6 +60,7 @@ __all__ = [
     "ParseConfig",
     "Resolver",
     "ambiguity_points",
+    "arm_choices",
     "chosen_meaning",
     "dirty_cone",
     "different_meaning",
@@ -133,7 +143,9 @@ def _reachable(bucket: list, bits: int, mask: int) -> list[int]:
     return out
 
 
-def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
+def dirty_cone(
+    parents: dict[int, list[int]], root: int, flipped: int
+) -> frozenset[int]:
     """Every handle whose meaning can change when ``flipped`` chooses again.
 
     Flipping one ambiguity point cannot change a value that does not contain
@@ -142,12 +154,10 @@ def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
     meaning is exactly what it already was, which is what makes an alternate
     derivation reusable rather than a second whole-document fold.
 
-    Computed by walking the link table forward once to learn who reaches whom,
-    then reading that relation backwards from ``flipped``. The forward walk is
-    the same reachability :func:`ambiguity_points` uses, so the two agree on
-    what "inside" means.
+    Read backwards from ``flipped`` over ``root``'s :func:`parent_edges`,
+    which a span walks once however many points it flips.
 
-    :param kernel: The finished kernel whose links to walk.
+    :param parents: ``root``'s parent index, from :func:`parent_edges`.
     :param root: The packed accepting handle the meaning is wanted for.
     :param flipped: The ambiguity point choosing a different family.
     :returns: The handles to recompute — always containing ``flipped``, and
@@ -155,7 +165,6 @@ def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
         ``flipped`` is not under ``root`` at all, which is the honest answer
         that nothing about this root changes.
     """
-    parents = _parent_edges(kernel, root)
     if flipped not in parents and flipped != root:
         return frozenset()
     cone = {flipped}
@@ -228,21 +237,25 @@ class MeaningMemo[NodeValue](NamedTuple):
 
 
 def remembered[Value, NodeValue](
-    run: MeaningRun[Value, NodeValue], first: ParseTree
+    run: MeaningRun[Value, NodeValue], first: FirstTree
 ) -> tuple[BuiltMeaning[Value], MeaningMemo[NodeValue]]:
-    """Build and fold the default derivation, keeping what each handle meant.
+    """Fold the default derivation, keeping what each handle meant.
+
+    The derivation is the one the caller already built, and its memo is that
+    build's: nothing is built twice. A derivation read off the decoded chart
+    keeps no handles, so it folds fresh and leaves the memo empty.
 
     :param run: The span's kernel, handle and interpretation.
-    :param first: The derivation already in hand, used on a fast-tree miss.
+    :param first: The derivation already in hand, with its build's memo.
     :returns: The already-built baseline and its reusable node memo.
     """
-    tree = FastTree(run.kernel, {}, run.decide)
-    built = tree.build(run.root)
-    if not isinstance(built, ParseTree):
-        return BuiltMeaning(first, run.builder.build(first)), MeaningMemo({}, {})
+    if not first.memo:
+        return BuiltMeaning(first.tree, run.builder.build(first.tree)), MeaningMemo(
+            {}, {}
+        )
     values: dict[int, NodeValue] = {}
-    value = run.builder.replay(built, values)
-    return BuiltMeaning(first, value), MeaningMemo(dict(tree.memo), values)
+    value = run.builder.replay(first.tree, values)
+    return BuiltMeaning(first.tree, value), MeaningMemo(dict(first.memo), values)
 
 
 def replayed[Value, NodeValue](
@@ -250,6 +263,7 @@ def replayed[Value, NodeValue](
     point: int,
     family: int,
     memo: MeaningMemo[NodeValue],
+    parents: dict[int, list[int]],
 ) -> BuiltMeaning[Value] | None:
     """One alternate derivation's value, recomputing only the dirty cone.
 
@@ -265,9 +279,10 @@ def replayed[Value, NodeValue](
     :param point: The ambiguity point taking a different family.
     :param family: The packed-family index selected at ``point``.
     :param memo: What the default derivation meant.
+    :param parents: ``run.root``'s parent index, shared by every flip of the span.
     :returns: The alternate's value, or ``None`` when it does not build.
     """
-    cone = dirty_cone(run.kernel, run.root, point)
+    cone = dirty_cone(parents, run.root, point)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
     tree = FastTree(run.kernel, {point: family}, run.decide)
     tree.memo.update(keep)
@@ -282,8 +297,13 @@ def replayed[Value, NodeValue](
     return BuiltMeaning(built, run.builder.replay(built, seeded))
 
 
-def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
-    """Reverse reachability under ``root`` — handle → the handles containing it."""
+def parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
+    """Reverse reachability under ``root`` — handle → the handles containing it.
+
+    The link table walked forward once from ``root``, by the reachability
+    :func:`ambiguity_points` uses, so a cone and an ambiguity point agree on
+    what "inside" means.
+    """
     bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
     codes, links = kernel.tables.codes, kernel.family_reader()
     parents: dict[int, list[int]] = {}
@@ -314,14 +334,9 @@ def _sibling_roots(kernel: Kernel, handle: int) -> list[int]:
     one of them never reaches. `s ::= s s | "a"` over `"aaa"` is exactly that
     shape, and reading only the links calls it unambiguous.
     """
-    bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
-    if (handle & mask) != len(kernel.text):
+    if (handle & kernel.tables.packing.mask) != len(kernel.text):
         return []
-    return [
-        (item << bits) | len(kernel.text)
-        for item in accept_items(kernel)
-        if ((item << bits) | len(kernel.text)) != handle
-    ]
+    return [other for other in accept_handles(kernel) if other != handle]
 
 
 def same_value(one: object, other: object) -> bool:
@@ -338,15 +353,48 @@ def same_value(one: object, other: object) -> bool:
     A type that declined to define equality has declined to answer, and the
     conservative reading of "cannot tell" is no observable difference, hence no
     refusal.
+
+    Walked with a stack of container pairs, not by recursion: a right
+    recursion builds a value as deep as its document. Each pair's leaves are
+    compared where it is read, so only containers are pushed.
     """
     if type(one) is not type(other):
         return False
-    if isinstance(one, (tuple, list)) and isinstance(other, (tuple, list)):
-        return len(one) == len(other) and all(map(same_value, one, other))
+    if not isinstance(one, _NESTED):
+        return _same_leaf(one, other)
+    pending = [(one, other)]
+    while pending:
+        pairs = _children(*pending.pop())
+        if pairs is None:
+            return False
+        for child, twin in pairs:
+            if type(child) is not type(twin):
+                return False
+            if isinstance(child, _NESTED):
+                pending.append((child, twin))
+            elif not _same_leaf(child, twin):
+                return False
+    return True
+
+
+_NESTED = (tuple, list, dict)
+"""The containers :func:`same_value` compares child by child."""
+
+
+def _children(one: object, other: object) -> Iterable[tuple[object, object]] | None:
+    """Two containers of one type as their child pairs, in order; ``None``
+    when their lengths or keys differ."""
     if isinstance(one, dict) and isinstance(other, dict):
-        return one.keys() == other.keys() and all(
-            same_value(one[k], other[k]) for k in one
-        )
+        if one.keys() != other.keys():
+            return None
+        return [(one[k], other[k]) for k in one]
+    if isinstance(one, (tuple, list)) and isinstance(other, (tuple, list)):
+        return zip(one, other) if len(one) == len(other) else None
+    return None
+
+
+def _same_leaf(one: object, other: object) -> bool:
+    """:func:`same_value` on two values of one type that hold no children."""
     if type(one).__eq__ is object.__eq__:
         return True
     # `x != x` is true only of a value that is not equal to itself — NaN.
@@ -356,9 +404,8 @@ def same_value(one: object, other: object) -> bool:
 
 def different_meaning[Value, NodeValue](
     kernel: Kernel,
-    handle: int,
+    first: FirstTree,
     builder: MeaningBuilder[Value, NodeValue],
-    first: ParseTree,
     decide: Decider,
 ) -> MeaningPair[Value]:
     """Build the baseline once and find the first differently valued derivation.
@@ -375,16 +422,17 @@ def different_meaning[Value, NodeValue](
     therefore does not construct its chosen result again.
 
     :param kernel: The finished kernel.
-    :param handle: The packed accepting handle.
+    :param first: The derivation already in hand, its handle and its build's
+        memo — the baseline every alternative is compared against.
     :param builder: Fresh and memo-seeded product execution.
-    :param first: The derivation already in hand, to compare the rest against.
     :param decide: The split decider every derivation's carving answers to.
     :returns: The already-built baseline and optional differing witness.
     """
+    handle = first.handle
     siblings = _sibling_roots(kernel, handle)
-    choices = _arm_choices(kernel, handle)
+    choices = arm_choices(kernel, handle, decide, first.steered)
     if not choices:
-        base = BuiltMeaning(first, builder.build(first))
+        base = BuiltMeaning(first.tree, builder.build(first.tree))
         witness = _sibling_witness(kernel, siblings, base, builder, decide)
         return MeaningPair(base, witness)
     # Only here, where an alternate can exist at all, does the span's fixed
@@ -394,7 +442,11 @@ def different_meaning[Value, NodeValue](
     witness = _sibling_witness(kernel, siblings, base, builder, decide)
     if witness is not None:
         return MeaningPair(base, witness)
-    flips = _decided_flips(run, memo) if memo.nodes else _canonical_flips(run, choices)
+    flips = (
+        _decided_flips(run, memo, first.steered)
+        if memo.nodes
+        else _canonical_flips(run, choices)
+    )
     return MeaningPair(base, _flipped_witness(run, flips, base, memo))
 
 
@@ -410,16 +462,33 @@ def _flipped_witness[Value, NodeValue](
     stops at the first difference, so a span whose first alternate settles the
     question never enumerates the rest.
 
+    The root's parent index is walked once, before the first replay, and
+    every flip reads its cone off it.
+
     :param flips: ``(point, family)`` pairs, each one alternative to try.
     """
+    parents = parent_edges(run.kernel, run.root) if flips else {}
+    missed = False
     for point, family in flips:
-        built = replayed(run, point, family, memo)
-        if built is not None and not same_value(base.value, built.value):
+        built = replayed(run, point, family, memo, parents)
+        if built is None:
+            missed = True
+        elif not same_value(base.value, built.value):
             return built
+    if missed:
+        # An alternative no build could read is not evidence of one meaning:
+        # with no complete tree to compare, the span refuses rather than let
+        # the base stand unchallenged.
+        raise UnsupportedConstructError(
+            "parsing: an alternative no build could read — the span's meanings "
+            "cannot be compared"
+        )
     return None
 
 
-def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
+def _decided_flips(
+    run: MeaningRun, memo: MeaningMemo, steered: dict[int, list[KLink]] | None
+) -> list[tuple[int, int]]:
     """The arm alternatives of the DECIDED derivation, and no others.
 
     The decider fixed every boundary the derivation has. An arm choice left
@@ -429,7 +498,12 @@ def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
     decider rejected, and a derivation this engine never produces cannot make
     the span mean two things.
 
+    The chain at each node is the one the build read: where a cyclic grammar's
+    build steered off a family that cannot complete, the unsteered reading
+    would name that family as the derivation's and miss it as an alternative.
+
     :param memo: The decided build, whose handles are the derivation's nodes.
+    :param steered: The build's own chains where it steered, if any.
     :returns: ``(point, family)`` pairs, by point then family.
     """
     kernel, decide = run.kernel, run.decide
@@ -441,7 +515,9 @@ def _decided_flips(run: MeaningRun, memo: MeaningMemo) -> list[tuple[int, int]]:
         spec = spec_for(
             tables.codes, bits, tables.code_choice, tables.decode.code_droppable, handle
         )
-        chain = leftmost_chain(links, handle, spec, {}, decide)
+        chain = steered.get(handle) if steered else None
+        if chain is None:
+            chain = leftmost_chain(links, handle, spec, {}, decide)
         key = handle
         for link in reversed(chain or ()):
             found.update(
@@ -486,19 +562,77 @@ def _canonical_flips(run: MeaningRun, choices: list[int]) -> list[tuple[int, int
     return flips
 
 
-def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
-    """The ambiguity points under ``handle`` that are genuine arm choices.
+def arm_choices(
+    kernel: Kernel,
+    handle: int,
+    decide: Decider,
+    steered: dict[int, list[KLink]] | None = None,
+) -> list[int]:
+    """The arm choices under ``handle`` that the decider's carvings reach.
 
-    A SPLIT — one production carved two ways — has a defined answer and is
-    never a candidate; only a choice between arms can mean two things.
+    The decider selects carvings top-down first, and only the arm alternatives
+    that survive can mean two things. So the walk enters a key holding several
+    families only through the families a reader of it is shown
+    (:func:`~lexic.parsing.earley.kernel.tables.splits.canonical_indices`): at
+    a SPLIT, one production carved two ways, the one carving the decider keeps;
+    at an arm choice, each arm's. An arm choice inside a carving the decider
+    dropped is in no derivation this engine produces, and a forest that keeps
+    every carving of a nullable repetition is walked along the kept ones, not
+    through all its families.
+
+    Where a cyclic grammar's build steered off a family that cannot complete
+    (``steered``, the build's own chains), the derivation it produces is not
+    the kept carving's: the walk starts from the steered chains' links too, so
+    it covers every derivation the build reads, at no cost per key.
     """
-    bits = kernel.tables.packing.bits
-    links = kernel.family_reader()
+    tables = kernel.tables
+    bits, mask = tables.packing.bits, tables.packing.mask
+    codes, links = tables.codes, kernel.family_reader()
+    found: set[int] = set()
+    seen: set[int] = set()
+    stack = [handle, *_steered_handles(steered, bits, mask)]
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        item = key >> bits
+        if (item >> bits) == codes.arm_base[codes.code_arm[item >> bits]]:
+            continue
+        bucket = links.get(key)
+        if bucket is None:
+            continue
+        if len(bucket) > 1:
+            if is_arm_choice(bucket, bits, tables.code_choice):
+                found.add(key)
+            bucket = _shown(kernel, links, key, bucket, decide)
+        stack.extend(_reachable(bucket, bits, mask))
+    return sorted(found)
+
+
+def _steered_handles(
+    steered: dict[int, list[KLink]] | None, bits: int, mask: int
+) -> list[int]:
+    """The handles the build's own steered chains lead to, entered once. Kept
+    out of the walk's frame, whose packing constants then stay plain locals."""
     return [
-        key
-        for key in ambiguity_points(kernel, handle)
-        if is_arm_choice(links[key], bits, kernel.tables.code_choice)
+        h for chain in (steered or {}).values() for h in _reachable(chain, bits, mask)
     ]
+
+
+def _shown(
+    kernel: Kernel, links: FamilyReader, key: int, bucket: list[KLink], decide: Decider
+) -> list[KLink]:
+    """The families of a multi-family ``key`` a reader of it is shown."""
+    tables = kernel.tables
+    spec = spec_for(
+        tables.codes,
+        tables.packing.bits,
+        tables.code_choice,
+        tables.decode.code_droppable,
+        key,
+    )
+    return [bucket[i] for i in canonical_indices(links, bucket, spec, decide)]
 
 
 def _sibling_witness[Value, NodeValue](
@@ -508,12 +642,18 @@ def _sibling_witness[Value, NodeValue](
     builder: MeaningBuilder[Value, NodeValue],
     decide: Decider,
 ) -> BuiltMeaning[Value] | None:
-    """The first sibling root that means something other than ``base``."""
+    """The first sibling root that means something other than ``base``.
+
+    A sibling the fast build declines is read off the decoded chart instead —
+    skipping it would let chart order settle a tie the values never did.
+    """
     for alternate in siblings:
-        other = FastTree(kernel, {}, decide).build(alternate)
-        if not isinstance(other, ParseTree):
+        other = first_tree(kernel, (alternate,), decide) or streamed_first(
+            handle_node(kernel, alternate), to_chart(kernel), alternate
+        )
+        if other is None:
             continue
-        built = BuiltMeaning(other, builder.build(other))
+        built = BuiltMeaning(other.tree, builder.build(other.tree))
         if not same_value(base.value, built.value):
             return built
     return None

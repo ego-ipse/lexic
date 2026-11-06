@@ -49,7 +49,6 @@ from lexic.ir import (
     IrLine,
     IrLiteral,
     IrNest,
-    IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
@@ -60,8 +59,6 @@ from lexic.ir import (
 )
 
 WIDTH = 88
-
-_UNIT = IrQuantifier(1, 1)
 
 
 def ws_inl_leak(text: str) -> str:
@@ -152,10 +149,7 @@ def _is_pure_literal_alt(body: IrAlternation) -> bool:
     """True when every non-empty arm is a single unquantified literal."""
     arms = non_empty_arms(body)
     return bool(arms) and all(
-        len(arm) == 1
-        and isinstance(arm[0].atom, IrLiteral)
-        and arm[0].quantifier == _UNIT
-        for arm in arms
+        len(arm) == 1 and isinstance(arm[0].unit_literal(), IrLiteral) for arm in arms
     )
 
 

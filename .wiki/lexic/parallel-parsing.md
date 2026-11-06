@@ -67,6 +67,7 @@ document and are never cached across two of them**.
 | envelope | optional head/tail wrapping the repetition, separator is a noise run | the envelope's own certified boundary |
 | routed | an interior a character sweep cannot see | route-derived interiors |
 | folded | a left recursion the predictive path folds into `(γ)(β)*`, its boundaries settled | every character of the mark excluded by every owner, both routes, plus a non-nullable step remainder |
+| folded, run | the same, its βs led by no separator rule (or the led proof refused) | no β's first character in NON_INITIAL of any base arm or β, and no nullable base arm |
 
 Multiple plans can be certified for one grammar; the cascade decides per
 document. `envelope_plans` returns one plan per provable mark in stable order.
@@ -77,6 +78,30 @@ single-armed rules and nothing else. Every piece wears that text in front, so a
 neighbour that varies — `pre{1,2}` spelling `#` or `##` — must decline: read
 as one `#`, a piece whose interior opens with `#` parsed `pre` as two and the
 stitched model lost a character per piece.
+
+**Its run ends where the enclosing node's tail begins**, not at the last mark.
+The two coincide only when the tail is the mark alone (`para ::= line+ "\n"`).
+Under `para ::= line+ "."` the last mark is the last line's own, and a run cut
+there left the final piece without it, so every split declined; under a tail
+beginning with the mark (`"\n\n"`) the last mark is inside the tail. A
+document not ending in the tail has no region, and nothing is parsed for it.
+
+**A route step is a run exactly where the binding builds one.** The descent
+labels each step `INTO_UNIT` when the item it goes through `repeats()` (the
+binding's own run rule, `rulemap`) and `REF` otherwise, first step included,
+and the route reads that label alone. Treating "the last step of a
+whole-extent interior" as a run would misread `root ::= body`, whose body is a
+plain field, and labelling by `unbounded()` would miss a bounded run
+(`para{1,3}`).
+
+**One reader walks every route, under one of three readings** (`stitch/model.py`
+`read_route`). FOUND (a route `sole_routes` found) indexes a run of any length,
+so json's records stay reachable. PREDICTED (a routed interior's or a folded
+spine's) needs every run to hold exactly one element and raises on a slot the
+model lacks. WRAPPED (a separated plan's start wrappers) needs every other child
+of each step's node empty. The three are module constants, and no caller builds
+a reading of its own. Adopting the strictest reading everywhere would decline
+every region route.
 
 **The folded source reads the fold's SHAPE ANALYSIS**, not its compiled clones:
 `plan/folded.py` calls `leftrec/shape.foldable` over the codegen grammar, on the
@@ -96,6 +121,14 @@ It over-refuses and never mis-splits, which is the direction a decline is free
 in. The refusal it is easiest to get wrong is a mark whose FIRST character is
 excluded and whose later one is not — `"+a"` over `[a-z]+` — so that is a
 committed witness rather than a note.
+
+**A RUN spine is cut before the character that begins a step**, and keeps it.
+With no separator rule there is no mark to remove: `folded._run` proves that a
+β's first character stands only first in every base arm and β
+(`extend.inner.rule_non_initials`), so each one past the spine's start begins an
+iteration. A later piece re-wears the base's own text before its βs, and
+`stitch.interior.fold_runs` drops that stand-in and rebuilds the piece's left
+edge over the value so far. The three direct engine-reach rows split this way.
 
 ---
 
@@ -129,7 +162,7 @@ plan; `_cut_offsets` filters candidate marks at runtime. Both read the same
 
 ## The stitch rebuilds what the product BUILT, not something equal to it
 
-A repetition's run is a **plain `tuple`**, and `stitch/model.py`'s `is_run` tests
+A repetition's run is a **plain `tuple`**, and `lexic.ir.is_plain_tuple` tests
 that by exact class — `child.__class__ is tuple`, never `isinstance`. Every
 record and every `IrTuple` is a tuple subclass and none of them is a run, so a
 subclass test answers yes to things that are not repetitions.
@@ -146,8 +179,18 @@ so a plain run reads `tuple(…)` and an `IrTuple` reads `IrTuple(tuple(…))`.
 That is how the baseline failure was caught, and it is why "did the document
 survive" and "is this the same product" are two questions with two digests.
 
-`is_run` is public for the same reason: three call sites ask it, and a fourth
-spelling would be a fourth chance to get the subclass case wrong.
+The stitch reads that one predicate at every site for the same reason: a
+second spelling would be a second chance to get the subclass case wrong.
+
+**A capture the stitch cannot lay back declines the plan.** The merged node is a
+stand-in's with the region's items overlaid, so a slot no piece writes keeps the
+stand-in's value. A bracket arm's capture inside its brackets and beside its run
+(the spaces of `"(" [ ]* list [ ]* ")"`) is laid back as an edge from the first
+or last piece (below); one that fails either condition there declines the plan,
+and the parse is the sequential one.
+`parity/test_region_unlaid_capture.py`: `test_captured_spaces_survive_a_parallel_parse`
+at 0, 1 and 3 spaces on 2, 8 and 16 workers, `test_the_plan_lays_each_capture_back_from_its_side`,
+and `test_a_capture_the_pieces_cannot_restore_declines`.
 
 ---
 
@@ -183,6 +226,25 @@ the bracket (`ws "}" ws`): its truth is the PIECE's part inside the bracket and
 the HOLDER's part outside it, so the edge is built from the two slots'
 children and taken only when it spells exactly that text.
 
+**An inline capture between the brackets and the run is an edge too.** The
+arm `"(" [ ]* list [ ]* ")"` captures its spaces in slots of its own, and the
+merged node is the stand-in's, so a slot no piece wrote keeps the stand-in's
+value: divided, it would come back without the document's spaces. The plan lists
+every such slot in `RegionPlan.edges` beside the wrapper edges, chosen once at
+bind (`stitch.plan._edges`). A capture before the run takes its value from the
+FIRST piece and one after it from the LAST, because those pieces' text between
+the bracket and the run is the document's own. Two conditions make that true,
+and a capture failing either keeps the plan from binding:
+- **It can vanish.** A middle piece is cut on both sides and holds none of it,
+  so a capture it cannot do without (`[ ]+`) would fail every middle piece.
+- **Its alphabet misses the run's** (`predicates.rule_alphabets`, as `around`
+  reads it). A piece's text ends early, and the boundary between capture and
+  run must be fixed by characters, not by what follows the cut: `[ ,]*` before
+  a comma list is refused.
+
+A plan with no capture lists only its wrapper edges, so its stitch does the same
+work it always did.
+
 A stand-in's needle must be unique in the unit that holds it, not in the whole
 document. The uniqueness pre-filter reads the NEEDLE's text — what the holder's
 node will spell — never the drawn witness's, which can carry noise the needle
@@ -195,16 +257,133 @@ runs, not dozens of divided regions.
 
 ---
 
+## What an item spells
+
+Every derivation that asks which character an item stands for (bracket pairs,
+separators, interiors, routed shells, the safety walk) asks
+`shapes.literal_char` / `literal_text`. An item spells a literal when that
+literal is the one its fixed spelling holds amid text that varies: through
+single-armed references, `begin-object ::= ws "{" ws` spells `{`. Text that
+varies is noise: a class, a quantified item, a choice, a rule with no literal.
+So whitespace written as `ws ::= " " ws | ""` frames its `{` like `[ \t]*` does.
+A fixed spelling of several literals is no one literal, and nor is a
+single-armed recursion. `ws "set " name "\n"` spells two, and
+`member ::= string ":" value` spells the string's two quotes besides its `:`.
+Read with the one-character test applied before the count, commands' entries
+read as `\n`, their END taken for their lead. A misread opener or closer could
+never stand, because the every-site rule finds the character at its true site
+inside the rule, which delimits nothing.
+
+## One site walk, read by each derivation its own way
+
+`roles.runs.bracket_arms` and `roles.runs.repeated_bodies` are the one walk over a
+grammar's arms that both pair-and-separator derivations read. Each reader
+brings its own filter.
+
+| | roles (scanner, planner, safety) | region scan (`regions`) |
+|---|---|---|
+| bracket reader | anchors (counted across the text) | literals (read outside skipped interiors) |
+| `enclosing` | yes: a pair serves owner exclusion, so a reference or group must stand between the delimiters | no: every bracket moves the depth it counts |
+| `nested` | no: a separator belongs to the arm's own repetition | yes: `[ member *( , member ) ]` |
+| lead | a SET of anchor marks, through rule chains | the run's own lead SET (`roles.derive.run_leads`, kept per region by `regions.own_marks`); one character only where the run is separated by a single literal |
+
+These are differences of role, each pinned by a witness, not twins.
+
+`roles.runs.holds_run` reads a run's tail as a rule only when the tail IS a rule
+reference: a literal spelled like a rule (`"y"*` beside a rule `y`) holds no
+run, where reading it as the rule would let that rule's arm fake one
+(`roles/test_runs.py::test_a_literal_tail_named_like_a_rule_holds_no_run`).
+
 ## The region walk reads ONE spelling string
 
 `regions.py` classifies each structural character with a single `str.find` into
 one concatenated spelling, not with a chain of dict tests. The sections are laid
-out skips, openers, then closers and marks together, and **that order IS the
-branch precedence**: `find` returns the earliest match, so a character carrying
-two roles resolves exactly as it did when each table was tested in turn. Closers
+out skips, openers, then closers and marks together, and **each character is
+spelled once**: no derived vocabulary gives a character two roles (below), so
+its one position is its role. Closers
 and marks share a section because one test already separates them — a closer's
-value is its opener, a mark's is `""` — which is also what lets an unmatched
-closer fall through to the mark branch.
+name is the openers it closes, a mark's is `""` — and a closer the top frame
+does not wait for is dropped.
+
+**A frame waits for its own closer.** Two standing pairs may share a closer —
+`a ::= "(" w (";" w)* ")"` and `b ::= "[" w (";" w)* ")"` — so an opener's
+frame carries the closer its pair ends on, read off `Roles.closes` at open, and
+a closer closes the top frame when it is that character; a window's underflowed
+closer carries its character into the merge for the same test. Keyed by the
+closer alone, one opener would win and no `(` frame would close:
+`(x;y),[p;q),(r;s)` would find only the `[` run, a long `(` run would never
+split, and the frame enclosing it would be swallowed with it. A lost region is
+a lost split, not a wrong model. Depth counting is unaffected: every closer
+counts one down on one counter. The close test reads the closer back off the
+spelling, and `closes` holds the same shared one-character objects, so the test
+is an identity hit, which measured 1–1.5% off the window walk at the mt seats.
+
+**No closer is a mark.** `scan_vocabulary` removes every pair character from
+the marks. A standing pair's closer can still spell a separator, but only at a
+site the scan never reads — a rule nothing reaches, or the inside of an
+interior the walk skips — because a read separator site is no delimiter of
+the pair's arm, and `pair_rules` would have let the pair fall. So the mark role
+is never met, the walks and the window merge carry no closer-as-mark branch,
+and a window's underflowed closer carries only its own character.
+
+**A region's run may be separated by a SET of leads.** `"(" expr ")"` over
+`expr ::= term (addop term)*` with `addop ::= "+" | "-"` has no one separator:
+whichever lead stands between two terms is the boundary. `roles.derive.run_leads` reads,
+per standing pair, `roles`' one-character separator records for the rule
+holding the bracket's OWN repetition: the bracket rule where its arm repeats
+something itself (`"[" e ("," e)* "]"`), else a reference between the
+delimiters whose rule does. So the paren pair leads with `+-` and never with its
+terms' `*/`, and a list of sums never takes its items' `+-`. The scan watches
+the leads beside the one-literal `separators`, and `own_marks` keeps each
+region's marks to its own run's: a pair's lead set, else the one-literal
+separators, which are every mark such a pair ever had. A frame records every
+mark at its depth, and another run's lead there stands inside an item. A
+vocabulary where every pair's set is all of its marks returns the regions
+untouched, which is every grammar separated by one literal, so those pay
+nothing new. The plan takes a run held by a reference only where the arm
+repeats nothing itself, for the same reason.
+
+The plan carries the set (`RegionPlan.separators`), read the same way
+(`literal_char` first, then the records), and `tasks.safe_leads` asks the proof
+per owner and per character: `owner_excludes` for every lead, and none of them
+in `RegionPlan.around`, the ALPHABET of the bracket arm's other items (a least
+fixpoint, so a recursive `ws` reads as what it spells). A joint is rebuilt with
+the lead the document holds at the cut, `text[cut]`, so a `-` joint never
+reuses a `+` tail.
+
+**A region's run may be TERMINATED, not separated.** `"[" entry+ "]"` with
+each entry closed by `;` has no character between two entries, so there is no
+separator to cut at. One reading decides it, `roles.derive.run_terminators`, and
+the scan and the plan both ask it of the bracket rule's sole arm: the arm owns no
+separated run (`run_owners` is empty, so a lead run always wins), it holds one
+unbounded reference, and that unit's terminator records for the container are
+one character each. `roles.derive.run_ends` hands the scan those terminators as
+the pair's marks (`Vocab.ends`); `own_marks` keeps them and sets `Region.ends`.
+`derive_plan` asks the same reading first and builds `_terminated_plan` from it,
+with the same edge rule (`_edges`). Because both read one predicate, a bracket is
+terminated for the scan exactly when its plan is: a led-and-terminated arm (`"["
+entry more* "]"`, `more ::= "," entry`, `entry ::= e ";"`) is led for both. A cut
+falls AFTER the terminator, so `partition` gives each piece an inclusive window
+and every piece keeps the terminator it was cut after.
+`tasks.safe_leads` asks `terminates_once` in place of `owner_excludes` — a unit
+that spells its terminator inside itself (`"a;b;"`) refuses the plan, because a
+cut after the inner one would end a piece inside a unit. The stitch has no joint
+to rebuild: `_joined_run` concatenates the pieces' runs under the first piece's
+node and the last piece's closer.
+
+**No character plays two pair roles.** `standing_pairs` drops a pair whose
+character also delimits another standing pair in the other role — `|` in
+`angle ::= "<" word "|"` and `bar ::= "|" word ("," word)* ">"` drops both.
+Kept, it broke both scans. The depth count nets such a character to zero where
+the depth moves by one, so inside a `bar` with no angle before it the count
+read one low and the bar's own commas came back as depth-0 cuts. The region walk
+reads it as an opener first, so inside a `bar` an angle's `|` opened a frame the
+bar's `>` closed. A cut there survived only because some piece failed to parse,
+which is not a proof: a two-role character is exactly what lets a cut re-pair the
+brackets so that every piece parses, the class 14⁵'s witness belongs to. With the
+pairs gone, the separator plan's safety proof sees the bar's own separators and
+refuses before any cut, and no grammar derives a vocabulary in which a character
+holds two roles.
 
 This is not a style preference. Shared-dict membership in that loop does not
 scale across threads on this build: 0.53x on sixteen threads, against 7.64x for
@@ -213,20 +392,23 @@ too, so the change does not rest on that explanation holding. The tables are
 aliased into locals before the loop — reading them off the record inside it
 measures 10-30% slower across the roster.
 
-**A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
-once per role, because that is what makes classification by precedence work.
-`Roles.watched` holds each character once, and is what a sweep iterates.
-Sweeping the spelling reports every offset of a two-role character twice.
-`watched` is derived from `spelling`, which is what makes `spelling.find` total
-over swept offsets: neither walk tests for `-1`.
+**The spelling is the sweep alphabet.** A window sweeps `Roles.spelling`
+itself, which is what makes `spelling.find` total over swept offsets: neither
+walk tests for `-1`. That is sound only because each character is spelled
+once; a character in two sections would be swept twice and read as one role.
+The construction is: openers key one table and closers another, `standing_pairs`
+drops a pair whose character also delimits another in the other role, the marks
+exclude every pair character, and a skip's lead is never watched.
+`test_every_derived_spelling_holds_each_character_once` asserts it over the
+bench, the ground truth and the shapes that once broke it.
 
 ## The windowed find: same answer, discovered in parallel
 
 `par_find` divides a document into arithmetic windows, walks each with a stack
 that may UNDERFLOW, and replays what a window could not settle against one
 stack. Four event kinds carry that: a region opened and closed inside the window
-is already final; a closer that underflowed carries the opener it wants and
-whether it is also a separator; a separator at the underflow level; and an
+is already final; a closer that underflowed carries its character; a
+separator at the underflow level; and an
 opener still standing at the window's end, whose mark list later windows keep
 appending to. The merge is O(windows x depth) — each window contributes at most
 its own residual depth in openers, and every other event settles in constant
@@ -289,6 +471,12 @@ arithmetic's first two plans never stand at depth 0, and reading each of them
 out twice made its split 1.9 times slower. An opaque scanner's level is its
 walk, listed from the start.
 
+**An opening plan's pieces are exactly the gaps between its cuts:** each runs
+from one cut to the next. `orchestrate._reselect` rests on it. It is asked only
+for an opening plan and reads its floor on cut offsets, which are the two
+pieces' own widths only while every piece starts on its mark
+(`plan/test_cuts.py::test_an_opening_plans_pieces_are_the_gaps_between_its_cuts`).
+
 ### Which plans may SHARE a scanner
 
 Several plans can be certified for one grammar. `plan/cuts.py` answers who may
@@ -313,6 +501,14 @@ occurrence in a stretch costs a `find`, a sort and a discard.
 **A new plan shape must be checked against `reads_a_sweep`** — it is the rule
 that decides whether the shape's cuts come from the shared scan or from a pass
 of its own.
+
+`invariants/test_shared_scanner_is_cost_only.py::test_the_union_does_not_change_what_a_plan_finds`
+holds that, per roster row. Each sweep-reading plan's candidates and cuts on the
+full document are the same under the shared scanner as under its own. The row
+must have compared at least one candidate, except a row declared in
+`REGION_ONLY` with its reason (`paren-arithmetic`, whose split is a region
+plan's, which reads no sweep). A declared row must find none, so a stale
+declaration fails as surely as a missing one.
 
 ---
 

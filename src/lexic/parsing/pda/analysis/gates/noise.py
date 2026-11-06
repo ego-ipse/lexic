@@ -18,6 +18,12 @@ attribution**:
 - :func:`sem_follow_table` — the soft-FOLLOW fixpoint re-run over those
   semantic firsts, seeded empty (end-of-input is not semantic content).
 
+The same two fixpoints run with a second attribution, **rigid**: the chars a
+follower can start that it cannot give back — any terminal but an optional or
+repeated single-character class, semantic or not. A noise run that over-eats one of those has
+taken a token's first character (``sep ::= "\\n" "-"`` after ``ws ::= [ \\n]*``),
+not re-split noise: :func:`noise_split_safe` asks both.
+
 It also homes the **P3 noise-skip** analysis half (Task 6.4): the
 grammar-derived skippable alphabet :func:`noise_alphabet` (``W`` — the union
 of FIRST over *nullable non-semantic* rules: json whitespace, ABNF
@@ -50,31 +56,29 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRuleRef,
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.pda.analysis.gates.ends.sites import RunIndex, run_index
 from lexic.parsing.pda.analysis.gates.windows import END, separable
+from lexic.parsing.pda.analysis.predicates import STOPSET_ATOM
 from lexic.parsing.pda.core.charsets import CharSet
 
 __all__ = [
+    "noise_split_safe",
     "sem_follow_table",
     "stopset_escapes_soft_follow",
     "noise_greedy_licensed",
     "noise_alphabet",
     "ResidualFirst",
+    "residual_follow",
     "peek_arm_gate",
     "peek_loop_gate",
     "sem_first_table",
 ]
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
 
 
 class _SemCtx(IrLeaf[IrSelf, IrSelf]):
@@ -83,24 +87,36 @@ class _SemCtx(IrLeaf[IrSelf, IrSelf]):
     :ivar analysis: The grammar-analysis oracle (rules/atom_first/item_nullable).
     :ivar semantic: Whether the enclosing rule is ``semantic=True``.
     :ivar table: The growing per-rule semantic-FIRST table.
+    :ivar rigid: The rigid attribution instead: every terminal counts, a rule
+        contributes its own rigid FIRST, and an optional or repeated
+        single-character class nothing (:func:`_item_sem_first`).
     """
 
-    __slots__ = ("analysis", "semantic", "table")
+    __slots__ = ("analysis", "semantic", "table", "rigid")
 
     analysis: Any
     semantic: bool
     table: dict[str, CharSet]
+    rigid: bool
 
-    def __init__(self, analysis: Any, semantic: bool, table: dict[str, CharSet]):
+    def __init__(
+        self,
+        analysis: Any,
+        semantic: bool,
+        table: dict[str, CharSet],
+        rigid: bool = False,
+    ):
         self.analysis = analysis
         self.semantic = semantic
         self.table = table
+        self.rigid = rigid
 
 
 def _sf_terminal(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
-    """A terminal's chars are semantic content iff the enclosing rule is."""
+    """A terminal's chars are semantic content iff the enclosing rule is; a
+    terminal is always rigid."""
     ctx = cast(_SemCtx, nc[0])
-    return ctx.analysis.atom_first(n) if ctx.semantic else CharSet.EMPTY
+    return ctx.analysis.atom_first(n) if ctx.semantic or ctx.rigid else CharSet.EMPTY
 
 
 def _sf_ruleref(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
@@ -114,6 +130,8 @@ def _sf_ruleref(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
     rules = ctx.analysis.rules
     if name not in rules:
         return CharSet.ANY
+    if ctx.rigid:
+        return ctx.table[name]
     if not rules[name].semantic:
         return CharSet.EMPTY
     return ctx.table[name]
@@ -125,7 +143,7 @@ def _sf_group(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> CharSet:
     ctx = cast(_SemCtx, nc[0])
     out = CharSet.EMPTY
     for arm in n:
-        out = out.union(_seq_sem_first(_items(arm), ctx))
+        out = out.union(_seq_sem_first(arm, ctx))
     return out
 
 
@@ -145,27 +163,43 @@ def _atom_sem_first(atom: IrSelf, ctx: _SemCtx) -> CharSet:
     return cast(CharSet, _SEM_FIRST.resolve(atom).eval(ctx.analysis, atom, (ctx,)))
 
 
+def _item_sem_first(item: IrItem, ctx: _SemCtx) -> CharSet:
+    """One item's contribution: its atom's, except that under the rigid
+    attribution an optional or repeated single-character class gives its
+    character back — the run it is shortens — so it contributes nothing."""
+    atom = item.atom
+    analysis = ctx.analysis
+    if (
+        ctx.rigid
+        and analysis.item_nullable(item)
+        and cast(bool, STOPSET_ATOM.resolve(atom).eval(analysis, atom, ()))
+    ):
+        return CharSet.EMPTY
+    return _atom_sem_first(atom, ctx)
+
+
 def _seq_sem_first(items: Sequence[IrItem], ctx: _SemCtx) -> CharSet:
     """Semantic FIRST of an item sequence — union until the first non-nullable."""
     out = CharSet.EMPTY
     for item in items:
-        out = out.union(_atom_sem_first(item.atom, ctx))
+        out = out.union(_item_sem_first(item, ctx))
         if not ctx.analysis.item_nullable(item):
             break
     return out
 
 
-def sem_first_table(analysis: Any) -> dict[str, CharSet]:
-    """The per-rule semantic-FIRST fixpoint (chaotic iteration to stability)."""
+def sem_first_table(analysis: Any, rigid: bool = False) -> dict[str, CharSet]:
+    """The per-rule semantic-FIRST fixpoint (chaotic iteration to stability),
+    or the rigid one (:class:`_SemCtx`)."""
     table: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
     while changed:
         changed = False
         for name, rule in analysis.rules.items():
-            ctx = _SemCtx(analysis, bool(rule.semantic), table)
+            ctx = _SemCtx(analysis, bool(rule.semantic), table, rigid)
             acc = CharSet.EMPTY
             for arm in rule.body:
-                acc = acc.union(_seq_sem_first(_items(arm), ctx))
+                acc = acc.union(_seq_sem_first(arm, ctx))
             if acc != table[name]:
                 table[name] = acc
                 changed = True
@@ -216,7 +250,7 @@ def _fd_group(_d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> bool:
     fd = cast(_SemFeed, nc[0])
     changed = False
     for arm in n:
-        if _feed_sem(_items(arm), fd.eff, fd.ctx, fd.tgt):
+        if _feed_sem(arm, fd.eff, fd.ctx, fd.tgt):
             changed = True
     return changed
 
@@ -247,19 +281,18 @@ def _feed_sem(
     cont = tail
     for item in reversed(items):
         atom = item.atom
-        hi = item.quantifier.hi
         eff = cont
-        if isinstance(hi, IrNoneType) or int(hi) > 1:
-            eff = eff.union(_atom_sem_first(atom, ctx))
+        if item.quantifier.repeats():
+            eff = eff.union(_item_sem_first(item, ctx))
         fd = _SemFeed(eff, tgt, ctx)
         if cast(bool, _SEM_FEED.resolve(atom).eval(ctx.analysis, atom, (fd,))):
             changed = True
-        first = _atom_sem_first(atom, ctx)
+        first = _item_sem_first(item, ctx)
         cont = cont.union(first) if ctx.analysis.item_nullable(item) else first
     return changed
 
 
-def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
+def sem_follow_table(analysis: Any, rigid: bool = False) -> dict[str, CharSet]:
     """Rule name → the chars that can follow it as *semantic* content.
 
     The P6 licence oracle: a non-semantic rule's greedy over-eat is
@@ -268,18 +301,23 @@ def sem_follow_table(analysis: Any) -> dict[str, CharSet]:
 
     :param analysis: The grammar analysis (``rules`` / ``atom_first`` /
         ``item_nullable`` oracle — ``Any``-typed to keep this module a leaf).
-    :returns: The semantic-FOLLOW table.
+    :param rigid: The rigid attribution's table instead (:class:`_SemCtx`).
+    :returns: The semantic-FOLLOW table, built once per analysis and attribution.
     """
-    sem_first = sem_first_table(analysis)
+    built = analysis.follows.noise.get(rigid)
+    if built is not None:
+        return built
+    sem_first = sem_first_table(analysis, rigid)
     tgt: dict[str, CharSet] = {name: CharSet.EMPTY for name in analysis.rules}
     changed = True
     while changed:
         changed = False
         for name, rule in analysis.rules.items():
-            ctx = _SemCtx(analysis, bool(rule.semantic), sem_first)
+            ctx = _SemCtx(analysis, bool(rule.semantic), sem_first, rigid)
             for arm in rule.body:
-                if _feed_sem(_items(arm), tgt[name], ctx, tgt):
+                if _feed_sem(arm, tgt[name], ctx, tgt):
                     changed = True
+    analysis.follows.noise[rigid] = tgt
     return tgt
 
 
@@ -334,7 +372,18 @@ def noise_greedy_licensed(
         return False
     gap = analysis.cont_at(items, k, scope.tail).subtract(scope.hard_tail)
     eatable = gap.subtract(gap.subtract(first))
-    return not sem_follow_table(analysis)[scope.rule].overlaps(eatable)
+    return noise_split_safe(analysis, scope.rule, eatable)
+
+
+def noise_split_safe(analysis: Any, rule: str, eatable: CharSet) -> bool:
+    """Whether a noise run at the end of ``rule`` may take any of ``eatable``
+    from what follows: none of them can follow as semantic content, and none
+    can start a follower that cannot give it back (the rigid table) — so the
+    bytes only move between noise fields that both stay whole."""
+    return not (
+        sem_follow_table(analysis)[rule].overlaps(eatable)
+        or sem_follow_table(analysis, True)[rule].overlaps(eatable)
+    )
 
 
 # ── P3: the noise-skip substrate ────────────────────────────────────────────
@@ -374,6 +423,27 @@ def _rf_terminal(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
     return None
 
 
+def _rf_literal(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
+    """A literal shows its first non-``W`` character, where the skip stops
+    inside it; a ``W``-only literal shows nothing."""
+    w = cast(ResidualFirst, d).w
+    return next(
+        (CharSet.from_chars(ch) for ch in str(n) if not w.has(ch)), CharSet.EMPTY
+    )
+
+
+_W_ONLY: IrTypeMap = IrTypeMap(
+    IrAction(IrLiteral, IrLambda(lambda d, n, _nc: all(map(d.w.has, str(n))))),
+    IrAction(
+        IrCharClass, IrLambda(lambda d, n, _nc: d.analysis.atom_first(n).within(d.w))
+    ),
+    IrAction(IrNot, IrLambda(lambda d, n, _nc: d.analysis.atom_first(n).within(d.w))),
+    IrAction(IrRuleRef, IrLambda(lambda d, n, _nc: str(n) in d.pure)),
+    IrAction(IrAlternation, IrLambda(lambda d, n, _nc: any(map(d.w_seq, n)))),
+)
+"""Open atom-type "can derive a ``W``-only string" test; a miss raises."""
+
+
 def _rf_ruleref(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
     """A ref contributes its target's residual FIRST (undefined → poison)."""
     rf = cast(ResidualFirst, d)
@@ -386,7 +456,7 @@ def _rf_group(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
     rf = cast(ResidualFirst, d)
     out = CharSet.EMPTY
     for arm in n:
-        got = rf.seq(_items(arm))
+        got = rf.seq(arm)
         if got is None:
             return None
         chars, _open_end = got
@@ -395,7 +465,7 @@ def _rf_group(d: IrSelf, n: IrSelf, _nc: object) -> "CharSet | None":
 
 
 _RF_ATOM: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_rf_terminal)),
+    IrAction(IrLiteral, IrLambda(_rf_literal)),
     IrAction(IrCharClass, IrLambda(_rf_terminal)),
     IrAction(IrNot, IrLambda(_rf_terminal)),
     IrAction(IrRuleRef, IrLambda(_rf_ruleref)),
@@ -408,28 +478,38 @@ _RF_ATOM: IrTypeMap = IrTypeMap(
 class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
     """The residual-FIRST solver: first NON-``W`` chars, per rule and sequence.
 
-    Pure-``W`` atoms are transparent (the runtime skip absorbs them, nullable
-    or not); ``W``-free atoms contribute their FIRST and close the walk unless
-    nullable; a terminal mixing both **poisons** (``None``) — the skip could
-    land inside it. The solver IS the dispatcher slot ``d`` handed to the
-    :data:`_RF_ATOM` bodies.
+    An item that can derive a ``W``-only string is transparent, whatever else
+    it derives (the skip may absorb it whole); the others show their FIRST
+    and close the walk; a character class mixing both **poisons** (``None``),
+    since the skip could stop inside it. The solver IS the dispatcher slot
+    ``d`` of the :data:`_RF_ATOM` and :data:`_W_ONLY` bodies.
 
     :ivar analysis: The grammar-analysis oracle.
     :ivar w: The skippable alphabet (:func:`noise_alphabet`).
+    :ivar pure: The rules that can derive a ``W``-only string, solved first.
     :ivar table: Rule name → its residual FIRST (``None`` = poisoned), solved
         to fixpoint on construction.
     """
 
-    __slots__ = ("analysis", "w", "table")
+    __slots__ = ("analysis", "w", "pure", "table")
 
     analysis: Any
     w: CharSet
+    pure: set[str]
     table: dict[str, CharSet | None]
 
     def __init__(self, analysis: Any, w: CharSet) -> None:
-        """Solve the per-rule residual-FIRST fixpoint over ``analysis.rules``."""
+        """Solve :attr:`pure`, then the per-rule residual-FIRST fixpoint."""
         self.analysis = analysis
         self.w = w
+        self.pure = set()
+        grew = True
+        while grew:
+            grew = False
+            for name, rule in analysis.rules.items():
+                if name not in self.pure and any(map(self.w_seq, rule.body)):
+                    self.pure.add(name)
+                    grew = True
         self.table = {name: CharSet.EMPTY for name in analysis.rules}
         changed = True
         while changed:
@@ -437,7 +517,7 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
             for name, rule in analysis.rules.items():
                 acc: CharSet | None = CharSet.EMPTY
                 for arm in rule.body:
-                    got = self.seq(_items(arm))
+                    got = self.seq(arm)
                     if got is None:
                         acc = None
                         break
@@ -454,6 +534,14 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
         """
         return cast("CharSet | None", _RF_ATOM.resolve(atom).eval(self, atom, ()))
 
+    def w_seq(self, items: Sequence[IrItem]) -> bool:
+        """Whether ``items`` can derive a ``W``-only string."""
+        return all(
+            self.analysis.item_nullable(item)
+            or cast(bool, _W_ONLY.resolve(item.atom).eval(self, item.atom, ()))
+            for item in items
+        )
+
     def seq(self, items: Sequence[IrItem]) -> "tuple[CharSet, bool] | None":
         """The residual FIRST of an item sequence, or ``None`` (poisoned).
 
@@ -468,11 +556,72 @@ class ResidualFirst(IrLeaf[IrSelf, IrSelf]):
             if sub is None:
                 return None
             out = out.union(sub)
-            first = self.analysis.atom_first(item.atom)
-            transparent = first.subtract(self.w).is_empty()
-            if not (self.analysis.item_nullable(item) or transparent):
+            if not self.w_seq([item]):
                 return out, False
         return out, True
+
+
+def _join(one: CharSet | None, other: CharSet | None) -> CharSet | None:
+    """Two residual sets as one; poison (``None``) absorbs."""
+    return None if one is None or other is None else one.union(other)
+
+
+def residual_follow(rf: ResidualFirst, sites: RunIndex, rule: str) -> CharSet | None:
+    """The first non-``W`` characters after a complete ``rule`` (``None`` =
+    poisoned), read at its reference sites (:meth:`RunIndex.rests`) and solved
+    over the rules above it alone, so a recursion is a cycle. The start
+    rule's end of input admits no take; a delegate's is unknown."""
+    chain, work = [rule], [rule]
+    while work:
+        for rest in sites.rests(work.pop()):
+            if rest.holder not in chain:
+                chain.append(rest.holder)
+                work.append(rest.holder)
+    table: dict[str, CharSet | None] = dict.fromkeys(chain, CharSet.EMPTY)
+    changed = True
+    while changed:
+        changed = False
+        for name in reversed(chain):
+            grown = _residual_after(rf, sites, name, table)
+            if grown != table[name]:
+                table[name] = grown
+                changed = True
+    return table[rule]
+
+
+def _residual_after(
+    rf: ResidualFirst, sites: RunIndex, rule: str, table: dict[str, CharSet | None]
+) -> CharSet | None:
+    """One round of ``rule``'s residual FOLLOW: each site's rest, then the
+    holder's ``table`` entry wherever that rest can be skipped whole."""
+    if rule == sites.start and sites.delegated:
+        return None
+    out: CharSet | None = CharSet.EMPTY
+    for rest in sites.rests(rule):
+        got: CharSet | None = CharSet.EMPTY
+        for step in rest.steps:
+            found = rf.seq(step)
+            if found is None:
+                return None
+            got = _join(got, found[0])
+            if not found[1]:
+                break
+        else:
+            got = _join(got, table[rest.holder])
+        out = _join(out, got)
+    return out
+
+
+def _open_exit(rf: ResidualFirst, scope: Any) -> CharSet | None:
+    """What a loop's exit shows past its arm's end: a ``W``-free tail as it
+    stands, else a rule body's :func:`residual_follow`, and nothing (``None``)
+    past an inline group, whose tail is one char set that says nothing past
+    its ``W`` characters."""
+    if not scope.tail.overlaps(rf.w):
+        return cast(CharSet, scope.tail)
+    if not scope.body:
+        return None
+    return residual_follow(rf, run_index(rf.analysis), scope.rule)
 
 
 def peek_arm_gate(
@@ -506,16 +655,19 @@ def peek_loop_gate(
     analysis: Any,
     items: Sequence[IrItem],
     idx: int,
-    soft_cont: CharSet,
+    scope: Any,
     w: CharSet,
 ) -> "CharSet | None":
     """The take-set when item ``idx``'s take/skip separates post-noise, else ``None``.
 
-    ``take`` is the residual FIRST of one more iteration (plus the rest of the
-    arm); the exit side is the soft continuation minus ``W``. Disjoint ⇒ the
-    runtime peeks past the ``W`` run and takes another iteration exactly when
-    the post-noise char is in ``take`` (the iteration re-parses the noise —
-    fail-soft).
+    ``take`` is the residual FIRST of one more iteration and the rest of the
+    arm; the exit side is the rest of the arm's own residual FIRST — a
+    required ``W`` character there is skipped as the runtime skips it — and,
+    past the arm's end, what :func:`_open_exit` shows. Disjoint ⇒ the runtime
+    peeks past the ``W`` run and takes another iteration exactly when the
+    post-noise char is in ``take``.
+
+    :param scope: The conflict-walk scope (its rule, tail and body flag).
     """
     if w.is_empty():
         return None
@@ -523,11 +675,16 @@ def peek_loop_gate(
     item = items[idx]
     once = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
     got = rf.seq([once, *items[idx + 1 :]])
-    if got is None:
+    exit_side = rf.seq(items[idx + 1 :])
+    if got is None or exit_side is None:
         return None
     take, open_end = got
     if open_end or take.is_empty():
         return None
-    if take.overlaps(soft_cont.subtract(w)):
-        return None
-    return take
+    stop, exit_open = exit_side
+    if exit_open:
+        past = _open_exit(rf, scope)
+        if past is None:
+            return None
+        stop = stop.union(past)
+    return None if take.overlaps(stop) else take

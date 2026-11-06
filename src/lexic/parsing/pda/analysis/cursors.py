@@ -27,14 +27,17 @@ class FollowPass(IrLeaf[IrSelf, IrSelf]):
     :ivar nullable_first: Whether nullable-follower FIRST may contribute. The
         structural pass admits it only for once-only optional followers; repeat
         followers are generated split edges.
+    :ivar units: The unit-run rules whose repeated reference's loopback this
+        pass leaves out (:func:`~.predicates.unit_runs`): the audit pass's.
     """
 
-    __slots__ = ("tgt", "hard", "loopback", "nullable_first")
+    __slots__ = ("tgt", "hard", "loopback", "nullable_first", "units")
 
     tgt: dict[str, CharSet]
     hard: bool
     loopback: bool
     nullable_first: bool
+    units: frozenset[str]
 
     def __init__(
         self,
@@ -42,11 +45,13 @@ class FollowPass(IrLeaf[IrSelf, IrSelf]):
         hard: bool,
         loopback: bool,
         nullable_first: bool,
+        units: frozenset[str] = frozenset(),
     ) -> None:
         self.tgt = tgt
         self.hard = hard
         self.loopback = loopback
         self.nullable_first = nullable_first
+        self.units = units
 
 
 class FeedCtx(IrLeaf[IrSelf, IrSelf]):
@@ -76,7 +81,7 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
     :ivar soft: Stop-set / window demotion notes.
     :ivar f1: Set when the F1 stop-set-escape branch fired (fail-island seed).
     :ivar covered: How many of :attr:`hard` an attempt licence covers (the
-        ungatable-loop notes filed into ``Taxonomy.attempt_loops``); a rule
+        ungatable-loop notes filed into ``Taxonomy.loops.attempt``); a rule
         whose every hard note is covered or a body-arm overlap is attemptable.
     :ivar policy: Set when a decision picks an EXTENT by policy (a greedy or
         stop-set exit) rather than by what the text holds.

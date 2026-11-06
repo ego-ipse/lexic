@@ -161,14 +161,3 @@ def interleaved(
 def medians(samples: dict[str, list[float]]) -> dict[str, float]:
     """Each row's reported figure: the median of its per-round passes."""
     return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
-
-
-def noise_spread(parse: Parse, corpus: str, rounds: int) -> float:
-    """Spread between two timings of the SAME engine, as a percentage.
-
-    Anything below this is not a result. Printing it is what stops a 2%
-    difference being read as a finding.
-    """
-    first = medians(interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    second = medians(interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    return abs(first - second) / max(first, second, 1e-9) * 100
