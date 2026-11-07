@@ -22,7 +22,18 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.plan.cuts import Level, cut_offsets
 from lexic.parsing.parallel.planner import safe_plans, split_plans
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from tests.split_helpers import engages
+from tests.split_helpers import (
+    CLOSER_SEPARATOR_UNREAD,
+    SHARED_CLOSER,
+    TWO_ROLE_PAIRS,
+    assert_parallel_matches_sequential,
+    closer_separator_document,
+    engages,
+    shared_closer_document,
+    shared_closer_source,
+    two_role_document,
+    two_role_source,
+)
 
 _CORES = (2, 3, 8)
 """Worker counts every faithfulness case is driven at — two is the smallest
@@ -577,3 +588,280 @@ def test_the_reviews_document_never_engages_at_any_worker_count() -> None:
     for cores in (2, 3, 8):
         assert not engages(compiled, _REVIEW_DOC, cores)
         assert compiled.parse(_REVIEW_DOC, cores=cores) == sequential
+
+
+# ── a pair delimiter also spelled at a site that brackets nothing ─────────
+
+_STRAY_CLOSER = (
+    'root ::= item ("," item)*\n'
+    "item ::= group | cmp | word\n"
+    'group ::= "<" elems ">"\n'
+    'elems ::= elem ("," elem)*\n'
+    "elem ::= name\n"
+    "name ::= [a-z]+\n"
+    'cmp ::= word ">" word\n'
+    "word ::= [a-z]+\n"
+)
+"""A bracket pair whose closer is also a comparison operator: one ``a>b``
+before a long group leaves a depth count over ``>`` one short for the rest of
+the document."""
+
+
+def _stray_closer_doc() -> str:
+    """``a>b,<...>,...``: one stray closer, a long group, a long top level."""
+
+    def body(n: int) -> str:
+        return ",".join(chr(97 + i % 8) * (1 + i % 3) for i in range(n))
+
+    return "a>b,<" + body(6000) + ">," + body(3000)
+
+
+@pytest.mark.parametrize("cores", _CORES)
+def test_a_stray_closer_before_a_group_keeps_the_sequential_model(
+    cores: int,
+) -> None:
+    """The MODEL, not only the bytes: the split may engage or decline, and the
+    model must hold either way."""
+    compiled = compile_text(_STRAY_CLOSER, cache_key="adv-faith-stray-closer")
+    assert_parallel_matches_sequential(compiled, _stray_closer_doc(), cores)
+
+
+# ── an owner that spells the separator past its own closer ────────────────
+
+_ROW_TAIL = (
+    'row ::= "{" [a-z]+ ":" [0-9]+ "}" ("," note)*\nnote ::= "{" "n" ":" [0-9]+ "}"\n'
+)
+"""A row closes its braces and then keeps going: every ``,{n:…}`` after it is
+one of its own notes, though it is spelled exactly like the next list item."""
+
+_TAIL_FORMS = {
+    "wrapped": 'root ::= arr\narr ::= "[" row ("," row)* "]"\n' + _ROW_TAIL,
+    "at-root": 'root ::= "[" row ("," row)* "]"\n' + _ROW_TAIL,
+    "shared-rule": 'root ::= arr\narr ::= "[" row ("," row)* "]"\n'
+    + _ROW_TAIL.replace("\nnote", ' | "<" [a-z]+ ">"\nnote', 1),
+}
+
+
+def _tailed_rows(entries: int, every: int) -> str:
+    """Entries whose every ``every``-th key is ``n``, so a note follows a row."""
+    keys = (
+        "n" if i % every == 1 else "k" + "abcdefg"[: i % 7 + 1] for i in range(entries)
+    )
+    return "[" + ",".join(f"{{{key}:{i}}}" for i, key in enumerate(keys)) + "]"
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("every", (2, 3, 7))
+@pytest.mark.parametrize("form", sorted(_TAIL_FORMS))
+def test_a_separator_spelled_past_an_owners_closer_keeps_the_sequential_model(
+    form: str, every: int, cores: int
+) -> None:
+    """The sequential parse files each ``{n:…}`` after a row as that row's
+    note. A cut on the comma before it would rebuild it as a row of its own,
+    so the split must decline there — engaging or not, the model is the
+    sequential one."""
+    compiled = compile_text(_TAIL_FORMS[form], cache_key=f"adv-faith-tail-{form}")
+    assert_parallel_matches_sequential(compiled, _tailed_rows(4000, every), cores)
+
+
+_REOPENING_PAIRS = (
+    "root ::= arr\n"
+    'arr ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" num ")" "," "(" num ")" | "(" num ")"\n'
+    "num ::= [0-9]+\n"
+)
+"""A pair that closes and reopens around the list's own separator, or stands
+alone: the sequential parse pairs from the left, so every other comma is a
+pair's own, at the same depth as the ones between pairs."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("brackets", (900, 901))
+def test_a_separator_between_an_owners_brackets_keeps_the_sequential_model(
+    brackets: int, cores: int
+) -> None:
+    """A cut on a pair's own comma leaves its first bracket a pair alone and
+    re-pairs every bracket after it, so the split must decline there."""
+    compiled = compile_text(_REOPENING_PAIRS, cache_key="adv-faith-reopening")
+    text = "[" + ",".join(f"({n})" for n in range(brackets)) + "]"
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+_CLOSER_IN_SPAN = (
+    'root ::= list\nlist ::= "[" pair ("," pair)* "]"\n'
+    'pair ::= "(" [a-z),]* ")" | [a-z]+ ")"\n'
+)
+"""A pair whose span may spell its own closer and the list's comma: ``(a),b)``
+is one pair, and a scan counting depth on every ``)`` closes it at the first."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("every", (2, 4))
+def test_a_closer_spelled_inside_its_own_span_keeps_the_sequential_model(
+    every: int, cores: int
+) -> None:
+    """A cut on the comma inside ``(a),b)`` splits one pair in two."""
+    compiled = compile_text(_CLOSER_IN_SPAN, cache_key="adv-faith-closer-in-span")
+    keys = ("k" + "abcdefg"[: i % 7 + 1] for i in range(700))
+    pairs = ("(a),b)" if i % every == 0 else f"({key})" for i, key in enumerate(keys))
+    assert_parallel_matches_sequential(compiled, "[" + ",".join(pairs) + "]", cores)
+
+
+# ── a closer that spells a separator only where the scan never reads ──────
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("shape", CLOSER_SEPARATOR_UNREAD)
+def test_a_closer_spelling_an_unread_separator_keeps_the_sequential_model(
+    shape: str, cores: int
+) -> None:
+    """The split divides the run at its ``.`` marks, and its ``,`` closer —
+    never a mark — keeps the model sequential parsing builds."""
+    compiled = compile_text(
+        CLOSER_SEPARATOR_UNREAD[shape], cache_key=f"adv-faith-closer-sep-{shape}"
+    )
+    doc = closer_separator_document(shape, 12000)
+    assert engages(compiled, doc, cores)
+    assert_parallel_matches_sequential(compiled, doc, cores)
+
+
+# ── a character that closes one pair and opens another ────────────────────
+
+
+def _words(prefix: str, count: int, mark: str) -> str:
+    return mark.join(f"{prefix}{index}" for index in range(count))
+
+
+_TWO_ROLE_DOCUMENTS = (
+    ("list", "[<" + _words("a", 3000, ".") + "|,|" + _words("b", 3000, ";") + ">]"),
+    (
+        "list",
+        "["
+        + ",".join(
+            "<x.y|" if i % 3 == 0 else "|p;q>" if i % 3 == 1 else f"w{i}"
+            for i in range(3000)
+        )
+        + "]",
+    ),
+    ("top", "|" + _words("b", 3000, ";") + ">,<" + _words("a", 3000, ".") + "|"),
+    (
+        "top",
+        ",".join(
+            "<x.y|" if i % 3 == 0 else "|p;q>" if i % 3 == 1 else f"w{i}"
+            for i in range(3000)
+        ),
+    ),
+    ("nest", "<" + _words("a", 3000, ".") + "|,|" + _words("b", 3000, ";") + ">"),
+    ("nest", "|<x|;" + _words("w", 3000, ";") + ">"),
+    ("tail", "|<x|w0;" + _words("w", 3000, ";") + ">"),
+    ("tail", ",".join(f"|<x|w{i};v{i}>" for i in range(1500))),
+    ("tail-list", "[a,|<x.y|w0;" + _words("w", 3000, ";") + ">,b]"),
+    (
+        "lines",
+        "".join(
+            f"w{i},|b{i},c{i}>,<a|\n" if i % 2 else f"x{i},y{i}\n" for i in range(2000)
+        ),
+    ),
+    (
+        "lines",
+        "w,|"
+        + _words("x", 3000, ",")
+        + ">\n"
+        + "".join(f"a{i},b{i}\n" for i in range(1500)),
+    ),
+    (
+        "lines-nl-in-bar",
+        "".join(
+            f"w{i} |b{i}\nc{i}\nd{i}> <a|\n" if i % 2 else f"x{i} y{i}\n"
+            for i in range(2000)
+        ),
+    ),
+    ("semis", ";".join(f"|b{i};c{i};<a|>" if i % 2 else f"w{i}" for i in range(3000))),
+    ("semis", "w;|" + _words("x", 3000, ";") + ">;v"),
+)
+"""Documents a two-role ``|`` reads differently in: big angles, big bars,
+mixtures, a bar opening right after an angle closes, and a bar with no angle
+before it, where a depth count would read one low."""
+
+
+def test_a_separator_inside_a_two_role_pair_is_refused_before_any_cut() -> None:
+    """With neither pair standing, the separator plan's safety proof sees the
+    bar's own commas and licenses nothing: no cut is ever proposed inside a
+    bar, rather than proposed and then refused by a piece that fails."""
+    compiled = compile_text(TWO_ROLE_PAIRS, cache_key="adv-faith-two-role")
+    plans = split_plans(compiled.codegen_grammar)
+    assert plans, "the separator plan must exist for its refusal to mean anything"
+    assert not safe_plans(plans, compiled.split_analysis or compiled.grammar)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+def test_a_two_role_witness_declines_and_keeps_the_sequential_model(
+    cores: int,
+) -> None:
+    """The bar's commas never become cuts: the split declines, and the model is
+    the sequential one."""
+    compiled = compile_text(TWO_ROLE_PAIRS, cache_key="adv-faith-two-role")
+    text = two_role_document(3000)
+    assert not engages(compiled, text, cores)
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("case", range(len(_TWO_ROLE_DOCUMENTS)))
+def test_two_role_shapes_keep_the_sequential_model(case: int, cores: int) -> None:
+    """Every shape around the two-role ``|``: engaged or declined, the model
+    holds."""
+    shape, text = _TWO_ROLE_DOCUMENTS[case]
+    compiled = compile_text(
+        two_role_source(shape), cache_key=f"adv-faith-two-role-{shape}"
+    )
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+# ── two pairs sharing one closer ──────────────────────────────────────────
+
+
+_SHARED_CLOSER_RUNS = {
+    "long-a": (("(", 4000), ("[", 2)),
+    "long-b": (("[", 4000), ("(", 2)),
+    "long-a-and-b": (("(", 4000), ("[", 4000), ("(", 2)),
+}
+"""Runs of ``(opener, words)``: the long run alone, under either opener, and
+both long. Before both pairs kept their closer, the long ``(`` run was lost."""
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize("runs", _SHARED_CLOSER_RUNS)
+@pytest.mark.parametrize("shape", SHARED_CLOSER)
+def test_a_run_closed_by_a_shared_closer_splits(shape: str, runs: str, cores: int):
+    """A long ``(`` run splits as a long ``[`` run does, though both close on
+    ``)``, and the split builds the sequential model."""
+    compiled = compile_text(
+        shared_closer_source(shape), cache_key=f"adv-faith-shared-closer-{shape}"
+    )
+    text = shared_closer_document(shape, _SHARED_CLOSER_RUNS[runs])
+    assert engages(compiled, text, cores)
+    assert_parallel_matches_sequential(compiled, text, cores)
+
+
+# ── punctuation named through whitespace that varies ──────────────────────
+
+_NAMED_BRACES = (
+    'root ::= lbrace item ("," item)* rbrace\nlbrace ::= ws "{" ws\n'
+    'rbrace ::= ws "}" ws\nitem ::= [a-z0-9]+\n'
+)
+
+
+@pytest.mark.parametrize("cores", (2, 8, 16))
+@pytest.mark.parametrize(
+    "ws", ['" " ws | ""', '" " | "\\t" | ""'], ids=("recursion", "choice")
+)
+def test_braces_named_through_varying_whitespace_split(ws: str, cores: int) -> None:
+    """``lbrace ::= ws "{" ws`` spells ``{`` whatever the whitespace's form, so
+    the run between the braces splits and builds the sequential model."""
+    compiled = compile_text(
+        _NAMED_BRACES + f"ws ::= {ws}\n", cache_key=f"adv-faith-named-{ws}"
+    )
+    text = "{ " + ",".join(f"w{k}" for k in range(6000)) + " }"
+    assert engages(compiled, text, cores)
+    assert_parallel_matches_sequential(compiled, text, cores)

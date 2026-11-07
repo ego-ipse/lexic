@@ -30,7 +30,7 @@ from collections.abc import Callable, Hashable, Sequence
 from enum import Enum
 from typing import Any
 
-from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.exceptions import EngineInvariantError, LexicError
 from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
@@ -45,7 +45,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_LEAF1,
     OP_REF1,
+    OP_V1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -63,6 +65,12 @@ INTERN_MISS = InternMiss.TOKEN
 is never mistaken for a hit)."""
 
 # ── the frame ──────────────────────────────────────────────────────────────
+
+
+_MOVED_ON = (OP_REF1, OP_V1, OP_LEAF1)
+"""The exactly-once kinds a frame can stand past while the frame above it runs:
+``OP_REF1``, which moves the frame on before it descends, and an exactly-once
+value or leaf reference."""
 
 
 class Frame[Carry]:
@@ -166,11 +174,12 @@ class Frame[Carry]:
 
         ``OP_REF1`` moves the frame on before it descends, so such a frame,
         which holds no loop count, is in the item before :attr:`i`; a
-        quantified descent always holds one. An attempt with none committed
-        reads as the reference: a superset.
+        quantified descent always holds one. An exactly-once value or leaf
+        reference before :attr:`i` is read the same way (:data:`_MOVED_ON`).
+        An attempt with none committed reads as the reference: a superset.
         """
         at = self.i
-        if at and self.count == 0 and self.arm.kinds[at - 1] == OP_REF1:
+        if at and self.count == 0 and self.arm.kinds[at - 1] in _MOVED_ON:
             return at - 1
         return at
 
@@ -222,8 +231,8 @@ class Frame[Carry]:
         prefix: list[Carry] = []
         frame: Frame[Carry] | None = self
         while frame is not None:
-            sinks = frame.sinks
-            slot = sinks[at] if sinks is not None and at < len(sinks) else None
+            sinks = frame.sinks or ()
+            slot = sinks[at] if at < len(sinks) else None
             if slot:
                 prefix[:0] = slot
             frame = frame.inherited
@@ -288,13 +297,13 @@ def build_sequence[Carry](
 
     :param memo: The per-parse intern memo — repeated identical sub-models are
         built once and shared (immutable models make sharing transparent).
-    :raises UnsupportedConstructError: On an item count that matches neither
+    :raises EngineInvariantError: On an item count that matches neither
         the bound fields nor the empty arm, or a capture mode outside the
         build vocabulary.
     """
     if frame.arm.n != clone.n_items:
         if frame.arm.n:
-            raise UnsupportedConstructError(
+            raise EngineInvariantError(
                 f"pda: {clone.ctor!r}: {frame.arm.n} items match neither "
                 f"{clone.n_items} slots nor the empty arm"
             )
@@ -348,7 +357,7 @@ def build_validated[Carry](
     therefore unchanged.
 
     :param memo: The per-parse intern memo.
-    :raises UnsupportedConstructError: On a capture mode outside the build
+    :raises EngineInvariantError: On a capture mode outside the build
         vocabulary.
     """
     kwargs, key_parts = _validated_fields(text, spans, clone)
@@ -374,7 +383,7 @@ def _validated_fields[Carry](
 
     :returns: ``(kwargs, key_parts)`` — absent captures omitted from ``kwargs``
         yet represented in ``key_parts``.
-    :raises UnsupportedConstructError: On a capture mode outside the build
+    :raises EngineInvariantError: On a capture mode outside the build
         vocabulary.
     """
     ends, sinks = spans
@@ -404,7 +413,7 @@ def _validated_fields[Carry](
             kwargs[name] = extent
             key_parts.append(extent)
         else:
-            raise UnsupportedConstructError(f"pda: unknown capture mode {mode!r}")
+            raise EngineInvariantError(f"pda: unknown capture mode {mode!r}")
     return kwargs, tuple(key_parts)
 
 
@@ -419,11 +428,11 @@ def leaf_mismatch[Carry](
 
     :param memo: The per-parse intern memo (the empty arm shares one instance).
     :returns: ``pos`` unchanged (the empty alternate arm consumed nothing).
-    :raises UnsupportedConstructError: On a non-empty mismatch (a
+    :raises EngineInvariantError: On a non-empty mismatch (a
         compile/runtime disagreement).
     """
     if n:
-        raise UnsupportedConstructError(
+        raise EngineInvariantError(
             f"pda: {clone.ctor!r}: {n} items match neither "
             f"{clone.n_items} slots nor the empty arm"
         )

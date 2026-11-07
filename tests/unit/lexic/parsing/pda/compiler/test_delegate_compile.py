@@ -13,13 +13,12 @@ from lexic.ir import IrAst
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, is_delegable
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, clone_arms
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, all_clones, clone_arms
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     OP_AVDISP,
     OP_AVSTR,
 )
-from tests.clone_walk import walk_program_clones
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import compiled
 from tools.benchmark.cases.grammars import BENCHES
@@ -228,7 +227,7 @@ def test_no_delegate_program_holds_a_verdict_site() -> None:
     walked = 0
     for grammar in grammars:
         for delegate in _delegates(grammar):
-            for clone in walk_program_clones(delegate).values():
+            for clone in all_clones([delegate]):
                 walked += 1
                 assert not _verdict_sites(clone), (clone.name, _verdict_sites(clone))
     assert walked, "no delegate clone was walked, so the contract proves nothing"
@@ -246,7 +245,7 @@ def test_an_interior_that_attempts_is_never_delegated_beside_one_that_is() -> No
         for name, rule in whole.rules.items()
         for arm in rule.body
         for item in arm
-        if id(item) in whole.taxonomy.attempt_loops
+        if id(item) in whole.taxonomy.loops.attempt
     }
     assert {"sec", "lst"} <= attempting, attempting
     delegated = {

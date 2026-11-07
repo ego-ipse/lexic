@@ -18,6 +18,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
+from lexic.parsing.earley.kernel.tables.decider import LEFTMOST_LONGEST
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
@@ -78,10 +79,22 @@ def item_of(atom: IrAtom, lo: int = 1, hi: int | None = 1) -> IrItem:
     return IrItem(atom, IrQuantifier(lo, bound))
 
 
-def analysis_of(*rules: IrRule, start: str | None = None) -> GrammarAnalysis:
-    """A :class:`GrammarAnalysis` over a hand-authored rule list."""
+def analysis_of(
+    *rules: IrRule,
+    start: str | None = None,
+    grants: frozenset[str] = LEFTMOST_LONGEST.grants,
+) -> GrammarAnalysis:
+    """A :class:`GrammarAnalysis` over a hand-authored rule list, under
+    ``grants`` (leftmost-longest's by default)."""
     resolved = start if start is not None else str(rules[0].name)
-    return GrammarAnalysis(IrAst(rules=IrSeq(*rules), start=resolved))
+    return GrammarAnalysis(IrAst(rules=IrSeq(*rules), start=resolved), grants=grants)
+
+
+def body_items(analysis: GrammarAnalysis) -> list[IrItem]:
+    """Every item of every rule body's arms, rule by rule, in order."""
+    return [
+        item for rule in analysis.rules.values() for arm in rule.body for item in arm
+    ]
 
 
 def digit_grammar() -> IrAst:

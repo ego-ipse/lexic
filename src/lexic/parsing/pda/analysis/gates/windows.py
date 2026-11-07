@@ -19,7 +19,6 @@ from lexic.ir import (
     IrLambda,
     IrLeaf,
     IrLiteral,
-    IrNoneType,
     IrNot,
     IrQuantifier,
     IrRule,
@@ -42,11 +41,6 @@ __all__ = [
     "separable",
     "windows_of",
 ]
-
-
-def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
-    """The :class:`IrItem` members of a sequence arm, in order (others skipped)."""
-    return [i for i in seq if isinstance(i, IrItem)]
 
 
 END, MORE, UNK = "END", "MORE", "UNK"
@@ -143,14 +137,18 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         by its node ``id`` instead of a name — it is a nameless rule, and the
         two key spaces are the same pair the gate store keeps apart.
     :ivar busy: keys currently being computed (cycle guard).
+    :ivar rests: an arm's items from one item on → the windows :meth:`shifts`
+        reads there: what follows the item, and its further occurrences. Keyed
+        by content, so a caller's transient list never reads another's.
     """
 
-    __slots__ = ("rules", "k", "memo", "busy")
+    __slots__ = ("rules", "k", "memo", "busy", "rests")
 
     rules: Mapping[str, IrRule]
     k: int
     memo: dict[tuple[str | int, int], set[Pref]]
     busy: set[tuple[str | int, int]]
+    rests: dict[tuple[IrItem, ...], tuple[set[Pref], set[Pref]]]
 
     def __init__(self, rules: Mapping[str, IrRule], k: int) -> None:
         """Prepare the FIRST_k solver over ``rules`` at window ``k``."""
@@ -158,6 +156,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.k = k
         self.memo = {}
         self.busy = set()
+        self.rests = {}
 
     def rule_prefixes(self, name: str, r: int) -> set[Pref]:
         """FIRST_r of rule ``name`` — the union of its arms' prefixes.
@@ -174,7 +173,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.busy.add(key)
         out: set[Pref] = set()
         for arm in self.rules[name].body:
-            out |= self.arm_prefixes(_items(arm), r)
+            out |= self.arm_prefixes(arm, r)
         self.busy.discard(key)
         self.memo[key] = out
         return out
@@ -197,7 +196,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.busy.add(key)
         out: set[Pref] = set()
         for arm in group:
-            out |= self.arm_prefixes(_items(arm), r)
+            out |= self.arm_prefixes(arm, r)
         self.busy.discard(key)
         self.memo[key] = out
         return out
@@ -246,8 +245,7 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
             if all(state != END or len(tup) >= r for tup, state in states):
                 break
             lo = int(item.quantifier.lo)
-            hi = item.quantifier.hi
-            hi_i = None if isinstance(hi, IrNoneType) else int(hi)
+            hi_i = item.quantifier.upper()
             reps = r if hi_i is None else min(hi_i, r)
             acc: set[Pref] = set(states) if lo == 0 else set()
             cur = set(states)
@@ -268,6 +266,32 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
                 "(empty-language alternation arm)"
             )
         return states
+
+    def shifts(self, items: Sequence[IrItem], at: int, longer: CharSet) -> bool:
+        """Whether some window of what follows item ``at`` of an arm fits one of
+        the item's surplus followed by what follows: the surplus is up to the
+        count's upper bound of further whole occurrences, or a longer last one
+        whose first character is in ``longer``, then anything.
+        """
+        key = tuple(items[at:])
+        got = self.rests.get(key)
+        if got is None:
+            got = self.rests[key] = self._rest(items, at)
+        rest, surplus = got
+        if not longer.is_empty():
+            surplus = surplus | {((longer, CharSet.ANY), MORE)}
+        fits = extend_follow(surplus, rest, self.k)
+        return any(collide(short, long) for short in rest for long in fits)
+
+    def _rest(self, items: Sequence[IrItem], at: int) -> tuple[set[Pref], set[Pref]]:
+        """What follows item ``at``, and its further whole occurrences (none
+        for a required single item), as windows."""
+        quantifier = items[at].quantifier
+        rest = self.arm_prefixes(tuple(items[at + 1 :]), self.k)
+        if quantifier.once():
+            return rest, set()
+        more = IrItem(items[at].atom, IrQuantifier(1, quantifier.hi))
+        return rest, self.arm_prefixes((more,), self.k)
 
 
 def _resolve(table: IrTypeMap, atom: IrSelf) -> IrSelf:
@@ -448,7 +472,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
             for name, rule in self.rules.items():
                 tail = self.follow[name]
                 for arm in rule.body:
-                    if self._feed_arm(_items(arm), tail):
+                    if self._feed_arm(arm, tail):
                         changed = True
 
     def _feed_arm(self, items: Sequence[IrItem], tail: set[Pref]) -> bool:
@@ -471,7 +495,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
             elif isinstance(atom, IrAlternation):
                 rest = self._rest_windows(items, i, tail)
                 for sub in atom:
-                    yield from self._arm_sites(_items(sub), rest)
+                    yield from self._arm_sites(sub, rest)
 
     def site_windows(self, name: str) -> list[set[Pref]]:
         """What follows rule ``name`` at each of its reference sites, one window
@@ -486,7 +510,7 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         found = [eof] if name == self.start else []
         for rule, body in self.rules.items():
             for arm in body.body:
-                sites = self._arm_sites(_items(arm), self.follow[rule])
+                sites = self._arm_sites(arm, self.follow[rule])
                 found.extend(rest for ref, rest in sites if ref == name)
         return found
 
@@ -503,9 +527,8 @@ class FollowWindows(IrLeaf[IrSelf, IrSelf]):
         is its own seed.
         """
         item = items[i]
-        hi = item.quantifier.hi
-        if isinstance(hi, IrNoneType) or int(hi) > 1:
-            loop = IrItem(item.atom, IrQuantifier(0, hi))
+        if item.quantifier.repeats():
+            loop = IrItem(item.atom, IrQuantifier(0, item.quantifier.hi))
             rest_items: list[IrItem] = [loop, *items[i + 1 :]]
         else:
             rest_items = list(items[i + 1 :])

@@ -14,7 +14,11 @@ from typing import cast
 
 import pytest
 
-from lexic.exceptions import FieldValidationError, UnsupportedConstructError
+from lexic.exceptions import (
+    EngineInvariantError,
+    FieldValidationError,
+    UnsupportedConstructError,
+)
 from lexic.parsing.pda.compiler.program.bake.lowering import shape_build
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
@@ -29,9 +33,11 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_TEXT,
     M_VALUE,
+    OP_LEAF1,
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_V1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
@@ -84,6 +90,26 @@ def test_a_fresh_frame_starts_at_item_zero_with_its_span_start_seeded():
     assert frame.ends == [4, 4, 4, 4]
     assert frame.sinks is None
     assert frame.clone.mode == 7
+
+
+def test_an_inherited_prefix_reads_every_fork_in_the_chain_oldest_first():
+    """A chain of forks, each frame's own sinks in a different state: none
+    yet, too short to hold the item, and holding it. Only the frame that
+    holds item ``at`` contributes, and the oldest fork's values come first."""
+    oldest = Frame(flat_arm(2), [], flat_clone(), 0)
+    oldest.sinks = [None, ["a", "b"]]
+    short = Frame(flat_arm(2), [], flat_clone(), 0)
+    short.sinks = [["x"]]
+    short.inherited = oldest
+    absent = Frame(flat_arm(2), [], flat_clone(), 0)
+    absent.inherited = short
+    newest = Frame(flat_arm(2), [], flat_clone(), 0)
+    newest.sinks = [None, ["c"]]
+    newest.inherited = absent
+
+    assert newest.inherited_prefix(1) == ["a", "b", "c"]
+    assert newest.inherited_prefix(0) == ["x"]
+    assert absent.inherited_prefix(1) == ["a", "b"]
 
 
 def test_a_frame_admits_no_attribute_outside_its_slots():
@@ -158,9 +184,10 @@ def test_leaf_mismatch_empty_arm_builds_ctor_and_keeps_pos():
 
 
 def test_leaf_mismatch_nonempty_raises():
-    """A non-empty item-count mismatch is a compile/runtime disagreement."""
+    """A non-empty item-count mismatch is a compile/runtime disagreement: an
+    engine invariant, which no fallback catch reads as a refusal."""
     clone = cast(FlatClone, SimpleNamespace(ctor=lambda: None, n_items=2))
-    with pytest.raises(UnsupportedConstructError):
+    with pytest.raises(EngineInvariantError):
         leaf_mismatch(clone, [], 3, 0, {})
 
 
@@ -290,11 +317,11 @@ def test_fast_build_does_not_intern_the_record_path():
 
 
 def test_build_validated_unknown_mode_raises():
-    """A capture mode outside the build vocabulary is a hard error."""
+    """A capture mode outside the build vocabulary is an engine invariant."""
     clone = cast(
         FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
     )
-    with pytest.raises(UnsupportedConstructError):
+    with pytest.raises(EngineInvariantError):
         build_validated("ab", ([0, 2], None), clone, {})
 
 
@@ -519,3 +546,18 @@ def test_a_frame_is_suspended_in_the_reference_it_advanced_past():
     assert frame.suspended() == 1
     frame.i = 0
     assert frame.suspended() == 0
+
+
+@pytest.mark.parametrize("kind", [OP_V1, OP_LEAF1])
+def test_a_frame_past_an_exactly_once_value_reference_is_suspended_in_it(
+    kind: int,
+) -> None:
+    """An exactly-once value or leaf reference before :attr:`Frame.i`, with no
+    loop count held, is read as the item the frame stands in, as ``OP_REF1``
+    is; a counted item stands at its own index."""
+    arm = flat_arm(3, kinds=(kind, OP_REF, OP_LIT1), payloads=(None, None, "!"))
+    frame = Frame(arm, [], flat_clone(), 0)
+    frame.i, frame.count = 1, 0
+    assert frame.suspended() == 0
+    frame.count = 1
+    assert frame.suspended() == 1

@@ -1,5 +1,359 @@
 # Log
 
+## A greedy split meeting a follower's FIRST is attempted (2026-11-06)
+
+`decisions.md` gains the entry: a GREEDY_SPLIT loop whose iteration can fail
+where another optional follower starts gets the attempt licence for its
+iterations.
+
+## An attempted iteration's ends keep the loop's stop inside a reading (2026-11-06)
+
+`decisions.md` gains the entry: `_iteration_ends` splits a reading into the
+iteration's ends plus the loop's stop side, unless stopping is dead.
+
+## A semantic escaping stop-set is attempted, not failed (2026-11-06)
+
+`decisions.md` gains the entry: the F1 note is covered by the attempt licence
+where the decider grants it. Reading the audit FOLLOW in the escape check is
+recorded as not landable, with its census.
+
+## An attempt loop's audit FOLLOW leaves out only a unit run's loopback (2026-11-06)
+
+`decisions.md`'s audit-set entry: `beyond_at` reads `Follows.audit`, which is
+the soft fixpoint without the loopback of a repeated reference, at most once
+required, to a unit run (`predicates.unit_runs`).
+
+## The ambiguity gate walks the decided carvings (2026-11-05)
+
+`decisions.md`'s decided-carving entry: the walk that asks whether any arm
+choice is reached enters a multi-family key only through the families its
+reader is shown.
+
+## The lazy promotion threshold re-derived (2026-11-05)
+
+`decisions.md`'s lazy-promotion entry: `LAZY_PROMOTION` is 3, the same
+crossover over a group read that costs one lookup per entry.
+
+## A run's own arm tail is part of its lead (2026-11-05)
+
+`decisions.md`'s run-end entry: a loop whose arm still needs text after it is
+decided at its run's end, and a text-only rule's same-class items fuse on the
+predictive side. CLAUDE.md lists `compiler/descent/`, the predictive grammar's rewrites:
+the fusion and the left-recursion fold.
+
+## A Leo climb passes a unit arm's same-column step (2026-11-05)
+
+`decisions.md`: `leo_resolve` passes one same-column step through a unit
+arm whose waiter crosses, and the jump precheck counts steps past it.
+
+## An island's refusal is marked, not a build's (2026-11-05)
+
+`decisions.md`'s island-refusal bullet: the island raises `IslandRefusal`,
+which attempts and readings fork on, and a build's refusal stays itself.
+
+## A nullable key's families promote past a threshold (2026-11-05)
+
+`decisions.md`: a key facing a nullable rule promotes once it holds
+`LAZY_PROMOTION` families, reading the rest from its group from where it
+promoted. The threshold is a measured crossover, and no filing site dedups.
+
+## A build's internal disagreement is an engine invariant (2026-11-05)
+
+`error-vocabulary.md`'s `EngineInvariantError` row: the PDA build's item-count
+and capture-mode disagreements, so no fallback reads them as a refusal.
+
+## An island's refusal inside an arm is no miss (2026-11-05)
+
+`decisions.md`, beside the `ProbeFork` entry: an island's refusal met in an
+attempted arm or iteration, or a live set's reading, forks to gated Earley,
+and a refusing build is `BuildFail`, the arm's own miss.
+
+## Every size-steered repetition ends (2026-11-04)
+
+`public-api.md`'s `generate` entry: an empty steered piece hands the rest of
+its item to free pieces, and a unit the free walk cannot spell at its natural
+depth walks at the shallowest depth that can, with every piece non-empty.
+
+## A completion's memo holds each value as it is (2026-11-04)
+
+`decisions.md` records that the product completion's memo keeps each node's
+value as it is, with `EMPTY_RESULT` for none, and why a wrapper per node is
+refused: the tracked objects it adds move a free-threaded seat across a
+collector pass. `invariants.md` records that a reading's death is certain
+after a two-deep stop set or a greedy noise run, with its pins.
+
+## A policy grant decides what a reading's death depends on (2026-11-04)
+
+`decisions.md`'s stop-set entry: a two-deep exit is gated by its two
+characters, as one gate whose sites must separate as a union (arithmetic's
+`ws` moves to the run-end decision), a two-deep window keeps a nullable run's
+one-call match, and the attempt audit set keeps its lone-iteration exits. The
+P6 entry: the greedy noise licence's rigid clause, and why the exact-match
+gate does not need it.
+
+## A sub-run nested past the in-place depth suspends (2026-11-03)
+
+`decisions.md` records how the predictive parse drives attempt sub-runs in
+place up to `in_place_depth` and settles every deeper one at its floor through
+the drive sides use, with the steal (at a live floor only), the island-ends
+claim and the audit's rivals the live caller applies; that only a program that can nest that deep
+(`PdaProgram.nests`) parses on the counting `NestingKernel`; and
+`same_value`'s explicit stack.
+`invariants.md` records that the depth costs no Python frame past it and changes
+no answer, and the pins that hold both.
+
+## An inline capture beside a region's run is laid back (2026-10-29)
+
+`parallel-parsing.md`'s stitch section: `RegionPlan.edges` holds each inline
+capture between the delimiters with the wrapper edges, read from the first
+piece before the run and the last after it, and the two conditions (it can
+vanish, its alphabet misses the run's) under which a capture binds.
+
+## A bracketed TERMINATED run divides (2026-10-29)
+
+`parallel-parsing.md`'s region-scan section: one reading
+(`roles.derive.run_terminators`) decides a terminated run for the scan and the
+plan alike, with a separated run taking precedence; the inclusive piece windows,
+the terminated plan, `terminates_once` as its proof, and the stitch that joins
+the pieces' runs.
+
+## A shift confined to a run (2026-10-29)
+
+`decisions.md` records R3: where a sequence's, a repetition's or two arms'
+boundary shifts only inside a run, EXTEND takes the rest's EXTEND, not the
+ALPHABET. It records the conditions, the proof, the TAILS solve and the
+re-ask that ends the build, and what it costs and buys. The licence entry
+drops its open gap: json's six units keep `"`. The shifting-item entry's pins
+now name `extend/test_lengthen.py`.
+
+## The record reconciled against what landed since main (2026-10-29)
+
+Eleven invariants established by the recent landings were not yet written down.
+- `invariants.md`: no delegate program holds a verdict site; a bench row priced
+  for a route stays on it.
+- `parallel-parsing.md`: an unlaid capture declines the plan; `holds_run` reads a
+  tail as a rule only when it is one; an opening plan's pieces are the gaps
+  between its cuts; the shared scanner's per-row check and its `REGION_ONLY`
+  declaration.
+- `testing.md`: the concurrency lane's decline witness; a guard goes after setup.
+- `transpilation.md`: a non-model class refuses by name.
+- `decisions.md`: the unsound-base gate rule, with its reason and the
+  reopening witness.
+- `tools/benchmark/README.md`: the same rule and the copy protocol's two
+  declared lists.
+Each names the test that pins it.
+
+## EXTEND and NON_INITIAL have their own group (2026-10-29)
+
+The two charset fixpoints moved out of `pda/analysis/predicates.py` into
+`pda/analysis/extend/`: `maps.py` (the `Extensions` maps and the atom bodies both
+tables share), `lengthen.py` (EXTEND, `rule_extensions`) and `inner.py`
+(NON_INITIAL). `decisions.md` and `parallel-parsing.md` name the new homes;
+`predicates.py` keeps the per-node predicates the fixpoints read.
+
+## `tracemalloc` runs without `PYTHON_TLBC=0` (2026-10-29)
+
+CPython 3.14.5's gh-148037 fix removes the tracer × thread-local-bytecode
+deadlock: on the box's 3.14.8 the lexic-free reproducer and a traced pool parse
+both exit with TLBC on. `testing.md` drops
+the flag from its rule and keeps it only for releases before 3.14.5.
+
+## One site walk for pairs and separators (2026-10-28)
+
+`parallel-parsing.md` records `roles.bracket_arms`/`repeated_bodies` as the one
+walk both derivations read, and each reader's filter (reader, `enclosing`,
+`nested`, lead).
+
+## What an item spells (2026-10-28)
+
+`parallel-parsing.md` records when `literal_char`/`literal_text` read an item
+as one literal: the one its fixed spelling holds amid text that varies, a
+choice included, and never one of several.
+
+## The engine reads an arm as its items (2026-10-28)
+
+`ir-shapes.md` records that no engine reader filters an `IrSequence`, and that
+`lift_optional_nullables` refuses an arm holding a non-item by name.
+
+## The fold takes several recursive arms (2026-10-28)
+
+`decisions.md` records how a several-armed fold knows which arm each iteration
+took, why one character must choose, and the bench's direct and relay rows.
+
+## One route reader, three readings (2026-10-28)
+
+`parallel-parsing.md` records that `read_route` serves every route under the
+FOUND, PREDICTED or WRAPPED reading, and what each guards.
+
+## A route step is a run where the binding builds one (2026-10-28)
+
+`parallel-parsing.md` records that a routed interior's descent labels each step
+by the item's `repeats()`, first step included, and that the route reads only
+that label.
+
+## A whole-extent interior ends where its tail begins (2026-10-28)
+
+`parallel-parsing.md` records that a whole-extent routed interior's run ends at
+its enclosing node's tail rather than its last mark; `decisions.md` restates the
+folded source's reason for its own extent arithmetic in those terms.
+
+## An island climbs on one chart (2026-10-28)
+
+`decisions.md` records why an island's window grows on one chart instead of
+re-parsing each width, and why that equals a fresh window of the final width.
+
+## A cyclic grammar's fast build takes only families that complete (2026-10-28)
+
+`decisions.md`'s fast-build cycle entry now records the completeness test below
+the key, which replaced avoiding only a child still being built, and why the
+meaning check reads the chains the build took.
+
+## The derivation stream ends a cycle's branch (2026-10-28)
+
+`decisions.md` records that the stream's open set holds only ancestors, that a
+cycle's branch ends instead of emitting a truncated node, that the cut is
+recorded so `is_ambiguous` and the strict parse still count the pumped
+derivation, and the structural completeness check that pins it.
+
+## A shared closer closes each of its pairs (2026-10-28)
+
+`parallel-parsing.md` records that a frame waits for its own pair's closer,
+so two pairs sharing one closer each close their own frame, and why `closes`
+holds the shared one-character objects.
+
+## No character plays two pair roles (2026-10-28)
+
+`parallel-parsing.md` records why `standing_pairs` drops a pair whose
+character also delimits another pair in the other role, and that the walk now
+sweeps its spelling (each character once); `invariants.md` why the windowed
+differential no longer carries a two-role fixture.
+
+## No closer is a mark (2026-10-28)
+
+`parallel-parsing.md` records why `scan_vocabulary` drops pair characters from
+the marks and why the walks carry no closer-as-mark branch; `invariants.md`
+names the two-role shape the windowed differential's fixture holds instead.
+
+## The tables say whether a fast build must watch for cycles (2026-10-28)
+
+`decisions.md` records `DecodeTables.cyclic` deciding where FastTree tracks
+re-entries, the pin unroll restored for tracked builds, and why the grammar
+decides rather than a check on the build loop.
+
+## The fast build builds a zero-width root (2026-10-28)
+
+`decisions.md` records `FastTree.build` returning its holder, and the
+chart-order reading a span keeps when the chart, not the build, read it.
+
+## The fast build stops at a cycle and builds only complete derivations (2026-10-28)
+
+`decisions.md` records the untracked try and its tracked rebuild, the avoid
+set and the explicit refusal, with why every tree they build is complete.
+
+## One Earley fill; the island's span is a readout (2026-10-27)
+
+`decisions.md` records `Kernel.run` skipping empty columns as the one fill, and
+`readout.longest_start_completion` replacing the kernel's second loop.
+
+## A span's flips share one parent index (2026-10-27)
+
+`decisions.md` records `parent_edges` walked once per span, with `dirty_cone`
+reading each flip's cone off it.
+
+## A span's first derivation is read in one place (2026-10-27)
+
+`decisions.md` records `fasttree.first_tree` / `streamed_first` / `FirstTree`
+as the char, token and island routes' one reader, `remembered` folding the
+build it is handed, and the sibling comparison reading a declined sibling off
+the chart.
+
+## The IR façade's lookup is the groups' own data (2026-10-27)
+
+`decisions.md` records the group markers' `SURFACE` data, the derived `_HOMES`,
+and why the `TYPE_CHECKING` block and `__all__` stay literal in the façade.
+
+## Nullability is the grammar's one exact fact (2026-10-27)
+
+`decisions.md` records why `IrAst.nullable()` replaces the five nullability
+computations and what moved. `ir-shapes.md` adds `vanishes` and the fixpoint.
+
+## An item's fixed text, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrItem.unit_literal()`, which eight twins of "a literal,
+exactly once" now read.
+
+## A quantifier answers its own shape (2026-10-27)
+
+`ir-shapes.md` records `IrQuantifier.once/optional/unbounded/repeats/fixed/upper`,
+which replace ten unit-quantifier constants and their spelled-out twins.
+
+## The rule-reference graph is asked in one place (2026-10-27)
+
+`decisions.md`: `lexic.ir.grammar.graph` — references, reach, reachable,
+reaching — replaces eleven walkers and seven closures.
+
+## Earley FIRST over term ids; a run's unit is an exact class (2026-10-27)
+
+`decisions.md` records `first_ids` as Earley's one FIRST, the seed gates read
+from it, run units as exact `IrCharClass`es of any width and polarity, and
+negated runs scanning by exclusion.
+
+## The character-set node has its own module (2026-10-27)
+
+`ir-shapes.md` records that `IrCharClass`, `IrRange` and `MAX_CODEPOINT` live
+in `ir/grammar/charclass.py`, out of `nodes.py`, with their interval algebra.
+
+## A bound field's document order is read, never assumed (2026-10-27)
+
+`decisions.md`: `RuleMap.in_slot_order()` and `ChildOrder.slots` are the
+document-order readers; templating's key/value pick and span collect read them.
+
+## The speculation licence reads the PDA's EXTEND (2026-10-27)
+
+`decisions.md` records why the exclusive-opening clause reads `rule_extensions`,
+built once per analysis for all four readers, and what that costs and fixes.
+
+## An arm of one unit reference, read off the node (2026-10-27)
+
+`ir-shapes.md` adds `IrSequence.sole_ref()` and records that a repeated
+reference is never an arm's rule — the reduce fold's arm table read one as such.
+
+## "Is a run" is spelled once, in ir (2026-10-27)
+
+`ir-shapes.md` and `parallel-parsing.md`: `lexic.ir.is_plain_tuple` replaces the
+stitch's `is_run` and its inline twins; `IrMapping`'s miss path keeps its four
+inline tests, priced.
+
+## The region scan's pairs stand only where every read site delimits (2026-10-27)
+
+`decisions.md`'s pair entry covers both scans: `roles.standing_pairs` is the one
+fixpoint, and `interiors.stray_spellings` answers it for the region scan.
+
+## Arm facts read off the node (2026-10-27)
+
+`ir-shapes.md` records `IrItem.unit_ref()` and `IrRule.sole_arm()`: the
+parallel planners and the reduction read them there instead of keeping copies.
+
+## A region's plan is the plan of the arm its bracket opens (2026-10-27)
+
+`decisions.md` records why a bracket arm that shares its rule now divides: the
+region's opening character resolves the codegen rule its plan binds to.
+
+## A delimited rule hides only what lies inside its delimiters (2026-10-27)
+
+`decisions.md` records why the ownership proof no longer hides a paired or
+interior rule wholesale, and the wrong model hiding it produced.
+
+## A start rule's own bracket divides like any other (2026-10-27)
+
+`decisions.md` records why a region whose rule is the start rule now divides,
+its merged node laid over the shell's own model.
+
+## A pair stands only where every site of its characters delimits (2026-10-27)
+
+`decisions.md` records why `roles` drops a bracket pair whose opener or closer is
+also spelled at a site that delimits nothing, and what the census found.
+
 ## A one-root noise skip is its run pattern (2026-10-12)
 
 `decisions.md` records why `scan_gate_take` reads a one-root gate's noise with
@@ -2608,3 +2962,100 @@ warm and is counted (`replicas.warm_census`).
 
 `decisions.md`'s take-back entry in the present tense; a pin that a taken-back
 item a worker already started is never run twice.
+
+## A left-recursive run splits before its step characters (2026-10-28)
+
+`decisions.md`'s folded-source entry and `parallel-parsing.md`'s plan table: the
+run kind of the folded source, its NON_INITIAL condition, the re-worn base and
+the left-edge join.
+
+## A dead take side forces the stop in the lockstep (2026-10-28)
+
+`decisions.md`'s lockstep table now matches the code in both directions: a stop
+side dead without a guess is TAKE, and a take side dead without a guess,
+outside a side, is STOP_FORCED.
+
+## A sequence's EXTEND is bounded at its leftmost shifting item (2026-10-28)
+
+`decisions.md`: the sequence rule of EXTEND, its leftmost-divergence argument,
+the FIRST_2 window test and its surplus, and the licence entry's six remaining
+json witnesses.
+
+## A both-viable boundary is settled by a live set (2026-10-28)
+
+`decisions.md` adds the live-set entry and marks the lockstep, the guess rule
+and the rank's re-drive superseded; `invariants.md`'s nesting section now
+states the set's bounds and that nothing in a set guesses.
+
+## One complete clone walk; one entry shape per clone (2026-10-28)
+
+`invariants.md`: `all_clones` follows every clone-valued payload and landing
+target, so `mark_sub_roots` sees groups behind `OP_REF1`; `check_entry_shape`
+holds attempt, gated selection and leaf mutually exclusive, a dispatch clone
+exempt.
+
+## A bracketed run separated by a set of leads divides (2026-10-28)
+
+`parallel-parsing.md`'s region-scan section: per-pair lead sets read from the
+separator records, the own-marks filter and its free path, the per-owner,
+per-character safety with the bracket arm's `around` alphabet, and the joint
+lead read from the text.
+
+## A loop is decided where its run ends (2026-10-30)
+
+`decisions.md`'s stop-set entry: the four grants in cascade order, and the
+run-end decision — the closure kinds and their counterexamples, the context
+per clone, and its three refusals.
+
+## A noise-skip peek reads its loop's exit past the noise (2026-11-06)
+
+`decisions.md`'s P3 Decision 3: the exit side as its own residual FIRST, the
+rule's continuation past an open exit, and transparency as "can derive a
+W-only string".
+
+## An exact-match gate yields where its units spell into the follower (2026-11-06)
+
+`decisions.md`'s P6 licence entry: the follower check, how far the follower
+reads, the walk in `extend/prefix.py`, and where a refused loop lands.
+
+## A deferred stop-set that meets a loopback islands its rule (2026-11-06)
+
+`decisions.md`'s stop-set entry: the loopback check, the vyx rules it islands,
+and how a whole-run island's ends reach the attempted iteration.
+
+## An attempt loop at its arm's end audits repeated followers (2026-11-06)
+
+`decisions.md` gains the entry: `beyond_at` reads the soft tail where the arm
+can end at the loop, so a repetition's next iteration is audited.
+
+## A loopback stop-set islands only where its run swallows a closer (2026-11-06)
+
+`decisions.md`'s stop-set entry: the swallowed-closer criterion, and a longest
+take's island settling its ends through the extent verdict.
+
+## A boundary's class reads an enclosing item's next iteration (2026-11-06)
+
+`decisions.md`: the audit-set entry gains the run-time chain walk reading a
+repeated item's next iteration, and the rank entry the iteration that read a
+terminal before its run forked; the live set's meeting rule reads what a
+reading built down its fork chain.
+
+## A meeting reads an audited entry's winner (2026-11-06)
+
+`decisions.md`'s meeting rule: a reading inside an attempt entry under audit
+meets only one with the same winner and rivals.
+
+## An overshooting audited arm is a value question only with another value (2026-11-06)
+
+`decisions.md`'s attempt-gate entry: `_spanned` compares what the arm builds
+over the winner's span.
+
+## A set past its bound steps its crowded places first (2026-11-06)
+
+`decisions.md`'s live-set entry: `_relieved`, before the set forks past
+`SET_MAX`.
+
+## A set past its bound relieves its crowded places round by round (2026-11-06)
+
+`decisions.md`'s live-set entry: `_relieved` repeats while the set is past
+`SET_MAX` and a crowded place remains.

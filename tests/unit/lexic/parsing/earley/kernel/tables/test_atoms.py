@@ -6,11 +6,13 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    IrAlphabet,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrLiteral,
+    IrNone,
     IrNot,
     IrRange,
     IrRule,
@@ -21,8 +23,11 @@ from lexic.ir import (
 from lexic.parsing.earley.kernel.tables.atoms import (
     TIERS,
     RunTerm,
+    Spans,
     atom_accepts,
+    atom_unit,
     expand_atom,
+    may_begin_within,
     tier_for,
 )
 from lexic.parsing.earley.kernel.tables.builder import build_tables
@@ -156,3 +161,115 @@ def test_tier_for_backstop_is_the_last_tier():
     capacity raise stays the backstop."""
     assert tier_for(2 ** TIERS[-1]) == TIERS[-1]
     assert tier_for(2 ** (TIERS[-1] + 1)) == TIERS[-1]
+
+
+# ── may_begin_within: the run proof's question, on unit classes ───────
+
+A_TO_Z = IrCharClass(IrRange(IrChr("a"), IrChr("z")))
+
+
+def _unit(chars: str) -> IrCharClass:
+    return IrCharClass.from_intervals((ord(c), ord(c)) for c in chars)
+
+
+def test_a_class_meets_a_unit_at_either_bound():
+    """``[a-z]`` meets ``{z}`` and ``{a}`` at its edges and misses ``{`, {}``."""
+    assert may_begin_within(A_TO_Z, _unit("z"))
+    assert may_begin_within(A_TO_Z, _unit("a"))
+    assert not may_begin_within(A_TO_Z, _unit("`{"))
+
+
+def test_a_negated_class_meets_what_its_inner_class_leaves_out():
+    """``[^a-z]`` misses a unit inside a-z and meets one partly or wholly outside."""
+    negated = IrNot(A_TO_Z)
+    assert not may_begin_within(negated, _unit("az"))
+    assert may_begin_within(negated, _unit("a0"))
+    assert may_begin_within(negated, _unit("09"))
+
+
+def test_a_wide_class_is_asked_by_its_bounds_not_its_members():
+    """U+0100..U+10FFFF holds ``ā`` and not ``z``: no member is ever listed."""
+    wide = IrCharClass(IrRange(IrChr(chr(0x100)), IrChr(chr(0x10FFFF))))
+    assert may_begin_within(wide, _unit("\u0101"))
+    assert not may_begin_within(wide, _unit("z"))
+
+
+def test_a_co_finite_unit_is_met_by_anything_but_its_exclusions():
+    """``[^"]`` as the unit: a quote follower misses it, a letter meets it."""
+    unit = IrCharClass(IrChr('"')).complement()
+    assert not may_begin_within(IrLiteral('"x'), unit)
+    assert may_begin_within(IrLiteral("x"), unit)
+    assert may_begin_within(IrNot(_unit('"')), unit)
+
+
+def test_a_literal_meets_by_its_first_character_and_the_empty_one_never():
+    """``"-x"`` begins with ``-``; ``"x-"`` does not; ``""`` begins with nothing."""
+    dash = _unit("-")
+    assert may_begin_within(IrLiteral("-x"), dash)
+    assert not may_begin_within(IrLiteral("x-"), dash)
+    assert not may_begin_within(IrLiteral(""), dash)
+
+
+def test_a_token_may_begin_with_anything_though_the_char_scan_skips_it():
+    """The run proof answers yes where the scan filter answers no."""
+    token = IrAlphabet("tokens", IrLiteral("x"))
+    assert may_begin_within(token, _unit("q"))
+    assert not atom_accepts(token, "x")
+
+
+def test_a_run_terminal_has_no_row_and_raises():
+    """A RunTerm only appears in a collapsed layout, which no run proof reads."""
+    run = RunTerm(frozenset("a"), 1, RUN_STR)
+    with pytest.raises(UnsupportedConstructError):
+        may_begin_within(run, _unit("a"))
+
+
+# ── atom_unit and the run terminal's two polarities ───────────────────
+
+
+def test_atom_unit_reads_a_negated_class_as_its_complement():
+    """``[^"]`` is every code point but the quote; a char literal is itself."""
+    unit = atom_unit(IrNot(IrCharClass(IrChr('"'))))
+    assert isinstance(unit, IrCharClass)
+    assert not unit.holds(ord('"')) and unit.holds(0) and unit.holds(0x10FFFF)
+    assert atom_unit(IrLiteral("x")) == _unit("x")
+
+
+def test_atom_unit_refuses_a_longer_literal_and_a_token():
+    """Neither is a one-character unit."""
+    assert atom_unit(IrLiteral("xy")) is IrNone
+    assert atom_unit(IrAlphabet("tokens", IrLiteral("x"))) is IrNone
+
+
+def test_a_run_over_a_co_finite_unit_lists_its_exclusions():
+    """``[^"]``'s run keeps the one excluded quote, negated, and accepts by it."""
+    run = RunTerm.over(IrCharClass(IrChr('"')).complement(), RUN_STR)
+    assert (run.charset, run.negated) == (frozenset('"'), True)
+    assert atom_accepts(run, "x")
+    assert not atom_accepts(run, '"')
+
+
+def test_a_run_over_a_narrow_unit_lists_its_members():
+    """``[a-c]``'s run keeps its three members, positive."""
+    run = RunTerm.over(_unit("abc"), RUN_STR)
+    assert (run.charset, run.negated) == (frozenset("abc"), False)
+    assert atom_accepts(run, "b") and not atom_accepts(run, "d")
+
+
+def test_a_unit_too_large_on_both_sides_runs_on_its_ranges():
+    """U+0000..U+7FFFF and its complement both exceed the listing cap, so the
+    run tests membership by its bounds and lists no first characters."""
+    half = IrCharClass(IrRange(IrChr(0), IrChr(0x7FFFF)), IrChr(0x90000))
+    run = RunTerm.over(half, RUN_STR)
+    assert run.charset == Spans(((0, 0x7FFFF), (0x90000, 0x90000)))
+    assert chr(0) in run.charset and chr(0x7FFFF) in run.charset
+    assert chr(0x80000) not in run.charset and chr(0x90000) in run.charset
+    assert chr(0x90001) not in run.charset
+    assert run.first_chars is None and not run.negated
+
+
+def test_only_a_positive_listed_run_names_its_first_characters():
+    """A narrow run lists them; a negated one has too many to list."""
+    assert RunTerm.over(_unit("ab"), RUN_STR).first_chars == frozenset("ab")
+    negated = RunTerm.over(IrCharClass(IrChr('"')).complement(), RUN_STR)
+    assert negated.first_chars is None

@@ -42,6 +42,13 @@ def sweeping(name: str):
 
 ROWS = [one.name for one in BENCHES]
 
+REGION_ONLY = {
+    "paren-arithmetic": "one paren group: every mark stands inside it, and the "
+    "split is a region plan's, which reads no sweep",
+}
+"""Rows whose split is a region plan's alone: their sweep-reading plans find no
+candidate on the document. Declared, and held to it, so a stale entry fails."""
+
 
 @pytest.mark.parametrize("name", ROWS)
 def test_the_union_does_not_change_what_a_plan_finds(name: str) -> None:
@@ -51,6 +58,9 @@ def test_the_union_does_not_change_what_a_plan_finds(name: str) -> None:
     This is the independence the cascade table rests on: if a plan's answer
     moved when another plan joined the union, running plans one at a time
     would measure a different machine from the one that runs.
+
+    Every row compares at least one candidate, except a declared
+    :data:`REGION_ONLY` row, which must find none.
     """
     bench, grammar, plans = sweeping(name)
     if not plans:
@@ -67,6 +77,9 @@ def test_the_union_does_not_change_what_a_plan_finds(name: str) -> None:
         found += len(listed)
         assert listed == list(alone.marks(0, 0, end)), f"{name}: {plan.owner} moved"
         assert together.offsets == alone.offsets, f"{name}: {plan.owner}'s cuts moved"
+    if name in REGION_ONLY:
+        assert not found, f"{name} is declared region-only, but its plans found {found}"
+        pytest.skip(REGION_ONLY[name])
     assert found, f"{name}: no plan found a candidate — nothing was compared"
 
 
