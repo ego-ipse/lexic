@@ -103,7 +103,7 @@ class AttemptInlineMixin[Carry]:
         """Attempt-aware loop over an inlinable dispatch chase."""
         sink = self._sink_for(frame, arm, i)
         lo, hi = arm.los[i], arm.his[i]
-        (chars, negated), (soft, soft_negated) = arm.gate_data[i]
+        (chars, negated), (soft, soft_negated), _ = arm.gate_data[i]
         count = frame.count
         frame.i = i
         while count < lo:
@@ -154,7 +154,7 @@ class AttemptInlineMixin[Carry]:
         get = arm.payloads[i].chartable.get
         sink = self._sink_for(frame, arm, i)
         bounds = arm.los[i], arm.his[i]
-        (chars, negated), soft = arm.gate_data[i]
+        (chars, negated), soft, _ = arm.gate_data[i]
         count = frame.count
         frame.i = i
         while count < bounds[0]:

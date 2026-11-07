@@ -13,6 +13,8 @@ a function of the clone and the char, not of the cursor.
 
 from __future__ import annotations
 
+from typing import NoReturn
+
 from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
@@ -27,6 +29,7 @@ from lexic.parsing.pda.compiler.program.gating import (
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
+    GATE_ATTEMPT,
     GATE_STOP,
     OP_CC,
     OP_CC1,
@@ -38,7 +41,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_RUNPAT,
 )
 from lexic.parsing.pda.compiler.specs import LongestTake
-from lexic.parsing.pda.core.errors import IslandEscape, PdaFail
+from lexic.parsing.pda.core.errors import IslandEscape, PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import admits
 from lexic.parsing.pda.runtime.build import Frame, InternMemo, build_vstr
 
@@ -167,15 +170,28 @@ def match_cc(text: str, arm: FlatArm, i: int, pos: int) -> int:
             while (hi < 0 or count < hi) and pos < limit and text[pos] not in gchars:
                 pos += 1
                 count += 1
-        else:
-            while (hi < 0 or count < hi) and pos < limit and text[pos] in gchars:
-                pos += 1
-                count += 1
+            return pos
+        while (hi < 0 or count < hi) and pos < limit and text[pos] in gchars:
+            pos += 1
+            count += 1
         return pos
+    if gk == GATE_ATTEMPT:  # a terminal attempt loop: its clear run in one C call
+        limit = limit if hi < 0 else min(limit, pos + hi - count)
+        runs = gate[2]  # the clear run, then the char past it both read
+        pos = runs[0].match(text, pos, limit).end()
+        return pos if runs[1].match(text, pos, limit) is None else _both_viable(pos)
     while (hi < 0 or count < hi) and gate_take(text, pos, gk, gate):
         pos += 1
         count += 1
     return pos
+
+
+def _both_viable(pos: int) -> NoReturn:
+    """Bail a terminal attempt loop at a char both taking and stopping read.
+
+    :raises ProbeFork: Always — with no sub-run to consult, the gated engine decides.
+    """
+    raise ProbeFork(f"attempt loop at {pos}: taking and stopping are both viable", pos)
 
 
 def match_arm(text: str, arm: FlatArm, pos: int) -> int:

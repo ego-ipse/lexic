@@ -114,9 +114,17 @@ def _flatten_gate(gate: LoopGate) -> tuple[int, object]:
 def _flatten_charset_gate(gate: AttemptGate | StopGate) -> tuple[int, object]:
     """The two gates whose payload is char sets alone."""
     if isinstance(gate, AttemptGate):
+        clear = gate.charset.subtract(gate.follow)
+        both = gate.charset.subtract(clear)
         return GATE_ATTEMPT, (
             (gate.charset.chars, gate.charset.negated),
             (gate.follow.chars, gate.follow.negated),
+            # A char-class loop's run in two matches: the FIRST chars stopping
+            # cannot go on with, then whether the char past them is one both read.
+            (
+                compile_source(f"(?:{class_source(clear.chars, clear.negated)})*"),
+                compile_source(class_source(both.chars, both.negated)),
+            ),
         )
     cs = gate.charset
     return GATE_STOP, (cs.chars, cs.negated)

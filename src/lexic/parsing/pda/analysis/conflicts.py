@@ -85,14 +85,23 @@ def defer_stop_set(
     """
     items, k = at
     note = f"{scope.rule}[{k}]: loop stop-set applied"
-    if unexited:
-        notes.picks_extent(f"{note} (runs longest)", STOP_SET)
-        return
     first = analysis.atom_first(items[k].atom)
     soft = analysis.cont_at(items, k, scope.tail)
     loopback = soft.subtract(
         analysis.structural_cont_at(items, k, scope.structural_tail)
     )
+    if unexited and not first.overlaps(loopback):
+        notes.picks_extent(f"{note} (runs longest)", STOP_SET)
+        return
+    if unexited:
+        # A run with no exit in reach still meets a repetition's next iteration:
+        # attempted, it stops there where the take cannot complete.
+        notes.picks_extent(f"{scope.rule}[{k}]: loop iterations attempted", ATTEMPT)
+        if ATTEMPT in notes.grants:
+            analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(
+                items, k, scope
+            )
+        return
     if first.overlaps(loopback) and _swallows_a_site(analysis, scope.rule, first):
         notes.hard.append(f"{scope.rule}[{k}]: loop stop-set meets a loopback")
         return
