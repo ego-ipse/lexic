@@ -953,10 +953,18 @@ def test_a_stop_set_whose_exit_nothing_can_follow_both_ways_is_granted() -> None
 
 
 def test_a_stop_set_with_no_exit_in_reach_runs_longest() -> None:
-    """``item``'s run overlaps only the soft loopback of ``item+``: no clone
-    subtracts anything, so the loop takes the longest run."""
-    demoted, conflicts = stop_set_notes("root ::= item+\nitem ::= [a-z]+\n", "item")
+    """``item``'s run meets nothing past it but the end: no clone subtracts
+    anything, and no next iteration starts inside it, so it runs longest."""
+    demoted, conflicts = stop_set_notes('root ::= item ";"\nitem ::= [a-z]+\n', "item")
     assert demoted == ["item[0]: loop stop-set applied (runs longest)"]
+    assert not conflicts
+
+
+def test_a_stop_set_meeting_its_next_iteration_is_attempted() -> None:
+    """Under ``item+`` the run's own FIRST is where the next ``item`` starts:
+    running longest would swallow it, so the loop's iterations are attempted."""
+    demoted, conflicts = stop_set_notes("root ::= item+\nitem ::= [a-z]+\n", "item")
+    assert demoted == ["item[0]: loop iterations attempted"]
     assert not conflicts
 
 

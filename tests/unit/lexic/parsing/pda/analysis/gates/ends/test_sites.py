@@ -92,16 +92,17 @@ def test_a_loop_its_own_arm_still_needs_text_after_is_settled() -> None:
     assert len(analysis.taxonomy.loops.run) == 1
 
 
-def test_an_unclosed_follower_keeps_the_longest_take() -> None:
+def test_an_unclosed_follower_decides_no_run_end() -> None:
     """``[0-9] [a-z]* ";"`` leads with a restricted prefix of varying length:
-    MIXED, so no context needs any of the run and nothing is decided."""
+    MIXED, so no context needs any of the run and nothing is decided. The next
+    ``item`` can start inside the run, so its iterations are attempted."""
     grammar = (
         'root ::= item+\nitem ::= head tail*\ntail ::= "," e\n'
         'e ::= [a-z0-9]+\nhead ::= [0-9] [a-z]* ";"\n'
     )
     analysis = GrammarAnalysis(_lifted(grammar))
     assert not analysis.taxonomy.loops.run
-    assert analysis.demoted["e"] == ["e[0]: loop stop-set applied (runs longest)"]
+    assert analysis.demoted["e"] == ["e[0]: loop iterations attempted"]
 
 
 def test_an_escaping_stop_set_with_an_unclosed_end_is_not_decided_at_its_end() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from lexic.compile import Directives, compile_text
@@ -91,7 +93,13 @@ def _one_loop_arm(kind: int) -> FlatArm:
         kinds=(kind,),
         los=(0,),
         his=(-1,),
-        gate_data=(((frozenset("a"), False), (frozenset(), False)),),
+        gate_data=(
+            (
+                (frozenset("a"), False),
+                (frozenset(), False),
+                (re.compile("(?:[a])*"), re.compile("(?!)")),
+            ),
+        ),
         payloads=(None,),
     )
 
