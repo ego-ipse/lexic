@@ -34,7 +34,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import AttemptBoundary, PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import compile_source
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 
@@ -397,3 +397,14 @@ def test_a_window_pattern_takes_where_the_gate_does(case: str) -> None:
 def test_a_window_past_two_positions_has_no_pattern() -> None:
     """Three positions deep is not a run's character: the gate keeps its loop."""
     assert window_source(((_AB, _DASH, _AB),)) is None
+
+
+def test_a_terminal_attempt_loop_bails_at_a_both_viable_char_as_an_attempt_boundary():
+    """A char both the FIRST and the soft continuation take is the attempt
+    driver's question; a terminal loop has no sub-run to ask it of, so the gate
+    raises an AttemptBoundary — a ProbeFork wherever nothing answers it."""
+    gate = ((frozenset({";"}), False), (frozenset({";"}), False))
+    with pytest.raises(AttemptBoundary) as boundary:
+        gate_take("a;", 1, GATE_ATTEMPT, gate)
+    assert isinstance(boundary.value, ProbeFork)
+    assert boundary.value.pos == 1

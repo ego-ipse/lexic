@@ -13,7 +13,14 @@ from typing import Any
 
 from lexic.exceptions import UnsupportedConstructError
 
-__all__ = ["IslandEscape", "IslandRefusal", "PdaFail", "ProbeFork", "Suspended"]
+__all__ = [
+    "AttemptBoundary",
+    "IslandEscape",
+    "IslandRefusal",
+    "PdaFail",
+    "ProbeFork",
+    "Suspended",
+]
 
 
 class PdaFail(Exception):
@@ -92,6 +99,17 @@ class ProbeFork(PdaFail):
     ran into a further undecidable boundary, so the stop side is treated as
     viable (over-approximation — every uncertain answer lands on bail, never
     on a silent commit).
+    """
+
+
+class AttemptBoundary(ProbeFork):
+    """An attempt-gated terminal loop met, in a frame-less match, a character
+    both its iteration and its soft continuation take.
+
+    The take-or-stop question there is the attempt driver's, which only the
+    frame walk runs; a terminal loop has no sub-run to consult. Wherever it is
+    not answered it is the :class:`ProbeFork` it subclasses — the parse bails,
+    and the gated engine answers.
     """
 
 

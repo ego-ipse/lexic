@@ -631,7 +631,7 @@ def _arm_walk(
             if pos < 0:
                 return _DEAD, pos
             continue
-        width = _terminal_width(arm, j, text, pos)
+        width = terminal_width(arm, j, text, pos)
         if width == -2:  # not a terminal: a reference, island or fail
             if item_admits(arm, j, text[pos : pos + 1]):
                 return _OPEN, pos
@@ -651,7 +651,7 @@ def _arm_walk(
     return _ON, pos
 
 
-def _terminal_width(arm: FlatArm, j: int, text: str, pos: int) -> int:
+def terminal_width(arm: FlatArm, j: int, text: str, pos: int) -> int:
     """How much one occurrence of literal or class item ``j`` matches at
     ``pos``: its width, ``-1`` when it cannot, ``-2`` when it is no terminal."""
     kind, payload = arm.kinds[j], arm.payloads[j]

@@ -45,7 +45,9 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    OP_LEAF1,
     OP_REF1,
+    OP_V1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.product.abi.construction import ProductValue
@@ -63,6 +65,12 @@ INTERN_MISS = InternMiss.TOKEN
 is never mistaken for a hit)."""
 
 # ── the frame ──────────────────────────────────────────────────────────────
+
+
+_MOVED_ON = (OP_REF1, OP_V1, OP_LEAF1)
+"""The exactly-once kinds a frame can stand past while the frame above it runs:
+``OP_REF1``, which moves the frame on before it descends, and an exactly-once
+value or leaf reference."""
 
 
 class Frame[Carry]:
@@ -166,11 +174,12 @@ class Frame[Carry]:
 
         ``OP_REF1`` moves the frame on before it descends, so such a frame,
         which holds no loop count, is in the item before :attr:`i`; a
-        quantified descent always holds one. An attempt with none committed
-        reads as the reference: a superset.
+        quantified descent always holds one. An exactly-once value or leaf
+        reference before :attr:`i` is read the same way (:data:`_MOVED_ON`).
+        An attempt with none committed reads as the reference: a superset.
         """
         at = self.i
-        if at and self.count == 0 and self.arm.kinds[at - 1] == OP_REF1:
+        if at and self.count == 0 and self.arm.kinds[at - 1] in _MOVED_ON:
             return at - 1
         return at
 

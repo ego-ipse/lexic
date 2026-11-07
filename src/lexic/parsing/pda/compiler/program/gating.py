@@ -33,7 +33,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_STOP,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
+from lexic.parsing.pda.core.errors import AttemptBoundary, PdaFail
 from lexic.parsing.pda.core.scanner import class_source, scan_gate_take
 
 type FlatWindow = tuple[tuple[frozenset[str], bool], ...]
@@ -242,7 +242,7 @@ def _attempt_admits(text: str, pos: int, gate: Any) -> bool:
     if take:
         fchars, fnegated = gate[1]
         if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
-            raise ProbeFork(
+            raise AttemptBoundary(
                 f"attempt loop at {pos}: taking and stopping are both viable", pos
             )
     return take

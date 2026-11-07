@@ -33,9 +33,11 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_TEXT,
     M_VALUE,
+    OP_LEAF1,
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_V1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
@@ -544,3 +546,18 @@ def test_a_frame_is_suspended_in_the_reference_it_advanced_past():
     assert frame.suspended() == 1
     frame.i = 0
     assert frame.suspended() == 0
+
+
+@pytest.mark.parametrize("kind", [OP_V1, OP_LEAF1])
+def test_a_frame_past_an_exactly_once_value_reference_is_suspended_in_it(
+    kind: int,
+) -> None:
+    """An exactly-once value or leaf reference before :attr:`Frame.i`, with no
+    loop count held, is read as the item the frame stands in, as ``OP_REF1``
+    is; a counted item stands at its own index."""
+    arm = flat_arm(3, kinds=(kind, OP_REF, OP_LIT1), payloads=(None, None, "!"))
+    frame = Frame(arm, [], flat_clone(), 0)
+    frame.i, frame.count = 1, 0
+    assert frame.suspended() == 0
+    frame.count = 1
+    assert frame.suspended() == 1
