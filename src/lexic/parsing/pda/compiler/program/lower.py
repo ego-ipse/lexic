@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     PdaProgram,
     WideSelect,
+    can_nest,
     clone_arms,
     mark_sub_roots,
 )
@@ -657,4 +658,5 @@ def flatten_program(
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )
-    return PdaProgram(start)
+    nests = isinstance(start, FlatClone) and can_nest(list(shells.values()))
+    return PdaProgram(start, nests=nests)

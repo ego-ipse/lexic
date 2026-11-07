@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -89,6 +90,24 @@ def test_rule_seeds_pair_shifted_code_matches_dot0():
     for shifted, _sym in tables.codes.rule_seeds[s_rid]:
         dot0_code = shifted >> ORIGIN_BITS
         assert shifted == dot0_code << ORIGIN_BITS
+
+
+def test_unit_start_marks_exactly_the_single_reference_arms() -> None:
+    """``A → • B`` and nothing else: an arm that is one rule reference opens
+    with its flag set; a longer arm, a terminal arm and the empty arm do not."""
+    grammar = normalize(
+        compile_text('s ::= a | "x" a | "y"\na ::= "z" | \n').codegen_grammar
+    )
+    codes = compile_tables(grammar).codes
+    flagged = {code for code, unit in enumerate(codes.unit_start) if unit}
+    expect = {
+        base
+        for base in codes.arm_base
+        if codes.next_sym[base] > 0 and codes.next_sym[base + 1] == 0
+    }
+    assert flagged == expect
+    assert flagged, "no single-reference arm — the test proves nothing"
+    assert len(flagged) < len(codes.arm_base), "every arm is a unit — nothing refused"
 
 
 def test_advance_is_one_shifted_by_origin_bits():

@@ -18,6 +18,7 @@ write (it inserts the top item) and calls the climb here.
 
 from __future__ import annotations
 
+from lexic.exceptions import EngineInvariantError
 from lexic.parsing.earley.kernel.loop.state import KernelState, KLink
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 
@@ -39,26 +40,42 @@ def leo_resolve(
     """Leo's transitive (topmost) item for completing ``rid`` at ``col``.
 
     Climbs the deterministic chain, memoising per closed column (the current
-    column ``cur`` is recomputed — its waiters may still grow). A **same-column**
-    (empty-span) step stops the climb: those steps are cycle- and
-    ambiguity-prone and carry no asymptotic benefit (Leo's payoff is
-    cross-column right recursion), so the normal completer — which records every
-    family — handles them. Columns then strictly decrease up the climb, so
-    termination needs no cycle guard.
+    column ``cur`` is recomputed — its waiters may still grow). A
+    **same-column** (empty-span) step stops the climb — those steps are cycle-
+    and ambiguity-prone — except one through a unit arm ``A → • B``
+    (:attr:`~lexic.parsing.earley.kernel.tables.records.CodeTables.unit_start`):
+    an alternation's arms are unit references after the arm hoist, so a right
+    recursion through one would otherwise re-climb from every level. The climb
+    steps past it to ``A``'s own sole waiter there, and goes on only if that
+    one crosses columns, so no unit cycle loops, columns strictly decrease
+    after the one step, and termination needs no cycle guard. ``(col, A)`` is
+    not climbed for itself, so its memo neither serves nor records the step.
+    ``col`` is closed — a climb starts below ``cur`` and descends — so
+    ``waiting[col]`` is final and the two completions skipped, ``A → B •`` and
+    ``A``'s, have no other consumer.
 
     :returns: The packed topmost item, or ``-1``.
+    :raises EngineInvariantError: Should a unit step be passed in ``cur``.
     """
     leo_col = st.leo[col]
     if col != cur:
         memo = leo_col.get(rid)
         if memo is not None:
             return memo
-    pk = tables.packing
+    pk, c = tables.packing, tables.codes
     found = leo_sole(st, tables, col, rid)
-    if found < 0 or (found & pk.mask) == col:
-        result = -1  # no sole waiter, or an empty-span step — no jump
+    if found >= 0 and found & pk.mask == col:  # an empty-span step
+        if not c.unit_start[found >> pk.bits]:
+            found = -1
+        elif col >= cur:
+            raise EngineInvariantError(f"leo: a unit step passed in open column {col}")
+        else:  # the unit arm's rule's own waiter, if it crosses columns
+            found = leo_sole(st, tables, col, c.arm_rule[c.code_arm[found >> pk.bits]])
+            if found >= 0 and found & pk.mask == col:
+                found = -1
+    if found < 0:
+        result = -1  # no sole waiter, or a refused empty-span step — no jump
     else:
-        c = tables.codes
         parent = leo_resolve(
             st, tables, cur, found & pk.mask, c.arm_rule[c.code_arm[found >> pk.bits]]
         )

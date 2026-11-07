@@ -21,7 +21,6 @@ from lexic.ir import (
     IrAst,
     IrItem,
     IrLeaf,
-    IrNoneType,
     IrRuleRef,
     IrSelf,
 )
@@ -126,8 +125,8 @@ def _seq_longest(
             one = 1
         if one == 0:
             continue
-        hi = item.quantifier.hi
-        total += _DELEGATE_MIN_ATOMS if isinstance(hi, IrNoneType) else one * int(hi)
+        hi = item.quantifier.upper()
+        total += _DELEGATE_MIN_ATOMS if hi is None else one * hi
     return min(total, _DELEGATE_MIN_ATOMS)
 
 

@@ -27,7 +27,7 @@ LEFT_RECURSIVE = 'root ::= x\nx ::= y "a" | "b"\ny ::= x\n'
 
 Direct left recursion no longer islands: the fold rewrites `A ::= A β | γ` to
 `(γ)(β)*` and builds the model back
-(:mod:`lexic.parsing.pda.compiler.leftrec.rewrite`). What still islands is the
+(:mod:`lexic.parsing.pda.compiler.descent.leftrec.rewrite`). What still islands is the
 recursion the fold refuses, and this is the smallest such shape — a fixture for
 island behaviour has to be one the fold does not take, or it pins nothing."""
 

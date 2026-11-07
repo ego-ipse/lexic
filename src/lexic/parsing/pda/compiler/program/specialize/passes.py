@@ -22,15 +22,18 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     all_clones,
+    check_entry_shape,
     clone_arms,
     no_fast_construction,
     vstr_model,
 )
+from lexic.parsing.pda.compiler.program.gating import window_source
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_VALUE_STR,
     GATE_ATTEMPT,
+    GATE_KWIN,
     GATE_STOP,
     OP_AVDISP,
     OP_AVSTR,
@@ -56,6 +59,7 @@ from lexic.parsing.pda.compiler.program.specialize.frameless import (
     vdisp_target,
     vstr_inlinable,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import Pattern, class_source, compile_source
 
 NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
@@ -212,25 +216,41 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
 def run_pattern(run: "FlatArm | None") -> "FlatArm | None":
     """A nullable one-class run as the one pattern its loop is, else as it is.
 
-    With no mandatory iteration the loop takes characters while its stop gate
+    With no mandatory iteration the loop takes characters while its gate
     admits them, up to its bound, and can never refuse: exactly what
     ``[gate]{0,hi}`` matches, in one C-level call instead of a Python
-    iteration per character. A run with a mandatory iteration keeps its loop,
-    whose miss is a refusal with its own words; so does any gate but a stop
-    set. The arm keeps the run's stop gate, so an empty run is answered by its
-    first character without the match call (:data:`OP_RUNPAT`).
+    iteration per character. A stop set is its class; a window gate two
+    characters deep is its windows' fragment (:func:`window_source`). A run
+    with a mandatory iteration keeps its loop, whose miss is a refusal with
+    its own words; so does any other gate. The arm keeps the characters its
+    gate can take first, so an empty run is answered by its first character
+    without the match call (:data:`OP_RUNPAT`).
     """
     if run is None or run.kinds[0] != OP_CC or run.los[0] != 0:
         return run
-    if run.gate_kinds[0] != GATE_STOP:
+    gate = run.gate_data[0]
+    if run.gate_kinds[0] == GATE_STOP:
+        source, lead = class_source(*gate), gate
+    elif run.gate_kinds[0] == GATE_KWIN:
+        source, lead = window_source(gate), _leads(gate)
+    else:
         return run
-    chars, negated = run.gate_data[0]
+    if source is None:
+        return run
     hi = run.his[0]
     bound = "*" if hi < 0 else f"{{0,{hi}}}"
-    arm = _pattern_arm(compile_source(class_source(chars, negated) + bound))
+    arm = _pattern_arm(compile_source(source + bound))
     arm.kinds = (OP_RUNPAT,)
-    arm.gate_data = run.gate_data
+    arm.gate_data = (lead,)
     return arm
+
+
+def _leads(windows: Any) -> tuple[frozenset[str], bool]:
+    """Every character a window gate can take first, as one membership set."""
+    lead = CharSet.EMPTY
+    for window in windows:
+        lead = lead.union(CharSet(*window[0]))
+    return lead.chars, lead.negated
 
 
 def _pattern_arm(pattern: Pattern) -> FlatArm:
@@ -606,3 +626,4 @@ def optimize_program(
         _specialize_leaf_refs(clone)
     for clone in clones:
         mark_entry(clone)
+        check_entry_shape(clone)

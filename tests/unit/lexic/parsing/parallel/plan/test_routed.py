@@ -29,8 +29,12 @@ from lexic.parsing.parallel.plan.routed import (
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_PIECE
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
+    TAILED,
+    TAILED_LINE,
+    TAILS,
     routed_document,
     routed_pieces,
+    tailed_document,
 )
 
 MARKDOWN_GRAMMAR = 'root ::= fence+\nfence ::= [a-z]+ "\\n"\n'
@@ -319,3 +323,31 @@ def test_a_cut_far_under_the_floor_walks_to_the_next_mark() -> None:
     assert pieces is not None
     assert [len(piece) for piece in pieces] == [4002, 1502, 1402, 1702]
     assert min(len(piece) for piece in pieces) >= MIN_PIECE
+
+
+# ── a whole-extent interior ends where its tail begins ────────────────────
+
+
+@pytest.mark.parametrize("shape", TAILED)
+def test_a_whole_extent_run_ends_where_the_tail_begins(shape: str) -> None:
+    """Every line's newline is a mark of the run, the last line's included:
+    the tail, not the last mark, closes the region."""
+    plan = routed_plan(_grammar(TAILED[shape] + TAILED_LINE))
+    assert plan is not None and plan.whole and plan.closing == TAILS[shape]
+    text = tailed_document(shape, 40)
+    region = locate(text, plan)
+    assert region is not None
+    tail = len(text) - len(plan.after) - len(TAILS[shape])
+    lines = [at for at in range(len(plan.before), tail) if text[at] == "\n"]
+    assert (region.closer, region.marks) == (tail, tuple(lines))
+    assert len(region.marks) == 40
+
+
+@pytest.mark.parametrize("tail", ["", ","])
+@pytest.mark.parametrize("shape", ["dot", "dot-wrapped"])
+def test_a_document_not_ending_in_the_tail_has_no_region(shape: str, tail: str):
+    """A missing or wrong tail is no instance of the enclosing node, so there
+    is no region to divide and nothing is parsed for it."""
+    plan = routed_plan(_grammar(TAILED[shape] + TAILED_LINE))
+    assert plan is not None
+    assert locate(tailed_document(shape, 40, tail), plan) is None

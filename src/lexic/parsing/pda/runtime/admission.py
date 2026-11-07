@@ -27,19 +27,18 @@ from lexic.parsing.pda.runtime.build import (
 __all__ = [
     "NESTING_DEPTH",
     "NO_ROUTE",
-    "PARSE_NESTING",
     "RunScope",
     "Audit",
     "Floor",
     "RouteLane",
     "Side",
     "control_signature",
-    "pending_values",
-    "value_shape",
     "KernelCaches",
     "admits",
     "composes",
+    "forks_deep",
     "frames_copy",
+    "admitted",
     "sole_admitted",
 ]
 
@@ -53,7 +52,14 @@ type Floor = tuple[
     list[Any],
     list[Any],
     Frame | None,
-    tuple[FlatClone, list[Any], int, tuple[int, list[Any]] | None] | None,
+    tuple[
+        FlatClone,
+        list[Any],
+        int,
+        tuple[int, list[Any]] | None,
+        list[tuple[int, list[Any]]] | None,
+    ]
+    | None,
 ]
 """One attempt sub-run a boundary side was forked inside, as the side settles it.
 
@@ -62,12 +68,17 @@ frame; where it began; the side's list its root reports into; the live list's
 prefix those values follow; and its caller — ``loop``, the side's frame whose
 attempted iteration it is, or ``entry``, the attempt clone, the side's list
 the winner splices into, the entry's index and — for an entry the attempt is
-AUDITING — the winner's ``(end, values)``. Exactly one caller is set."""
+AUDITING — the winner's ``(end, values)`` and the rivals found so far. Exactly
+one caller is set. The live drive keeps the same record for a sub-run it
+suspended (:class:`~...core.errors.Suspended`)."""
 
-type Audit = tuple[int, Any, int, int, tuple[int, list[Any]]]
+type Audit = tuple[
+    int, Any, int, int, tuple[int, list[Any]], list[tuple[int, list[Any]]] | None
+]
 """One audit run in flight, as a fork inside it needs it: ``(depth, clone,
-entry, pos, won)`` — the depth its sub-run roots at, the attempt clone, the
-entry it runs, the attempt position and the winner's ``(end, values)``."""
+entry, pos, won, rivals)`` — the depth its sub-run roots at, the attempt clone,
+the entry it runs, the attempt position, the winner's ``(end, values)`` and
+the rivals found before this entry."""
 
 type Side = tuple[
     list[Any],
@@ -103,6 +114,22 @@ def admits(char: str, chars: Any, negated: Any) -> bool:
     return (char != "" and char not in chars) if negated else char in chars
 
 
+def admitted(entry: tuple[Any, ...], text: str, pos: int, char: str) -> bool:
+    """Whether an attempt ``entry`` admits ``text`` at ``pos``, ``char`` there:
+    its lead characters, its arm's literal prefix, and its window.
+
+    The one statement of the test: :func:`sole_admitted` and the attempt's
+    two entry loops read it in place, being the hottest sites that ask it."""
+    chars, negated, prefix, window, _sub = entry
+    if chars is not None and (
+        (char == "" or char in chars) if negated else (char not in chars)
+    ):
+        return False
+    if prefix is not None and prefix.match(text, pos) is None:
+        return False
+    return window is None or window.match(text, pos) is not None
+
+
 def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     """The single admitted entry's clone, or ``None`` when several admit.
 
@@ -116,7 +143,7 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     char = text[pos : pos + 1]
     sole = None
     for chars, negated, prefix, window, sub in entries:
-        # `admits` read in place — this scan is the densest call site in the
+        # `admitted` read in place — this scan is the densest call site in the
         # engine (1.72 per character of vyx corpus), and the test is a set
         # membership either way.
         if chars is not None and (
@@ -144,69 +171,71 @@ def composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
-PARSE_NESTING = 256
-"""How many nested verdicts one parse may ask over all its retries, delegate
-sub-runs' included: each costs a drive to the end of the input, and past it a
-forked verdict goes to the gated engine as without a retry. The most any of
-4,181 documents asked is 117 (decision families, ground truth, 200 generated
-vyx documents, the roster)."""
-
-
 class RunScope:
-    """Where one kernel's run stands in its parse: the nested verdicts its
-    retry may still ask, the parse's allowance — shared with the delegate
-    sub-runs the parse starts — and whether its text and root are the
-    document's.
+    """Where one kernel's run stands in its parse — whether its text and root
+    are the document's — and what its live sets already know.
 
-    :ivar retry: How many nested verdicts the retry being asked may still run;
-        ``0`` outside a retry (no boundary inside a side forks).
-    :ivar root: The parse's own scope, whose ``left`` is the allowance.
-    :ivar left: What is left of the allowance; a delegate's is never read.
+    :ivar delegate: Whether the run is a delegate's sub-run inside a parse,
+        whose root may end anywhere in the island's window.
     :ivar cut: Whether the run reads a truncated text, whose end is not the
         document's.
+    :ivar ranks: Whether a live set of this run has needed a rank, so later
+        sets keep ledgers from the start.
+    :ivar answers: The answers a decided live set left for the boundaries the
+        live drive meets next, last first, each with the boundary it answers
+        (:func:`~...verdicts.liveset.planned`).
+    :ivar nested: How many attempt sub-runs stand on the Python stack.
+    :ivar bound: How many may before one drives the rest by settling them
+        (``Attempting._attempt_run``) — the parse's in-place depth, set by
+        the kernel.
+    :ivar catching: Which drive a sub-run settling the suspended ones stands
+        in — one past the probing level it drives at, ``0`` for none: once
+        one does, every sub-run past it in the same drive suspends. A side's
+        drive is a level of its own, and a context that puts state back
+        clears it.
     """
 
-    __slots__ = ("cut", "left", "retry", "root")
+    __slots__ = ("answers", "bound", "catching", "cut", "delegate", "nested", "ranks")
 
+    answers: list[tuple[tuple[Any, ...], int]]
+    bound: int
+    catching: int
     cut: bool
-    left: int
-    retry: int
-    root: RunScope
+    delegate: bool
+    nested: int
+    ranks: bool
 
-    def __init__(self, root: RunScope | None = None) -> None:
-        """A kernel outside any retry, drawing on ``root``'s allowance — a
-        fresh one (:data:`PARSE_NESTING`) for a parse of its own."""
+    def __init__(self, delegate: bool = False) -> None:
+        """A run over the whole text, its sets knowing nothing yet."""
+        self.answers = []
+        self.bound = 0
+        self.catching = 0
         self.cut = False
-        self.left = PARSE_NESTING if root is None else 0
-        self.retry = 0
-        self.root = self if root is None else root
+        self.delegate = delegate
+        self.nested = 0
+        self.ranks = False
 
     def whole(self) -> bool:
         """Whether the text is the whole document and the stack's root its
         root: not a delegate's run, whose root may end anywhere in a window,
         nor a run over a truncated text. Only then may a stop side be refuted
         against the text (:func:`~...matchers.stop_side_dead`)."""
-        return self.root is self and not self.cut
+        return not (self.delegate or self.cut)
 
-    def open(self, most: int) -> bool:
-        """Start a retry with up to ``most`` of the allowance; whether any was
-        left."""
-        root = self.root
-        self.retry = min(most, root.left)
-        root.left -= self.retry
-        return self.retry > 0
+    def answered(self, stack: list[Frame[Any]], pos: int, ways: int) -> int:
+        """The way a decided set already chose at this boundary, or ``-1``.
 
-    def close(self) -> None:
-        """End the retry, giving back what it did not ask."""
-        self.root.left += self.retry
-        self.retry = 0
-
-    def take(self) -> bool:
-        """Spend one of the retry's nested verdicts, if it has one left."""
-        if not self.retry:
-            return False
-        self.retry -= 1
-        return True
+        The next planned answer is the one for the boundary the live drive
+        meets next; a boundary that is not it drops the plan.
+        """
+        answers = self.answers
+        if not answers:
+            return -1
+        planned, kept = answers.pop()
+        if planned == (*control_signature(stack, pos), ways):
+            return kept
+        answers.clear()
+        return -1
 
 
 class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
@@ -215,24 +244,15 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar deleg: Island name → its wrapped interior delegate table.
     :ivar intern: The sub-model intern memo (repeated identical sub-models
         built once and shared within one run).
-    :ivar probing: How many probes are live. Non-zero means a boundary is
-        resolved GREEDILY by class rather than by forking again, unless a
-        forked verdict asked again nests a verdict there (``scope``). A
-        counter rather than a flag because :meth:`_advance` counts its own
-        drive too, and the nesting depth is read off it.
+    :ivar probing: How many side drives are live. Non-zero means a
+        both-viable boundary splits the reading being driven rather than
+        deciding (:class:`~...verdicts.liveset.Split`). A counter rather than
+        a flag because each :meth:`_advance` counts its own drive.
     :ivar audits: The audit runs in flight, innermost last — one record per
         audited entry run, pushed around it, read only by a fork inside one.
-    :ivar uncertain: Set when a probe's drive resolved a both-viable
-        boundary GREEDILY (forks nest one level, and only by convergence —
-        the exponential chain of a rules-list grammar probing every later
-        line is cut to one linear drive); the probe's outcome is then a
-        SAMPLED path, and the outer verdict treats it conservatively — an
-        uncertain outcome on a decisive side reads as a fork, which is a
-        fallback, never a wrong commit.
     :ivar side: The side being driven, or ``None`` outside a side's drive —
         what a fork inside it copies its unsettled sub-runs and root from.
-    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`)
-        — its retry's nested verdicts, the allowance, whether it is whole.
+    :ivar scope: Where this kernel's run stands in its parse (:class:`RunScope`).
     """
 
     __slots__ = (
@@ -242,7 +262,6 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         "probing",
         "scope",
         "side",
-        "uncertain",
     )
 
     audits: list[Audit]
@@ -251,30 +270,36 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     probing: int
     scope: RunScope
     side: Side | None
-    uncertain: bool
 
-    def __init__(self, scope: RunScope | None = None) -> None:
-        """Seed the memos empty, the probe depth zero, certainty clean, and the
-        run's scope — one inside ``scope``'s parse when a parse runs this
-        kernel inside it."""
+    def __init__(self, delegate: bool = False) -> None:
+        """Seed the memos empty, the probe depth zero, and the run's scope —
+        a delegate's sub-run when a parse runs this kernel inside it."""
         self.audits = []
         self.deleg = {}
         self.intern = {}
-        self.scope = RunScope(None if scope is None else scope.root)
         self.probing = 0
+        self.scope = RunScope(delegate)
         self.side = None
-        self.uncertain = False
 
 
 NESTING_DEPTH = 16
-"""How many forks deep a stack copy may already be, and so how many sides deep
-a retried verdict nests one of its own (:meth:`~...verdicts.Verdicts._nests`).
+"""How many forks deep a stack copy may already be — how many splits a live
+set's reading may come through (:class:`~...verdicts.liveset.Split`).
 
-A STACK bound, not a cost one: the retry's budget of nested verdicts bounds the
-cost, while each level costs some twelve interpreter frames, so sixteen stay
-far inside the recursion limit. Measured on the decision families: four
-levels keep every rejection the engine made unnested, and none past six
-settles anything more."""
+A STACK bound, not a cost one: the set's own bounds bound the cost, while a
+copy's build reads its prefix back through every level, so sixteen stay far
+inside the recursion limit. A split past it is a bound the set names."""
+
+
+def forks_deep(stack: list[Frame[Any]]) -> int:
+    """How many forks deep ``stack``'s copies already are, read off its ROOT
+    frame: never popped before the drive reaches end of input, where the top
+    frame is fresh and would prove nothing."""
+    depth, origin = 0, stack[0].inherited if stack else None
+    while origin is not None:
+        depth += 1
+        origin = origin.inherited
+    return depth
 
 
 def frames_copy[Carry](
@@ -292,12 +317,12 @@ def frames_copy[Carry](
 
     **The containers fork EMPTY.** A fork needs the values it BUILDS; the
     prefix it inherited is common to every side by construction, which is the
-    same fact :func:`pending_values` relies on to compare deltas rather than
-    whole states. Copying that prefix made a linear number of forks each copy
-    a linearly-growing sink — and it is a prefix almost nothing goes on to
-    read, so the work was quadratic in the fork count and wasted besides. On a
-    256 KB gbnf-meta document the copies moved 407 M list elements, of which
-    the builds read 14,632 back. That is what the eighth
+    same fact the live set's meetings rely on to compare what each reading
+    built rather than whole states. Copying that prefix made a linear number of
+    forks each copy a linearly-growing sink — and it is a prefix almost nothing
+    goes on to read, so the work was quadratic in the fork count and wasted
+    besides. On a 256 KB gbnf-meta document the copies moved 407 M list
+    elements, of which the builds read 14,632 back. That is what the eighth
     :class:`~lexic.parsing.pda.runtime.build.Frame` slot buys: ``inherited``
     costs one pointer per frame and removes the copy entirely.
 
@@ -313,15 +338,10 @@ def frames_copy[Carry](
     :param remap: Filled with each original container's copy, by ``id``, for
         a caller that must find the copies of lists it holds off the stack.
     """
-    # The ROOT frame, because it is never popped before the drive reaches end
-    # of input; the top frame is fresh and would prove nothing. Raised rather
-    # than asserted because `-O` strips asserts and a nested fork builds a
+    # Raised rather than asserted because `-O` strips asserts and a nested fork builds a
     # SHORT model silently; the class says why it is outside the LexicError
     # family. See `invariants.md`.
-    depth, origin = 0, stack[0].inherited if stack else None
-    while origin is not None:
-        depth += 1
-        origin = origin.inherited
+    depth = forks_deep(stack)
     if depth > NESTING_DEPTH:
         raise EngineInvariantError(
             f"frames_copy: a fork {depth + 1} deep — forks nest "
@@ -543,70 +563,3 @@ def _count_key(frame: Frame) -> int:
     if arm.his[i] >= 0 or count < arm.los[i]:
         return count
     return _COUNT_FREE
-
-
-def value_shape(stack: list[Frame]) -> tuple[Any, ...]:
-    """Every value container's length — the watermark taken AT the boundary.
-
-    Both sides of a boundary are copies of one live stack, so everything
-    already in a container when the fork was taken is identical between them
-    by construction. Only what is appended AFTER can differ, and this is what
-    lets :func:`pending_values` compare the delta instead of the whole
-    accumulated state — the difference between O(built-since) and O(built), and
-    the difference between a linear parse and a quadratic one.
-
-    Taken on the LIVE stack, whose containers hold what they hold. A fork's
-    containers start empty (:func:`frames_copy`), so its own values are
-    everything past a watermark of zero — and :func:`pending_values` reads a
-    container shorter than its watermark as "replaced, compare whole", which
-    on a forked side is exactly its own values and nothing else.
-    """
-    return tuple(
-        (
-            len(frame.out),
-            ()
-            if frame.sinks is None
-            else tuple(0 if slot is None else len(slot) for slot in frame.sinks),
-        )
-        for frame in stack
-    )
-
-
-def pending_values(stack: list[Frame], shape: tuple[Any, ...] = ()) -> tuple[Any, ...]:
-    """Every value a probe side has built SINCE ``shape`` was taken.
-
-    Containers grow by append, so the watermark's prefix is common to both
-    sides and re-comparing it is pure waste — measured as 92% of the parse and
-    the whole of its residual superlinearity. A container that came back
-    SHORTER than its watermark was not appended to but replaced, and there the
-    watermark means nothing: it is compared whole, which is the conservative
-    reading.
-
-    Frames deeper than ``shape`` did not exist at the boundary and are compared
-    in full.
-
-    Aliased containers (a frame's ``out`` IS a parent's sink slot) are read
-    twice; harmless for an equality test, and cheaper than resolving identity.
-    """
-    out: list[Any] = []
-    for depth, frame in enumerate(stack):
-        was_out, was_sinks = shape[depth] if depth < len(shape) else (0, ())
-        out.append(_since(frame.out, was_out))
-        sinks = frame.sinks
-        if sinks is None:
-            out.append(())
-            continue
-        out.append(
-            tuple(
-                ()
-                if slot is None
-                else _since(slot, was_sinks[k] if k < len(was_sinks) else 0)
-                for k, slot in enumerate(sinks)
-            )
-        )
-    return tuple(out)
-
-
-def _since(container: list[Any], mark: int) -> tuple[Any, ...]:
-    """``container``'s tail past ``mark`` — or all of it if it shrank."""
-    return tuple(container) if len(container) < mark else tuple(container[mark:])

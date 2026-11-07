@@ -50,7 +50,6 @@ from lexic.parsing.earley.normalize import normalize
 from tools.benchmark.emitters.charsets import (
     CharSet,
     normalized,
-    of_points,
 )
 from tools.benchmark.emitters.directives import NO_MARKS, Marks, inlined_marks
 
@@ -206,7 +205,7 @@ def lexical_layer(ast: IrAst) -> Runs:
         unit = _unit_of(bodies[name])
         if unit is not None:
             runs[IrItem(unit.atom, _STAR if empty else _PLUS)] = RunTerminal(
-                of_points(chars), empty
+                normalized(chars.intervals()), empty
             )
     return runs
 

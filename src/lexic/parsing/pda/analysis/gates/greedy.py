@@ -33,17 +33,10 @@ condition — a certifier that guesses is worse than none, because it is believe
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Mapping, Protocol, Sequence
 
-from lexic.ir import IrNone
-from lexic.ir.grammar.nodes import (
-    IrAlternation,
-    IrCharClass,
-    IrItem,
-    IrLiteral,
-    IrRule,
-    IrRuleRef,
-)
+from lexic.ir.grammar.charclass import IrCharClass
+from lexic.ir.grammar.nodes import IrAlternation, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.parsing.pda.analysis.gates.kwindow import rule_references
 
 _DEPTH = 8
@@ -61,12 +54,27 @@ continuation is matched by spelling instead.
 """
 
 
+class GateGrammar(Protocol):
+    """What the gate reads of its grammar — a ``GrammarAnalysis`` carries all three."""
+
+    @property
+    def rules(self) -> Mapping[str, IrRule]:
+        """The grammar's rule table."""
+        raise NotImplementedError
+
+    @property
+    def nullable(self) -> frozenset[str]:
+        """The rules that derive ε (:meth:`IrAst.nullable`)."""
+        raise NotImplementedError
+
+    @property
+    def start(self) -> str:
+        """The start rule's name."""
+        raise NotImplementedError
+
+
 def greedy_loop_gate(
-    rules: Mapping[str, IrRule],
-    start: str,
-    unit: str,
-    items: Sequence[IrItem],
-    idx: int,
+    grammar: GateGrammar, unit: str, items: Sequence[IrItem], idx: int
 ) -> GreedySpec | None:
     """The licence for item ``idx`` of ``unit``'s arm, or ``None`` to decline.
 
@@ -84,53 +92,54 @@ def greedy_loop_gate(
     g. the body derives ε in exactly ONE way, so the items the exchange
        introduces carry no choice of their own.
 
-    :param rules: The grammar's rule table.
-    :param start: The start rule's name.
+    :param grammar: The rules, their nullable set and the start rule.
     :param unit: The enclosing rule's name.
     :param items: That rule's arm.
     :param idx: The looping item's index.
     :returns: The gate, or ``None`` where any condition is unmet or unknown.
     """
-    shape = _unit_shape(rules, items, idx)
+    rules = grammar.rules
+    shape = _unit_shape(rules, grammar.nullable, items, idx)
     if shape is None:
         return None
     body, terminator, tail = shape
     begins = _item_starts(rules, body, terminator)
-    return _continuation(rules, start, unit, tail, begins)
+    return _continuation(rules, grammar.start, unit, tail, begins)
 
 
 def _unit_shape(
-    rules: Mapping[str, IrRule], items: Sequence[IrItem], idx: int
+    rules: Mapping[str, IrRule],
+    nullable: frozenset[str],
+    items: Sequence[IrItem],
+    idx: int,
 ) -> tuple[list[IrItem], str, str] | None:
     """Conditions (a)–(d) and (g) — the unit and its item, or ``None``.
 
     :returns: ``(body items, terminator, tail)``.
     """
     item = items[idx]
-    if item.quantifier.hi is not IrNone or idx != 0 or len(items) != 2:
+    if not item.quantifier.unbounded() or idx != 0 or len(items) != 2:
         return None  # (a) unbounded, and the shape is `I+ T` — one loop, one tail
     item_rule = _sole_arm(rules, item.atom)
     if item_rule is None or len(item_rule) < 2:
         return None
     body, term = list(item_rule[:-1]), item_rule[-1]
     terminator = _spelling(rules, term.atom)
-    if terminator is None or not _item_is_delimited(rules, body, term, terminator):
+    if terminator is None or not _item_is_delimited(
+        rules, nullable, body, term, terminator
+    ):
         return None
     tail = _spelling(rules, items[1].atom)
-    if tail is None or not _exactly_once(items[1]):
+    if tail is None or not items[1].quantifier.once():
         return None
     if not tail or tail != terminator * len(tail):
         return None  # (d)
     return body, terminator, tail
 
 
-def _exactly_once(item: IrItem) -> bool:
-    """Does ``item`` occur exactly once — read off its bounds, not its repr."""
-    return int(item.quantifier.lo) == 1 and item.quantifier.hi == 1
-
-
 def _item_is_delimited(
     rules: Mapping[str, IrRule],
+    nullable: frozenset[str],
     body: Sequence[IrItem],
     term: IrItem,
     terminator: str,
@@ -144,11 +153,11 @@ def _item_is_delimited(
     held = _alphabet_of(rules, body)
     return (
         len(terminator) == 1
-        and _exactly_once(term)
+        and term.quantifier.once()
         and held is not None
         and terminator not in held
         and not any(int(one.quantifier.lo) for one in body)
-        and _uniquely_empty(rules, body) is True
+        and _uniquely_empty(rules, nullable, body) is True
     )
 
 
@@ -181,7 +190,7 @@ def _continuation(
     before, outer, after = found
     if (
         int(outer.quantifier.lo) > 1  # (f): one unit must be permitted
-        or outer.quantifier.hi is not IrNone  # (f): a bounded outer cannot absorb
+        or not outer.quantifier.unbounded()  # (f): a bounded outer cannot absorb
         or _spelling_of(rules, before) is None  # (h): the prefix must be fixed
     ):
         return None
@@ -229,7 +238,7 @@ def _occurrence(
         if str(item.atom) == unit:
             return list(arm[:index]), item, list(arm[index + 1 :])
     for index, item in enumerate(arm):
-        if not _exactly_once(item) or rule_references(rules, str(item.atom)) != 1:
+        if not item.quantifier.once() or rule_references(rules, str(item.atom)) != 1:
             continue
         inner = _sole_arm(rules, item.atom)
         if inner is not None and len(inner) == 1 and str(inner[0].atom) == unit:
@@ -267,7 +276,7 @@ def _spelling_of(
     """The one fixed string a sequence derives, or ``None``."""
     out: list[str] = []
     for item in items:
-        if not _exactly_once(item):
+        if not item.quantifier.once():
             return None
         text = _spelling(rules, item.atom, depth)
         if text is None:
@@ -347,7 +356,7 @@ def _item_starts(
 
 
 def _uniquely_empty(
-    rules: Mapping[str, IrRule], items: Sequence[IrItem], depth: int = 0
+    rules: Mapping[str, IrRule], nullable: frozenset[str], items: Sequence[IrItem]
 ) -> bool | None:
     """Does this sequence derive ε in exactly ONE way?
 
@@ -359,19 +368,17 @@ def _uniquely_empty(
     choice anywhere. A nullable operand under an optional or a repetition is not
     a proof of uniqueness, and this licence does not guess one.
     """
-    if depth > _DEPTH:
-        return None
     for item in items:
         if int(item.quantifier.lo) != 0:
             return False
-        verdict = _item_uniquely_empty(rules, item, depth)
+        verdict = _item_uniquely_empty(rules, nullable, item)
         if verdict is not True:
             return verdict
     return True
 
 
 def _item_uniquely_empty(
-    rules: Mapping[str, IrRule], item: IrItem, depth: int
+    rules: Mapping[str, IrRule], nullable: frozenset[str], item: IrItem
 ) -> bool | None:
     """One zero-lower-bound item's contribution to uniqueness.
 
@@ -381,39 +388,10 @@ def _item_uniquely_empty(
     uniquely, which is a different question and the wrong one — it answered
     False for a named operand and so licensed ``i ::= [a]* t`` while refusing
     the identical ``i ::= letter* t`` with ``letter ::= [a]``. Spelling a
-    character class as a rule is not a change of language.
+    character class as a rule is not a change of language. Whether it derives ε
+    is the grammar's exact fact; only a name no rule defines stays unknown.
     """
-    empty = _derives_empty(rules, item.atom, depth)
-    if empty is None:
+    atom = item.atom
+    if isinstance(atom, IrRuleRef) and str(atom) not in rules:
         return None  # unknown — never assumed either way
-    return not empty  # a nullable operand: zero repeats is not the unique ε
-
-
-def _derives_empty(
-    rules: Mapping[str, IrRule], atom: object, depth: int = 0
-) -> bool | None:
-    """Can ``atom`` itself derive ε? ``None`` where that is not knowable."""
-    if isinstance(atom, IrCharClass):
-        return False
-    if isinstance(atom, IrLiteral):
-        return not str(atom)
-    rule = _named_rule(rules, atom, depth)
-    if rule is None:
-        return None
-    verdicts = [_arm_derives_empty(rules, arm, depth) for arm in rule.body]
-    if any(one is None for one in verdicts):
-        return None
-    return any(verdicts)
-
-
-def _arm_derives_empty(
-    rules: Mapping[str, IrRule], arm: Sequence[IrItem], depth: int
-) -> bool | None:
-    """Can one arm derive ε? ``None`` where an item cannot be read."""
-    for item in arm:
-        if int(item.quantifier.lo) == 0:
-            continue
-        inner = _derives_empty(rules, item.atom, depth + 1)
-        if inner is not True:
-            return inner
-    return True
+    return not atom.vanishes(nullable)  # a nullable operand: not the unique ε

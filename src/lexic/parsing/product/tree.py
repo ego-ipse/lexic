@@ -8,6 +8,11 @@ Completion presence is explicit.  A completed value may itself be Python
 ``None``; only :data:`EMPTY_RESULT` means that a recognition-only or empty
 pass-through node produced no value.  That distinction is also what lets a
 delegated :class:`PayloadLeaf` carry a real ``None`` without disappearing.
+The memo a completion fills holds each node's value as it is, and
+:data:`EMPTY_RESULT` for a node that produced none: no value a construction
+returns is an :class:`EmptyResult`, so the type keeps the two apart without a
+wrapper per node. :class:`Completed` wraps the one result a
+completion hands back.
 """
 
 from __future__ import annotations
@@ -60,7 +65,9 @@ EMPTY_RESULT = EmptyResult()
 """The sole absence marker in a product tree completion."""
 
 type CompletionResult[Carry] = Completed[Carry] | EmptyResult
-type ResultMemo[Carry] = dict[int, CompletionResult[Carry]]
+type ResultMemo[Carry] = dict[int, Carry | EmptyResult]
+"""``id(node)`` → the node's completed value, or :data:`EMPTY_RESULT` when it
+produced none; a node with no entry is transparent."""
 
 
 class ProductExecutor[Carry]:
@@ -223,11 +230,11 @@ def complete_product[Carry](
     result = _complete_tree(
         root, routines, {} if results is None else results, wants_spans=wants_spans
     )
-    if isinstance(result, EmptyResult):
-        raise UnsupportedConstructError(
-            f"product: start rule {root.symbol!s} completed without a value"
-        )
-    return result.value
+    if isinstance(result, Completed):
+        return result.value
+    raise UnsupportedConstructError(
+        f"product: start rule {root.symbol!s} completed without a value"
+    )
 
 
 def _complete_tree[Carry](
@@ -255,10 +262,10 @@ def _complete_tree[Carry](
             continue
         folded.add(node_id)
         _complete_node(node, routines, results, offsets)
-    root_result = results.get(id(root), EMPTY_RESULT)
-    if isinstance(root_result, EmptyResult):
-        return _first_product_under(root, results)
-    return root_result
+    found = results.get(id(root), EMPTY_RESULT)
+    if isinstance(found, EmptyResult):
+        found = _first_product_under(root, results)
+    return found if isinstance(found, EmptyResult) else Completed(found)
 
 
 def _wants_spans[Carry](routines: Mapping[str, RuleRoutine[Carry]]) -> bool:
@@ -289,20 +296,18 @@ def _complete_node[Carry](
             f"product: rule {node.symbol!s} has no construction"
         )
     if construction.matched:
-        results[id(node)] = Completed(
-            construction.call(**{construction.matched: subtree_text(node)})
+        results[id(node)] = construction.call(
+            **{construction.matched: subtree_text(node)}
         )
         return
-    results[id(node)] = Completed(
-        _complete_record(node, routine, construction, results, offsets)
-    )
+    results[id(node)] = _complete_record(node, routine, construction, results, offsets)
 
 
 def _passed_value[Carry](
     node: ParseTree,
     routine: RuleRoutine[Carry],
     results: ResultMemo[Carry],
-) -> CompletionResult[Carry]:
+) -> Carry | EmptyResult:
     """Return the explicitly present or empty pass-through result.
 
     That the source names one single-value capture is the binding's answer
@@ -317,7 +322,7 @@ def _passed_value[Carry](
             f"product: {node.symbol!s}: pass item {slot} is out of range"
         )
     models = _product_models_at(node.kids[slot], results)
-    return Completed(models[0]) if models else EMPTY_RESULT
+    return models[0] if models else EMPTY_RESULT
 
 
 def _complete_record[Carry](
@@ -364,6 +369,10 @@ def _captured[Carry](
         return (not capture.optional or bool(text), text)
     if mode == CaptureMode.EXTENT:
         return True, slot_span(node, kids, item, offsets)
+    if mode == CaptureMode.ONE:
+        direct = results.get(id(kid), EMPTY_RESULT)
+        if not isinstance(direct, EmptyResult):  # the slot's own node: no list
+            return True, direct
     models = _product_models_at(kid, results)
     if mode == CaptureMode.MANY:
         return True, models
@@ -380,8 +389,8 @@ def _product_models_at[Carry](
 ) -> list[Carry]:
     """Return present values at or below one capture slot."""
     result = results.get(id(kid), EMPTY_RESULT)
-    if isinstance(result, Completed):
-        return [result.value]
+    if not isinstance(result, EmptyResult):
+        return [result]
     out: list[Carry] = []
     stack: list[ParseTree | IrLiteral | PayloadLeaf[Carry]] = [kid]
     while stack:
@@ -390,8 +399,8 @@ def _product_models_at[Carry](
             out.append(current.payload)
         elif isinstance(current, ParseTree):
             result = results.get(id(current), EMPTY_RESULT)
-            if isinstance(result, Completed):
-                out.append(result.value)
+            if not isinstance(result, EmptyResult):
+                out.append(result)
             else:
                 stack.extend(reversed(current.kids))
     return out
@@ -399,12 +408,12 @@ def _product_models_at[Carry](
 
 def _first_product_under[Carry](
     node: ParseTree, results: ResultMemo[Carry]
-) -> CompletionResult[Carry]:
+) -> Carry | EmptyResult:
     """Return the first present value below a transparent node."""
     for kid in node.kids:
         models = _product_models_at(kid, results)
         if models:
-            return Completed(models[0])
+            return models[0]
     return EMPTY_RESULT
 
 

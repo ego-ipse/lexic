@@ -35,8 +35,9 @@ inside every number, so each row names what it built.
 
 Each row is built, validated, and timed in a fresh interpreter process. Adding
 an ANTLR or Lark seat therefore cannot change Lexic's heap, cache distance, or
-absolute number. Worker order is deterministically shuffled, and a same-engine
-noise floor says what difference must be beaten.
+absolute number. Worker order is deterministically shuffled, each cell is the median of
+several processes, and each grammar's noise floor — the spread between those
+processes — says what difference must be beaten.
 """
 
 from __future__ import annotations
@@ -298,18 +299,6 @@ NON_SEMANTIC_ROWS = LEXICAL_ROWS - {"lexic-lex"}
 exists precisely to price the two declarations apart, and `PRODUCT` labels it
 that way. Every other marked seat faces both, because a translation handed one
 and not the other is not the grammar lexic's variant rows compile.
-"""
-
-NOISE_ANCHOR = "lexic-pda"
-"""The one seat a grammar's noise floor is ever measured on.
-
-The floor is one number per grammar and nothing beside it records which engine
-produced it, so it must not depend on which engines a run was ASKED for.
-Anchored on the first row that happened to measure, `--seats antlr` replaced a
-grammar's floor with a JVM-measured control and `--seats lark-earley` replaced
-it again — three numbers for one cell, each written without a word. A fixed
-anchor makes the cell mean one thing, and a run that did not measure this seat
-leaves the committed floor alone rather than restating it.
 """
 
 

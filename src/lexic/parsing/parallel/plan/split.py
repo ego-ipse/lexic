@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrAst, IrCharClass, IrItem, IrLiteral, IrRule, IrRuleRef, IrSelf
+from lexic.ir import IrAst, IrCharClass, IrItem, IrLiteral, IrRuleRef, IrSelf
 from lexic.parsing.parallel.discovery.scan import Scanner
+from lexic.parsing.parallel.discovery.shapes import RuleTable
 from lexic.parsing.parallel.plan.envelope import EnvelopePlan
-from lexic.parsing.parallel.roles import Separator
+from lexic.parsing.parallel.roles.derive import Separator
 from lexic.parsing.parallel.stitch.safety import Boundary
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -110,7 +111,7 @@ def _atom_chars(atom: IrSelf) -> frozenset[str]:
 
 
 def lead_skip(
-    items: tuple[IrItem, ...] | None, rule_map: dict[str, IrRule], mark: str
+    items: tuple[IrItem, ...] | None, rule_map: RuleTable, mark: str
 ) -> frozenset[str]:
     """The chars a lead rule may consume AFTER its separator mark.
 

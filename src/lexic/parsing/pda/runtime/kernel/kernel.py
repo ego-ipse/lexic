@@ -81,12 +81,11 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
     RouteLane,
-    RunScope,
     sole_admitted,
 )
 from lexic.parsing.pda.runtime.build import Frame
@@ -95,7 +94,7 @@ from lexic.parsing.pda.runtime.islands import (
     IslandPolicy,
 )
 from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
-from lexic.parsing.pda.runtime.kernel.decisions import Attempting
+from lexic.parsing.pda.runtime.kernel.decisions import Attempting, in_place_depth
 from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.matchers import (
     match_cc,
@@ -104,7 +103,7 @@ from lexic.parsing.pda.runtime.matchers import (
 )
 from lexic.parsing.product import ProductExecutor
 
-__all__ = ["PdaFail", "PdaKernel", "pda_model"]
+__all__ = ["NestingKernel", "PdaFail", "PdaKernel", "kernel_for", "pda_model"]
 
 
 class PdaKernel[M](
@@ -163,7 +162,7 @@ class PdaKernel[M](
         executor: ProductExecutor[M] | None = None,
         *,
         config: ParseConfig = DEFAULT_CONFIG,
-        scope: RunScope | None = None,
+        delegate: bool = False,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -176,15 +175,16 @@ class PdaKernel[M](
         :param config: The caller's resolver, answering an island that
             derives its text two ways that mean different things, and split
             decider. Per-parse state, so it rides on the cursor.
-        :param scope: The scope of the parse this one runs inside, whose
-            allowance it shares, or ``None`` for a parse of its own.
+        :param delegate: Whether this parse is a delegate's sub-run inside
+            another, rather than a parse of its own.
         """
         self.tables = tables
         self.text = text
         self.policy = IslandPolicy(config=config, executor=executor)
         self.pos = 0
         self.stack = []
-        self._caches = KernelCaches[M](scope)
+        self._caches = KernelCaches[M](delegate)
+        self._caches.scope.bound = in_place_depth()
         # `None` for every program without route continuations — which is the
         # generated-model product permanently. A frame slot would have taxed
         # every product's every frame push; this taxes one attribute.
@@ -247,7 +247,10 @@ class PdaKernel[M](
         :raises PdaFail: On any deterministic-parse failure inside the sub-run;
             the delegate wrapper catches it and falls through to prediction.
         """
+        caches = self._caches
         saved_stack, saved_pos = self.stack, self.pos
+        # Its own drive settles what it suspends: the stack is put back below.
+        catching, caches.scope.catching = caches.scope.catching, 0
         self.stack = []
         self.pos = pos
         try:
@@ -257,6 +260,7 @@ class PdaKernel[M](
             end = self.pos
         finally:
             self.stack, self.pos = saved_stack, saved_pos
+            caches.scope.catching = catching
         return end, (holder[0] if holder else None)
 
     def _drive(self, floor: int = 0, limit: int = -1) -> None:
@@ -273,8 +277,8 @@ class PdaKernel[M](
         branch — and a
         frame boundary is exactly where ``self.pos`` and ``frame.i`` are
         both current, which is what makes the pause resumable at all. Used by
-        the lockstep boundary verdict, which advances two candidate
-        continuations in step instead of running each to end-of-input.
+        the live set, which advances a boundary's readings in step instead of
+        running each to end-of-input.
 
         The outer loop processes the top frame; the inner loop runs its items
         in order. A terminal item matches its whole quantifier loop inline (no
@@ -337,6 +341,11 @@ class PdaKernel[M](
                 frame.i = i
                 self.pos = pos
                 self._complete(frame)
+
+    _sub_drive = _drive
+    """An attempt sub-run's drive: the plain one, uncounted. An alias, so a
+    sub-run calls :meth:`_drive` itself, at no cost; a subclass overriding
+    :meth:`_drive` for sub-runs too re-aliases this."""
 
     def _quant_step(self, frame: Frame[M], arm: FlatArm, i: int, pos: int) -> int:
         """One step of a quantified atom's loop — descend, splice, or close.
@@ -418,8 +427,8 @@ class PdaKernel[M](
         Stated as a property rather than as a census: a count is a fact about
         one roster on one day, and the placement rests on the construction.
         """
-        if arm.kinds[i] == OP_FAIL:
-            raise PdaFail(
+        if arm.kinds[i] == OP_FAIL:  # undecidable here, never an attempted arm's miss
+            raise ProbeFork(
                 f"fail-island {arm.payloads[i]!r} at {pos}: "
                 "F1 semantic escape, engine fallback",
                 pos,
@@ -628,6 +637,43 @@ class PdaKernel[M](
             return clone
 
 
+class NestingKernel[M](PdaKernel[M]):
+    """The kernel of a program whose attempt sub-runs nest past the in-place
+    depth (:attr:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram.nests`):
+    every sub-run is counted among those standing on the Python stack, so a
+    document's depth costs Python frames only up to the depth. A program that
+    cannot nest that deep runs :class:`PdaKernel`, and pays nothing for the
+    count. Chosen once per parse."""
+
+    __slots__ = ()
+
+    def _sub_drive(self, floor: int) -> None:
+        """Drive the sub-run rooted at ``floor`` where it stands while fewer
+        than the in-place depth do, else by settling it (``Floors._catch``):
+        the one at the depth drives the sub-runs past it, each of which leaves
+        its frames pushed and raises ``Suspended``.
+
+        :raises Suspended: Past the depth, where a drive below settles it.
+        """
+        scope = self._caches.scope
+        scope.nested += 1
+        try:
+            if scope.nested < scope.bound:
+                self._drive(floor)
+            else:  # past the depth: settled here, or by the one that is
+                self._catch(floor)
+        finally:
+            scope.nested -= 1
+
+
+def kernel_for[K](tables: PdaTables, plain: type[K], nesting: type[K]) -> type[K]:
+    """The kernel class a parse over ``tables`` runs: ``nesting`` where the
+    program's sub-runs nest past the in-place depth
+    (:attr:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram.nests`),
+    else ``plain`` — for every pair a caller parses with, watched or not."""
+    return nesting if tables.program.nests else plain
+
+
 def pda_model[M](
     tables: PdaTables,
     text: str,
@@ -645,4 +691,5 @@ def pda_model[M](
     :returns: The start rule's model instance.
     :raises PdaFail: When the deterministic path cannot complete.
     """
-    return PdaKernel(tables, text, executor, config=config).run()
+    kernel = kernel_for(tables, PdaKernel, NestingKernel)
+    return kernel(tables, text, executor, config=config).run()

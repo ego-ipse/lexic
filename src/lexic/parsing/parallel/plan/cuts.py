@@ -20,6 +20,7 @@ from lexic.parsing.parallel.discovery.regions import (
     Cutting,
     floor_cuts,
     listed,
+    nearest_first,
 )
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.plan.envelope import admits
@@ -31,7 +32,7 @@ from lexic.parsing.parallel.policy import (
     worker_count,
 )
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.roles import Roles, Terminator, roles
+from lexic.parsing.parallel.roles.derive import Roles, Terminator, roles
 
 
 def reads_a_sweep(plan: SplitPlan) -> bool:
@@ -198,12 +199,7 @@ class PlanMarks:
         lo, hi = max(lo, 0), min(hi, len(self.text))
         split = min(max(ceil(want), lo), hi)
         left, right = self._leftward(lo, split), self._rightward(split, hi)
-        before, after = next(left, -1), next(right, -1)
-        while before >= 0 or after >= 0:
-            if after < 0 or (before >= 0 and want - before <= after - want):
-                at, before = before, next(left, -1)
-            else:
-                at, after = after, next(right, -1)
+        for at in nearest_first(left, right, want):
             if self._kept(at):
                 yield at
 
