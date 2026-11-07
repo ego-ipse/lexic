@@ -90,6 +90,13 @@ def analysis_of(
     return GrammarAnalysis(IrAst(rules=IrSeq(*rules), start=resolved), grants=grants)
 
 
+def body_items(analysis: GrammarAnalysis) -> list[IrItem]:
+    """Every item of every rule body's arms, rule by rule, in order."""
+    return [
+        item for rule in analysis.rules.values() for arm in rule.body for item in arm
+    ]
+
+
 def digit_grammar() -> IrAst:
     """digit = [0-9] ; single-rule, single-arm, single-item grammar."""
     return IrAst(

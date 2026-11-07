@@ -49,6 +49,7 @@ from lexic.parsing.pda.core.scanner import (
     SG_SCAN,
     ScanGate,
 )
+from tests.unit.lexic.parsing.ir_fixtures import body_items
 from tests.unit.lexic.parsing.pda.analysis.gates.test_noise import (
     WS,
     item,
@@ -497,12 +498,8 @@ def test_a_loop_whose_body_can_be_its_noise_alone_gets_no_scan_gate():
     )
     loops = [
         item
-        for rule in analysis.rules.values()
-        for arm in rule.body
-        for item in arm
-        if isinstance(item, IrItem)
-        and str(item.atom) == "y"
-        and item.quantifier.repeats()
+        for item in body_items(analysis)
+        if str(item.atom) == "y" and item.quantifier.repeats()
     ]
     assert loops
     for loop in loops:

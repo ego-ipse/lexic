@@ -18,6 +18,7 @@ from lexic.parsing.pda.analysis.gates import structured
 from lexic.parsing.pda.compiler.descent.leftrec import folded_grammar
 from lexic.parsing.pda.core.scanner import SG_MATCH, ScanGate
 from tests.parity_helpers import DECLINED, REFUSED, answers
+from tests.unit.lexic.parsing.ir_fixtures import body_items
 
 LOOP = 'root ::= "a" ws* nl "b"\n'
 COMMENT = 'ws ::= " " | cl\ncl ::= "#" [a-z]* "\\n"\n'
@@ -110,13 +111,7 @@ def test_every_refused_loop_lands_on_the_attempt_licence(
 
     monkeypatch.setattr(structured, "exact_against_follower", recorded)
     analysis = _analysis(VIEWS[view] + GRAMMARS[grammar], f"emf-land-{view}-{grammar}")
-    loops = [
-        item
-        for rule in analysis.rules.values()
-        for arm in rule.body
-        for item in arm
-        if id(item.atom) in refused
-    ]
+    loops = [item for item in body_items(analysis) if id(item.atom) in refused]
     assert len(loops) == len(refused)
     assert all(id(item) in analysis.taxonomy.loops.attempt for item in loops)
     assert refused or view != "lex-ns", "no refusal on the noise view — nothing tested"
