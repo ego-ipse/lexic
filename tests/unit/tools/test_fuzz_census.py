@@ -15,6 +15,7 @@ from lexic.compile import compile_text
 from lexic.parsing.products import model_product
 from tools.fuzz_census import (
     DECLINED,
+    ERROR,
     REFUSED,
     VARIANTS,
     census,
@@ -37,6 +38,12 @@ from tools.fuzz_census import (
         ("Root('a')", "Root('b')", "WRONG"),
         ("Root('a')", REFUSED, "WRONG"),
         (REFUSED, "Root('a')", "WRONG"),
+        (
+            f"{ERROR}FieldValidationError",
+            "Root('a')",
+            "ERROR:predictive:FieldValidationError",
+        ),
+        (DECLINED, f"{ERROR}TargetRefusalError", "ERROR:gated:TargetRefusalError"),
     ],
 )
 def test_a_pair_of_answers_is_classified(
@@ -72,27 +79,32 @@ def test_one_tiny_grammar_runs_through_both_engines() -> None:
 
 
 def test_a_census_keys_every_word_of_every_grammar() -> None:
-    """Two grammars of one variant and seed, every word up to two: 24 entries
-    unless one fails to compile, which is one entry of its own."""
+    """Seed 1's first two variant-B grammars both compile, so every word up to
+    two of each is one entry: ``2 * 12``."""
     found = census(["B"], [1], 2, 2)
-    grammars = {key.split("|")[0] for key in found}
-    assert grammars == {"B-fuzz1:0", "B-fuzz1:1"}
-    assert len(found) == sum(1 if "|" not in k else 0 for k in found) + 12 * sum(
-        1 for g in grammars if f"{g}|a" in found
-    )
+    expected = {f"B-fuzz1:{index}|{word}" for index in (0, 1) for word in words(2)}
+    assert set(found) == expected
+    assert len(found) == 24
 
 
 def test_a_compare_reports_moves_and_only_new_wrong() -> None:
-    """A WRONG kept as it was is not new; one that appears is."""
+    """A WRONG kept as it was is not new; one that appears is, and so is an
+    error that appears."""
     base = {
         "k1": ["WRONG", "g", "p"],
         "k2": ["EQUAL", "g", "g"],
         "k3": ["DECLINED", "g", ""],
+        "k4": ["EQUAL", "g", "g"],
     }
     head = {
         "k1": ["WRONG", "g", "p"],
         "k2": ["WRONG", "g", "q"],
         "k3": ["EQUAL", "g", "g"],
+        "k4": ["ERROR:predictive:FieldValidationError", "g", "e"],
     }
-    assert moves(base, head) == {("EQUAL", "WRONG"): 1, ("DECLINED", "EQUAL"): 1}
-    assert new_wrong(base, head) == ["k2"]
+    assert moves(base, head) == {
+        ("EQUAL", "WRONG"): 1,
+        ("DECLINED", "EQUAL"): 1,
+        ("EQUAL", "ERROR:predictive:FieldValidationError"): 1,
+    }
+    assert new_wrong(base, head) == ["k2", "k4"]

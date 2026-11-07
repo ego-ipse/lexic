@@ -45,6 +45,9 @@ CRASHES = (
 )
 """What a predictive parse raises when it breaks rather than declines or refuses."""
 DECLINED = "declined"
+ERROR = "error:"
+"""The rendered-answer prefix of a ``LexicError`` that is neither a decline
+nor a refusal; no model ``repr`` starts with it."""
 REFUSED = "refused"
 
 
@@ -109,13 +112,18 @@ def words(length: int) -> list[str]:
 def kind(predictive: str, gated: str) -> str:
     """Classify one word from both engines' rendered answers.
 
-    :param predictive: The predictive model's ``repr``, :data:`DECLINED` or
-        :data:`REFUSED`.
-    :param gated: Earley's model ``repr`` or :data:`REFUSED`.
-    :returns: ``EQUAL``, ``BOTH_REFUSE``, ``DECLINED`` (Earley answers),
+    :param predictive: The predictive model's ``repr``, :data:`DECLINED`,
+        :data:`REFUSED` or an :data:`ERROR` answer.
+    :param gated: Earley's model ``repr``, :data:`REFUSED` or an :data:`ERROR`
+        answer.
+    :returns: ``ERROR:<side>:<type>`` where either engine raised one, else
+        ``EQUAL``, ``BOTH_REFUSE``, ``DECLINED`` (Earley answers),
         ``DECLINED_REFUSED`` (Earley refuses) or ``WRONG`` — a predictive
         model Earley does not build, a refused text included.
     """
+    for side, answer in (("predictive", predictive), ("gated", gated)):
+        if answer.startswith(ERROR):
+            return f"ERROR:{side}:{answer.removeprefix(ERROR)}"
     if predictive == DECLINED:
         return "DECLINED_REFUSED" if gated == REFUSED else "DECLINED"
     if predictive == gated:
@@ -138,11 +146,14 @@ def _gated(compiled: CompiledGrammar, product: ModelProduct, text: str) -> str:
         )
     except UnsupportedConstructError:
         return REFUSED
+    except LexicError as exc:
+        return f"{ERROR}{type(exc).__name__}"
 
 
 def classify(compiled: CompiledGrammar, product: ModelProduct, text: str) -> Answer:
     """Ask both engines about ``text``; a predictive :data:`CRASHES` exception is
-    the census's ``CRASH:<type>``."""
+    the census's ``CRASH:<type>``, and any other ``LexicError`` an
+    :data:`ERROR` answer :func:`kind` reads."""
     gated = _gated(compiled, product, text)
     try:
         predictive = repr(pda_model(product.pda, text, compiled.product.executor))
@@ -150,6 +161,8 @@ def classify(compiled: CompiledGrammar, product: ModelProduct, text: str) -> Ans
         predictive = DECLINED
     except UnsupportedConstructError:
         predictive = REFUSED
+    except LexicError as exc:
+        predictive = f"{ERROR}{type(exc).__name__}"
     except CRASHES as exc:
         return Answer(f"CRASH:{type(exc).__name__}", _short(gated), "")
     return Answer(kind(predictive, gated), _short(gated), _short(predictive))
@@ -201,8 +214,9 @@ def moves(
 def new_wrong(
     base: Mapping[str, Sequence[str]], head: Mapping[str, Sequence[str]]
 ) -> list[str]:
-    """The entries head classifies WRONG or a crash that base did not, sorted."""
-    bad = ("WRONG", "CRASH:")
+    """The entries head classifies WRONG, a crash or an error that base did not,
+    sorted."""
+    bad = ("WRONG", "CRASH:", "ERROR:")
     return sorted(
         key
         for key, now in head.items()
