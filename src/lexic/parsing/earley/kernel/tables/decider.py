@@ -141,7 +141,7 @@ LEFTMOST_LONGEST = LeftmostLongest(
 
 It grants the licences proven for it. :data:`STOP_SET` is granted because the
 analysis files a stop-set only where its first exit is this order's answer:
-the loop runs longest, no text continues both ways two characters deep, or
+no text continues both ways two characters deep, its run's end decides it, or
 every carving builds one model. :data:`SCAN_SKIP` is granted because a run
 the gate skips whole is the run this order's first slot takes. An arm taken
 over an empty sibling whose follower it starts needs no licence: it is tried

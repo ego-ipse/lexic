@@ -22,7 +22,6 @@ from lexic.parsing.earley.kernel.tables.decider import (
     ATTEMPT,
     GREEDY_SPLIT,
     NOISE_GREEDY,
-    STOP_SET,
 )
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.demote import demote_loop
@@ -74,7 +73,7 @@ def defer_stop_set(
     """File the stop-set of item ``k`` (``at`` is ``(items, k)``) that neither
     two characters nor its run's end decide.
 
-    With no exit in reach it runs longest. Otherwise it is deferred to the
+    With no exit in reach its iterations are attempted. Otherwise it is deferred to the
     rule's longest take (``GrammarAnalysis._settle``), unless the loop meets a
     loopback: a character in its FIRST that only a repetition's next
     iteration takes after it (its soft continuation, less its structural one).
@@ -90,17 +89,13 @@ def defer_stop_set(
     loopback = soft.subtract(
         analysis.structural_cont_at(items, k, scope.structural_tail)
     )
-    if unexited and not first.overlaps(loopback):
-        notes.picks_extent(f"{note} (runs longest)", STOP_SET)
-        return
     if unexited:
-        # A run with no exit in reach still meets a repetition's next iteration:
-        # attempted, it stops there where the take cannot complete.
+        # A run with no exit in reach still meets a repetition's next iteration
+        # (a soft follower other than the loopback is an escape, refused before
+        # here): attempted, it stops there where the take cannot complete.
         notes.picks_extent(f"{scope.rule}[{k}]: loop iterations attempted", ATTEMPT)
         if ATTEMPT in notes.grants:
-            analysis.taxonomy.loops.attempt[id(items[k])] = analysis.beyond_at(
-                items, k, scope
-            )
+            license_attempt(analysis, items, k, scope)
         return
     if first.overlaps(loopback) and _swallows_a_site(analysis, scope.rule, first):
         notes.hard.append(f"{scope.rule}[{k}]: loop stop-set meets a loopback")

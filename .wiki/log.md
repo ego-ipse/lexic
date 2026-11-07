@@ -3059,3 +3059,9 @@ over the winner's span.
 
 `decisions.md`'s live-set entry: `_relieved` repeats while the set is past
 `SET_MAX` and a crowded place remains.
+
+## A stop-set with no exit in reach is attempted, never run longest (2026-11-07)
+
+`decisions.md`'s deferred stop-set cases: case 3 is the attempt licence, the
+@lexical `nl-head` note follows it; `decider.py` and `public-api.md` drop
+"runs longest" from the `STOP_SET` grant's reasons.

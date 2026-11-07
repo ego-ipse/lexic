@@ -1256,8 +1256,13 @@ hard, so its rule islands and Earley answers:
    can really end after it. A delegate's analysis withholds this grant,
    because its end is not the document's.
 2. **It is decided where its run ends** (`gates/sites.run_decides`, below).
-3. **It runs longest.** FIRST of the loop's atom misses the hard continuation,
-   so no clone subtracts anything and the loop takes every character it can.
+3. **Its iterations are attempted** (`conflicts.defer_stop_set`). FIRST of the
+   loop's atom misses the hard continuation, so it has no exit in reach, and the
+   only soft follower its FIRST still meets is a repetition's next iteration: one
+   it meets otherwise escapes its soft FOLLOW and was refused before. Running
+   longest would swallow that iteration, so each one is a sub-run, and the take
+   stops where it cannot complete. A class loop's run is one match up to the
+   first character both taking and stopping read (`matchers.match_cc`).
 4. **The carving is invisible** (`_settle`). The rule's model is its text (no
    reference anywhere in its body, groups included), and its end is fixed:
    EXTEND of the rule is disjoint from its FOLLOW. Every carving then builds the
@@ -1604,8 +1609,8 @@ separates lines with `\n`; `\` is in `nl-inner`, and with it outside the set
 `x\nD:{}` read as one line that could not end at `:`. Inside the fork of the
 optional budget in `!X:A L1< x\nD:{} >`, that failure killed the reading that
 takes the budget, and the predictive engine answered the body without it where
-Earley keeps the budget. On the @lexical views the same loop is a stop-set that
-runs longest, a site of its own.
+Earley keeps the budget. On the @lexical views the same loop has no exit in
+reach, and its iterations are attempted (3 above).
 
 The set is the rule's **audit FOLLOW** (`Follows.audit`). That is the soft
 fixpoint, minus one kind of loopback: a repeated reference, at most once
